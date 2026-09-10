@@ -1,0 +1,10 @@
+; {{ ansible_managed }}
+[telium]
+enabled         => yes
+dsn             => telium-cdr
+username        => {{ db_cdr_usuario }}
+password        => {{ db_cdr_senha }}
+pre-connect     => yes
+sanitysql       => select 1
+max_connections => 10
+negative_connection_cache => 300

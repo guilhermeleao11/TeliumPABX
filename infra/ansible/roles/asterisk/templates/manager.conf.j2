@@ -1,0 +1,17 @@
+; {{ ansible_managed }}
+[general]
+enabled    = yes
+webenabled = no
+bindaddr   = 127.0.0.1
+port       = {{ ami_porta }}
+displayconnects = no
+timestampevents = yes
+
+; Usuário usado pela API (aplicar configurações, originar chamadas, eventos)
+[{{ ami_usuario }}]
+secret  = {{ ami_senha }}
+deny    = 0.0.0.0/0.0.0.0
+permit  = 127.0.0.1/255.255.255.255
+read    = system,call,agent,user,config,dtmf,reporting,cdr,dialplan,cc
+write   = system,call,agent,user,config,command,reporting,originate
+eventfilter = !Event: RTCP*

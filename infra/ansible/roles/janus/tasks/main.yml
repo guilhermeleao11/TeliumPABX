@@ -1,0 +1,173 @@
+---
+- name: Instalar dependências do Janus
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - automake
+      - libtool
+      - pkg-config
+      - gengetopt
+      - cmake
+      - git
+      - libmicrohttpd-dev
+      - libjansson-dev
+      - libssl-dev
+      - libglib2.0-dev
+      - libopus-dev
+      - libogg-dev
+      - libcurl4-openssl-dev
+      - libconfig-dev
+      - libnice-dev
+      - libsrtp2-dev
+      - libwebsockets-dev
+      - libsofia-sip-ua-dev
+    state: present
+
+- name: Criar usuário do Janus
+  ansible.builtin.user:
+    name: janus
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ janus_prefix }}"
+    create_home: false
+
+- name: Permitir que o Janus leia o certificado TLS
+  ansible.builtin.user:
+    name: janus
+    groups: ssl-cert
+    append: true
+
+- name: Verificar versão instalada do Janus
+  ansible.builtin.command: "{{ janus_prefix }}/bin/janus --version"
+  register: janus_instalado
+  changed_when: false
+  failed_when: false
+
+- name: Definir se precisa compilar o Janus
+  ansible.builtin.set_fact:
+    janus_precisa_compilar: >-
+      {{ compilar_janus and (janus_versao | regex_replace('^v', '')) not in (janus_instalado.stdout | default('')) }}
+
+- name: Clonar o Janus {{ janus_versao }}
+  ansible.builtin.git:
+    repo: https://github.com/meetecho/janus-gateway.git
+    dest: "{{ src_dir }}/janus-gateway"
+    version: "{{ janus_versao }}"
+    depth: 1
+    force: true
+  when: janus_precisa_compilar
+
+- name: Gerar o configure do Janus
+  ansible.builtin.command:
+    cmd: sh autogen.sh
+    chdir: "{{ src_dir }}/janus-gateway"
+    creates: "{{ src_dir }}/janus-gateway/configure"
+  when: janus_precisa_compilar
+
+- name: Configurar a compilação do Janus
+  ansible.builtin.command:
+    cmd: >-
+      ./configure --prefix={{ janus_prefix }}
+      --disable-rabbitmq --disable-mqtt --disable-nanomsg
+      --disable-plugin-lua --disable-plugin-duktape
+      --disable-docs
+    chdir: "{{ src_dir }}/janus-gateway"
+    creates: "{{ src_dir }}/janus-gateway/Makefile"
+  when: janus_precisa_compilar
+
+- name: Compilar o Janus
+  ansible.builtin.command:
+    cmd: "make -j{{ ansible_facts.processor_vcpus | default(2) }}"
+    chdir: "{{ src_dir }}/janus-gateway"
+  when: janus_precisa_compilar
+  changed_when: true
+
+- name: Instalar o Janus
+  ansible.builtin.command:
+    cmd: make install
+    chdir: "{{ src_dir }}/janus-gateway"
+  when: janus_precisa_compilar
+  changed_when: true
+
+- name: Instalar arquivos de configuração padrão
+  ansible.builtin.command:
+    cmd: make configs
+    chdir: "{{ src_dir }}/janus-gateway"
+  when: janus_precisa_compilar
+  changed_when: true
+
+- name: Confirmar que o plugin SIP foi compilado
+  ansible.builtin.stat:
+    path: "{{ janus_prefix }}/lib/janus/plugins/libjanus_sip.so"
+  register: plugin_sip
+
+- name: Falhar se o plugin SIP não existir
+  ansible.builtin.assert:
+    that: plugin_sip.stat.exists
+    fail_msg: >-
+      O plugin SIP do Janus não foi compilado — provavelmente falta libsofia-sip-ua-dev.
+      Sem ele o softphone WebRTC não funciona.
+    success_msg: "Plugin SIP presente"
+
+- name: Publicar configuração do Janus
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ janus_prefix }}/etc/janus/{{ item }}"
+    owner: janus
+    group: janus
+    mode: "0640"
+  loop:
+    - janus.jcfg
+    - janus.transport.http.jcfg
+    - janus.transport.websockets.jcfg
+    - janus.plugin.sip.jcfg
+  notify: reiniciar janus
+
+- name: Ajustar dono dos diretórios do Janus
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: janus
+    group: janus
+    mode: "0750"
+  loop:
+    - "{{ janus_prefix }}/etc/janus"
+    - "{{ janus_prefix }}/share/janus/recordings"
+  failed_when: false
+
+- name: Publicar janus.js para o front-end
+  ansible.builtin.copy:
+    src: "{{ src_dir }}/janus-gateway/html/janus.js"
+    dest: "{{ telium_web }}/assets/js/vendor/janus.js"
+    remote_src: true
+    owner: "{{ telium_user }}"
+    group: "{{ telium_group }}"
+    mode: "0644"
+  failed_when: false
+
+- name: Instalar unidade systemd do Janus
+  ansible.builtin.template:
+    src: janus.service.j2
+    dest: /etc/systemd/system/janus.service
+    mode: "0644"
+  notify: recarregar systemd
+
+- name: Habilitar e iniciar o Janus
+  ansible.builtin.systemd_service:
+    name: janus
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Conferir se o Janus responde no HTTP
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ janus_http_porta }}/janus/info"
+    return_content: true
+  register: janus_info
+  retries: 10
+  delay: 2
+  until: janus_info.status is defined and janus_info.status == 200
+
+- name: Versão do Janus em execução
+  ansible.builtin.debug:
+    msg: "Janus {{ janus_info.json.version_string }} — plugins: {{ janus_info.json.plugins.keys() | list | join(', ') }}"

@@ -1,0 +1,49 @@
+---
+- name: Instalar fail2ban e ufw
+  ansible.builtin.apt:
+    name:
+      - fail2ban
+      - ufw
+    state: present
+
+- name: Regras de firewall
+  ansible.builtin.command:
+    cmd: "ufw allow {{ item }}"
+  loop:
+    - "22/tcp"
+    - "80/tcp"
+    - "443/tcp"
+    - "{{ sip_porta }}/udp"
+    - "{{ sip_porta }}/tcp"
+    - "{{ ast_rtp_inicio }}:{{ ast_rtp_fim }}/udp"
+    - "{{ janus_rtp_inicio }}:{{ janus_rtp_fim }}/udp"
+  when: instalar_firewall
+  register: ufw_regras
+  changed_when: "'Rule added' in ufw_regras.stdout"
+
+- name: Política padrão do firewall
+  ansible.builtin.command:
+    cmd: "ufw default {{ item.politica }} {{ item.direcao }}"
+  loop:
+    - { politica: deny,  direcao: incoming }
+    - { politica: allow, direcao: outgoing }
+  when: instalar_firewall
+  changed_when: false
+
+- name: Habilitar o firewall
+  ansible.builtin.command: ufw --force enable
+  when: instalar_firewall
+  changed_when: false
+
+- name: Configurar jail do Asterisk no fail2ban
+  ansible.builtin.template:
+    src: jail-telium.conf.j2
+    dest: /etc/fail2ban/jail.d/telium.conf
+    mode: "0644"
+  notify: reiniciar fail2ban
+
+- name: Habilitar e iniciar o fail2ban
+  ansible.builtin.service:
+    name: fail2ban
+    state: started
+    enabled: true

@@ -1,0 +1,25 @@
+; {{ ansible_managed }}
+[directories](!)
+astetcdir     => /etc/asterisk
+astmoddir     => /usr/lib/{{ ansible_facts.architecture }}-linux-gnu/asterisk/modules
+astvarlibdir  => /var/lib/asterisk
+astdbdir      => /var/lib/asterisk
+astkeydir     => /var/lib/asterisk
+astdatadir    => /var/lib/asterisk
+astagidir     => /var/lib/asterisk/agi-bin
+astspooldir   => /var/spool/asterisk
+astrundir     => /var/run/asterisk
+astlogdir     => /var/log/asterisk
+astsbindir    => /usr/sbin
+
+[options]
+runuser        = asterisk
+rungroup       = asterisk
+documentation_language = pt_BR
+verbose        = 3
+debug          = 0
+maxcalls       = 240
+maxload        = 0.9
+transmit_silence = yes
+languageprefix = yes
+live_dangerously = no

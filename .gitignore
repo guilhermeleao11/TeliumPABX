@@ -1,0 +1,17 @@
+# ---- segredos: nunca versionar ----
+infra/ansible/group_vars/all/vault.yml
+infra/ansible/inventory/vm.ini
+api/.env
+*.pem
+*.key
+
+# ---- dependências (instaladas pelo Ansible na VM) ----
+api/vendor/
+api/composer.lock
+
+# ---- temporários ----
+*.log
+*.tmp
+*.swp
+.DS_Store
+api/var/cache/*

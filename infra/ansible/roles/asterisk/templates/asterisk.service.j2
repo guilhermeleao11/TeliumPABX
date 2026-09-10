@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Asterisk PBX (Telium)
+Documentation=https://docs.asterisk.org
+After=network-online.target mariadb.service
+Wants=network-online.target
+Requires=mariadb.service
+
+[Service]
+Type=simple
+User=asterisk
+Group=asterisk
+ExecStart=/usr/sbin/asterisk -f -C /etc/asterisk/asterisk.conf
+ExecReload=/usr/sbin/asterisk -rx 'core reload'
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+RuntimeDirectory=asterisk
+RuntimeDirectoryMode=0750
+LimitNOFILE=20000
+LimitNPROC=8192
+
+# Endurecimento moderado — não quebra RTP nem ODBC
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=/var/log/asterisk /var/lib/asterisk /var/spool/asterisk /etc/asterisk
+
+[Install]
+WantedBy=multi-user.target

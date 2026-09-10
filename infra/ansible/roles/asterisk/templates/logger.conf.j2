@@ -1,0 +1,10 @@
+; {{ ansible_managed }}
+[general]
+dateformat = %F %T
+use_callids = yes
+
+[logfiles]
+console  => notice,warning,error
+messages => notice,warning,error
+full     => notice,warning,error,verbose(3),dtmf
+security => security

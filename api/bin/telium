@@ -1,0 +1,168 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+/**
+ * CLI do Telium PABX.
+ *   php bin/telium gerar-config     — gera os .conf a partir do banco
+ *   php bin/telium aplicar-config   — gera e recarrega o Asterisk
+ *   php bin/telium doctor           — diagnóstico das dependências
+ *   php bin/telium senha <usuario>  — define uma nova senha
+ */
+
+use Telium\Dominio\Senha;
+use Telium\Gerador\Aplicador;
+use Telium\Gerador\Gerador;
+use Telium\Suporte\Ambiente;
+use Telium\Suporte\Ami;
+use Telium\Suporte\Bd;
+
+require __DIR__ . '/../vendor/autoload.php';
+Ambiente::carregar(__DIR__ . '/../.env');
+
+$verde = "\033[32m"; $vermelho = "\033[31m"; $amarelo = "\033[33m"; $zero = "\033[0m";
+$comando = $argv[1] ?? 'ajuda';
+
+try {
+    match ($comando) {
+        'gerar-config'   => gerarConfig(),
+        'aplicar-config' => aplicarConfig(),
+        'doctor'         => doctor(),
+        'senha'          => trocarSenha($argv[2] ?? ''),
+        default          => ajuda(),
+    };
+} catch (Throwable $e) {
+    fwrite(STDERR, "{$vermelho}✗ {$e->getMessage()}{$zero}\n");
+    exit(1);
+}
+
+function gerarConfig(): void
+{
+    global $verde, $amarelo, $zero;
+
+    $arquivos = (new Gerador())->gerar();
+    $mudou = 0;
+
+    foreach ($arquivos as $nome => $info) {
+        $cor = $info['status'] === 'inalterado' ? '' : $verde;
+        printf("  %s%-28s %-11s %6d bytes%s\n", $cor, $nome, $info['status'], $info['bytes'], $zero);
+        if ($info['status'] !== 'inalterado') {
+            $mudou++;
+        }
+    }
+
+    echo $mudou > 0
+        ? "{$verde}✓ {$mudou} arquivo(s) gerado(s) — rode 'aplicar-config' para recarregar{$zero}\n"
+        : "{$amarelo}• nada mudou{$zero}\n";
+}
+
+function aplicarConfig(): void
+{
+    global $verde, $vermelho, $zero;
+
+    gerarConfig();
+    $r = (new Aplicador())->aplicar();
+
+    foreach ($r['etapas'] as $etapa => $estado) {
+        $cor = $estado === 'ok' ? $verde : $vermelho;
+        printf("  %s%-24s %s%s\n", $cor, $etapa, $estado, $zero);
+    }
+
+    if (!$r['sucesso']) {
+        echo "{$vermelho}✗ falha ao aplicar{$zero}\n" . $r['saida'];
+        exit(1);
+    }
+    echo "{$verde}✓ configuração aplicada no Asterisk{$zero}\n";
+}
+
+function doctor(): void
+{
+    global $verde, $vermelho, $zero;
+
+    $checar = static function (string $nome, callable $fn) use ($verde, $vermelho, $zero): bool {
+        try {
+            $detalhe = $fn();
+            printf("  %s✓%s %-16s %s\n", $verde, $zero, $nome, $detalhe);
+            return true;
+        } catch (Throwable $e) {
+            printf("  %s✗%s %-16s %s\n", $vermelho, $zero, $nome, $e->getMessage());
+            return false;
+        }
+    };
+
+    $ok = true;
+    $ok = $checar('banco', static fn (): string =>
+        'MariaDB ' . Bd::valor('SELECT VERSION()') . ' — ' . Bd::valor('SELECT COUNT(*) FROM ramais') . ' ramais') && $ok;
+
+    $ok = $checar('ami', static function (): string {
+        $ami = Ami::doAmbiente();
+        $ami->conectar();
+        $saida = $ami->comando('core show version');
+        $ami->desconectar();
+        preg_match('/Asterisk\s+\S+/', $saida, $m);
+        return $m[0] ?? 'conectado';
+    }) && $ok;
+
+    $ok = $checar('janus', static function (): string {
+        $ctx = stream_context_create(['http' => ['timeout' => 3]]);
+        $json = @file_get_contents('http://127.0.0.1:8088/janus/info', false, $ctx);
+        if ($json === false) {
+            throw new RuntimeException('não respondeu');
+        }
+        $d = json_decode($json, true);
+        return 'Janus ' . ($d['version_string'] ?? '?')
+            . (isset($d['plugins']['janus.plugin.sip']) ? ' (plugin SIP ok)' : ' (SEM plugin SIP)');
+    }) && $ok;
+
+    $ok = $checar('escrita conf', static function (): string {
+        $dir = (string) Ambiente::get('ASTERISK_GERADO_DIR');
+        if (!is_writable($dir)) {
+            throw new RuntimeException("sem permissão em {$dir}");
+        }
+        return $dir;
+    }) && $ok;
+
+    exit($ok ? 0 : 1);
+}
+
+function trocarSenha(string $usuario): void
+{
+    global $verde, $zero;
+
+    if ($usuario === '') {
+        throw new RuntimeException('uso: php bin/telium senha <usuario>');
+    }
+
+    echo 'Nova senha: ';
+    system('stty -echo');
+    $senha = trim((string) fgets(STDIN));
+    system('stty echo');
+    echo "\n";
+
+    if (strlen($senha) < 8) {
+        throw new RuntimeException('a senha precisa de pelo menos 8 caracteres');
+    }
+
+    $linhas = Bd::executar(
+        'UPDATE usuarios SET senha_hash = ?, tentativas_login = 0, bloqueado_ate = NULL WHERE usuario = ?',
+        [Senha::criar($senha), $usuario]
+    );
+
+    if ($linhas === 0) {
+        throw new RuntimeException("usuário {$usuario} não encontrado");
+    }
+    echo "{$verde}✓ senha de {$usuario} atualizada{$zero}\n";
+}
+
+function ajuda(): void
+{
+    echo <<<TXT
+    Telium PABX — utilitário de linha de comando
+
+      php bin/telium gerar-config      gera os .conf a partir do banco
+      php bin/telium aplicar-config    gera e recarrega o Asterisk
+      php bin/telium doctor            testa banco, AMI, Janus e permissões
+      php bin/telium senha <usuario>   define uma nova senha
+
+    TXT;
+}

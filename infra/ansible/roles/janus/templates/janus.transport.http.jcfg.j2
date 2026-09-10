@@ -1,0 +1,21 @@
+# {{ ansible_managed }}
+general: {
+        json = "indented"
+        base_path = "/janus"
+        http = true
+        port = {{ janus_http_porta }}
+        interface = "127.0.0.1"
+        https = false
+}
+
+admin: {
+        admin_base_path = "/admin"
+        admin_http = true
+        admin_port = {{ janus_admin_porta }}
+        admin_interface = "127.0.0.1"
+        admin_https = false
+}
+
+cors: {
+        allow_origin = "https://{{ pabx_hostname }}"
+}

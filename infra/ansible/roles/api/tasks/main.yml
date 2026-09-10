@@ -1,0 +1,78 @@
+---
+- name: Publicar o front-end
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../{{ item }}"
+    dest: "{{ telium_web }}/"
+    owner: "{{ telium_user }}"
+    group: "{{ telium_group }}"
+    mode: preserve
+  loop:
+    - index.html
+    - app.html
+    - assets
+
+- name: Publicar o código da API
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../api/"
+    dest: "{{ telium_api }}/"
+    owner: "{{ telium_user }}"
+    group: "{{ telium_group }}"
+    mode: preserve
+
+- name: Criar arquivo de ambiente da API
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ telium_api }}/.env"
+    owner: "{{ telium_user }}"
+    group: "{{ telium_group }}"
+    mode: "0640"
+
+- name: Instalar dependências do Composer
+  ansible.builtin.command:
+    cmd: composer install --no-dev --optimize-autoloader --no-interaction
+    chdir: "{{ telium_api }}"
+    creates: "{{ telium_api }}/vendor/autoload.php"
+  become_user: "{{ telium_user }}"
+  become: true
+  environment:
+    COMPOSER_HOME: /tmp/composer
+    COMPOSER_ALLOW_SUPERUSER: "1"
+
+- name: Criar diretórios de trabalho da API
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ telium_user }}"
+    group: "{{ telium_group }}"
+    mode: "0750"
+  loop:
+    - "{{ telium_api }}/var"
+    - "{{ telium_api }}/var/cache"
+    - /var/lib/php/sessions
+
+- name: Gerar os arquivos .conf do Asterisk a partir do banco
+  ansible.builtin.command:
+    cmd: php bin/telium gerar-config
+    chdir: "{{ telium_api }}"
+  become_user: "{{ telium_user }}"
+  become: true
+  register: gerar_config
+  changed_when: "'gerado' in gerar_config.stdout"
+
+- name: Saída do gerador de configuração
+  ansible.builtin.debug:
+    var: gerar_config.stdout_lines
+
+- name: Aplicar a configuração no Asterisk
+  ansible.builtin.command:
+    cmd: php bin/telium aplicar-config
+    chdir: "{{ telium_api }}"
+  become_user: "{{ telium_user }}"
+  become: true
+  register: aplicar_config
+  changed_when: true
+  failed_when: false
+
+- name: Saída do aplicador de configuração
+  ansible.builtin.debug:
+    var: aplicar_config.stdout_lines

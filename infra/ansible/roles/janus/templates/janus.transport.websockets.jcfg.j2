@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+general: {
+        json = "indented"
+        ws = true
+        ws_port = {{ janus_ws_porta }}
+        ws_interface = "127.0.0.1"
+        wss = false
+        ws_logging = "err,warn"
+        pingpong_trigger = 30
+        pingpong_timeout = 10
+}
+
+admin: {
+        admin_ws = false
+        admin_wss = false
+}
+
+cors: {
+        allow_origin = "https://{{ pabx_hostname }}"
+}

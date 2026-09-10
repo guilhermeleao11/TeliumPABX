@@ -1,0 +1,54 @@
+---
+- name: Instalar PHP 8.4 e extensões
+  ansible.builtin.apt:
+    name:
+      - php8.4-fpm
+      - php8.4-cli
+      - php8.4-mysql
+      - php8.4-mbstring
+      - php8.4-xml
+      - php8.4-curl
+      - php8.4-intl
+      - php8.4-bcmath
+      - php8.4-zip
+      - php8.4-opcache
+      - php8.4-readline
+      - composer
+    state: present
+
+- name: Confirmar versão do PHP
+  ansible.builtin.command: php -v
+  register: php_ver
+  changed_when: false
+
+- name: Versão do PHP
+  ansible.builtin.debug:
+    msg: "{{ php_ver.stdout_lines[0] }}"
+
+- name: Ajustes de php.ini (FPM e CLI)
+  ansible.builtin.lineinfile:
+    path: "/etc/php/8.4/{{ item.0 }}/php.ini"
+    regexp: "^;?\\s*{{ item.1.chave }}\\s*="
+    line: "{{ item.1.chave }} = {{ item.1.valor }}"
+    state: present
+  loop: "{{ ['fpm', 'cli'] | product(ajustes_php) | list }}"
+  notify: reiniciar php-fpm
+
+- name: Remover pool padrão www
+  ansible.builtin.file:
+    path: /etc/php/8.4/fpm/pool.d/www.conf
+    state: absent
+  notify: reiniciar php-fpm
+
+- name: Criar pool dedicado da API
+  ansible.builtin.template:
+    src: telium-pool.conf.j2
+    dest: /etc/php/8.4/fpm/pool.d/telium.conf
+    mode: "0644"
+  notify: reiniciar php-fpm
+
+- name: Habilitar e iniciar php-fpm
+  ansible.builtin.service:
+    name: php8.4-fpm
+    state: started
+    enabled: true

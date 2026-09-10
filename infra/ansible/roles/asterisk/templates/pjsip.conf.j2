@@ -1,0 +1,49 @@
+; {{ ansible_managed }}
+; Transportes e globais ficam aqui (estático).
+; Endpoints e troncos são gerados pela API em {{ asterisk_gerado_dir }}.
+
+[global]
+type = global
+user_agent = Telium PABX
+default_outbound_endpoint = default_outbound
+endpoint_identifier_order = ip,username,anonymous
+
+[system]
+type = system
+timer_t1 = 500
+timer_b  = 32000
+
+[transport-udp]
+type      = transport
+protocol  = udp
+bind      = 0.0.0.0:{{ sip_porta }}
+{% for rede in redes_locais %}
+local_net = {{ rede }}
+{% endfor %}
+{% if nat_ip_publico %}
+external_media_address     = {{ nat_ip_publico }}
+external_signaling_address = {{ nat_ip_publico }}
+{% endif %}
+
+[transport-tcp]
+type     = transport
+protocol = tcp
+bind     = 0.0.0.0:{{ sip_porta }}
+{% for rede in redes_locais %}
+local_net = {{ rede }}
+{% endfor %}
+
+; ------------------------------------------------------------------
+; WebRTC direto no Asterisk (WSS) — DESATIVADO.
+; Nesta arquitetura quem fala WebRTC com o navegador é o Janus.
+; Para usar sem o Janus: habilite o bloco abaixo, ligue tlsenable
+; no http.conf e aponte os ramais com webrtc=yes para este transporte.
+; ------------------------------------------------------------------
+;[transport-wss]
+;type     = transport
+;protocol = wss
+;bind     = 0.0.0.0:{{ ast_http_porta }}
+
+#include "telium/pjsip.trunks.conf"
+#include "telium/pjsip.endpoints.conf"
+#include "telium/pjsip_custom.conf"

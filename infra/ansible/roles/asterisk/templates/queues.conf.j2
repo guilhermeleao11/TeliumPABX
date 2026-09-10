@@ -1,0 +1,9 @@
+; {{ ansible_managed }}
+[general]
+persistentmembers = yes
+monitor-type      = MixMonitor
+shared_lastcall   = yes
+autofill          = yes
+log_membername_as_agent = yes
+
+#include "telium/queues.conf"

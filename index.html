@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entrar · Telium PABX</title>
+<meta name="description" content="Console de administração Telium PABX">
+<link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg">
+<link rel="alternate icon" type="image/png" href="assets/img/favicon.png">
+<link rel="apple-touch-icon" href="assets/img/favicon.png">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/login.css">
+</head>
+<body>
+
+<div class="login-page">
+
+  <!-- ===================== Painel de marca ===================== -->
+  <aside class="brand-pane">
+    <div class="brand-grid"></div>
+
+    <div class="brand-logo">
+      <div class="brand-mark" id="markLogo"></div>
+      <div>
+        <div class="brand-name">TELIUM<span>PABX</span></div>
+        <div class="brand-tag">AllWaysON · Communication Suite</div>
+      </div>
+    </div>
+
+    <div class="brand-copy">
+      <h1>A sua central telefônica, <em>sob controle total</em>.</h1>
+      <p>Ramais, troncos, filas, URA e relatórios em um único console —
+         com perfis de acesso separados para cada time.</p>
+
+      <div class="brand-features">
+        <div class="brand-feature">
+          <div class="fi" data-ico="headset"></div>
+          <div><b>Operação em tempo real</b><small>Wallboard de filas, agentes e chamadas ativas</small></div>
+        </div>
+        <div class="brand-feature">
+          <div class="fi" data-ico="shield"></div>
+          <div><b>Perfis e permissões</b><small>Administrador, supervisor, operador e auditoria</small></div>
+        </div>
+        <div class="brand-feature">
+          <div class="fi" data-ico="chart"></div>
+          <div><b>Relatórios e tarifação</b><small>CDR completo, gravações e custos por setor</small></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="brand-foot">
+      <span>© 2026 Telium Networks · AllWaysON</span><i class="sep"></i>
+      <span>v3.4.1</span><i class="sep"></i>
+      <span>Asterisk 20 LTS</span>
+    </div>
+
+    <svg class="wave" viewBox="0 0 1200 120" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M0,64 C150,110 300,10 450,52 C600,94 750,20 900,56 C1050,92 1150,60 1200,44 L1200,120 L0,120 Z" fill="#1aa48b"/>
+    </svg>
+  </aside>
+
+  <!-- ===================== Formulário ===================== -->
+  <main class="form-pane">
+    <button class="icon-btn theme-btn" id="themeBtn" title="Alternar tema" aria-label="Alternar tema">
+      <span data-theme-icon></span>
+    </button>
+
+    <div class="login-card">
+      <div class="mob-logo">
+        <div class="brand-mark" id="markLogoMob"></div>
+        <div class="brand-name">TELIUM<span>PABX</span></div>
+      </div>
+
+      <div class="login-head">
+        <h2>Acessar o console</h2>
+        <p>Informe suas credenciais para continuar.</p>
+      </div>
+
+      <form class="login-form" id="loginForm" autocomplete="on" novalidate>
+        <div id="alertBox"></div>
+
+        <div class="field">
+          <label class="label" for="usuario">Usuário</label>
+          <div class="input-icon">
+            <span data-ico="user"></span>
+            <input class="input" id="usuario" name="usuario" type="text"
+                   placeholder="seu.usuario" autocomplete="username" required autofocus>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="senha">Senha</label>
+          <div class="input-icon pw-wrap">
+            <span data-ico="lock"></span>
+            <input class="input" id="senha" name="senha" type="password"
+                   placeholder="••••••••" autocomplete="current-password" required>
+            <button type="button" class="pw-toggle" id="pwToggle" aria-label="Mostrar senha"></button>
+          </div>
+        </div>
+
+        <div class="row-between">
+          <label class="check"><input type="checkbox" id="lembrar"> <span class="small">Manter conectado</span></label>
+          <a href="#" class="small" id="linkSenha">Esqueci minha senha</a>
+        </div>
+
+        <button class="btn btn-primary btn-block login-btn" type="submit" id="btnEntrar">Entrar</button>
+      </form>
+
+      <div class="divider">Contas de demonstração</div>
+      <div class="demo-list" id="demoList"></div>
+
+      <p class="login-foot">Ambiente de demonstração · nenhum dado é enviado a servidores.</p>
+    </div>
+  </main>
+</div>
+
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/data.js"></script>
+<script src="assets/js/auth.js"></script>
+<script>
+/* ---------- Ícones declarativos ---------- */
+document.querySelectorAll('[data-ico]').forEach(el => {
+  el.outerHTML = icon(el.dataset.ico, el.parentElement.classList.contains('fi') ? 'ico' : 'ico');
+});
+
+document.getElementById('markLogo').innerHTML = TELIUM_MARK;
+document.getElementById('markLogoMob').innerHTML = TELIUM_MARK;
+
+/* ---------- Tema ---------- */
+Theme.init();
+document.getElementById('themeBtn').onclick = () => Theme.toggle();
+
+/* ---------- Mostrar/ocultar senha ---------- */
+const senhaEl = document.getElementById('senha');
+const pwBtn   = document.getElementById('pwToggle');
+pwBtn.innerHTML = icon('eye', 'ico ico-sm');
+pwBtn.onclick = () => {
+  const visivel = senhaEl.type === 'text';
+  senhaEl.type = visivel ? 'password' : 'text';
+  pwBtn.innerHTML = icon(visivel ? 'eye' : 'eyeOff', 'ico ico-sm');
+  pwBtn.setAttribute('aria-label', visivel ? 'Mostrar senha' : 'Ocultar senha');
+  senhaEl.focus();
+};
+
+/* ---------- Atalhos de conta demo ---------- */
+const demos = ['admin', 'supervisor', 'operador', 'auditor'];
+document.getElementById('demoList').innerHTML = demos.map(u => {
+  const usr = USERS.find(x => x.user === u), r = ROLES[usr.role];
+  return `<button type="button" class="demo-user" data-u="${usr.user}" data-p="${usr.pass}">
+    <span class="avatar avatar-sm">${usr.name.split(' ').map(n => n[0]).slice(0,2).join('')}</span>
+    <span><b>${usr.name}</b><small>${usr.user} · ${usr.pass}</small></span>
+    <span class="badge badge-${r.color}">${r.label}</span>
+  </button>`;
+}).join('');
+document.querySelectorAll('.demo-user').forEach(b => {
+  b.onclick = () => {
+    document.getElementById('usuario').value = b.dataset.u;
+    senhaEl.value = b.dataset.p;
+    document.getElementById('alertBox').innerHTML = '';
+    document.getElementById('btnEntrar').focus();
+  };
+});
+
+/* ---------- Submissão ---------- */
+const alertBox = document.getElementById('alertBox');
+const btn = document.getElementById('btnEntrar');
+
+function erro(msg) {
+  alertBox.innerHTML = `<div class="login-alert">${icon('alert','ico ico-sm')}<span>${msg}</span></div>`;
+}
+
+document.getElementById('loginForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const u = document.getElementById('usuario').value.trim();
+  const p = senhaEl.value;
+  alertBox.innerHTML = '';
+
+  if (!u || !p) { erro('Preencha usuário e senha.'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spin"></span> Verificando…`;
+
+  // Latência simulada — troque por uma chamada real à API de autenticação.
+  setTimeout(() => {
+    const r = Auth.login(u, p, document.getElementById('lembrar').checked);
+    if (!r.ok) {
+      btn.disabled = false;
+      btn.textContent = 'Entrar';
+      erro(r.erro);
+      senhaEl.select();
+      return;
+    }
+    location.href = 'app.html';
+  }, 620);
+});
+
+document.getElementById('linkSenha').onclick = e => {
+  e.preventDefault();
+  erro('Redefinição de senha: procure o administrador do PABX (ramal 1000).');
+};
+
+/* Já autenticado? vai direto ao console. */
+if (Auth.current()) location.replace('app.html');
+</script>
+</body>
+</html>

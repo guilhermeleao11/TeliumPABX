@@ -1,0 +1,127 @@
+; {{ ansible_managed }}
+; Dialplan base. Os contextos telium-* são gerados pela API.
+
+[general]
+static       = yes
+writeprotect = yes
+clearglobalvars = no
+
+[globals]
+TELIUM_TZ        = {{ pabx_timezone }}
+TELIUM_MOH       = default
+TELIUM_GRAVACOES = /var/spool/asterisk/monitor
+TELIUM_EMPRESA   = {{ pabx_empresa }}
+
+; ------------------------------------------------------------------
+; Sub-rotina de gravação — chamada pelos contextos gerados
+;   ${ARG1} = entrada|saida|interna
+; ------------------------------------------------------------------
+[sub-gravar]
+exten => s,1,Set(__TELIUM_GRAV=${STRFTIME(${EPOCH},,%Y/%m/%d)}/${STRFTIME(${EPOCH},,%H%M%S)}-${ARG1}-${CALLERID(num)}-${EXTEN}-${UNIQUEID}.wav)
+ same => n,System(mkdir -p ${TELIUM_GRAVACOES}/${STRFTIME(${EPOCH},,%Y/%m/%d)})
+ same => n,MixMonitor(${TELIUM_GRAVACOES}/${TELIUM_GRAV},b)
+ same => n,Set(CDR(gravacao)=${TELIUM_GRAV})
+ same => n,Return()
+
+; ------------------------------------------------------------------
+; Sub-rotina: ligar para um ramal
+;   ARG1 = número · ARG2 = tempo de toque · ARG3 = mailbox (vazio = sem correio)
+; ------------------------------------------------------------------
+[sub-ramal]
+exten => s,1,NoOp(Chamando ramal ${ARG1})
+ same => n,Set(TELIUM_VM=${ARG3})
+ same => n,Dial(PJSIP/${ARG1},${ARG2},tT)
+ same => n,NoOp(Resultado: ${DIALSTATUS})
+ same => n,GotoIf($["${TELIUM_VM}" = ""]?sem_vm)
+ same => n,ExecIf($["${DIALSTATUS}" = "BUSY"]?VoiceMail(${TELIUM_VM},b))
+ same => n,ExecIf($["${DIALSTATUS}" = "NOANSWER"]?VoiceMail(${TELIUM_VM},u))
+ same => n,ExecIf($["${DIALSTATUS}" = "CHANUNAVAIL"]?VoiceMail(${TELIUM_VM},u))
+ same => n(sem_vm),Return()
+
+; ------------------------------------------------------------------
+; Sub-rotina: checar permissão de discagem do ramal
+;   ARG1 = classe da rota (local|celular|ddd|ddi|emergencia|especial)
+;   A lista permitida chega em ${TELIUM_PERM}, gravada no endpoint PJSIP.
+; ------------------------------------------------------------------
+[sub-permissao]
+exten => s,1,GotoIf($["${TELIUM_PERM}" = ""]?permitido)
+ same => n,GotoIf($[${REGEX("(^|,)${ARG1}(,|$)" ${TELIUM_PERM})} = 1]?permitido)
+ same => n,NoOp(Ramal ${CALLERID(num)} sem permissão para ${ARG1})
+ same => n,Answer()
+ same => n,Wait(1)
+ same => n,Playback(privacy-you-are-not-permitted)
+ same => n,Hangup(31)
+ same => n(permitido),Return()
+
+; ------------------------------------------------------------------
+; Recursos internos (códigos de serviço) — estático
+; ------------------------------------------------------------------
+[telium-recursos]
+; Teste de eco
+exten => *43,1,Answer()
+ same => n,Wait(1)
+ same => n,Playback(demo-echotest)
+ same => n,Echo()
+ same => n,Hangup()
+
+; Hora certa
+exten => *60,1,Answer()
+ same => n,Wait(1)
+ same => n,SayUnixTime(,${TELIUM_TZ},HM)
+ same => n,Hangup()
+
+; Correio de voz do próprio ramal / de outro
+exten => *97,1,Answer()
+ same => n,VoiceMailMain(${CALLERID(num)}@telium)
+ same => n,Hangup()
+exten => *98,1,Answer()
+ same => n,VoiceMailMain(@telium)
+ same => n,Hangup()
+
+; Captura de chamada do grupo
+exten => *8,1,Pickup()
+ same => n,Hangup()
+
+; Quem sou eu (fala o número do ramal)
+exten => *65,1,Answer()
+ same => n,Wait(1)
+ same => n,SayDigits(${CALLERID(num)})
+ same => n,Hangup()
+
+; Diretório por nome
+exten => *411,1,Answer()
+ same => n,Directory(telium,interno,f)
+ same => n,Hangup()
+
+; ------------------------------------------------------------------
+; Contexto dos ramais
+; ------------------------------------------------------------------
+[interno]
+include => telium-recursos
+include => telium-ramais
+include => telium-grupos
+include => telium-filas
+include => telium-ura
+include => telium-saida
+include => telium-custom
+
+; ------------------------------------------------------------------
+; Chamadas vindas dos troncos
+; ------------------------------------------------------------------
+[de-tronco]
+include => telium-entrada
+
+; Contexto de bloqueio: usado por ramais sem permissão de saída
+[telium-bloqueado]
+exten => _X.,1,Answer()
+ same => n,Wait(1)
+ same => n,Playback(privacy-you-are-not-permitted)
+ same => n,Hangup(31)
+
+#include "telium/extensions.ramais.conf"
+#include "telium/extensions.grupos.conf"
+#include "telium/extensions.filas.conf"
+#include "telium/extensions.ura.conf"
+#include "telium/extensions.saida.conf"
+#include "telium/extensions.entrada.conf"
+#include "telium/extensions_custom.conf"

@@ -1,0 +1,146 @@
+/* =========================================================
+   Telium PABX — Tela de Login
+   ========================================================= */
+.login-page {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1.05fr .95fr;
+  background: var(--bg);
+}
+
+/* ---------- Painel de marca (esquerda) ---------- */
+.brand-pane {
+  position: relative; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 46px 54px;
+  background: linear-gradient(155deg, #123160 0%, #0d2549 45%, #071528 100%);
+  color: #e8f0fa;
+  isolation: isolate;
+}
+.brand-pane::before,
+.brand-pane::after {
+  content: ""; position: absolute; border-radius: 50%; filter: blur(70px); z-index: -1;
+}
+.brand-pane::before {
+  width: 460px; height: 460px; top: -140px; left: -110px;
+  background: rgba(25,151,205,.34); animation: float1 18s ease-in-out infinite;
+}
+.brand-pane::after {
+  width: 380px; height: 380px; bottom: -120px; right: -80px;
+  background: rgba(41,88,165,.34); animation: float2 22s ease-in-out infinite;
+}
+@keyframes float1 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(50px,40px)} }
+@keyframes float2 { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-40px,-30px)} }
+
+.brand-grid {
+  position: absolute; inset: 0; z-index: -1; opacity: .5;
+  background-image:
+    linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: radial-gradient(circle at 30% 30%, #000 0%, transparent 78%);
+}
+
+.brand-logo { display: flex; align-items: center; gap: 12px; }
+/* Logotipo oficial Telium */
+.brand-logo img.logo-full { height: 42px; width: auto; }
+.brand-badge {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 6px;
+  background: rgba(25,151,205,.18); border: 1px solid rgba(25,151,205,.38);
+  color: #7cc7ec; font-size: 11px; font-weight: 700; letter-spacing: .14em;
+}
+.brand-mark { width: 46px; height: 46px; display: grid; place-items: center; }
+.brand-mark svg { width: 46px; height: 46px; filter: drop-shadow(0 6px 16px rgba(25,151,205,.45)); }
+.brand-name { font-size: 21px; font-weight: 800; letter-spacing: .07em; color: #fff; }
+.brand-name span { color: #6fc3ea; font-weight: 400; letter-spacing: .16em; font-size: 15px; margin-left: 7px; }
+.brand-tag { font-size: 11.5px; color: rgba(232,240,250,.55); letter-spacing: .1em; text-transform: uppercase; }
+
+.brand-copy { max-width: 480px; }
+.brand-copy h1 {
+  font-size: 38px; line-height: 1.14; letter-spacing: -.03em; color: #fff; margin-bottom: 16px;
+}
+.brand-copy h1 em { font-style: normal; color: #6fc3ea; }
+.brand-copy p { font-size: 15px; line-height: 1.65; color: rgba(232,240,250,.72); }
+
+.brand-features { display: grid; gap: 14px; margin-top: 34px; }
+.brand-feature { display: flex; align-items: flex-start; gap: 12px; }
+.brand-feature .fi {
+  width: 32px; height: 32px; flex: none; border-radius: 9px; display: grid; place-items: center;
+  background: rgba(25,151,205,.15); border: 1px solid rgba(25,151,205,.32);
+}
+.brand-feature .fi svg { width: 16px; height: 16px; stroke: #7cc7ec; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.brand-feature b { display: block; font-size: 13.5px; font-weight: 600; color: #fff; }
+.brand-feature small { font-size: 12.5px; color: rgba(232,240,250,.6); }
+
+.brand-foot { display: flex; align-items: center; gap: 18px; font-size: 12px; color: rgba(232,240,250,.45); }
+.brand-foot .sep { width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
+
+.wave { position: absolute; left: 0; right: 0; bottom: 0; height: 120px; opacity: .18; z-index: -1; }
+
+/* ---------- Painel do formulário (direita) ---------- */
+.form-pane {
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px 24px; background: var(--surface); position: relative;
+}
+.form-pane .theme-btn { position: absolute; top: 22px; right: 24px; }
+
+.login-card { width: 100%; max-width: 384px; animation: rise .5s var(--ease) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+.login-card .mob-logo { display: none; margin-bottom: 26px; align-items: center; gap: 10px; }
+.login-card .mob-logo .brand-mark { width: 38px; height: 38px; }
+.login-card .mob-logo .brand-mark svg { width: 38px; height: 38px; }
+.login-head { margin-bottom: 26px; }
+.login-head h2 { font-size: 24px; letter-spacing: -.02em; }
+.login-head p { color: var(--text-muted); font-size: 13.5px; margin-top: 6px; }
+
+.login-form { display: grid; gap: 16px; }
+.pw-wrap { position: relative; }
+.pw-toggle {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; display: grid; place-items: center;
+  background: none; border: 0; color: var(--text-muted); cursor: pointer; border-radius: var(--r-sm);
+}
+.pw-toggle:hover { color: var(--text); background: var(--surface-3); }
+
+.login-alert {
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 12px; border-radius: var(--r-md); font-size: 13px;
+  background: var(--danger-soft); color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 22%, transparent);
+  animation: shake .35s var(--ease);
+}
+@keyframes shake { 25%{transform:translateX(-5px)} 50%{transform:translateX(5px)} 75%{transform:translateX(-3px)} }
+
+.login-btn { height: 42px; font-size: 14px; }
+.login-btn .spin { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.35);
+  border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.divider { display: flex; align-items: center; gap: 12px; color: var(--text-muted); font-size: 11.5px;
+  text-transform: uppercase; letter-spacing: .08em; margin: 26px 0 14px; }
+.divider::before, .divider::after { content: ""; height: 1px; background: var(--border); flex: 1; }
+
+.demo-list { display: grid; gap: 8px; }
+.demo-user {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 9px 11px; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-md); cursor: pointer; transition: all var(--t);
+}
+.demo-user:hover { border-color: var(--brand); background: var(--brand-soft); transform: translateX(2px); }
+.demo-user b { font-size: 13px; font-weight: 600; display: block; }
+.demo-user small { font-size: 11.5px; color: var(--text-muted); }
+.demo-user .badge { margin-left: auto; }
+
+.login-foot { margin-top: 26px; text-align: center; font-size: 12px; color: var(--text-muted); }
+
+/* ---------- Responsivo ---------- */
+@media (max-width: 1000px) {
+  .login-page { grid-template-columns: 1fr; }
+  .brand-pane { display: none; }
+  .login-card .mob-logo { display: flex; align-items: center; gap: 12px; }
+  .login-card .mob-logo .brand-name { color: var(--text); }
+  .login-card .mob-logo .brand-name span { color: var(--brand); }
+}
+@media (max-width: 460px) {
+  .form-pane { padding: 24px 16px; }
+}

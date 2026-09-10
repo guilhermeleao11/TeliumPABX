@@ -1,0 +1,8 @@
+; {{ ansible_managed }}
+; HTTP interno do Asterisk — usado pela ARI. O 8088 pertence ao Janus.
+[general]
+enabled    = yes
+bindaddr   = 127.0.0.1
+bindport   = {{ ast_http_porta }}
+prefix     = asterisk
+enablestatic = no

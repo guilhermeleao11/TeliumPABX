@@ -1,0 +1,307 @@
+---
+- name: Instalar dependências de compilação do Asterisk
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - autoconf
+      - automake
+      - libtool
+      - pkg-config
+      - libedit-dev
+      - libjansson-dev
+      - libsqlite3-dev
+      - uuid-dev
+      - libxml2-dev
+      - libssl-dev
+      - libncurses-dev
+      - libcurl4-openssl-dev
+      - libsrtp2-dev
+      - libopus-dev
+      - libogg-dev
+      - libvorbis-dev
+      - libspeex-dev
+      - libspeexdsp-dev
+      - unixodbc-dev
+      - subversion
+      - wget
+      - bzip2
+      - xmlstarlet
+    state: present
+
+- name: Criar grupo asterisk
+  ansible.builtin.group:
+    name: asterisk
+    system: true
+
+- name: Criar usuário asterisk
+  ansible.builtin.user:
+    name: asterisk
+    group: asterisk
+    groups: audio,dialout
+    append: true
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/asterisk
+    create_home: false
+
+- name: Verificar se o Asterisk {{ asterisk_versao }} já está instalado
+  ansible.builtin.command: asterisk -V
+  register: ast_instalado
+  changed_when: false
+  failed_when: false
+
+- name: Definir se precisa compilar
+  ansible.builtin.set_fact:
+    ast_precisa_compilar: >-
+      {{ compilar_asterisk and (asterisk_versao not in (ast_instalado.stdout | default(''))) }}
+
+- name: Informar decisão de compilação
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Vai compilar o Asterisk ' ~ asterisk_versao ~ ' (leva de 5 a 15 minutos)'
+         if ast_precisa_compilar
+         else 'Asterisk já instalado: ' ~ (ast_instalado.stdout | default('n/d')) }}
+
+# ------------------------------------------------------------------
+# Compilação
+# ------------------------------------------------------------------
+- name: Baixar o fonte do Asterisk
+  ansible.builtin.get_url:
+    url: "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-{{ asterisk_versao }}.tar.gz"
+    dest: "{{ src_dir }}/asterisk-{{ asterisk_versao }}.tar.gz"
+    mode: "0644"
+  when: ast_precisa_compilar
+
+- name: Baixar o checksum oficial
+  ansible.builtin.get_url:
+    url: "{{ asterisk_sha_url }}"
+    dest: "{{ src_dir }}/asterisk-{{ asterisk_versao }}.tar.gz.sha256"
+    mode: "0644"
+  when: ast_precisa_compilar
+  failed_when: false
+
+- name: Conferir integridade do pacote
+  ansible.builtin.shell:
+    cmd: sha256sum -c "asterisk-{{ asterisk_versao }}.tar.gz.sha256"
+    chdir: "{{ src_dir }}"
+  when: ast_precisa_compilar
+  changed_when: false
+  failed_when: false
+  register: ast_sha
+
+- name: Resultado da verificação de integridade
+  ansible.builtin.debug:
+    msg: "{{ ast_sha.stdout | default('checksum não publicado — seguindo mesmo assim') }}"
+  when: ast_precisa_compilar
+
+- name: Extrair o fonte
+  ansible.builtin.unarchive:
+    src: "{{ src_dir }}/asterisk-{{ asterisk_versao }}.tar.gz"
+    dest: "{{ src_dir }}"
+    remote_src: true
+    creates: "{{ src_dir }}/asterisk-{{ asterisk_versao }}/configure"
+  when: ast_precisa_compilar
+
+- name: Instalar pré-requisitos declarados pelo próprio Asterisk
+  ansible.builtin.shell:
+    cmd: ./contrib/scripts/install_prereq install
+    chdir: "{{ src_dir }}/asterisk-{{ asterisk_versao }}"
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  when: ast_precisa_compilar
+  changed_when: true
+
+- name: Configurar a compilação
+  ansible.builtin.command:
+    cmd: >-
+      ./configure
+      --with-pjproject-bundled
+      --with-jansson-bundled
+      --with-libedit
+      --libdir=/usr/lib/{{ ansible_facts.architecture }}-linux-gnu
+    chdir: "{{ src_dir }}/asterisk-{{ asterisk_versao }}"
+    creates: "{{ src_dir }}/asterisk-{{ asterisk_versao }}/makeopts"
+  when: ast_precisa_compilar
+
+- name: Gerar menuselect.makeopts
+  ansible.builtin.command:
+    cmd: make menuselect.makeopts
+    chdir: "{{ src_dir }}/asterisk-{{ asterisk_versao }}"
+    creates: "{{ src_dir }}/asterisk-{{ asterisk_versao }}/menuselect.makeopts"
+  when: ast_precisa_compilar
+
+- name: Selecionar módulos obrigatórios
+  ansible.builtin.command:
+    cmd: >-
+      menuselect/menuselect
+      --enable chan_pjsip --enable res_pjsip --enable res_pjsip_transport_websocket
+      --enable res_srtp --enable res_http_websocket
+      --enable res_odbc --enable res_config_odbc --enable func_odbc
+      --enable cdr_adaptive_odbc --enable cel_odbc
+      --enable app_queue --enable app_voicemail --enable app_confbridge
+      --enable app_directory --enable app_mixmonitor --enable app_stack
+      --enable format_wav --enable format_pcm --enable format_gsm
+      --enable res_ari --enable res_ari_channels --enable res_ari_events
+      --enable res_agi --enable res_musiconhold
+      --disable BUILD_NATIVE
+      menuselect.makeopts
+    chdir: "{{ src_dir }}/asterisk-{{ asterisk_versao }}"
+  when: ast_precisa_compilar
+  changed_when: true
+
+- name: Selecionar módulos e sons opcionais (falha aqui não interrompe)
+  ansible.builtin.command:
+    cmd: "menuselect/menuselect --enable {{ item }} menuselect.makeopts"
+    chdir: "{{ src_dir }}/asterisk-{{ asterisk_versao }}"
+  loop:
+    - codec_opus
+    - CORE-SOUNDS-EN-GSM
+    - MOH-OPSOUND-WAV
+    - EXTRA-SOUNDS-EN-GSM
+  when: ast_precisa_compilar
+  failed_when: false
+  changed_when: false
+
+- name: Selecionar sons em português do Brasil
+  ansible.builtin.command:
+    cmd: "menuselect/menuselect --enable CORE-SOUNDS-PT_BR-GSM menuselect.makeopts"
+    chdir: "{{ src_dir }}/asterisk-{{ asterisk_versao }}"
+  when: ast_precisa_compilar and sons_pt_br
+  failed_when: false
+  changed_when: false
+
+- name: Compilar (pode levar vários minutos)
+  ansible.builtin.command:
+    cmd: "make -j{{ ansible_facts.processor_vcpus | default(2) }}"
+    chdir: "{{ src_dir }}/asterisk-{{ asterisk_versao }}"
+  when: ast_precisa_compilar
+  changed_when: true
+
+- name: Instalar binários
+  ansible.builtin.command:
+    cmd: make install
+    chdir: "{{ src_dir }}/asterisk-{{ asterisk_versao }}"
+  when: ast_precisa_compilar
+  changed_when: true
+
+- name: Instalar rotação de logs
+  ansible.builtin.command:
+    cmd: make install-logrotate
+    chdir: "{{ src_dir }}/asterisk-{{ asterisk_versao }}"
+  when: ast_precisa_compilar
+  changed_when: true
+  failed_when: false
+
+# ------------------------------------------------------------------
+# Diretórios, configuração e serviço
+# ------------------------------------------------------------------
+- name: Criar diretórios do Asterisk com dono correto
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: asterisk
+    group: asterisk
+    mode: "0750"
+  loop:
+    - /etc/asterisk
+    - /var/lib/asterisk
+    - /var/log/asterisk
+    - /var/spool/asterisk
+    - /var/run/asterisk
+    - /var/spool/asterisk/monitor
+
+- name: Criar diretório dos .conf gerados pela API
+  ansible.builtin.file:
+    path: "{{ asterisk_gerado_dir }}"
+    state: directory
+    owner: "{{ telium_user }}"
+    group: asterisk
+    mode: "02775"        # setgid: arquivos novos nascem no grupo asterisk
+
+- name: Publicar configuração base do Asterisk
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/asterisk/{{ item }}"
+    owner: asterisk
+    group: asterisk
+    mode: "0640"
+  loop:
+    - asterisk.conf
+    - modules.conf
+    - logger.conf
+    - rtp.conf
+    - http.conf
+    - manager.conf
+    - ari.conf
+    - res_odbc.conf
+    - cdr.conf
+    - cdr_adaptive_odbc.conf
+    - cel.conf
+    - cel_odbc.conf
+    - pjsip.conf
+    - extensions.conf
+    - queues.conf
+    - voicemail.conf
+    - musiconhold.conf
+    - features.conf
+  notify: recarregar asterisk
+
+- name: Criar placeholders dos arquivos gerados (a API sobrescreve)
+  ansible.builtin.copy:
+    dest: "{{ asterisk_gerado_dir }}/{{ item.arquivo }}"
+    content: "{{ item.conteudo }}\n"
+    owner: "{{ telium_user }}"
+    group: asterisk
+    mode: "0640"
+    force: false          # nunca sobrescreve o que a API já gerou
+  loop:
+    - { arquivo: "pjsip.endpoints.conf", conteudo: "; gerado pela API — não edite à mão" }
+    - { arquivo: "pjsip.trunks.conf",    conteudo: "; gerado pela API — não edite à mão" }
+    - { arquivo: "extensions.ramais.conf",  conteudo: "[telium-ramais]\n; gerado pela API" }
+    - { arquivo: "extensions.saida.conf",   conteudo: "[telium-saida]\n; gerado pela API" }
+    - { arquivo: "extensions.entrada.conf", conteudo: "[telium-entrada]\n; gerado pela API" }
+    - { arquivo: "extensions.ura.conf",     conteudo: "[telium-ura]\n; gerado pela API" }
+    - { arquivo: "extensions.filas.conf",   conteudo: "[telium-filas]\n; gerado pela API" }
+    - { arquivo: "extensions.grupos.conf",  conteudo: "[telium-grupos]\n; gerado pela API" }
+    - { arquivo: "queues.conf",             conteudo: "; gerado pela API" }
+    - { arquivo: "voicemail.conf",          conteudo: "; gerado pela API" }
+  loop_control:
+    label: "{{ item.arquivo }}"
+
+- name: Criar arquivos de personalização (nunca tocados pelo gerador)
+  ansible.builtin.copy:
+    dest: "{{ asterisk_gerado_dir }}/{{ item }}"
+    content: "; Personalizações manuais — o gerador da API nunca sobrescreve este arquivo.\n"
+    owner: "{{ telium_user }}"
+    group: asterisk
+    mode: "0660"
+    force: false
+  loop:
+    - pjsip_custom.conf
+    - extensions_custom.conf
+
+- name: Instalar unidade systemd
+  ansible.builtin.template:
+    src: asterisk.service.j2
+    dest: /etc/systemd/system/asterisk.service
+    mode: "0644"
+  notify: recarregar systemd
+
+- name: Habilitar e iniciar o Asterisk
+  ansible.builtin.systemd_service:
+    name: asterisk
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Aguardar o Asterisk responder
+  ansible.builtin.command: asterisk -rx "core show version"
+  register: ast_versao
+  retries: 10
+  delay: 3
+  until: ast_versao.rc == 0
+  changed_when: false
+
+- name: Versão em execução
+  ansible.builtin.debug:
+    msg: "{{ ast_versao.stdout_lines[0] }}"

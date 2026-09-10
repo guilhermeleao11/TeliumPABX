@@ -1,0 +1,141 @@
+---
+- name: Garantir diretório de chaves do apt
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Baixar chave de assinatura do MariaDB
+  ansible.builtin.get_url:
+    url: https://mariadb.org/mariadb_release_signing_key.pgp
+    dest: /tmp/mariadb_signing.key
+    mode: "0644"
+
+- name: Converter chave do MariaDB para keyring binário
+  ansible.builtin.shell:
+    cmd: gpg --dearmor --yes -o /etc/apt/keyrings/mariadb.gpg /tmp/mariadb_signing.key
+    creates: /etc/apt/keyrings/mariadb.gpg
+
+- name: Configurar repositório oficial MariaDB {{ mariadb_versao }}
+  ansible.builtin.deb822_repository:
+    name: mariadb
+    types: [deb]
+    uris: "https://mirror.mariadb.org/repo/{{ mariadb_versao }}/{{ ansible_facts.distribution | lower }}"
+    suites: ["{{ ansible_facts.distribution_release }}"]
+    components: [main]
+    signed_by: /etc/apt/keyrings/mariadb.gpg
+    state: present
+    enabled: true
+
+- name: Atualizar índice do apt após adicionar o repositório
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Instalar MariaDB server e cliente
+  ansible.builtin.apt:
+    name:
+      - mariadb-server
+      - mariadb-client
+      - mariadb-backup
+    state: present
+
+- name: Aplicar configuração do servidor
+  ansible.builtin.template:
+    src: 60-telium.cnf.j2
+    dest: /etc/mysql/mariadb.conf.d/60-telium.cnf
+    mode: "0644"
+  notify: reiniciar mariadb
+
+- name: Garantir MariaDB habilitado e em execução
+  ansible.builtin.service:
+    name: mariadb
+    state: started
+    enabled: true
+
+- name: Aplicar handlers pendentes antes de criar o schema
+  ansible.builtin.meta: flush_handlers
+
+- name: Confirmar versão instalada
+  ansible.builtin.command: mariadbd --version
+  register: mariadb_ver
+  changed_when: false
+
+- name: Mostrar versão do MariaDB
+  ansible.builtin.debug:
+    msg: "{{ mariadb_ver.stdout }}"
+
+- name: Criar banco e usuários da aplicação
+  ansible.builtin.command:
+    cmd: mariadb --protocol=socket -uroot -e "{{ item }}"
+  changed_when: false
+  loop:
+    - >-
+      CREATE DATABASE IF NOT EXISTS `{{ db_nome }}`
+      CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    - >-
+      CREATE USER IF NOT EXISTS '{{ db_usuario }}'@'localhost'
+      IDENTIFIED BY '{{ db_senha }}';
+    - >-
+      ALTER USER '{{ db_usuario }}'@'localhost' IDENTIFIED BY '{{ db_senha }}';
+    - >-
+      GRANT ALL PRIVILEGES ON `{{ db_nome }}`.* TO '{{ db_usuario }}'@'localhost';
+    - >-
+      CREATE USER IF NOT EXISTS '{{ db_cdr_usuario }}'@'localhost'
+      IDENTIFIED BY '{{ db_cdr_senha }}';
+    - >-
+      ALTER USER '{{ db_cdr_usuario }}'@'localhost' IDENTIFIED BY '{{ db_cdr_senha }}';
+    - >-
+      GRANT SELECT, INSERT, UPDATE ON `{{ db_nome }}`.* TO '{{ db_cdr_usuario }}'@'localhost';
+    - FLUSH PRIVILEGES;
+  no_log: true
+
+- name: Copiar scripts de schema
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/tmp/telium-sql/{{ item | basename }}"
+    mode: "0600"
+  loop: "{{ query('fileglob', playbook_dir + '/../sql/*.sql') | sort }}"
+
+- name: Aplicar schema (DDL idempotente)
+  ansible.builtin.shell:
+    cmd: "mariadb --protocol=socket -uroot {{ db_nome }} < /tmp/telium-sql/{{ item | basename }}"
+  loop: "{{ query('fileglob', playbook_dir + '/../sql/*.sql') | sort }}"
+  changed_when: false
+
+- name: Remover scripts temporários
+  ansible.builtin.file:
+    path: /tmp/telium-sql
+    state: absent
+
+# ---------- ODBC (usado pelo Asterisk para gravar CDR/CEL) ----------
+- name: Instalar unixODBC e driver MariaDB
+  ansible.builtin.apt:
+    name:
+      - unixodbc
+      - unixodbc-dev
+      - odbc-mariadb
+    state: present
+
+- name: Configurar driver ODBC
+  ansible.builtin.template:
+    src: odbcinst.ini.j2
+    dest: /etc/odbcinst.ini
+    mode: "0644"
+
+- name: Configurar DSN ODBC do Telium
+  ansible.builtin.template:
+    src: odbc.ini.j2
+    dest: /etc/odbc.ini
+    mode: "0644"
+
+- name: Testar conexão ODBC
+  ansible.builtin.shell:
+    cmd: echo "SELECT 1;" | isql -v telium-cdr {{ db_cdr_usuario }} {{ db_cdr_senha }}
+  register: odbc_teste
+  changed_when: false
+  failed_when: "'Connected!' not in odbc_teste.stdout"
+  no_log: true
+
+- name: Resultado do teste ODBC
+  ansible.builtin.debug:
+    msg: "ODBC telium-cdr conectou com sucesso"

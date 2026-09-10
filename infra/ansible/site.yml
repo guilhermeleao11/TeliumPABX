@@ -1,0 +1,51 @@
+---
+- name: Provisionar o Telium PABX
+  hosts: pabx
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Exigir o arquivo de segredos
+      ansible.builtin.assert:
+        that:
+          - vault_db_senha is defined
+          - vault_db_cdr_senha is defined
+          - vault_ami_senha is defined
+          - vault_ari_senha is defined
+        fail_msg: >-
+          Faltam as senhas. Rode ./gerar-vault.sh (cria group_vars/all/vault.yml
+          com senhas aleatórias) ou copie vault.yml.exemplo para
+          group_vars/all/vault.yml e preencha os valores.
+        success_msg: "Segredos carregados"
+      run_once: true
+
+    - name: Resumo do que será instalado
+      ansible.builtin.debug:
+        msg:
+          - "Alvo ...... {{ inventory_hostname }} ({{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }})"
+          - "Asterisk .. {{ asterisk_versao }} (compilado do fonte)"
+          - "Janus ..... {{ janus_versao }} (compilado do fonte)"
+          - "MariaDB ... {{ mariadb_versao }} (repositório oficial)"
+          - "nginx ..... canal {{ nginx_canal }} (repositório oficial)"
+          - "PHP ....... 8.4 + Slim"
+          - "ATENÇÃO: a compilação do Asterisk leva de 5 a 15 minutos."
+
+  roles:
+    - common
+    - mariadb
+    - php
+    - asterisk
+    - janus
+    - nginx
+    - api
+    - seguranca
+
+  post_tasks:
+    - name: Endereços de acesso
+      ansible.builtin.debug:
+        msg:
+          - "Console ....... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/"
+          - "API ........... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/api/health"
+          - "Janus ......... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/janus/info"
+          - "Usuário demo .. admin / admin (TROQUE)"
+          - "Verificação ... ansible-playbook verificar.yml"

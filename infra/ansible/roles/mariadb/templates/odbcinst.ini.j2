@@ -1,0 +1,5 @@
+; {{ ansible_managed }}
+[MariaDB]
+Description = MariaDB ODBC Connector
+Driver      = /usr/lib/{{ ansible_facts.architecture }}-linux-gnu/odbc/libmaodbc.so
+Threading   = 0

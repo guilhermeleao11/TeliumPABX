@@ -1,0 +1,7 @@
+; Rodar da estação de desenvolvimento contra a VM, por SSH:
+;   ansible-playbook -i inventory/vm.ini site.yml
+[pabx]
+pabx-teste ansible_host=192.168.0.50 ansible_user=guilherme ansible_become_password_file=~/.telium_sudo
+
+[pabx:vars]
+ansible_python_interpreter=/usr/bin/python3

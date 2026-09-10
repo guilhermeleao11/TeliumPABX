@@ -1,0 +1,128 @@
+---
+- name: Conferir se a distribuição é suportada
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.os_family == 'Debian'
+    fail_msg: >-
+      Este playbook foi feito para Debian 13+ (também roda em Ubuntu 24.04 para teste).
+      Detectado: {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}.
+    success_msg: "{{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }} — ok"
+
+- name: Avisar quando não for Debian 13+
+  ansible.builtin.debug:
+    msg: >-
+      ATENÇÃO: alvo homologado é Debian 13 (trixie).
+      Aqui é {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }};
+      os repositórios serão ajustados automaticamente.
+  when: not (ansible_facts.distribution == 'Debian' and ansible_facts.distribution_major_version | int >= 13)
+
+- name: Atualizar índice do apt
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Instalar utilitários base
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - git
+      - rsync
+      - unzip
+      - jq
+      - sudo
+      - chrony
+      - locales
+      - acl
+      - lsof
+      - iproute2
+      - tcpdump
+      - vim
+    state: present
+
+- name: Definir fuso horário
+  ansible.builtin.command: "timedatectl set-timezone {{ pabx_timezone }}"
+  changed_when: false
+  failed_when: false
+
+- name: Gerar locale pt_BR.UTF-8
+  ansible.builtin.lineinfile:
+    path: /etc/locale.gen
+    regexp: '^#?\s*pt_BR.UTF-8 UTF-8'
+    line: 'pt_BR.UTF-8 UTF-8'
+    state: present
+  notify: gerar locales
+
+- name: Criar grupo do sistema Telium
+  ansible.builtin.group:
+    name: "{{ telium_group }}"
+    system: true
+
+- name: Criar usuário de serviço Telium
+  ansible.builtin.user:
+    name: "{{ telium_user }}"
+    group: "{{ telium_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ telium_base }}"
+    create_home: false
+
+- name: Criar diretórios da aplicação
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ telium_user }}"
+    group: "{{ telium_group }}"
+    mode: "0755"
+  loop:
+    - "{{ telium_base }}"
+    - "{{ telium_web }}"
+    - "{{ telium_api }}"
+    - "{{ telium_etc }}"
+    - "{{ telium_log }}"
+    - "{{ src_dir }}"
+
+- name: Registrar hostname do PABX em /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '\s{{ pabx_hostname }}$'
+    line: "127.0.1.1 {{ pabx_hostname }}"
+    state: present
+
+# ------------------------------------------------------------------
+# Certificado TLS (nginx e Janus usam o mesmo par)
+# ------------------------------------------------------------------
+- name: Instalar pacote ssl-cert (fornece o grupo ssl-cert)
+  ansible.builtin.apt:
+    name: ssl-cert
+    state: present
+
+- name: Criar diretório de certificados
+  ansible.builtin.file:
+    path: /etc/ssl/telium
+    state: directory
+    owner: root
+    group: ssl-cert
+    mode: "0750"
+
+- name: Gerar certificado autoassinado para o laboratório
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -x509 -nodes -newkey rsa:2048 -days 825
+      -keyout {{ tls_key }} -out {{ tls_cert }}
+      -subj "/C=BR/ST=SP/L=Sao Paulo/O={{ pabx_empresa }}/CN={{ pabx_hostname }}"
+      -addext "subjectAltName=DNS:{{ pabx_hostname }},DNS:localhost,IP:127.0.0.1,IP:{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}"
+    creates: "{{ tls_cert }}"
+  when: tls_autoassinado
+
+- name: Ajustar permissões do certificado
+  ansible.builtin.file:
+    path: "{{ item.caminho }}"
+    owner: root
+    group: ssl-cert
+    mode: "{{ item.modo }}"
+  loop:
+    - { caminho: "{{ tls_cert }}", modo: "0644" }
+    - { caminho: "{{ tls_key }}",  modo: "0640" }
+  when: tls_autoassinado

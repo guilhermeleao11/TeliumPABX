@@ -1,0 +1,20 @@
+{
+    "name": "telium/pabx-api",
+    "description": "API do console Telium PABX",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.3",
+        "ext-pdo": "*",
+        "ext-json": "*",
+        "slim/slim": "^4.14",
+        "slim/psr7": "^1.6"
+    },
+    "autoload": {
+        "psr-4": { "Telium\\": "src/" }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}

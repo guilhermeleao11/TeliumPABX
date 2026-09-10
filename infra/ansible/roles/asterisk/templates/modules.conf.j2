@@ -1,0 +1,14 @@
+; {{ ansible_managed }}
+[modules]
+autoload = yes
+
+; Canais que não usamos nesta instalação
+noload => chan_dahdi.so
+noload => chan_iax2.so
+noload => chan_mgcp.so
+noload => chan_skinny.so
+noload => chan_unistim.so
+
+; Sem realtime: a configuração vem de arquivos gerados pela API
+noload => res_config_curl.so
+noload => res_config_ldap.so

@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Janus WebRTC Gateway (Telium)
+After=network-online.target asterisk.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=janus
+Group=janus
+ExecStart={{ janus_prefix }}/bin/janus -F {{ janus_prefix }}/etc/janus
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths={{ janus_prefix }}/share/janus
+
+[Install]
+WantedBy=multi-user.target

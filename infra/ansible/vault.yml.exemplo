@@ -1,0 +1,15 @@
+---
+# =========================================================
+# Segredos do provisionamento.
+#
+# Copie para group_vars/all/vault.yml e troque TODOS os valores,
+# ou rode ./gerar-vault.sh para criar o arquivo com senhas aleatórias.
+#
+# Esse arquivo NUNCA vai para o Git (veja .gitignore).
+# Em produção, cifre com:  ansible-vault encrypt group_vars/all/vault.yml
+# =========================================================
+
+vault_db_senha: "troque-esta-senha"        # usuário telium do MariaDB
+vault_db_cdr_senha: "troque-esta-senha"    # usuário ODBC que grava CDR/CEL
+vault_ami_senha: "troque-esta-senha"       # AMI — a API usa para aplicar config
+vault_ari_senha: "troque-esta-senha"       # ARI

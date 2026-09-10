@@ -1,0 +1,138 @@
+---
+# Diagnóstico completo da instalação.
+#   ansible-playbook verificar.yml
+# Rode e cole a saída — é o suficiente para eu entender o que falhou.
+- name: Verificar a instalação do Telium PABX
+  hosts: pabx
+  become: true
+  gather_facts: true
+
+  tasks:
+    # ---------------- serviços ----------------
+    - name: Estado dos serviços
+      ansible.builtin.command: "systemctl is-active {{ item }}"
+      loop: [mariadb, php8.4-fpm, asterisk, janus, nginx, fail2ban]
+      register: servicos
+      changed_when: false
+      failed_when: false
+
+    - name: Resumo dos serviços
+      ansible.builtin.debug:
+        msg: "{{ servicos.results | map(attribute='item') | zip(servicos.results | map(attribute='stdout')) | map('join', ' ... ') | list }}"
+
+    # ---------------- versões ----------------
+    - name: Versões instaladas
+      ansible.builtin.shell: "{{ item }}"
+      loop:
+        - "mariadbd --version | head -1"
+        - "php -v | head -1"
+        - "nginx -v 2>&1"
+        - "asterisk -V"
+        - "{{ janus_prefix }}/bin/janus --version 2>&1 | head -1"
+      register: versoes
+      changed_when: false
+      failed_when: false
+
+    - name: Resumo das versões
+      ansible.builtin.debug:
+        msg: "{{ versoes.results | map(attribute='stdout') | select('string') | list }}"
+
+    # ---------------- portas ----------------
+    - name: Portas em escuta
+      ansible.builtin.shell: "ss -lntup | grep -E ':({{ sip_porta }}|3306|443|80|{{ janus_http_porta }}|{{ janus_ws_porta }}|{{ ast_http_porta }}|{{ ami_porta }})\\b' || true"
+      register: portas
+      changed_when: false
+
+    - name: Resumo das portas
+      ansible.builtin.debug:
+        var: portas.stdout_lines
+
+    # ---------------- banco ----------------
+    - name: Contagem de registros nas tabelas principais
+      ansible.builtin.command:
+        cmd: >-
+          mariadb --protocol=socket -uroot -N -B {{ db_nome }} -e
+          "SELECT 'usuarios', COUNT(*) FROM usuarios
+           UNION ALL SELECT 'ramais', COUNT(*) FROM ramais
+           UNION ALL SELECT 'troncos', COUNT(*) FROM troncos
+           UNION ALL SELECT 'filas', COUNT(*) FROM filas
+           UNION ALL SELECT 'rotas_saida', COUNT(*) FROM rotas_saida
+           UNION ALL SELECT 'cdr', COUNT(*) FROM cdr;"
+      register: db_contagem
+      changed_when: false
+      failed_when: false
+
+    - name: Resumo do banco
+      ansible.builtin.debug:
+        var: db_contagem.stdout_lines
+
+    # ---------------- asterisk ----------------
+    - name: Diagnóstico do Asterisk
+      ansible.builtin.shell: "asterisk -rx '{{ item }}'"
+      loop:
+        - "core show version"
+        - "pjsip show endpoints"
+        - "pjsip show registrations"
+        - "odbc show all"
+        - "dialplan show interno"
+        - "queue show"
+        - "module show like odbc"
+      register: ast_diag
+      changed_when: false
+      failed_when: false
+
+    - name: Resumo do Asterisk
+      ansible.builtin.debug:
+        msg: "{{ item.item }}:\n{{ item.stdout }}"
+      loop: "{{ ast_diag.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    # ---------------- janus ----------------
+    - name: Janus responde?
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ janus_http_porta }}/janus/info"
+        return_content: true
+      register: janus_info
+      failed_when: false
+
+    - name: Resumo do Janus
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Janus ' ~ janus_info.json.version_string ~ ' — plugins: '
+             ~ (janus_info.json.plugins.keys() | list | join(', '))
+             if janus_info.status | default(0) == 200 else 'Janus NÃO respondeu' }}
+
+    # ---------------- API ----------------
+    - name: API responde?
+      ansible.builtin.uri:
+        url: "https://127.0.0.1/api/health"
+        validate_certs: false
+        return_content: true
+      register: api_health
+      failed_when: false
+
+    - name: Resumo da API
+      ansible.builtin.debug:
+        msg: "{{ api_health.content | default('API NÃO respondeu') }}"
+
+    # ---------------- arquivos gerados ----------------
+    - name: Arquivos .conf gerados pela API
+      ansible.builtin.shell: "ls -la {{ asterisk_gerado_dir }} && head -20 {{ asterisk_gerado_dir }}/pjsip.endpoints.conf"
+      register: gerados
+      changed_when: false
+      failed_when: false
+
+    - name: Resumo dos arquivos gerados
+      ansible.builtin.debug:
+        var: gerados.stdout_lines
+
+    # ---------------- erros recentes ----------------
+    - name: Últimos erros do Asterisk
+      ansible.builtin.shell: "tail -30 /var/log/asterisk/messages 2>/dev/null | grep -iE 'error|warning' || echo '(sem erros recentes)'"
+      register: ast_erros
+      changed_when: false
+
+    - name: Erros recentes
+      ansible.builtin.debug:
+        var: ast_erros.stdout_lines

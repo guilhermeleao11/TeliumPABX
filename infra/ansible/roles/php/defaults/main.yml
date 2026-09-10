@@ -1,0 +1,12 @@
+---
+ajustes_php:
+  - { chave: "date.timezone",        valor: "America/Sao_Paulo" }
+  - { chave: "memory_limit",         valor: "256M" }
+  - { chave: "upload_max_filesize",  valor: "64M" }
+  - { chave: "post_max_size",        valor: "64M" }
+  - { chave: "max_execution_time",   valor: "60" }
+  - { chave: "expose_php",           valor: "Off" }
+  - { chave: "opcache.enable",       valor: "1" }
+  - { chave: "opcache.memory_consumption", valor: "128" }
+  - { chave: "opcache.max_accelerated_files", valor: "20000" }
+  - { chave: "opcache.validate_timestamps", valor: "1" }

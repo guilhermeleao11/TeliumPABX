@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Console · Telium PABX</title>
+<link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg">
+<link rel="alternate icon" type="image/png" href="assets/img/favicon.png">
+<link rel="apple-touch-icon" href="assets/img/favicon.png">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/app.css">
+<link rel="stylesheet" href="assets/css/components.css">
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- ======================= SIDEBAR ======================= -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-head">
+      <div class="sb-mark" id="sbMark"></div>
+      <div class="sb-title">
+        <b>TELIUM<span>PABX</span></b>
+        <small>AllWaysON · Console 3.4.1</small>
+      </div>
+    </div>
+
+    <div class="sb-search">
+      <div class="input-icon">
+        <svg class="ico ico-sm" viewBox="0 0 24 24" id="sbSearchIco"></svg>
+        <input class="input" id="sbSearch" placeholder="Filtrar módulos…" aria-label="Filtrar módulos">
+      </div>
+    </div>
+
+    <nav class="sb-nav" id="sbNav" aria-label="Navegação principal"></nav>
+
+    <div class="sb-foot">
+      <div class="sb-status">
+        <i class="dot dot-pulse"></i>
+        <span class="grow"><b>Asterisk 20.9.2</b><br><span style="opacity:.7">27 canais ativos</span></span>
+      </div>
+      <button class="sb-collapse" id="sbCollapse" title="Recolher menu (tecla [)">
+        <svg class="ico" viewBox="0 0 24 24" id="sbCollapseIco"></svg>
+        <span class="lbl">Recolher menu</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ======================= PRINCIPAL ======================= -->
+  <div class="main">
+    <header class="header">
+      <button class="icon-btn hamburger" id="hamburger" aria-label="Abrir menu">
+        <svg class="ico" viewBox="0 0 24 24" id="hamIco"></svg>
+      </button>
+
+      <nav class="crumbs" id="crumbs" aria-label="Trilha de navegação"></nav>
+
+
+      <div class="h-search">
+        <div class="input-icon">
+          <svg class="ico ico-sm" viewBox="0 0 24 24" id="hSearchIco"></svg>
+          <input class="input" id="hSearch" placeholder="Buscar módulo…" aria-label="Buscar módulo">
+          <kbd>/</kbd>
+        </div>
+        <div class="h-results" id="hResults" hidden></div>
+      </div>
+
+      <div class="h-actions">
+        <button class="icon-btn" id="paletteBtn" title="Buscar (Ctrl+K)" aria-label="Paleta de comandos">
+          <svg class="ico" viewBox="0 0 24 24" id="palIco"></svg>
+        </button>
+        <button class="icon-btn" id="phoneBtn" title="Softphone" aria-label="Abrir softphone">
+          <svg class="ico" viewBox="0 0 24 24" id="phoneIco"></svg>
+        </button>
+        <button class="icon-btn" id="themeBtn" title="Alternar tema" aria-label="Alternar tema">
+          <span data-theme-icon></span>
+        </button>
+
+        <div class="dd">
+          <button class="icon-btn" data-dd="notifMenu" title="Notificações" aria-label="Notificações">
+            <svg class="ico" viewBox="0 0 24 24" id="bellIco"></svg>
+            <i class="badge-dot"></i>
+          </button>
+          <div class="dd-panel wide" id="notifMenu" hidden></div>
+        </div>
+
+        <span class="h-sep"></span>
+
+        <div class="dd">
+          <button class="user-btn" id="userBtn" data-dd="userMenu" aria-label="Menu do usuário"></button>
+          <div class="dd-panel" id="userMenu" hidden></div>
+        </div>
+      </div>
+    </header>
+
+    <main class="content" id="content"></main>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/data.js"></script>
+<script src="assets/js/auth.js"></script>
+<script src="assets/js/ui.js"></script>
+<script src="assets/js/pages.js"></script>
+<script src="assets/js/pages2.js"></script>
+<script src="assets/js/app.js"></script>
+<script>
+  document.getElementById('sbMark').innerHTML        = TELIUM_MARK;
+  document.getElementById('sbSearchIco').innerHTML   = ICONS.search;
+  document.getElementById('sbCollapseIco').innerHTML = ICONS.chevronL;
+  document.getElementById('hamIco').innerHTML        = ICONS.menu;
+  document.getElementById('hSearchIco').innerHTML    = ICONS.search;
+  document.getElementById('bellIco').innerHTML       = ICONS.bell;
+  document.getElementById('palIco').innerHTML        = ICONS.search;
+  document.getElementById('phoneIco').innerHTML      = ICONS.headset;
+</script>
+</body>
+</html>

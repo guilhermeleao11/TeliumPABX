@@ -1,0 +1,10 @@
+; {{ ansible_managed }}
+[telium-cdr]
+Description = Telium PABX — CDR/CEL
+Driver      = MariaDB
+Server      = 127.0.0.1
+Port        = 3306
+Database    = {{ db_nome }}
+User        = {{ db_cdr_usuario }}
+Password    = {{ db_cdr_senha }}
+Charset     = utf8mb4

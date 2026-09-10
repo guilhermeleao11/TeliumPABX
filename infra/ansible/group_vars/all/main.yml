@@ -1,0 +1,79 @@
+---
+# =========================================================
+# Telium PABX — variáveis do provisionamento
+# Configuração NÃO sensível — este arquivo vai para o Git.
+# As senhas ficam em group_vars/all/vault.yml (fora do controle de versão).
+# Gere-as com: ./gerar-vault.sh
+# =========================================================
+
+# ---------- versões fixadas ----------
+asterisk_versao: "22.11.0"
+asterisk_sha_url: "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-{{ asterisk_versao }}.tar.gz.sha256"
+janus_versao: "v1.4.1"
+mariadb_versao: "12.3.3"
+nginx_canal: "mainline"          # mainline = 1.31.x
+
+# ---------- identidade da central ----------
+pabx_hostname: "pabx.telium.local"
+pabx_empresa: "Telium Networks"
+pabx_timezone: "America/Sao_Paulo"
+pabx_locale: "pt_BR.UTF-8"
+
+# ---------- caminhos ----------
+telium_base: /opt/telium
+telium_web: "{{ telium_base }}/web"          # front-end estático
+telium_api: "{{ telium_base }}/api"          # API PHP (Slim)
+telium_etc: /etc/telium
+telium_log: /var/log/telium
+asterisk_conf_dir: /etc/asterisk
+asterisk_gerado_dir: /etc/asterisk/telium    # .conf gerados pela API
+src_dir: /usr/local/src/telium
+
+# ---------- usuários de sistema ----------
+telium_user: telium
+telium_group: telium
+
+# ---------- banco ----------
+db_nome: telium_pabx
+db_usuario: telium
+db_senha: "{{ vault_db_senha }}"
+db_cdr_usuario: asteriskcdr
+db_cdr_senha: "{{ vault_db_cdr_senha }}"
+db_root_socket: true                         # root via unix_socket (padrão MariaDB)
+
+# ---------- rede / portas ----------
+sip_porta: 5060
+sip_tls_porta: 5061
+ast_rtp_inicio: 10000
+ast_rtp_fim: 10200
+ast_http_porta: 8090                         # ARI/HTTP do Asterisk (8088 é do Janus)
+ami_porta: 5038
+ami_usuario: telium
+ami_senha: "{{ vault_ami_senha }}"
+ari_usuario: telium
+ari_senha: "{{ vault_ari_senha }}"
+
+janus_http_porta: 8088
+janus_ws_porta: 8188
+janus_admin_porta: 7088
+janus_rtp_inicio: 20000
+janus_rtp_fim: 20200
+janus_prefix: /opt/janus
+
+# IP público/NAT — deixe vazio em rede local simples
+nat_ip_publico: ""
+redes_locais:
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+
+# ---------- TLS ----------
+tls_autoassinado: true                       # true = gera certificado local para teste
+tls_cert: /etc/ssl/telium/pabx.crt
+tls_key: /etc/ssl/telium/pabx.key
+
+# ---------- opções de execução ----------
+compilar_asterisk: true                      # false pula a compilação (VM já provisionada)
+compilar_janus: true
+instalar_firewall: true
+sons_pt_br: true

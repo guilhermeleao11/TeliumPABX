@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+# O navegador registra o ramal por aqui; o Janus fala SIP puro com o Asterisk.
+general: {
+        local_ip = "127.0.0.1"
+        keepalive_interval = 120
+        behind_nat = false
+        user_agent = "Telium PABX (Janus SIP)"
+        register_ttl = 3600
+        rtp_port_range = "{{ janus_rtp_inicio }}-{{ janus_rtp_fim }}"
+        events = true
+}

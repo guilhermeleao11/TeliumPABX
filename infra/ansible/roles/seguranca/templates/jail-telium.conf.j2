@@ -1,0 +1,30 @@
+# {{ ansible_managed }}
+[DEFAULT]
+bantime  = 1h
+findtime = 10m
+maxretry = 5
+backend  = auto
+
+[asterisk]
+enabled  = true
+port     = {{ sip_porta }},{{ sip_tls_porta }}
+protocol = udp
+filter   = asterisk
+logpath  = /var/log/asterisk/security
+maxretry = 5
+bantime  = 24h
+
+[asterisk-tcp]
+enabled  = true
+port     = {{ sip_porta }},{{ sip_tls_porta }}
+protocol = tcp
+filter   = asterisk
+logpath  = /var/log/asterisk/security
+maxretry = 5
+bantime  = 24h
+
+[nginx-http-auth]
+enabled = true
+
+[sshd]
+enabled = true

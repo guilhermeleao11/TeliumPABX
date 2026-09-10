@@ -1,0 +1,11 @@
+; {{ ansible_managed }}
+[general]
+enabled = yes
+pretty  = no
+allowed_origins = https://{{ pabx_hostname }}
+
+[{{ ari_usuario }}]
+type     = user
+read_only = no
+password = {{ ari_senha }}
+password_format = plain
