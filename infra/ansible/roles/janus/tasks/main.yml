@@ -135,6 +135,14 @@
     - "{{ janus_prefix }}/share/janus/recordings"
   failed_when: false
 
+- name: Criar diretório de bibliotecas do front-end
+  ansible.builtin.file:
+    path: "{{ telium_web }}/assets/js/vendor"
+    state: directory
+    owner: "{{ telium_user }}"
+    group: "{{ telium_group }}"
+    mode: "0755"
+
 - name: Publicar janus.js para o front-end
   ansible.builtin.copy:
     src: "{{ src_dir }}/janus-gateway/html/janus.js"
@@ -143,7 +151,15 @@
     owner: "{{ telium_user }}"
     group: "{{ telium_group }}"
     mode: "0644"
+  register: janus_js
   failed_when: false
+
+- name: Aviso se o janus.js não pôde ser publicado
+  ansible.builtin.debug:
+    msg: >-
+      Não foi possível copiar o janus.js do fonte. O softphone precisará
+      dessa biblioteca; verifique {{ src_dir }}/janus-gateway/html/janus.js
+  when: janus_js is failed
 
 - name: Instalar unidade systemd do Janus
   ansible.builtin.template:

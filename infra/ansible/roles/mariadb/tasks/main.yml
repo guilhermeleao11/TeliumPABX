@@ -89,6 +89,14 @@
     - FLUSH PRIVILEGES;
   no_log: true
 
+- name: Criar diretório temporário para os scripts de schema
+  ansible.builtin.file:
+    path: /tmp/telium-sql
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
 - name: Copiar scripts de schema
   ansible.builtin.copy:
     src: "{{ item }}"
