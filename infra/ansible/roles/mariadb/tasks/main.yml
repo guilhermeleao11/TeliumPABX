@@ -165,14 +165,22 @@
     dest: /etc/odbc.ini
     mode: "0644"
 
+# O usuário e a senha já estão no DSN (/etc/odbc.ini), então não vão na
+# linha de comando — e sem no_log o resultado registrado continua legível.
 - name: Testar conexão ODBC
   ansible.builtin.shell:
-    cmd: echo "SELECT 1;" | isql -v telium-cdr {{ db_cdr_usuario }} {{ db_cdr_senha }}
+    cmd: echo "SELECT 1;" | isql -v telium-cdr
   register: odbc_teste
   changed_when: false
-  failed_when: "'Connected!' not in odbc_teste.stdout"
-  no_log: true
+  failed_when: false
 
-- name: Resultado do teste ODBC
-  ansible.builtin.debug:
-    msg: "ODBC telium-cdr conectou com sucesso"
+- name: Falhar se o ODBC não conectar
+  ansible.builtin.assert:
+    that: "'Connected!' in odbc_teste.stdout"
+    fail_msg: >-
+      O Asterisk grava CDR e CEL por ODBC e o DSN telium-cdr não conectou.
+      Saída do isql: {{ odbc_teste.stdout | default('') }}
+      {{ odbc_teste.stderr | default('') }}
+    success_msg: "DSN telium-cdr conectou"
+
+
