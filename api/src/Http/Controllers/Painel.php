@@ -220,15 +220,7 @@ final class Painel
 
     private function ami(string $comando): ?string
     {
-        try {
-            $ami = Ami::doAmbiente();
-            $ami->conectar();
-            $saida = $ami->comando($comando);
-            $ami->desconectar();
-            return $saida;
-        } catch (\Throwable) {
-            return null;
-        }
+        return Ami::tentarComando($comando);
     }
 
     private function duracao(int $segundos): string

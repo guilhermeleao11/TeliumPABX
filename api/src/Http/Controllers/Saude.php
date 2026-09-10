@@ -60,10 +60,7 @@ final class Saude
     private function asterisk(): array
     {
         try {
-            $ami = Ami::doAmbiente();
-            $ami->conectar();
-            $saida = $ami->comando('core show version');
-            $ami->desconectar();
+            $saida = Ami::compartilhada()->comando('core show version');
 
             preg_match('/Asterisk\s+\S+/', $saida, $m);
 

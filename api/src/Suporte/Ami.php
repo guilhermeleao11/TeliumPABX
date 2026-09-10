@@ -5,19 +5,25 @@ namespace Telium\Suporte;
 
 /**
  * Cliente AMI enxuto: login, ação, logoff.
- * Usado para aplicar configuração e originar chamadas — não para
- * consumir o fluxo de eventos (isso será um daemon separado).
+ *
+ * Usado para aplicar configuração, ler o estado do Asterisk e originar
+ * chamadas — não para consumir o fluxo de eventos, que será um daemon
+ * à parte.
  */
 final class Ami
 {
     private $socket = null;
+
+    /** Conexão compartilhada pela requisição inteira. */
+    private static ?self $compartilhada = null;
+    private static ?\Throwable $falha = null;
 
     public function __construct(
         private readonly string $host = '127.0.0.1',
         private readonly int $porta = 5038,
         private readonly string $usuario = '',
         private readonly string $senha = '',
-        private readonly float $timeout = 5.0,
+        private readonly float $timeout = 3.0,
     ) {
     }
 
@@ -31,6 +37,49 @@ final class Ami
         );
     }
 
+    /**
+     * Uma única conexão por requisição.
+     *
+     * Antes cada consulta abria a sua, e uma central fora do ar fazia a
+     * página pagar o custo várias vezes. Aqui a primeira falha é lembrada
+     * e as chamadas seguintes falham de imediato.
+     */
+    public static function compartilhada(): self
+    {
+        if (self::$falha !== null) {
+            throw self::$falha;
+        }
+        if (self::$compartilhada instanceof self) {
+            return self::$compartilhada;
+        }
+
+        $ami = self::doAmbiente();
+        try {
+            $ami->conectar();
+        } catch (\Throwable $e) {
+            self::$falha = $e;
+            throw $e;
+        }
+
+        self::$compartilhada = $ami;
+        register_shutdown_function(static function (): void {
+            self::$compartilhada?->desconectar();
+            self::$compartilhada = null;
+        });
+
+        return $ami;
+    }
+
+    /** Executa um comando de CLI na conexão compartilhada, ou null se o AMI estiver fora. */
+    public static function tentarComando(string $comando): ?string
+    {
+        try {
+            return self::compartilhada()->comando($comando);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
     public function conectar(): void
     {
         $erro = 0;
@@ -40,11 +89,20 @@ final class Ami
             throw new \RuntimeException("AMI indisponível em {$this->host}:{$this->porta} — {$msg}");
         }
         stream_set_timeout($this->socket, (int) $this->timeout);
-        $this->ler();                                   // banner de boas-vindas
+
+        // O banner é UMA linha ("Asterisk Call Manager/x.y.z") e não termina
+        // com linha em branco. Ler com o leitor de pacotes esperava o timeout
+        // inteiro a cada conexão.
+        $banner = fgets($this->socket, 1024);
+        if ($banner === false) {
+            $this->desconectar();
+            throw new \RuntimeException('O AMI aceitou a conexão mas não enviou o banner.');
+        }
 
         $r = $this->acao(['Action' => 'Login', 'Username' => $this->usuario, 'Secret' => $this->senha]);
         if (!str_contains($r, 'Success')) {
-            throw new \RuntimeException('AMI recusou as credenciais: ' . trim($r));
+            $this->desconectar();
+            throw new \RuntimeException('AMI recusou as credenciais: ' . $this->resumo($r));
         }
     }
 
@@ -58,10 +116,10 @@ final class Ami
             $pacote .= "{$chave}: {$valor}\r\n";
         }
         fwrite($this->socket, $pacote . "\r\n");
+
         return $this->ler();
     }
 
-    /** Executa um comando de CLI (equivalente a asterisk -rx). */
     public function comando(string $comando): string
     {
         return $this->acao(['Action' => 'Command', 'Command' => $comando]);
@@ -76,20 +134,38 @@ final class Ami
         }
     }
 
+    /** Lê um pacote do AMI: termina na linha em branco. */
     private function ler(): string
     {
         $buffer = '';
-        $fim = microtime(true) + $this->timeout;
-        while (microtime(true) < $fim) {
-            $linha = fgets($this->socket, 4096);
+        $limite = microtime(true) + $this->timeout;
+
+        while (microtime(true) < $limite) {
+            $linha = fgets($this->socket, 8192);
+
             if ($linha === false) {
-                break;
+                break;                                   // timeout de leitura ou conexão encerrada
             }
+
             $buffer .= $linha;
-            if (str_ends_with($buffer, "\r\n\r\n") || str_ends_with($buffer, "--END COMMAND--\r\n\r\n")) {
+
+            // Fim de pacote: linha em branco. O Asterisk usa CRLF, mas
+            // aceitamos LF puro por segurança.
+            if (str_ends_with($buffer, "\r\n\r\n") || str_ends_with($buffer, "\n\n")) {
                 break;
             }
         }
+
         return $buffer;
+    }
+
+    private function resumo(string $resposta): string
+    {
+        foreach (explode("\n", $resposta) as $linha) {
+            if (str_starts_with($linha, 'Message:')) {
+                return trim(substr($linha, 8));
+            }
+        }
+        return trim($resposta);
     }
 }

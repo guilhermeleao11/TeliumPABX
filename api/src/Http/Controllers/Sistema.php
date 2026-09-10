@@ -41,12 +41,10 @@ final class Sistema
 
         $saidas = [];
         try {
-            $ami = Ami::doAmbiente();
-            $ami->conectar();
+            $ami = Ami::compartilhada();
             foreach ($comandos as $c) {
                 $saidas[$c] = $this->limparResposta($ami->comando($c));
             }
-            $ami->desconectar();
         } catch (\Throwable $e) {
             return Resposta::erro($res, 'Asterisk indisponível: ' . $e->getMessage(), 503);
         }
@@ -66,11 +64,9 @@ final class Sistema
         $canais = [];
         $estadoFilas = [];
         try {
-            $ami = Ami::doAmbiente();
-            $ami->conectar();
+            $ami = Ami::compartilhada();
             $canais = $this->canais($this->limparResposta($ami->comando('core show channels concise')));
             $estadoFilas = $this->filas($this->limparResposta($ami->comando('queue show')));
-            $ami->desconectar();
         } catch (\Throwable) {
             // Asterisk fora do ar: devolvemos o cadastro sem os números ao vivo
         }
@@ -151,11 +147,9 @@ final class Sistema
     private function asterisk(): array
     {
         try {
-            $ami = Ami::doAmbiente();
-            $ami->conectar();
+            $ami = Ami::compartilhada();
             $versao = $this->limparResposta($ami->comando('core show version'));
             $canais = $this->limparResposta($ami->comando('core show channels'));
-            $ami->desconectar();
 
             preg_match('/Asterisk\s+(\S+)/', $versao, $v);
             preg_match('/(\d+)\s+active channel/i', $canais, $c);

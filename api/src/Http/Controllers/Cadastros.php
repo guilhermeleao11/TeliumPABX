@@ -110,6 +110,88 @@ final class Cadastros
         return $this->empresa($req, $res);
     }
 
+    /**
+     * POST /api/usuarios — criação de usuário.
+     *
+     * Fica fora do CRUD genérico porque senha_hash é obrigatório e nunca
+     * pode vir do cliente em texto puro por um caminho comum. Se nenhuma
+     * senha for enviada, a conta nasce com uma senha aleatória que ninguém
+     * conhece: é inutilizável até alguém definir uma.
+     */
+    public function criarUsuario(Request $req, Response $res): Response
+    {
+        $corpo = (array) $req->getParsedBody();
+
+        $usuario = trim((string) ($corpo['usuario'] ?? ''));
+        $nome = trim((string) ($corpo['nome'] ?? ''));
+        $perfilId = (int) ($corpo['perfil_id'] ?? 0);
+
+        if ($usuario === '' || $nome === '') {
+            return Resposta::erro($res, 'Informe o nome e o usuário de login', 422);
+        }
+        if (!preg_match('/^[a-z0-9._-]{3,64}$/i', $usuario)) {
+            return Resposta::erro(
+                $res,
+                'O usuário de login aceita letras, números, ponto, hífen e sublinhado (3 a 64 caracteres)',
+                422
+            );
+        }
+        if (Bd::valor('SELECT COUNT(*) FROM usuarios WHERE usuario = ?', [$usuario]) > 0) {
+            return Resposta::erro($res, "Já existe uma conta com o usuário {$usuario}", 409);
+        }
+        if (Bd::valor('SELECT COUNT(*) FROM perfis WHERE id = ?', [$perfilId]) === 0) {
+            return Resposta::erro($res, 'Escolha um perfil de acesso válido', 422);
+        }
+
+        $senha = (string) ($corpo['senha'] ?? '');
+        if ($senha !== '' && mb_strlen($senha) < 10) {
+            return Resposta::erro($res, 'A senha precisa de pelo menos 10 caracteres', 422);
+        }
+
+        // Sem senha informada, a conta nasce inacessível até alguém definir uma.
+        $semSenha = $senha === '';
+        $hash = Senha::criar($semSenha ? bin2hex(random_bytes(24)) : $senha);
+
+        $status = (string) ($corpo['status'] ?? 'ativo');
+        if (!in_array($status, ['ativo', 'inativo', 'bloqueado'], true)) {
+            $status = 'ativo';
+        }
+
+        Bd::executar(
+            'INSERT INTO usuarios (usuario, nome, email, senha_hash, perfil_id, ramal, setor, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                $usuario,
+                $nome,
+                ($corpo['email'] ?? '') ?: null,
+                $hash,
+                $perfilId,
+                ($corpo['ramal'] ?? '') ?: null,
+                ($corpo['setor'] ?? '') ?: null,
+                $status,
+            ]
+        );
+
+        $id = (int) Bd::conexao()->lastInsertId();
+
+        Auditoria::registrar(
+            $req->getAttribute('usuario'),
+            'criar',
+            'admin.usuarios',
+            $usuario,
+            ['perfil_id' => $perfilId, 'senha_definida' => !$semSenha],
+            $req->getServerParams()['REMOTE_ADDR'] ?? null
+        );
+
+        $criado = Bd::um(
+            'SELECT id, usuario, nome, email, perfil_id, ramal, setor, status FROM usuarios WHERE id = ?',
+            [$id]
+        );
+        $criado['precisa_senha'] = $semSenha;
+
+        return Resposta::json($res, $criado, 201);
+    }
+
     /** POST /api/usuarios/{id}/senha — define a senha de um usuário */
     public function trocarSenha(Request $req, Response $res, array $args): Response
     {

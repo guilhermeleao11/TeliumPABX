@@ -247,6 +247,8 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/empresa', [Cadastros::class, 'empresa']);
     $g->put('/empresa', [Cadastros::class, 'salvarEmpresa'])
       ->add(new Permissao('cfg.empresa', 'editar'));
+    $g->post('/usuarios', [Cadastros::class, 'criarUsuario'])
+      ->add(new Permissao('admin.usuarios', 'criar'));
     $g->post('/usuarios/{id}/senha', [Cadastros::class, 'trocarSenha'])
       ->add(new Permissao('admin.usuarios', 'editar'));
     $g->get('/ramais/{id}/credenciais', [Cadastros::class, 'credenciaisRamal'])
@@ -266,7 +268,11 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
 
         $g->get("/{$caminho}", [$r, 'listar'])->add(new Permissao($modulo));
         $g->get("/{$caminho}/{id}", [$r, 'obter'])->add(new Permissao($modulo));
-        $g->post("/{$caminho}", [$r, 'criar'])->add(new Permissao($modulo, 'criar'));
+
+        // usuarios tem criação própria (senha), declarada acima
+        if ($caminho !== 'usuarios') {
+            $g->post("/{$caminho}", [$r, 'criar'])->add(new Permissao($modulo, 'criar'));
+        }
         $g->put("/{$caminho}/{id}", [$r, 'atualizar'])->add(new Permissao($modulo, 'editar'));
         $g->delete("/{$caminho}/{id}", [$r, 'remover'])->add(new Permissao($modulo, 'excluir'));
     }

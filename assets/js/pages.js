@@ -958,7 +958,7 @@ PAGES['admin.usuarios'] = {
       const novo = !u;
       Drawer.open({
         titulo: novo ? 'Novo usuário' : `Editar ${u.nome}`,
-        sub: novo ? 'A senha é definida logo após a criação.' : '',
+        sub: novo ? 'Defina a senha agora: a conta só entra depois disso.' : '',
         corpo: `<div class="form-grid">
           ${campoHtml({ campo:'nome', label:'Nome completo', obrigatorio:true }, u || {})}
           ${campoHtml({ campo:'usuario', label:'Usuário de login', obrigatorio:true, mono:true,
@@ -971,29 +971,49 @@ PAGES['admin.usuarios'] = {
           ${campoHtml({ campo:'status', label:'Estado', tipo:'select',
                         opcoes:[{valor:'ativo',rotulo:'Ativo'},{valor:'inativo',rotulo:'Inativo'},
                                 {valor:'bloqueado',rotulo:'Bloqueado'}] }, u || {})}
+          ${novo ? `
+            <div class="field full"><label class="label">Senha de acesso *</label>
+              <input class="input" type="password" name="senha" autocomplete="new-password"
+                     placeholder="mínimo 10 caracteres">
+              <span class="hint">A conta só consegue entrar depois que uma senha for definida.</span></div>
+            <div class="field full"><label class="label">Repetir a senha *</label>
+              <input class="input" type="password" name="senha2" autocomplete="new-password"></div>` : ''}
         </div>`,
         rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
                  <button class="btn btn-primary" data-salvar>${novo ? 'Criar usuário' : 'Salvar'}</button>`,
-        aoAbrir: dw => dw.querySelector('[data-salvar]').onclick = async () => {
+        aoAbrir: dw => dw.querySelector('[data-salvar]').onclick = async ev => {
+          const botao = ev.currentTarget;
           const dados = {};
           ['nome','usuario','email','ramal','setor','perfil_id','status'].forEach(c => {
             const el = dw.querySelector(`[name="${c}"]`);
             if (el && !el.disabled) dados[c] = el.value;
           });
-          if (!dados.nome || (novo && !dados.usuario)) { toast('Nome e usuário são obrigatórios.', 'warn'); return; }
+
+          if (!dados.nome || (novo && !dados.usuario)) {
+            toast('Nome e usuário são obrigatórios.', 'warn'); return;
+          }
+
+          if (novo) {
+            const s1 = dw.querySelector('[name="senha"]').value;
+            const s2 = dw.querySelector('[name="senha2"]').value;
+            if (s1.length < 10) { toast('A senha precisa de pelo menos 10 caracteres.', 'warn'); return; }
+            if (s1 !== s2) { toast('As senhas não conferem.', 'warn'); return; }
+            dados.senha = s1;
+          }
+
+          botao.disabled = true;
+          botao.textContent = 'Salvando…';
           try {
-            if (novo) {
-              const criado = await Api.post('/usuarios', dados);
-              Drawer.close();
-              toast('Usuário criado. Defina a senha agora.', 'ok');
-              setTimeout(() => senhaForm(criado), 300);
-            } else {
-              await Api.put(`/usuarios/${u.id}`, dados);
-              Drawer.close();
-              toast('Usuário atualizado.', 'ok');
-              App.route();
-            }
-          } catch (e) { toast(e.message, 'err'); }
+            if (novo) await Api.post('/usuarios', dados);
+            else await Api.put(`/usuarios/${u.id}`, dados);
+            Drawer.close();
+            toast(novo ? 'Usuário criado.' : 'Usuário atualizado.', 'ok');
+            App.route();
+          } catch (e) {
+            botao.disabled = false;
+            botao.textContent = novo ? 'Criar usuário' : 'Salvar';
+            toast(e.message, 'err');
+          }
         }
       });
     };

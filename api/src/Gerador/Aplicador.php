@@ -22,13 +22,12 @@ final class Aplicador
     /** @return array{sucesso:bool, etapas:array<string,string>, saida:string} */
     public function aplicar(?int $usuarioId = null, array $arquivos = []): array
     {
-        $ami = Ami::doAmbiente();
         $etapas = [];
         $saida = '';
         $sucesso = true;
 
         try {
-            $ami->conectar();
+            $ami = Ami::compartilhada();
 
             foreach (self::RECARGAS as $comando => $descricao) {
                 $resposta = $ami->comando($comando);
@@ -41,8 +40,6 @@ final class Aplicador
         } catch (\Throwable $e) {
             $sucesso = false;
             $saida .= 'ERRO: ' . $e->getMessage() . "\n";
-        } finally {
-            $ami->desconectar();
         }
 
         Bd::executar(

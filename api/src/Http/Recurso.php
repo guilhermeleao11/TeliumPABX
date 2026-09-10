@@ -212,11 +212,28 @@ final class Recurso
     private function erroBanco(Response $res, \PDOException $e): Response
     {
         $codigo = $e->errorInfo[1] ?? 0;
+        $texto = $e->errorInfo[2] ?? $e->getMessage();
+
+        // 1364: coluna obrigatória sem valor. Dizer QUAL coluna evita
+        // devolver ao usuário uma mensagem de banco sem tradução.
+        if ($codigo === 1364 && preg_match("/Field '([^']+)'/", $texto, $m) === 1) {
+            return Resposta::erro($res, "O campo obrigatório \"{$m[1]}\" não foi informado", 422,
+                ['campo' => $m[1]]);
+        }
+
+        if ($codigo === 1048 && preg_match("/Column '([^']+)'/", $texto, $m) === 1) {
+            return Resposta::erro($res, "O campo \"{$m[1]}\" não pode ficar vazio", 422,
+                ['campo' => $m[1]]);
+        }
 
         return match ($codigo) {
             1062 => Resposta::erro($res, 'Já existe um registro com esse identificador', 409),
-            1451, 1452 => Resposta::erro($res, 'Registro vinculado a outro cadastro', 409),
-            default => Resposta::erro($res, 'Não foi possível gravar: ' . $e->getMessage(), 400),
+            1452 => Resposta::erro($res,
+                'Um dos vínculos aponta para um cadastro que não existe. '
+                . 'Cadastre-o antes (por exemplo, o tronco de uma rota de saída).', 422),
+            1451 => Resposta::erro($res,
+                'Este registro está vinculado a outro cadastro e não pode ser excluído.', 409),
+            default => Resposta::erro($res, 'Não foi possível gravar: ' . $texto, 400),
         };
     }
 }
