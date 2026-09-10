@@ -50,6 +50,37 @@
     - "{{ telium_api }}/var/cache"
     - /var/lib/php/sessions
 
+# Um processo já em execução não enxerga grupos adicionados depois.
+- name: Reiniciar o php-fpm para aplicar a nova participação em grupo
+  ansible.builtin.service:
+    name: php8.4-fpm
+    state: restarted
+  when: grupo_asterisk is defined and grupo_asterisk is changed
+
+- name: Conferir se a conta da API alcança o diretório de configuração
+  ansible.builtin.command: "test -w {{ asterisk_gerado_dir }}"
+  become_user: "{{ telium_user }}"
+  become: true
+  changed_when: false
+  register: acesso_conf
+  failed_when: false
+
+- name: Diagnosticar acesso negado ao diretório de configuração
+  ansible.builtin.shell: |
+    echo "usuário da API: {{ telium_user }} — grupos: $(id -nG {{ telium_user }})"
+    echo "pai:     $(ls -ld {{ asterisk_conf_dir }})"
+    echo "destino: $(ls -ld {{ asterisk_gerado_dir }} 2>&1)"
+  args:
+    executable: /bin/bash
+  register: acesso_diag
+  changed_when: false
+  when: acesso_conf.rc != 0
+
+- name: Acesso ao diretório de configuração
+  ansible.builtin.debug:
+    var: acesso_diag.stdout_lines
+  when: acesso_conf.rc != 0
+
 - name: Gerar os arquivos .conf do Asterisk a partir do banco
   ansible.builtin.command:
     cmd: php bin/telium gerar-config

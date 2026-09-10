@@ -222,6 +222,16 @@
     - /var/run/asterisk
     - /var/spool/asterisk/monitor
 
+# /etc/asterisk é 0750 asterisk:asterisk. Sem estar no grupo, a conta da
+# API nem atravessa o diretório pai — e um is_dir() falha como se o
+# destino não existisse.
+- name: Dar ao usuário da API acesso ao grupo asterisk
+  ansible.builtin.user:
+    name: "{{ telium_user }}"
+    groups: asterisk
+    append: true
+  register: grupo_asterisk
+
 - name: Criar diretório dos .conf gerados pela API
   ansible.builtin.file:
     path: "{{ asterisk_gerado_dir }}"

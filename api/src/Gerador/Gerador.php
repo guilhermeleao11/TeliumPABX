@@ -25,16 +25,7 @@ final class Gerador
     /** @return array<string,array{status:string,bytes:int}> */
     public function gerar(): array
     {
-        if (!is_dir($this->destino)) {
-            throw new \RuntimeException("Diretório de destino não existe: {$this->destino}");
-        }
-        if (!is_writable($this->destino)) {
-            throw new \RuntimeException(
-                "Sem permissão de escrita em {$this->destino} — o usuário " .
-                (posix_getpwuid(posix_geteuid())['name'] ?? '?') .
-                ' precisa pertencer ao grupo asterisk.'
-            );
-        }
+        $this->conferirDestino();
 
         $arquivos = [
             ...(new GeradorPjsip())->gerar(),
@@ -72,6 +63,73 @@ final class Gerador
         }
 
         return $resultado;
+    }
+
+
+    /**
+     * Confere o destino antes de escrever.
+     *
+     * is_dir() devolve false tanto para "não existe" quanto para "não
+     * consigo atravessar o diretório pai". Separar os dois casos evita
+     * caçar um diretório que está lá o tempo todo.
+     */
+    private function conferirDestino(): void
+    {
+        $pai = dirname($this->destino);
+        $quem = $this->identidade();
+
+        if (!is_dir($pai)) {
+            throw new \RuntimeException(
+                "O diretório {$pai} não existe. O Asterisk chegou a ser instalado? ({$quem})"
+            );
+        }
+
+        if (!is_executable($pai)) {
+            throw new \RuntimeException(
+                "Sem permissão para entrar em {$pai}. Provavelmente ele está 0750 " .
+                "asterisk:asterisk e o usuário da API não pertence ao grupo asterisk. ({$quem})"
+            );
+        }
+
+        if (!is_dir($this->destino)) {
+            throw new \RuntimeException(
+                "O diretório {$this->destino} não existe — crie-o com dono " .
+                $this->usuario() . ", grupo asterisk e modo 2775. ({$quem})"
+            );
+        }
+
+        if (!is_writable($this->destino)) {
+            throw new \RuntimeException(
+                "Sem permissão de escrita em {$this->destino}. " .
+                "Confira o modo do diretório (esperado 2775, grupo asterisk). ({$quem})"
+            );
+        }
+    }
+
+    /** Nome do usuário efetivo. */
+    private function usuario(): string
+    {
+        if (!function_exists('posix_geteuid')) {
+            return 'o usuário da API';
+        }
+
+        return posix_getpwuid(posix_geteuid())['name'] ?? (string) posix_geteuid();
+    }
+
+    /** Descreve quem está executando, para a mensagem de erro ser acionável. */
+    private function identidade(): string
+    {
+        if (!function_exists('posix_geteuid')) {
+            return 'usuário desconhecido — extensão posix ausente';
+        }
+
+        $usuario = $this->usuario();
+        $grupos = array_map(
+            static fn (int $gid): string => posix_getgrgid($gid)['name'] ?? (string) $gid,
+            posix_getgroups()
+        );
+
+        return "rodando como {$usuario}, grupos: " . implode(',', $grupos);
     }
 
     public function pendente(): bool
