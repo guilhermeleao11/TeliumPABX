@@ -5,8 +5,8 @@
 -- perfis de acesso com suas permissões e a conta de administrador.
 -- NENHUM ramal, tronco, fila ou rota fictícia.
 --
--- Senha inicial de todas as contas: T3l1um_@2024_@aD1m
--- Troque com: php bin/telium senha admin
+-- Senha do admin: T3l1um_@2024_@aD1m
+-- Reaplicar este script restaura essa senha e desbloqueia a conta.
 --
 -- A base nasce vazia de dados operacionais: ramais, troncos, filas,
 -- rotas e URAs são cadastrados pelo console, e o CDR é preenchido pelo
@@ -71,12 +71,24 @@ INSERT IGNORE INTO perfil_acoes (perfil_id, acao)
 SELECT p.id, 'exportar' FROM perfis p WHERE p.chave = 'auditor';
 
 -- ---------- conta de administrador ----------
+-- A senha do admin é REIMPOSTA a cada provisionamento, de propósito: é a
+-- garantia de que sempre existe uma forma conhecida de entrar na central.
+-- Consequência: se você trocar a senha do admin pelo console, a próxima
+-- execução do playbook devolve o padrão. Para uma conta com senha própria,
+-- crie um segundo usuário administrador pelo console.
+--
 -- INSERT direto (sem SELECT) para não haver ambiguidade de coluna com
 -- a tabela perfis no ON DUPLICATE KEY UPDATE.
 INSERT INTO usuarios (usuario, nome, email, senha_hash, perfil_id, setor, status)
 VALUES ('admin', 'Administrador', NULL, 'pbkdf2_sha256$390000$YOaItVoHDd2/hpoLNDFOcQ==$ad2bQSeyuzfdiIVwHPDZuvTYZ/FJMr8E4Yqu/vW0LJ4=',
         (SELECT id FROM perfis WHERE chave = 'admin'), 'TI', 'ativo')
-ON DUPLICATE KEY UPDATE nome = VALUES(nome);
+ON DUPLICATE KEY UPDATE
+  nome             = VALUES(nome),
+  senha_hash       = VALUES(senha_hash),
+  perfil_id        = VALUES(perfil_id),
+  status           = 'ativo',
+  tentativas_login = 0,
+  bloqueado_ate    = NULL;
 
 -- ---------- grupos de horário padrão ----------
 -- Genéricos e necessários para montar condições horárias.

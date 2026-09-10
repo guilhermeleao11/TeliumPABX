@@ -56,6 +56,10 @@
           Usuário ...... admin
           Senha ........ {{ senha_padrao_console }}
 
+          A senha do admin é restaurada a cada provisionamento, de propósito:
+          garante que sempre exista uma forma conhecida de entrar. Para uma
+          conta com senha própria, crie outro administrador pelo console.
+
           As senhas de serviço (banco, AMI, ARI) foram geradas nesta
           instalação e estão em {{ credenciais_dir }}, uma por arquivo.
           Elas nunca são exibidas na tela nem versionadas.
@@ -71,6 +75,8 @@
           - "Janus ......... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/janus/info"
           - ""
           - "Login ......... admin / {{ senha_padrao_console }}"
+          - "  (esta senha é reimposta a cada execução do playbook —"
+          - "   para uma conta com senha própria, crie outro administrador)"
           - "Senhas de serviço em {{ credenciais_dir }} (0600, só root)"
           - "Resumo salvo em {{ telium_etc }}/instalacao.txt"
           - ""

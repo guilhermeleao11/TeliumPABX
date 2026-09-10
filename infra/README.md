@@ -48,6 +48,11 @@ as mesmas; elas nunca aparecem na tela nem entram no Git.
 |---|---|
 | `admin` | `T3l1um_@2024_@aD1m` |
 
+Essa senha é **restaurada a cada execução do playbook**, de propósito: garante
+que sempre exista uma forma conhecida de entrar na central, mesmo que a conta
+tenha sido bloqueada por tentativas erradas. Se você precisa de uma conta
+administrativa com senha própria, crie um segundo usuário pelo console.
+
 Todas as contas do seed nascem com ela. Troque depois com
 `php bin/telium senha admin`.
 

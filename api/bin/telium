@@ -133,15 +133,27 @@ function trocarSenha(string $usuario): void
         throw new RuntimeException('uso: php bin/telium senha <usuario>');
     }
 
-    echo 'Nova senha: ';
-    system('stty -echo');
+    // Em terminal, pede a senha sem eco. Num pipe, lê da entrada padrão,
+    // o que permite usar em script:  echo 'senha' | php bin/telium senha admin
+    $interativo = stream_isatty(STDIN);
+
+    if ($interativo) {
+        echo 'Nova senha: ';
+        system('stty -echo');
+    }
+
     $senha = trim((string) fgets(STDIN));
-    system('stty echo');
-    echo "\n";
+
+    if ($interativo) {
+        system('stty echo');
+        echo "\n";
+    }
 
     if (strlen($senha) < 8) {
         throw new RuntimeException('a senha precisa de pelo menos 8 caracteres');
     }
+
+    Bd::executar('DELETE FROM sessoes WHERE usuario_id = (SELECT id FROM usuarios WHERE usuario = ?)', [$usuario]);
 
     $linhas = Bd::executar(
         'UPDATE usuarios SET senha_hash = ?, tentativas_login = 0, bloqueado_ate = NULL WHERE usuario = ?',
@@ -162,7 +174,7 @@ function ajuda(): void
       php bin/telium gerar-config      gera os .conf a partir do banco
       php bin/telium aplicar-config    gera e recarrega o Asterisk
       php bin/telium doctor            testa banco, AMI, Janus e permissões
-      php bin/telium senha <usuario>   define uma nova senha
+      php bin/telium senha <usuario>   define uma nova senha (aceita pipe)
 
     TXT;
 }
