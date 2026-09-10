@@ -17,7 +17,8 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes
 ProtectSystem=full
-ReadWritePaths={{ janus_prefix }}/share/janus
+# o '-' evita que a unidade morra se o caminho ainda não existir
+ReadWritePaths=-{{ janus_prefix }}/share/janus
 
 [Install]
 WantedBy=multi-user.target

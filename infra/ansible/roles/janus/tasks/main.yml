@@ -176,13 +176,50 @@
     daemon_reload: true
 
 - name: Conferir se o Janus responde no HTTP
-  ansible.builtin.uri:
-    url: "http://127.0.0.1:{{ janus_http_porta }}/janus/info"
-    return_content: true
-  register: janus_info
-  retries: 10
-  delay: 2
-  until: janus_info.status is defined and janus_info.status == 200
+  block:
+    - name: Aguardar a API do Janus
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ janus_http_porta }}/janus/info"
+        return_content: true
+      register: janus_info
+      retries: 10
+      delay: 2
+      until: janus_info.status is defined and janus_info.status == 200
+
+  rescue:
+    - name: Coletar diagnóstico do Janus
+      ansible.builtin.shell: |
+        echo "### systemctl status"
+        systemctl status janus --no-pager -l 2>&1 | head -20
+        echo
+        echo "### últimas linhas do journal"
+        journalctl -u janus -n 40 --no-pager 2>&1 | tail -40
+        echo
+        echo "### portas em escuta"
+        ss -lntp 2>/dev/null | grep -E ':({{ janus_http_porta }}|{{ janus_ws_porta }}|{{ janus_admin_porta }})\b' \
+          || echo '(nenhuma porta do Janus em escuta)'
+        echo
+        echo "### transportes compilados"
+        ls -la {{ janus_prefix }}/lib/janus/transports/ 2>&1
+        echo
+        echo "### configuração ativa"
+        ls -la {{ janus_prefix }}/etc/janus/*.jcfg 2>&1 | head -10
+      args:
+        executable: /bin/bash
+      register: janus_diag
+      changed_when: false
+      failed_when: false
+
+    - name: Diagnóstico do Janus
+      ansible.builtin.debug:
+        var: janus_diag.stdout_lines
+
+    - name: Interromper com o motivo à vista
+      ansible.builtin.fail:
+        msg: >-
+          O Janus não respondeu em http://127.0.0.1:{{ janus_http_porta }}/janus/info.
+          O diagnóstico acima mostra o estado do serviço, o journal e os
+          transportes compilados — o motivo costuma estar ali.
 
 - name: Versão do Janus em execução
   ansible.builtin.debug:

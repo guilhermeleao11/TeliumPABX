@@ -16,10 +16,10 @@ general: {
         reclaim_session_timeout = 30
 }
 
-certificates: {
-        cert_pem = "{{ tls_cert }}"
-        cert_key = "{{ tls_key }}"
-}
+# Sem bloco 'certificates': o Janus gera sozinho o certificado
+# autoassinado que usa no DTLS. Quem termina TLS para o navegador é o
+# nginx, então não faz sentido criar aqui uma dependência de permissão
+# de leitura sobre a chave privada do servidor.
 
 media: {
         ipv6 = false
