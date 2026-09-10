@@ -175,6 +175,11 @@
     enabled: true
     daemon_reload: true
 
+# Handlers só rodam no fim da play. Sem este flush, a verificação abaixo
+# testaria o processo antigo, ainda com a configuração anterior.
+- name: Aplicar reinícios pendentes antes de verificar
+  ansible.builtin.meta: flush_handlers
+
 - name: Conferir se o Janus responde no HTTP
   block:
     - name: Aguardar a API do Janus
@@ -182,44 +187,64 @@
         url: "http://127.0.0.1:{{ janus_http_porta }}/janus/info"
         return_content: true
       register: janus_info
-      retries: 10
+      retries: 6
       delay: 2
       until: janus_info.status is defined and janus_info.status == 200
 
   rescue:
+    # O processo pode estar de pé com uma configuração antiga: se o arquivo
+    # já estava correto no disco, o handler não disparou e ninguém reiniciou.
+    - name: Reiniciar o Janus e tentar mais uma vez
+      ansible.builtin.service:
+        name: janus
+        state: restarted
+
+    - name: Aguardar a API do Janus após o reinício
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ janus_http_porta }}/janus/info"
+        return_content: true
+      register: janus_info
+      retries: 8
+      delay: 2
+      until: janus_info.status is defined and janus_info.status == 200
+      failed_when: false
+
     - name: Coletar diagnóstico do Janus
       ansible.builtin.shell: |
         echo "### systemctl status"
-        systemctl status janus --no-pager -l 2>&1 | head -20
+        systemctl status janus --no-pager -l 2>&1 | head -16
         echo
-        echo "### últimas linhas do journal"
-        journalctl -u janus -n 40 --no-pager 2>&1 | tail -40
+        echo "### journal desta inicialização"
+        journalctl -u janus --since "-2 min" --no-pager 2>&1 | grep -iE "err|fatal|warn|started|binding" | tail -25
         echo
         echo "### portas em escuta"
         ss -lntp 2>/dev/null | grep -E ':({{ janus_http_porta }}|{{ janus_ws_porta }}|{{ janus_admin_porta }})\b' \
           || echo '(nenhuma porta do Janus em escuta)'
         echo
-        echo "### transportes compilados"
-        ls -la {{ janus_prefix }}/lib/janus/transports/ 2>&1
-        echo
-        echo "### configuração ativa"
-        ls -la {{ janus_prefix }}/etc/janus/*.jcfg 2>&1 | head -10
+        echo "### bind configurado"
+        grep -nE "^\s*(ip|port|admin_ip|admin_port|ws_ip|ws_port)\s*=" \
+          {{ janus_prefix }}/etc/janus/janus.transport.http.jcfg \
+          {{ janus_prefix }}/etc/janus/janus.transport.websockets.jcfg 2>&1
       args:
         executable: /bin/bash
       register: janus_diag
       changed_when: false
       failed_when: false
+      when: (janus_info.status | default(0)) != 200
 
     - name: Diagnóstico do Janus
       ansible.builtin.debug:
         var: janus_diag.stdout_lines
+      when: (janus_info.status | default(0)) != 200
 
     - name: Interromper com o motivo à vista
       ansible.builtin.fail:
         msg: >-
-          O Janus não respondeu em http://127.0.0.1:{{ janus_http_porta }}/janus/info.
-          O diagnóstico acima mostra o estado do serviço, o journal e os
-          transportes compilados — o motivo costuma estar ali.
+          O Janus continuou sem responder em
+          http://127.0.0.1:{{ janus_http_porta }}/janus/info mesmo após o
+          reinício. O diagnóstico acima mostra o serviço, o journal, as
+          portas e o bind configurado.
+      when: (janus_info.status | default(0)) != 200
 
 - name: Versão do Janus em execução
   ansible.builtin.debug:

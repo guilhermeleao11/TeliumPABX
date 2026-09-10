@@ -81,6 +81,9 @@
     state: started
     enabled: true
 
+- name: Aplicar recargas pendentes antes de verificar
+  ansible.builtin.meta: flush_handlers
+
 - name: Testar a configuração
   ansible.builtin.command: nginx -t
   changed_when: false

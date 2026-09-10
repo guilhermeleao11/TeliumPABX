@@ -306,6 +306,10 @@
     enabled: true
     daemon_reload: true
 
+# Mesmo motivo do Janus: garantir que um reload pendente já aconteceu.
+- name: Aplicar recargas pendentes antes de verificar
+  ansible.builtin.meta: flush_handlers
+
 - name: Aguardar o Asterisk responder
   ansible.builtin.command: asterisk -rx "core show version"
   register: ast_versao
