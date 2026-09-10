@@ -63,12 +63,17 @@ final class Sistema
 
         $canais = [];
         $estadoFilas = [];
+        $conectado = false;
+        $erro = null;
+
         try {
             $ami = Ami::compartilhada();
             $canais = $this->canais($this->limparResposta($ami->comando('core show channels concise')));
             $estadoFilas = $this->filas($this->limparResposta($ami->comando('queue show')));
-        } catch (\Throwable) {
+            $conectado = true;
+        } catch (\Throwable $e) {
             // Asterisk fora do ar: devolvemos o cadastro sem os números ao vivo
+            $erro = $e->getMessage();
         }
 
         foreach ($filas as &$f) {
@@ -80,10 +85,13 @@ final class Sistema
         }
         unset($f);
 
+        // Central ociosa devolve listas vazias — isso não é o mesmo que
+        // Asterisk fora do ar. O indicador reflete a conexão, não o volume.
         return Resposta::json($res, [
-            'filas'    => $filas,
-            'chamadas' => $canais,
-            'asterisk' => $canais !== [] || $estadoFilas !== [],
+            'filas'         => $filas,
+            'chamadas'      => $canais,
+            'asterisk'      => $conectado,
+            'asterisk_erro' => $erro,
         ]);
     }
 

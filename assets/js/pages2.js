@@ -680,3 +680,95 @@ PAGES['rel.logs'] = {
       </tbody></table></div></div>`;
   }
 };
+
+/* ------------------------- Administrador · CLI do Asterisk ------------------------- */
+PAGES['admin.cli'] = {
+  _historico: [],
+
+  async render(ctx) {
+    let d;
+    try { d = await Api.get('/cli/sugestoes'); }
+    catch (e) { return pageHead('CLI Asterisk', '') + blocoErro(e); }
+
+    this._podeEscrever = d.pode_escrever;
+
+    const chips = Object.entries(d.sugestoes).map(([cmd, desc]) =>
+      `<button class="chip" data-cmd="${esc(cmd)}" title="${esc(desc)}"
+               style="cursor:pointer;height:26px">${esc(cmd)}</button>`).join('');
+
+    return pageHead('CLI Asterisk',
+      'Roda comandos no console do Asterisk pelo AMI e mostra a saída aqui.',
+      d.pode_escrever
+        ? `<span class="badge badge-warn">${icon('alert','ico ico-sm')} Pode alterar estado</span>`
+        : `<span class="badge">${icon('eye','ico ico-sm')} Só leitura</span>`) + `
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-body">
+        <div class="row gap-8" style="margin-bottom:12px">
+          <div class="input-icon grow">${icon('terminal','ico ico-sm')}
+            <input class="input mono" id="cliCmd" placeholder="pjsip show endpoints"
+                   autocomplete="off" spellcheck="false"></div>
+          <button class="btn btn-primary" id="cliRun">${icon('play','ico ico-sm')} Executar</button>
+        </div>
+        <div class="row wrap gap-6">${chips}</div>
+        <p class="hint" style="margin-top:10px">
+          Comandos de leitura (<span class="mono">show</span>, <span class="mono">list</span>)
+          rodam livremente. Qualquer coisa que altere estado exige a ação
+          "aplicar configurações"${d.pode_escrever ? ' — que seu perfil tem' : ', que seu perfil não tem'}.
+          Sequências de escape para o shell são recusadas, e todo comando fica na auditoria.
+        </p>
+      </div>
+    </div>
+
+    <div id="cliSaida"></div>`;
+  },
+
+  mount(ctx) {
+    const entrada = document.getElementById('cliCmd');
+    const saida = document.getElementById('cliSaida');
+
+    const executar = async () => {
+      const comando = entrada.value.trim();
+      if (!comando) return;
+
+      const botao = document.getElementById('cliRun');
+      botao.disabled = true;
+      botao.innerHTML = `<span class="spin"></span> Executando…`;
+
+      let bloco;
+      try {
+        const r = await Api.post('/cli', { comando });
+        bloco = `<div class="card" style="margin-bottom:12px">
+          <div class="card-head">
+            <div class="card-title mono">${esc(r.comando)}</div>
+            <div class="row gap-8">
+              ${r.leitura ? '<span class="badge">leitura</span>'
+                          : '<span class="badge badge-warn">alterou estado</span>'}
+              <span class="tiny muted">${new Date().toLocaleTimeString('pt-BR')}</span>
+            </div>
+          </div>
+          <div class="card-body"><div class="code">${esc(r.saida) || '(sem saída)'}</div></div>
+        </div>`;
+      } catch (e) {
+        bloco = `<div class="card" style="margin-bottom:12px;border-color:var(--danger)">
+          <div class="card-head"><div class="card-title mono">${esc(comando)}</div>
+            <span class="badge badge-danger">recusado</span></div>
+          <div class="card-body"><p class="small" style="color:var(--danger)">${esc(e.message)}</p></div>
+        </div>`;
+      }
+
+      saida.insertAdjacentHTML('afterbegin', bloco);
+      botao.disabled = false;
+      botao.innerHTML = `${icon('play','ico ico-sm')} Executar`;
+      entrada.select();
+    };
+
+    document.getElementById('cliRun').onclick = executar;
+    entrada.addEventListener('keydown', e => { if (e.key === 'Enter') executar(); });
+    document.querySelectorAll('[data-cmd]').forEach(b => b.onclick = () => {
+      entrada.value = b.dataset.cmd;
+      executar();
+    });
+    entrada.focus();
+  }
+};

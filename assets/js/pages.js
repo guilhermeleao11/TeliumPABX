@@ -311,18 +311,22 @@ PAGES['dash.temporeal'] = {
             <td class="small dim">${esc(c.aplicacao || '—')}</td>
             <td class="num">${duracao(c.duracao)}</td></tr>`).join('')}
         </tbody></table></div>`
-      : vazio('phone', 'Nenhuma chamada em andamento',
-              d.asterisk ? 'A central está ociosa neste momento.'
-                         : 'Não foi possível falar com o Asterisk para ler os canais ativos.');
+      : d.asterisk
+        ? vazio('phone', 'Nenhuma chamada em andamento',
+                'A central está conectada e ociosa neste momento. Esta tela se atualiza a cada 5 segundos.')
+        : vazio('alert', 'Sem comunicação com o Asterisk',
+                `Não foi possível ler os canais ativos. ${esc(d.asterisk_erro || '')}`);
 
     return pageHead('Wallboard — Tempo Real',
       'Filas e chamadas ativas, lidas direto do Asterisk.',
-      `<span class="badge ${d.asterisk ? 'badge-ok' : 'badge-danger'}">
-         <i class="dot ${d.asterisk ? 'dot-pulse' : ''}"></i>${d.asterisk ? 'Ao vivo' : 'Asterisk fora'}</span>`) + `
+      d.asterisk
+        ? `<span class="badge badge-ok"><i class="dot dot-pulse"></i>Ao vivo</span>`
+        : `<span class="badge badge-danger" title="${esc(d.asterisk_erro || '')}">
+             <i class="dot"></i>Asterisk não respondeu</span>`) + `
       <div class="grid g-4" style="margin-bottom:16px">${cards}</div>
       <div class="card">
         <div class="card-head"><div class="card-title">Chamadas em andamento</div>
-          <span class="badge">${d.chamadas.length} canais</span></div>
+          <span class="badge">${d.asterisk ? d.chamadas.length + ' canais' : 'sem leitura'}</span></div>
         <div class="card-body tight">${chamadas}</div>
       </div>`;
   },
@@ -1059,7 +1063,24 @@ PAGES['admin.usuarios'] = {
   }
 };
 
-/* ------------------------- Administrador · Permissões ------------------------- */
+/* ------------------------- Administrador · Perfis e permissões ------------------------- */
+const ACOES_PERFIL = [
+  { chave: 'criar',      rotulo: 'Criar registros',            ajuda: 'Adicionar ramais, filas, rotas, usuários…' },
+  { chave: 'editar',     rotulo: 'Editar registros',           ajuda: 'Alterar o que já está cadastrado' },
+  { chave: 'excluir',    rotulo: 'Excluir registros',          ajuda: 'Remover cadastros em definitivo' },
+  { chave: 'exportar',   rotulo: 'Exportar relatórios',        ajuda: 'Baixar CDR, gravações e tarifação' },
+  { chave: 'reiniciar',  rotulo: 'Aplicar configurações',      ajuda: 'Recarregar o Asterisk e reiniciar aparelhos' },
+  { chave: 'permissoes', rotulo: 'Gerenciar perfis',           ajuda: 'Criar perfis e alterar esta própria matriz' }
+];
+
+const CORES_PERFIL = [
+  { valor: 'brand',  rotulo: 'Azul (padrão)' },
+  { valor: 'info',   rotulo: 'Azul claro' },
+  { valor: 'ok',     rotulo: 'Verde' },
+  { valor: 'warn',   rotulo: 'Âmbar' },
+  { valor: 'danger', rotulo: 'Vermelho' }
+];
+
 PAGES['admin.permissoes'] = {
   async render(ctx) {
     let r;
@@ -1068,23 +1089,43 @@ PAGES['admin.permissoes'] = {
 
     this._perfis = r.dados;
     const editavel = ctx.can('permissoes');
+
     const podeModulo = (p, id) => (p.allow || []).some(regra =>
       regra === '*' || regra === id || (regra.endsWith('.*') && id.startsWith(regra.slice(0, -1))));
 
     const cartoes = r.dados.map(p => `
       <div class="card" style="padding:16px">
-        <div class="row gap-10" style="margin-bottom:10px">
-          <span class="k-ico" style="background:var(--${p.cor}-soft);color:var(--${p.cor});width:34px;height:34px;border-radius:10px;display:grid;place-items:center">${icon('shield')}</span>
-          <div><b>${esc(p.nome)}</b><div class="tiny muted mono">${esc(p.chave)}</div></div>
+        <div class="row-between" style="margin-bottom:10px">
+          <div class="row gap-10" style="min-width:0">
+            <span class="k-ico" style="background:var(--${p.cor}-soft);color:var(--${p.cor});width:34px;height:34px;border-radius:10px;display:grid;place-items:center">${icon('shield')}</span>
+            <div style="min-width:0"><b class="truncate" style="display:block">${esc(p.nome)}</b>
+              <div class="tiny muted mono">${esc(p.chave)}</div></div>
+          </div>
+          ${editavel ? `<div class="row-actions" style="opacity:1">
+            <button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" data-editar-perfil="${p.id}">${icon('edit','ico ico-sm')}</button>
+            ${Number(p.sistema) ? '' : `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-excluir-perfil="${p.id}">${icon('trash','ico ico-sm')}</button>`}
+          </div>` : ''}
         </div>
-        <p class="small dim" style="min-height:38px">${esc(p.descricao || '')}</p>
-        <div class="row wrap gap-4" style="margin-top:10px">
-          ${(p.caps || []).map(c => `<span class="badge badge-brand">${esc(c)}</span>`).join('')
-            || '<span class="badge">somente leitura</span>'}
+        <p class="small dim" style="min-height:36px">${esc(p.descricao || 'Sem descrição.')}</p>
+        <div class="row-between" style="margin-top:10px">
+          <span class="badge">${p.usuarios} usuário${p.usuarios === 1 ? '' : 's'}</span>
+          ${Number(p.sistema) ? '<span class="badge">perfil do sistema</span>' : ''}
         </div>
       </div>`).join('');
 
-    const matriz = MENU.map(g => `
+    const colunaPerfis = r.dados.map(p => `<th class="role-col">${esc(p.nome)}</th>`).join('');
+
+    const linhaAcoes = ACOES_PERFIL.map(a => `
+      <tr>
+        <td><span class="mod-name">${icon('key','ico ico-sm')}${esc(a.rotulo)}
+            <span class="tiny muted">${esc(a.ajuda)}</span></span></td>
+        ${r.dados.map(p => `<td class="role-cell">
+          <label class="switch"><input type="checkbox" ${(p.caps || []).includes(a.chave) ? 'checked' : ''}
+                 ${editavel ? '' : 'disabled'} data-perfil="${p.id}" data-acao="${a.chave}">
+            <span class="track"></span></label></td>`).join('')}
+      </tr>`).join('');
+
+    const linhasModulos = MENU.map(g => `
       <tr class="group-row"><td colspan="${r.dados.length + 1}">${esc(g.label)}</td></tr>
       ${g.items.map(i => `
         <tr>
@@ -1097,27 +1138,35 @@ PAGES['admin.permissoes'] = {
         </tr>`).join('')}`).join('');
 
     return pageHead('Perfis e Permissões',
-      'Define o que cada perfil enxerga no menu. O servidor revalida tudo a cada requisição.',
-      editavel ? `<button class="btn btn-primary btn-sm" id="salvarPerms">${icon('check','ico ico-sm')} Salvar alterações</button>` : readOnlyNote(ctx)) + `
+      'Crie perfis sob medida e defina, por perfil, o que aparece no menu e o que pode ser feito. O servidor revalida tudo a cada requisição.',
+      editavel
+        ? `<button class="btn btn-outline btn-sm" id="novoPerfil">${icon('plus','ico ico-sm')} Novo perfil</button>
+           <button class="btn btn-primary btn-sm" id="salvarPerms">${icon('check','ico ico-sm')} Salvar alterações</button>`
+        : readOnlyNote(ctx)) + `
+
     <div class="grid g-4" style="margin-bottom:16px">${cartoes}</div>
+
     <div class="card">
       <div class="card-head">
-        <div><div class="card-title">Matriz de acesso aos módulos</div>
-             <div class="card-sub">Marque para liberar o módulo no menu lateral do perfil.</div></div>
+        <div><div class="card-title">Matriz de permissões</div>
+             <div class="card-sub">As ações valem para todos os módulos liberados ao perfil.</div></div>
         <div class="input-icon search-mini">${icon('search','ico ico-sm')}
           <input class="input" id="permQ" placeholder="Filtrar módulo…"></div>
       </div>
-      <div class="table-wrap" style="max-height:620px;overflow-y:auto">
+      <div class="table-wrap" style="max-height:640px;overflow-y:auto">
         <table class="table matrix">
-          <thead><tr><th>Módulo</th>
-            ${r.dados.map(p => `<th class="role-col">${esc(p.nome)}</th>`).join('')}</tr></thead>
-          <tbody>${matriz}</tbody>
+          <thead><tr><th>O que pode</th>${colunaPerfis}</tr></thead>
+          <tbody>
+            <tr class="group-row"><td colspan="${r.dados.length + 1}">Ações</td></tr>
+            ${linhaAcoes}
+            ${linhasModulos}
+          </tbody>
         </table>
       </div>
     </div>`;
   },
 
-  mount() {
+  mount(ctx) {
     const q = document.getElementById('permQ');
     q?.addEventListener('input', () => {
       const t = q.value.trim().toLowerCase();
@@ -1127,24 +1176,94 @@ PAGES['admin.permissoes'] = {
       });
     });
 
+    const formPerfil = (p) => {
+      const novo = !p;
+      const campos = [
+        { campo: 'nome', label: 'Nome do perfil', obrigatorio: true, placeholder: 'Supervisor de Filas' },
+        ...(novo ? [{ campo: 'chave', label: 'Chave (opcional)', mono: true,
+                      placeholder: 'gerada a partir do nome',
+                      ajuda: 'Identificador interno. Deixe em branco para gerar automaticamente.' }] : []),
+        { campo: 'cor', label: 'Cor da etiqueta', tipo: 'select', opcoes: CORES_PERFIL },
+        { campo: 'descricao', label: 'Descrição', tipo: 'textarea', largura: 'full',
+          placeholder: 'O que este perfil acompanha ou administra' }
+      ];
+
+      Drawer.open({
+        titulo: novo ? 'Novo perfil' : `Editar ${p.nome}`,
+        sub: novo
+          ? 'O perfil nasce sem nenhuma permissão. Marque na matriz o que ele pode ver e fazer.'
+          : 'Permissões continuam sendo ajustadas na matriz.',
+        corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, p || { cor: 'brand' })).join('')}</div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>${novo ? 'Criar perfil' : 'Salvar'}</button>`,
+        aoAbrir: dw => dw.querySelector('[data-ok]').onclick = async ev => {
+          const dados = {};
+          campos.forEach(c => {
+            const el = dw.querySelector(`[name="${c.campo}"]`);
+            if (el) dados[c.campo] = el.value;
+          });
+          if (!dados.nome?.trim()) { toast('Informe o nome do perfil.', 'warn'); return; }
+
+          ev.currentTarget.disabled = true;
+          try {
+            if (novo) await Api.post('/perfis', dados);
+            else await Api.put(`/perfis/${p.id}`, dados);
+            Drawer.close();
+            toast(novo ? 'Perfil criado. Agora marque as permissões dele.' : 'Perfil atualizado.', 'ok');
+            App.route();
+          } catch (e) {
+            ev.currentTarget.disabled = false;
+            toast(e.message, 'err');
+          }
+        }
+      });
+    };
+
+    document.getElementById('novoPerfil')?.addEventListener('click', () => formPerfil(null));
+    document.querySelectorAll('[data-editar-perfil]').forEach(b =>
+      b.onclick = () => formPerfil(this._perfis.find(p => String(p.id) === b.dataset.editarPerfil)));
+
+    document.querySelectorAll('[data-excluir-perfil]').forEach(b => b.onclick = async () => {
+      const p = this._perfis.find(x => String(x.id) === b.dataset.excluirPerfil);
+      const ok = await Modal.confirm({
+        titulo: `Excluir o perfil ${p.nome}?`,
+        texto: p.usuarios > 0
+          ? `Há ${p.usuarios} usuário(s) com este perfil. Mova essas contas antes.`
+          : 'As permissões deste perfil serão perdidas.',
+        ok: 'Excluir'
+      });
+      if (!ok) return;
+      try { await Api.delete(`/perfis/${p.id}`); toast('Perfil excluído.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+
     document.getElementById('salvarPerms')?.addEventListener('click', async ev => {
       const botao = ev.currentTarget;
-      botao.disabled = true; botao.textContent = 'Salvando…';
+      botao.disabled = true;
+      botao.innerHTML = `<span class="spin"></span> Salvando…`;
+
       try {
         for (const p of this._perfis) {
-          const allow = [...document.querySelectorAll(`[data-perfil="${p.id}"]:checked`)]
+          const modulos = [...document.querySelectorAll(`[data-perfil="${p.id}"][data-modulo]:checked`)]
             .map(c => c.dataset.modulo);
-          // '*' vira a lista explícita; se marcaram tudo, mantemos o curinga
-          const total = document.querySelectorAll(`[data-perfil="${p.id}"]`).length;
+          const acoes = [...document.querySelectorAll(`[data-perfil="${p.id}"][data-acao]:checked`)]
+            .map(c => c.dataset.acao);
+
+          // Só mantemos o curinga em quem já o tinha. Um perfil comum recebe a
+          // lista explícita, para não herdar módulos futuros sem alguém decidir.
+          const tinhaCuringa = (p.allow || []).includes('*');
+          const total = document.querySelectorAll(`[data-perfil="${p.id}"][data-modulo]`).length;
+
           await Api.put(`/perfis/${p.id}/permissoes`, {
-            allow: allow.length === total ? ['*'] : allow,
-            caps: p.caps
+            allow: (tinhaCuringa && modulos.length === total) ? ['*'] : modulos,
+            caps: acoes
           });
         }
-        toast('Permissões salvas. Usuários veem a mudança no próximo carregamento.', 'ok');
+        toast('Permissões salvas. Cada usuário verá a mudança no próximo carregamento.', 'ok');
         App.route();
       } catch (e) {
-        botao.disabled = false; botao.textContent = 'Salvar alterações';
+        botao.disabled = false;
+        botao.innerHTML = `${icon('check','ico ico-sm')} Salvar alterações`;
         toast(e.message, 'err');
       }
     });

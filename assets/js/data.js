@@ -20,7 +20,6 @@ const MENU = [
       { id: 'admin.administradores', label: 'Administradores',          icon: 'users' },
       { id: 'admin.usuarios',        label: 'Gerenciador de Usuários',  icon: 'user' },
       { id: 'admin.permissoes',      label: 'Perfis e Permissões',      icon: 'key' },
-      { id: 'admin.modulos',         label: 'Admin Módulos',            icon: 'package' },
       { id: 'admin.backup',          label: 'Backup & Restauração',     icon: 'database' },
       { id: 'admin.certificados',    label: 'Certificados',             icon: 'lock' },
       { id: 'admin.listanegra',      label: 'Lista Negra',              icon: 'phoneOff' },
@@ -31,7 +30,6 @@ const MENU = [
       { id: 'admin.destinos',        label: 'Destinos Personalizados',  icon: 'branch' },
       { id: 'admin.codigos',         label: 'Códigos de Recurso',       icon: 'grid' },
       { id: 'admin.gravacoes',       label: 'Gravações do Sistema',     icon: 'mic' },
-      { id: 'admin.idiomas',         label: 'Idiomas de Som',           icon: 'globe' },
       { id: 'admin.updates',         label: 'Atualizações',             icon: 'refresh', pill: '3' }
     ]
   },

@@ -5,6 +5,7 @@ use Slim\Factory\AppFactory;
 use Slim\Routing\RouteCollectorProxy;
 use Telium\Http\Controllers\Autenticacao as CtrlAuth;
 use Telium\Http\Controllers\Cadastros;
+use Telium\Http\Controllers\Cli;
 use Telium\Http\Controllers\Configuracao as CtrlConfig;
 use Telium\Http\Controllers\Painel;
 use Telium\Http\Controllers\Relatorios;
@@ -242,6 +243,12 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
 
     // ---- cadastros especiais ----
     $g->get('/perfis', [Cadastros::class, 'perfis'])->add(new Permissao('admin.permissoes'));
+    $g->post('/perfis', [Cadastros::class, 'criarPerfil'])
+      ->add(new Permissao('admin.permissoes', 'permissoes'));
+    $g->put('/perfis/{id}', [Cadastros::class, 'atualizarPerfil'])
+      ->add(new Permissao('admin.permissoes', 'permissoes'));
+    $g->delete('/perfis/{id}', [Cadastros::class, 'removerPerfil'])
+      ->add(new Permissao('admin.permissoes', 'permissoes'));
     $g->put('/perfis/{id}/permissoes', [Cadastros::class, 'salvarPermissoes'])
       ->add(new Permissao('admin.permissoes', 'permissoes'));
     $g->get('/empresa', [Cadastros::class, 'empresa']);
@@ -254,12 +261,16 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/ramais/{id}/credenciais', [Cadastros::class, 'credenciaisRamal'])
       ->add(new Permissao('conn.ramais', 'editar'));
 
+    // ---- console do Asterisk ----
+    $g->get('/cli/sugestoes', [Cli::class, 'sugestoes'])->add(new Permissao('admin.cli'));
+    $g->post('/cli', [Cli::class, 'executar'])->add(new Permissao('admin.cli'));
+
     // ---- configuração do Asterisk ----
     $g->get('/config/estado', [CtrlConfig::class, 'estado']);
     $g->post('/config/gerar', [CtrlConfig::class, 'gerar'])
-      ->add(new Permissao('admin.modulos', 'editar'));
+      ->add(new Permissao('cfg.avancadas', 'editar'));
     $g->post('/config/aplicar', [CtrlConfig::class, 'aplicar'])
-      ->add(new Permissao('admin.modulos', 'reiniciar'));
+      ->add(new Permissao('cfg.avancadas', 'reiniciar'));
 
     // ---- CRUD genérico ----
     foreach ($recursos as $caminho => $def) {

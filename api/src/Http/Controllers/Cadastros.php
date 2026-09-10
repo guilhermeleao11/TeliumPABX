@@ -33,6 +33,114 @@ final class Cadastros
         return Resposta::json($res, ['dados' => $perfis]);
     }
 
+    /** POST /api/perfis — cria um perfil sob medida */
+    public function criarPerfil(Request $req, Response $res): Response
+    {
+        $corpo = (array) $req->getParsedBody();
+        $nome = trim((string) ($corpo['nome'] ?? ''));
+
+        if ($nome === '') {
+            return Resposta::erro($res, 'Informe o nome do perfil', 422);
+        }
+
+        $chave = trim((string) ($corpo['chave'] ?? '')) ?: $this->gerarChave($nome);
+        if (!preg_match('/^[a-z][a-z0-9_-]{1,31}$/', $chave)) {
+            return Resposta::erro(
+                $res,
+                'A chave do perfil deve começar com letra e usar apenas letras minúsculas, números, hífen e sublinhado',
+                422
+            );
+        }
+        if (Bd::valor('SELECT COUNT(*) FROM perfis WHERE chave = ?', [$chave]) > 0) {
+            return Resposta::erro($res, "Já existe um perfil com a chave {$chave}", 409);
+        }
+
+        $cores = ['brand', 'info', 'ok', 'warn', 'danger'];
+        $cor = in_array($corpo['cor'] ?? '', $cores, true) ? $corpo['cor'] : 'brand';
+
+        Bd::executar(
+            'INSERT INTO perfis (chave, nome, descricao, cor, sistema) VALUES (?, ?, ?, ?, 0)',
+            [$chave, $nome, ($corpo['descricao'] ?? '') ?: null, $cor]
+        );
+        $id = (int) Bd::conexao()->lastInsertId();
+
+        // Um perfil novo nasce sem nenhuma permissão: quem cria decide o que liberar.
+        Auditoria::registrar($req->getAttribute('usuario'), 'criar', 'admin.permissoes', $chave);
+
+        return Resposta::json($res, [
+            'id' => $id, 'chave' => $chave, 'nome' => $nome,
+            'descricao' => $corpo['descricao'] ?? null, 'cor' => $cor,
+            'sistema' => 0, 'allow' => [], 'caps' => [], 'usuarios' => 0,
+        ], 201);
+    }
+
+    /** PUT /api/perfis/{id} — renomeia ou redescreve um perfil */
+    public function atualizarPerfil(Request $req, Response $res, array $args): Response
+    {
+        $perfil = Bd::um('SELECT * FROM perfis WHERE id = ?', [$args['id']]);
+        if ($perfil === null) {
+            return Resposta::erro($res, 'Perfil não encontrado', 404);
+        }
+
+        $corpo = (array) $req->getParsedBody();
+        $nome = trim((string) ($corpo['nome'] ?? $perfil['nome']));
+        if ($nome === '') {
+            return Resposta::erro($res, 'Informe o nome do perfil', 422);
+        }
+
+        $cores = ['brand', 'info', 'ok', 'warn', 'danger'];
+        $cor = in_array($corpo['cor'] ?? '', $cores, true) ? $corpo['cor'] : $perfil['cor'];
+
+        Bd::executar(
+            'UPDATE perfis SET nome = ?, descricao = ?, cor = ? WHERE id = ?',
+            [$nome, ($corpo['descricao'] ?? $perfil['descricao']) ?: null, $cor, $perfil['id']]
+        );
+
+        Auditoria::registrar($req->getAttribute('usuario'), 'editar', 'admin.permissoes', (string) $perfil['chave']);
+
+        return Resposta::json($res, ['ok' => true]);
+    }
+
+    /** DELETE /api/perfis/{id} */
+    public function removerPerfil(Request $req, Response $res, array $args): Response
+    {
+        $perfil = Bd::um('SELECT * FROM perfis WHERE id = ?', [$args['id']]);
+        if ($perfil === null) {
+            return Resposta::erro($res, 'Perfil não encontrado', 404);
+        }
+        if ((int) $perfil['sistema'] === 1) {
+            return Resposta::erro(
+                $res,
+                "O perfil {$perfil['nome']} faz parte do sistema e não pode ser excluído. "
+                . 'Você pode alterar as permissões dele.',
+                409
+            );
+        }
+
+        $usuarios = (int) Bd::valor('SELECT COUNT(*) FROM usuarios WHERE perfil_id = ?', [$perfil['id']]);
+        if ($usuarios > 0) {
+            return Resposta::erro(
+                $res,
+                "Este perfil está em uso por {$usuarios} usuário(s). Mova essas contas para outro perfil antes de excluir.",
+                409
+            );
+        }
+
+        Bd::executar('DELETE FROM perfis WHERE id = ?', [$perfil['id']]);
+        Auditoria::registrar($req->getAttribute('usuario'), 'excluir', 'admin.permissoes', (string) $perfil['chave']);
+
+        return Resposta::json($res, ['removido' => true]);
+    }
+
+    /** Transforma "Supervisor de Filas" em "supervisor-de-filas". */
+    private function gerarChave(string $nome): string
+    {
+        $sem = iconv('UTF-8', 'ASCII//TRANSLIT', $nome) ?: $nome;
+        $chave = strtolower(preg_replace('/[^A-Za-z0-9]+/', '-', $sem) ?? '');
+
+        return trim(substr($chave, 0, 32), '-');
+    }
+
     /** PUT /api/perfis/{id}/permissoes — grava a matriz de um perfil */
     public function salvarPermissoes(Request $req, Response $res, array $args): Response
     {

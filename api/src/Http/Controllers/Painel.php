@@ -71,11 +71,13 @@ final class Painel
             [
                 'chave' => 'em_atendimento',
                 'label' => 'Em atendimento',
-                'valor' => (string) $ativas['chamadas'],
+                'valor' => $ativas['ok'] ? (string) $ativas['chamadas'] : '—',
                 'delta' => null,
                 'ico'   => 'headset',
-                'tone'  => 'ok',
-                'rodape' => $ativas['canais'] . ' canais ativos',
+                'tone'  => $ativas['ok'] ? 'ok' : 'warn',
+                'rodape' => $ativas['ok']
+                    ? $ativas['canais'] . ' canais ativos'
+                    : 'Asterisk não respondeu',
             ],
             [
                 'chave' => 'abandono',
@@ -182,18 +184,18 @@ final class Painel
     }
 
     // ------------------------------------------------------------------
-    /** @return array{chamadas:int, canais:int} */
+    /** @return array{chamadas:int, canais:int, ok:bool} */
     private function canaisAtivos(): array
     {
         $saida = $this->ami('core show channels');
         if ($saida === null) {
-            return ['chamadas' => 0, 'canais' => 0];
+            return ['chamadas' => 0, 'canais' => 0, 'ok' => false];
         }
 
         preg_match('/(\d+)\s+active channel/i', $saida, $c);
         preg_match('/(\d+)\s+active call/i', $saida, $l);
 
-        return ['chamadas' => (int) ($l[1] ?? 0), 'canais' => (int) ($c[1] ?? 0)];
+        return ['chamadas' => (int) ($l[1] ?? 0), 'canais' => (int) ($c[1] ?? 0), 'ok' => true];
     }
 
     /** @return array<string,string> nome do endpoint => estado */
