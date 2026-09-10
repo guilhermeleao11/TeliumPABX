@@ -15,10 +15,10 @@ python3 -m http.server 8080  # e acesse http://localhost:8080
 
 | Usuário      | Senha      | Perfil        | O que enxerga |
 |--------------|------------|---------------|----------------|
-| `admin`      | `admin`    | Administrador | Tudo — 8 grupos de menu |
-| `supervisor` | `super123` | Supervisor    | Indicadores, relatórios, filas/URA, ramais (leitura), PCU |
-| `operador`   | `oper123`  | Operador      | Visão geral, PCU, siga-me e correio de voz |
-| `auditor`    | `audit123` | Auditoria     | Relatórios e gravações, somente leitura |
+| `admin`      | `T3l1um_@2024_@aD1m` | Administrador | Tudo — 8 grupos de menu |
+| `supervisor` | `T3l1um_@2024_@aD1m` | Supervisor    | Indicadores, relatórios, filas/URA, ramais (leitura), PCU |
+| `operador`   | `T3l1um_@2024_@aD1m` | Operador      | Visão geral, PCU, siga-me e correio de voz |
+| `auditor`    | `T3l1um_@2024_@aD1m` | Auditoria     | Relatórios e gravações, somente leitura |
 
 Os botões abaixo do formulário preenchem as credenciais com um clique.
 

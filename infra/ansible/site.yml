@@ -5,20 +5,6 @@
   gather_facts: true
 
   pre_tasks:
-    - name: Exigir o arquivo de segredos
-      ansible.builtin.assert:
-        that:
-          - vault_db_senha is defined
-          - vault_db_cdr_senha is defined
-          - vault_ami_senha is defined
-          - vault_ari_senha is defined
-        fail_msg: >-
-          Faltam as senhas. Rode ./gerar-vault.sh (cria group_vars/all/vault.yml
-          com senhas aleatórias) ou copie vault.yml.exemplo para
-          group_vars/all/vault.yml e preencha os valores.
-        success_msg: "Segredos carregados"
-      run_once: true
-
     - name: Resumo do que será instalado
       ansible.builtin.debug:
         msg:
@@ -28,6 +14,11 @@
           - "MariaDB ... {{ mariadb_versao }} (repositório oficial)"
           - "nginx ..... canal {{ nginx_canal }} (repositório oficial)"
           - "PHP ....... 8.4 + Slim"
+          - ""
+          - "Senhas de serviço: geradas nesta instalação e guardadas em"
+          - "  {{ credenciais_dir }} (uma por arquivo, 0600, só root)"
+          - "Senha do console: fixa — veja o resumo no final"
+          - ""
           - "ATENÇÃO: a compilação do Asterisk leva de 5 a 15 minutos."
 
   roles:
@@ -43,11 +34,44 @@
     - seguranca
 
   post_tasks:
+    - name: Proteger o diretório de credenciais
+      ansible.builtin.file:
+        path: "{{ credenciais_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Registrar um resumo da instalação
+      ansible.builtin.copy:
+        dest: "{{ telium_etc }}/instalacao.txt"
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          Telium PABX — instalado em {{ ansible_date_time.iso8601 | default('') }}
+          host: {{ inventory_hostname }} ({{ ansible_facts.default_ipv4.address | default('127.0.0.1') }})
+
+          Console ...... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/
+          Usuário ...... admin
+          Senha ........ {{ senha_padrao_console }}
+
+          As senhas de serviço (banco, AMI, ARI) foram geradas nesta
+          instalação e estão em {{ credenciais_dir }}, uma por arquivo.
+          Elas nunca são exibidas na tela nem versionadas.
+
+          Trocar a senha do console:
+            cd {{ telium_api }} && php bin/telium senha admin
+
     - name: Endereços de acesso
       ansible.builtin.debug:
         msg:
           - "Console ....... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/"
           - "API ........... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/api/health"
           - "Janus ......... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/janus/info"
-          - "Usuário demo .. admin / admin (TROQUE)"
-          - "Verificação ... ansible-playbook verificar.yml"
+          - ""
+          - "Login ......... admin / {{ senha_padrao_console }}"
+          - "Senhas de serviço em {{ credenciais_dir }} (0600, só root)"
+          - "Resumo salvo em {{ telium_etc }}/instalacao.txt"
+          - ""
+          - "Verificação ... sudo ansible-playbook verificar.yml"

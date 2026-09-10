@@ -170,14 +170,14 @@ const ROLES = {
    3. USUÁRIOS DEMO
    --------------------------------------------------------- */
 const USERS = [
-  { user: 'admin',      pass: 'admin',      name: 'Guilherme Leão',  role: 'admin',      ramal: '1000', email: 'grp-voip@telium.com.br', setor: 'TI / VoIP',      status: 'ativo',    ultimo: 'Agora' },
-  { user: 'supervisor', pass: 'super123',   name: 'Marina Duarte',   role: 'supervisor', ramal: '1010', email: 'marina@telium.com.br',   setor: 'Atendimento',    status: 'ativo',    ultimo: 'Há 12 min' },
-  { user: 'operador',   pass: 'oper123',    name: 'Rafael Santos',   role: 'operador',   ramal: '2031', email: 'rafael@telium.com.br',   setor: 'Suporte N1',     status: 'ativo',    ultimo: 'Há 3 min' },
-  { user: 'auditor',    pass: 'audit123',   name: 'Carla Nogueira',  role: 'auditor',    ramal: '1500', email: 'carla@telium.com.br',    setor: 'Compliance',     status: 'ativo',    ultimo: 'Ontem, 17:42' },
-  { user: 'jmartins',   pass: 'senha123',   name: 'João Martins',    role: 'operador',   ramal: '2032', email: 'joao@telium.com.br',     setor: 'Suporte N1',     status: 'ativo',    ultimo: 'Há 1 h' },
-  { user: 'pcosta',     pass: 'senha123',   name: 'Patrícia Costa',  role: 'operador',   ramal: '2033', email: 'patricia@telium.com.br', setor: 'Comercial',      status: 'inativo',  ultimo: '02/09/2026' },
-  { user: 'lferreira',  pass: 'senha123',   name: 'Lucas Ferreira',  role: 'supervisor', ramal: '1011', email: 'lucas@telium.com.br',    setor: 'Comercial',      status: 'ativo',    ultimo: 'Há 26 min' },
-  { user: 'abraga',     pass: 'senha123',   name: 'Ana Braga',       role: 'operador',   ramal: '2034', email: 'ana@telium.com.br',      setor: 'Financeiro',     status: 'bloqueado',ultimo: '28/08/2026' }
+  { user: 'admin',      pass: 'T3l1um_@2024_@aD1m',      name: 'Guilherme Leão',  role: 'admin',      ramal: '1000', email: 'grp-voip@telium.com.br', setor: 'TI / VoIP',      status: 'ativo',    ultimo: 'Agora' },
+  { user: 'supervisor', pass: 'T3l1um_@2024_@aD1m',   name: 'Marina Duarte',   role: 'supervisor', ramal: '1010', email: 'marina@telium.com.br',   setor: 'Atendimento',    status: 'ativo',    ultimo: 'Há 12 min' },
+  { user: 'operador',   pass: 'T3l1um_@2024_@aD1m',    name: 'Rafael Santos',   role: 'operador',   ramal: '2031', email: 'rafael@telium.com.br',   setor: 'Suporte N1',     status: 'ativo',    ultimo: 'Há 3 min' },
+  { user: 'auditor',    pass: 'T3l1um_@2024_@aD1m',   name: 'Carla Nogueira',  role: 'auditor',    ramal: '1500', email: 'carla@telium.com.br',    setor: 'Compliance',     status: 'ativo',    ultimo: 'Ontem, 17:42' },
+  { user: 'jmartins',   pass: 'T3l1um_@2024_@aD1m',   name: 'João Martins',    role: 'operador',   ramal: '2032', email: 'joao@telium.com.br',     setor: 'Suporte N1',     status: 'ativo',    ultimo: 'Há 1 h' },
+  { user: 'pcosta',     pass: 'T3l1um_@2024_@aD1m',   name: 'Patrícia Costa',  role: 'operador',   ramal: '2033', email: 'patricia@telium.com.br', setor: 'Comercial',      status: 'inativo',  ultimo: '02/09/2026' },
+  { user: 'lferreira',  pass: 'T3l1um_@2024_@aD1m',   name: 'Lucas Ferreira',  role: 'supervisor', ramal: '1011', email: 'lucas@telium.com.br',    setor: 'Comercial',      status: 'ativo',    ultimo: 'Há 26 min' },
+  { user: 'abraga',     pass: 'T3l1um_@2024_@aD1m',   name: 'Ana Braga',       role: 'operador',   ramal: '2034', email: 'ana@telium.com.br',      setor: 'Financeiro',     status: 'bloqueado',ultimo: '28/08/2026' }
 ];
 
 /* ---------------------------------------------------------

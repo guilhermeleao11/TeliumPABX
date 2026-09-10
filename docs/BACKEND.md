@@ -136,6 +136,19 @@ POST /api/config/gerar        regenera os .conf
 POST /api/config/aplicar      regenera e recarrega o Asterisk
 ```
 
+### Credenciais
+
+| O quê | Como nasce | Onde fica |
+|---|---|---|
+| Login do console | **fixa**: `T3l1um_@2024_@aD1m` | hash PBKDF2 na tabela `usuarios` |
+| Senha do banco, ODBC do CDR, AMI, ARI | 28 caracteres aleatórios, **por instalação** | `/etc/telium/credenciais/`, 0600, só root |
+| Senha SIP de cada ramal | aleatória, por instalação | tabela `ramais` |
+
+O Ansible gera as senhas de serviço com o lookup `password`, que persiste em
+arquivo: a primeira execução cria, as seguintes reaproveitam. Nada disso é
+versionado nem impresso na tela. Definir `vault_db_senha` e companhia
+(veja `vault.yml.exemplo`) sobrepõe as geradas.
+
 ### Autenticação
 
 Token opaco de 32 bytes; no banco fica só o SHA-256. Vai por cookie

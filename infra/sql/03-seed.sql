@@ -1,8 +1,13 @@
 -- =========================================================
 -- Telium PABX — dados iniciais
--- Espelha o protótipo do front-end. Senhas em PBKDF2-SHA256.
---   admin/admin · supervisor/super123 · operador/oper123 · auditor/audit123
--- TROQUE TODAS antes de qualquer uso fora do laboratório.
+-- Espelha o protótipo do front-end. Senhas em PBKDF2-SHA256 (390.000 iterações).
+--
+-- Todas as contas nascem com a MESMA senha padrão de implantação:
+--     T3l1um_@2024_@aD1m
+--
+-- Reaplicar este script NÃO sobrescreve senhas já trocadas (o ON DUPLICATE
+-- KEY UPDATE abaixo não toca em senha_hash). Para trocar depois:
+--     php bin/telium senha admin
 -- =========================================================
 SET NAMES utf8mb4;
 
@@ -65,17 +70,17 @@ SELECT p.id, 'exportar' FROM perfis p WHERE p.chave = 'auditor';
 
 -- ---------- usuários ----------
 INSERT INTO usuarios (usuario, nome, email, senha_hash, perfil_id, ramal, setor, status)
-SELECT v.usuario, v.nome, v.email, v.senha_hash, p.id, v.ramal, v.setor, v.status
+SELECT v.usuario, v.nome, v.email, 'pbkdf2_sha256$390000$YOaItVoHDd2/hpoLNDFOcQ==$ad2bQSeyuzfdiIVwHPDZuvTYZ/FJMr8E4Yqu/vW0LJ4=', p.id, v.ramal, v.setor, v.status
 FROM (
   SELECT 'admin' usuario,'Guilherme Leão' nome,'grp-voip@telium.com.br' email,
-         'pbkdf2_sha256$390000$tb7ovRPZsTFH8VVVjPKidg==$SPpykOBrcFzXGyE7GTYTH1DlioYc7Y8Hwy9JwltWlWA=' senha_hash,'admin' perfil,'1000' ramal,'TI / VoIP' setor,'ativo' status
-  UNION ALL SELECT 'supervisor','Marina Duarte','marina@telium.com.br','pbkdf2_sha256$390000$eP9+N2b/Bsr4nM20oKtfVQ==$JTAmp2Vrs3yHOLTO0dIH9RiPLNy4lH+SYAuywDtnA98=','supervisor','1010','Atendimento','ativo'
-  UNION ALL SELECT 'operador','Rafael Santos','rafael@telium.com.br','pbkdf2_sha256$390000$hFuM7Yu5X7sEtt2y/hjx2A==$Bh0mx6syz/fzkQUZwPuRq627yakxGHI3L9xNRc+JnT8=','operador','2031','Suporte N1','ativo'
-  UNION ALL SELECT 'auditor','Carla Nogueira','carla@telium.com.br','pbkdf2_sha256$390000$NBQcSAbSd+lRcI7A+t5ANA==$q4jKH7CxJLfnxgwdjTl/qNYx+4Q8kkB+zfNgTh3YXoQ=','auditor','1500','Compliance','ativo'
-  UNION ALL SELECT 'jmartins','João Martins','joao@telium.com.br','pbkdf2_sha256$390000$mCIpfEOvH2OuZAGFB0vZxw==$6mszYd8s/SADeKWYv9O9o1x1qpK1JcvR/7sLYXE9yKQ=','operador','2032','Suporte N1','ativo'
-  UNION ALL SELECT 'pcosta','Patrícia Costa','patricia@telium.com.br','pbkdf2_sha256$390000$1z/gpUCaQzUl3a0eZ4gRHQ==$QR8G6ye1rPXwHT16q7McRQOL/xIPyZSZ/T/w25zJWxM=','operador','2033','Comercial','inativo'
-  UNION ALL SELECT 'lferreira','Lucas Ferreira','lucas@telium.com.br','pbkdf2_sha256$390000$D5eRqxs1xoD8jcl6A5zsug==$fy+qdb4Zxr068x6qFMDNf5bUXl+amZ5WwzT2aIcOF4w=','supervisor','1011','Comercial','ativo'
-  UNION ALL SELECT 'abraga','Ana Braga','ana@telium.com.br','pbkdf2_sha256$390000$2MAggtALasGTBC5sZ7djTQ==$7yBL0cpYd8a1dODMesleSctyRF1n2CIJUiMO5Nrr138=','operador','2034','Financeiro','bloqueado'
+         'admin' perfil,'1000' ramal,'TI / VoIP' setor,'ativo' status
+  UNION ALL SELECT 'supervisor','Marina Duarte','marina@telium.com.br','supervisor','1010','Atendimento','ativo'
+  UNION ALL SELECT 'operador','Rafael Santos','rafael@telium.com.br','operador','2031','Suporte N1','ativo'
+  UNION ALL SELECT 'auditor','Carla Nogueira','carla@telium.com.br','auditor','1500','Compliance','ativo'
+  UNION ALL SELECT 'jmartins','João Martins','joao@telium.com.br','operador','2032','Suporte N1','ativo'
+  UNION ALL SELECT 'pcosta','Patrícia Costa','patricia@telium.com.br','operador','2033','Comercial','inativo'
+  UNION ALL SELECT 'lferreira','Lucas Ferreira','lucas@telium.com.br','supervisor','1011','Comercial','ativo'
+  UNION ALL SELECT 'abraga','Ana Braga','ana@telium.com.br','operador','2034','Financeiro','bloqueado'
 ) v JOIN perfis p ON p.chave = v.perfil
 ON DUPLICATE KEY UPDATE nome = VALUES(nome), email = VALUES(email);
 
@@ -84,16 +89,16 @@ ON DUPLICATE KEY UPDATE nome = VALUES(nome), email = VALUES(email);
 -- navegador é o Janus (plugin SIP). Por isso webrtc=0 e transporte=udp.
 INSERT INTO ramais (numero, nome, setor, email, senha_sip, gravar, voicemail, webrtc, transporte)
 VALUES
- ('1000','Guilherme Leão','TI / VoIP','grp-voip@telium.com.br', SHA2(CONCAT('1000', RAND()), 256), 'ambas', 1, 0, 'udp'),
- ('1010','Marina Duarte','Atendimento','marina@telium.com.br',  SHA2(CONCAT('1010', RAND()), 256), 'ambas', 1, 0, 'udp'),
- ('1011','Lucas Ferreira','Comercial','lucas@telium.com.br',    SHA2(CONCAT('1011', RAND()), 256), 'nao',   1, 0, 'udp'),
- ('1500','Carla Nogueira','Compliance','carla@telium.com.br',   SHA2(CONCAT('1500', RAND()), 256), 'ambas', 1, 0, 'udp'),
- ('2031','Rafael Santos','Suporte N1','rafael@telium.com.br',   SHA2(CONCAT('2031', RAND()), 256), 'ambas', 0, 0, 'udp'),
- ('2032','João Martins','Suporte N1','joao@telium.com.br',      SHA2(CONCAT('2032', RAND()), 256), 'ambas', 1, 0, 'udp'),
- ('2033','Patrícia Costa','Comercial','patricia@telium.com.br', SHA2(CONCAT('2033', RAND()), 256), 'nao',   1, 0, 'udp'),
- ('2034','Ana Braga','Financeiro','ana@telium.com.br',          SHA2(CONCAT('2034', RAND()), 256), 'ambas', 1, 0, 'udp'),
- ('3001','Recepção','Recepção', NULL,                           SHA2(CONCAT('3001', RAND()), 256), 'nao',   0, 0, 'udp'),
- ('3002','Sala de Reunião','Corporativo', NULL,                 SHA2(CONCAT('3002', RAND()), 256), 'nao',   0, 0, 'udp')
+ ('1000','Guilherme Leão','TI / VoIP','grp-voip@telium.com.br', SUBSTRING(SHA2(CONCAT(UUID(), '1000', RAND()), 256), 1, 24), 'ambas', 1, 0, 'udp'),
+ ('1010','Marina Duarte','Atendimento','marina@telium.com.br',  SUBSTRING(SHA2(CONCAT(UUID(), '1010', RAND()), 256), 1, 24), 'ambas', 1, 0, 'udp'),
+ ('1011','Lucas Ferreira','Comercial','lucas@telium.com.br',    SUBSTRING(SHA2(CONCAT(UUID(), '1011', RAND()), 256), 1, 24), 'nao',   1, 0, 'udp'),
+ ('1500','Carla Nogueira','Compliance','carla@telium.com.br',   SUBSTRING(SHA2(CONCAT(UUID(), '1500', RAND()), 256), 1, 24), 'ambas', 1, 0, 'udp'),
+ ('2031','Rafael Santos','Suporte N1','rafael@telium.com.br',   SUBSTRING(SHA2(CONCAT(UUID(), '2031', RAND()), 256), 1, 24), 'ambas', 0, 0, 'udp'),
+ ('2032','João Martins','Suporte N1','joao@telium.com.br',      SUBSTRING(SHA2(CONCAT(UUID(), '2032', RAND()), 256), 1, 24), 'ambas', 1, 0, 'udp'),
+ ('2033','Patrícia Costa','Comercial','patricia@telium.com.br', SUBSTRING(SHA2(CONCAT(UUID(), '2033', RAND()), 256), 1, 24), 'nao',   1, 0, 'udp'),
+ ('2034','Ana Braga','Financeiro','ana@telium.com.br',          SUBSTRING(SHA2(CONCAT(UUID(), '2034', RAND()), 256), 1, 24), 'ambas', 1, 0, 'udp'),
+ ('3001','Recepção','Recepção', NULL,                           SUBSTRING(SHA2(CONCAT(UUID(), '3001', RAND()), 256), 1, 24), 'nao',   0, 0, 'udp'),
+ ('3002','Sala de Reunião','Corporativo', NULL,                 SUBSTRING(SHA2(CONCAT(UUID(), '3002', RAND()), 256), 1, 24), 'nao',   0, 0, 'udp')
 ON DUPLICATE KEY UPDATE nome = VALUES(nome), setor = VALUES(setor);
 
 -- ---------- troncos ----------

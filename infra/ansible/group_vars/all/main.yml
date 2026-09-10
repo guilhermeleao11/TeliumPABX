@@ -2,8 +2,15 @@
 # =========================================================
 # Telium PABX — variáveis do provisionamento
 # Configuração NÃO sensível — este arquivo vai para o Git.
-# As senhas ficam em group_vars/all/vault.yml (fora do controle de versão).
-# Gere-as com: ./gerar-vault.sh
+#
+# As senhas de serviço (banco, AMI, ARI) NÃO ficam aqui: são geradas
+# automaticamente na primeira instalação e guardadas em
+# {{ credenciais_dir }}, uma por arquivo, com permissão 0600.
+# Reexecutar o playbook reaproveita as mesmas — o lookup lê o arquivo.
+#
+# Para escolher as senhas você mesmo, defina vault_db_senha,
+# vault_db_cdr_senha, vault_ami_senha e vault_ari_senha
+# (veja vault.yml.exemplo); elas têm precedência sobre as geradas.
 # =========================================================
 
 # ---------- versões fixadas ----------
@@ -12,6 +19,11 @@ asterisk_sha_url: "https://downloads.asterisk.org/pub/telephony/asterisk/asteris
 janus_versao: "v1.4.1"
 mariadb_versao: "12.3.3"
 nginx_canal: "mainline"          # mainline = 1.31.x
+
+# ---------- senha padrão de implantação ----------
+# Todas as contas do console nascem com esta senha (definida no seed SQL).
+# Troque depois com: php bin/telium senha admin
+senha_padrao_console: "T3l1um_@2024_@aD1m"
 
 # ---------- identidade da central ----------
 pabx_hostname: "pabx.telium.local"
@@ -35,12 +47,18 @@ src_dir: /usr/local/src/telium
 telium_user: teliumpbx
 telium_group: teliumpbx
 
+# ---------- credenciais geradas ----------
+# Onde as senhas geradas ficam guardadas (uma por arquivo, 0600, só root).
+credenciais_dir: /etc/telium/credenciais
+senha_tamanho: 28
+senha_alfabeto: "ascii_letters,digits"
+
 # ---------- banco ----------
 db_nome: telium_pabx
 db_usuario: telium
-db_senha: "{{ vault_db_senha }}"
+db_senha: "{{ vault_db_senha | default(lookup('password', credenciais_dir ~ '/db_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho), true) }}"
 db_cdr_usuario: asteriskcdr
-db_cdr_senha: "{{ vault_db_cdr_senha }}"
+db_cdr_senha: "{{ vault_db_cdr_senha | default(lookup('password', credenciais_dir ~ '/db_cdr_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho), true) }}"
 db_root_socket: true                         # root via unix_socket (padrão MariaDB)
 
 # ---------- rede / portas ----------
@@ -51,9 +69,9 @@ ast_rtp_fim: 10200
 ast_http_porta: 8090                         # ARI/HTTP do Asterisk (8088 é do Janus)
 ami_porta: 5038
 ami_usuario: telium
-ami_senha: "{{ vault_ami_senha }}"
+ami_senha: "{{ vault_ami_senha | default(lookup('password', credenciais_dir ~ '/ami_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho), true) }}"
 ari_usuario: telium
-ari_senha: "{{ vault_ari_senha }}"
+ari_senha: "{{ vault_ari_senha | default(lookup('password', credenciais_dir ~ '/ari_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho), true) }}"
 
 janus_http_porta: 8088
 janus_ws_porta: 8188

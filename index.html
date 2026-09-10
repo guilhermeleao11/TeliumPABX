@@ -148,7 +148,7 @@ document.getElementById('demoList').innerHTML = demos.map(u => {
   const usr = USERS.find(x => x.user === u), r = ROLES[usr.role];
   return `<button type="button" class="demo-user" data-u="${usr.user}" data-p="${usr.pass}">
     <span class="avatar avatar-sm">${usr.name.split(' ').map(n => n[0]).slice(0,2).join('')}</span>
-    <span><b>${usr.name}</b><small>${usr.user} · ${usr.pass}</small></span>
+    <span><b>${usr.name}</b><small>${usr.user} · senha padrão</small></span>
     <span class="badge badge-${r.color}">${r.label}</span>
   </button>`;
 }).join('');
