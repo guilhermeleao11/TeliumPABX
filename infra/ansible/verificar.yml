@@ -1,45 +1,103 @@
 ---
 # Diagnóstico completo da instalação.
-#   ansible-playbook verificar.yml
+#   sudo ansible-playbook verificar.yml
 # Rode e cole a saída — é o suficiente para eu entender o que falhou.
 - name: Verificar a instalação do Telium PABX
   hosts: pabx
   become: true
   gather_facts: true
 
+  vars:
+    servicos: [mariadb, php8.4-fpm, asterisk, janus, nginx, fail2ban]
+
   tasks:
+    # ---------------- a pilha chegou a ser instalada? ----------------
+    - name: Procurar os binários da pilha
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/sbin/asterisk
+        - /usr/sbin/mariadbd
+        - "{{ janus_prefix }}/bin/janus"
+        - /usr/sbin/nginx
+        - /usr/sbin/php-fpm8.4
+      register: binarios
+
+    - name: Definir se a instalação foi feita
+      ansible.builtin.set_fact:
+        instalados: "{{ binarios.results | selectattr('stat.exists') | map(attribute='item') | list }}"
+        faltando: "{{ binarios.results | rejectattr('stat.exists') | map(attribute='item') | list }}"
+
+    - name: AVISO — instalação ausente ou incompleta
+      ansible.builtin.debug:
+        msg:
+          - "════════════════════════════════════════════════════════"
+          - "A pilha NÃO está instalada nesta máquina."
+          - "Faltam: {{ faltando | join(', ') }}"
+          - ""
+          - "Rode primeiro o provisionamento:"
+          - "    ./gerar-vault.sh          (se ainda não fez)"
+          - "    sudo ansible-playbook site.yml"
+          - ""
+          - "A compilação do Asterisk leva de 5 a 15 minutos."
+          - "════════════════════════════════════════════════════════"
+      when: faltando | length == binarios.results | length
+
+    - name: Instalação parcial
+      ansible.builtin.debug:
+        msg:
+          - "Instalação INCOMPLETA."
+          - "Presentes: {{ instalados | join(', ') }}"
+          - "Faltando:  {{ faltando | join(', ') }}"
+      when: faltando | length > 0 and faltando | length < binarios.results | length
+
     # ---------------- serviços ----------------
     - name: Estado dos serviços
-      ansible.builtin.command: "systemctl is-active {{ item }}"
-      loop: [mariadb, php8.4-fpm, asterisk, janus, nginx, fail2ban]
-      register: servicos
+      ansible.builtin.shell: |
+        set -o pipefail
+        estado=$(systemctl is-active {{ item }} 2>/dev/null || true)
+        habilitado=$(systemctl is-enabled {{ item }} 2>/dev/null || echo '-')
+        if [ "$estado" != "active" ]; then
+          motivo=$(journalctl -u {{ item }} -n 1 --no-pager -o cat 2>/dev/null | head -c 100)
+          echo "{{ item }} | $estado | $habilitado | $motivo"
+        else
+          echo "{{ item }} | $estado | $habilitado"
+        fi
+      args:
+        executable: /bin/bash
+      loop: "{{ servicos }}"
+      register: servicos_estado
       changed_when: false
       failed_when: false
 
     - name: Resumo dos serviços
       ansible.builtin.debug:
-        msg: "{{ servicos.results | map(attribute='item') | zip(servicos.results | map(attribute='stdout')) | map('join', ' ... ') | list }}"
+        msg: "{{ servicos_estado.results | map(attribute='stdout') | list }}"
 
-    # ---------------- versões ----------------
+    # ---------------- versões (com stderr, para ver 'não instalado') ----------------
     - name: Versões instaladas
-      ansible.builtin.shell: "{{ item }}"
+      ansible.builtin.shell: "{{ item }} 2>&1 | head -1 || true"
       loop:
-        - "mariadbd --version | head -1"
-        - "php -v | head -1"
-        - "nginx -v 2>&1"
+        - "mariadbd --version"
+        - "php -v"
+        - "nginx -v"
         - "asterisk -V"
-        - "{{ janus_prefix }}/bin/janus --version 2>&1 | head -1"
+        - "{{ janus_prefix }}/bin/janus --version"
+        - "isql --version"
       register: versoes
       changed_when: false
       failed_when: false
 
     - name: Resumo das versões
       ansible.builtin.debug:
-        msg: "{{ versoes.results | map(attribute='stdout') | select('string') | list }}"
+        msg: "{{ versoes.results | map(attribute='stdout') | map('trim') | reject('equalto', '') | list }}"
 
     # ---------------- portas ----------------
     - name: Portas em escuta
-      ansible.builtin.shell: "ss -lntup | grep -E ':({{ sip_porta }}|3306|443|80|{{ janus_http_porta }}|{{ janus_ws_porta }}|{{ ast_http_porta }}|{{ ami_porta }})\\b' || true"
+      ansible.builtin.shell: >-
+        ss -lntup 2>/dev/null
+        | grep -E ':({{ sip_porta }}|3306|443|80|{{ janus_http_porta }}|{{ janus_ws_porta }}|{{ ast_http_porta }}|{{ ami_porta }})\b'
+        || echo '(nenhuma porta da pilha em escuta)'
       register: portas
       changed_when: false
 
@@ -49,18 +107,17 @@
 
     # ---------------- banco ----------------
     - name: Contagem de registros nas tabelas principais
-      ansible.builtin.command:
-        cmd: >-
-          mariadb --protocol=socket -uroot -N -B {{ db_nome }} -e
-          "SELECT 'usuarios', COUNT(*) FROM usuarios
-           UNION ALL SELECT 'ramais', COUNT(*) FROM ramais
-           UNION ALL SELECT 'troncos', COUNT(*) FROM troncos
-           UNION ALL SELECT 'filas', COUNT(*) FROM filas
-           UNION ALL SELECT 'rotas_saida', COUNT(*) FROM rotas_saida
-           UNION ALL SELECT 'cdr', COUNT(*) FROM cdr;"
+      ansible.builtin.shell: >-
+        mariadb --protocol=socket -uroot -N -B {{ db_nome }} -e
+        "SELECT 'usuarios', COUNT(*) FROM usuarios
+          UNION ALL SELECT 'ramais', COUNT(*) FROM ramais
+          UNION ALL SELECT 'troncos', COUNT(*) FROM troncos
+          UNION ALL SELECT 'filas', COUNT(*) FROM filas
+          UNION ALL SELECT 'rotas_saida', COUNT(*) FROM rotas_saida
+          UNION ALL SELECT 'cdr', COUNT(*) FROM cdr;" 2>&1
+        || echo '(banco indisponível)'
       register: db_contagem
       changed_when: false
-      failed_when: false
 
     - name: Resumo do banco
       ansible.builtin.debug:
@@ -68,25 +125,31 @@
 
     # ---------------- asterisk ----------------
     - name: Diagnóstico do Asterisk
-      ansible.builtin.shell: "asterisk -rx '{{ item }}'"
+      ansible.builtin.shell: "asterisk -rx '{{ item }}' 2>&1 || echo '(Asterisk não respondeu)'"
       loop:
         - "core show version"
         - "pjsip show endpoints"
         - "pjsip show registrations"
         - "odbc show all"
-        - "dialplan show interno"
+        - "dialplan show telium-ramais"
         - "queue show"
-        - "module show like odbc"
       register: ast_diag
       changed_when: false
       failed_when: false
+      when: "'/usr/sbin/asterisk' in instalados"
 
     - name: Resumo do Asterisk
       ansible.builtin.debug:
-        msg: "{{ item.item }}:\n{{ item.stdout }}"
-      loop: "{{ ast_diag.results }}"
+        msg: "{{ item.item }}:\n{{ item.stdout | default('') | truncate(1200) }}"
+      loop: "{{ ast_diag.results | default([]) }}"
       loop_control:
-        label: "{{ item.item }}"
+        label: "{{ item.item | default('-') }}"
+      when: ast_diag is not skipped
+
+    - name: Asterisk ausente
+      ansible.builtin.debug:
+        msg: "Asterisk não instalado — nada a diagnosticar."
+      when: "'/usr/sbin/asterisk' not in instalados"
 
     # ---------------- janus ----------------
     - name: Janus responde?
@@ -101,7 +164,8 @@
         msg: >-
           {{ 'Janus ' ~ janus_info.json.version_string ~ ' — plugins: '
              ~ (janus_info.json.plugins.keys() | list | join(', '))
-             if janus_info.status | default(0) == 200 else 'Janus NÃO respondeu' }}
+             if (janus_info.status | default(0)) == 200
+             else 'Janus não respondeu em 127.0.0.1:' ~ janus_http_porta }}
 
     # ---------------- API ----------------
     - name: API responde?
@@ -114,25 +178,38 @@
 
     - name: Resumo da API
       ansible.builtin.debug:
-        msg: "{{ api_health.content | default('API NÃO respondeu') }}"
+        msg: >-
+          {{ api_health.content | default('')
+             if (api_health.content | default('')) != ''
+             else 'API não respondeu (HTTP ' ~ (api_health.status | default('sem resposta')) ~ ')' }}
 
     # ---------------- arquivos gerados ----------------
     - name: Arquivos .conf gerados pela API
-      ansible.builtin.shell: "ls -la {{ asterisk_gerado_dir }} && head -20 {{ asterisk_gerado_dir }}/pjsip.endpoints.conf"
+      ansible.builtin.shell: >-
+        ls -la {{ asterisk_gerado_dir }} 2>&1
+        || echo '(diretório {{ asterisk_gerado_dir }} não existe)'
       register: gerados
       changed_when: false
-      failed_when: false
 
     - name: Resumo dos arquivos gerados
       ansible.builtin.debug:
         var: gerados.stdout_lines
 
     # ---------------- erros recentes ----------------
-    - name: Últimos erros do Asterisk
-      ansible.builtin.shell: "tail -30 /var/log/asterisk/messages 2>/dev/null | grep -iE 'error|warning' || echo '(sem erros recentes)'"
-      register: ast_erros
+    - name: Erros recentes nos logs
+      ansible.builtin.shell: |
+        echo "--- asterisk"
+        grep -iE "error|warning" /var/log/asterisk/messages 2>/dev/null | tail -8 || echo "(sem log)"
+        echo "--- nginx"
+        tail -5 /var/log/nginx/error.log 2>/dev/null || echo "(sem log)"
+        echo "--- api"
+        tail -5 {{ telium_log }}/php-api.log 2>/dev/null || echo "(sem log)"
+      args:
+        executable: /bin/bash
+      register: erros
       changed_when: false
+      failed_when: false
 
     - name: Erros recentes
       ansible.builtin.debug:
-        var: ast_erros.stdout_lines
+        var: erros.stdout_lines

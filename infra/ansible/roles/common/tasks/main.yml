@@ -54,12 +54,25 @@
     state: present
   notify: gerar locales
 
-- name: Criar grupo do sistema Telium
+- name: Verificar se a conta de serviço já existe
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ telium_user }}"
+    fail_key: false
+
+- name: Registrar existência da conta de serviço
+  ansible.builtin.set_fact:
+    conta_servico_existe: "{{ (ansible_facts.getent_passwd[telium_user] | default(None)) is not none }}"
+
+- name: Criar grupo do sistema
   ansible.builtin.group:
     name: "{{ telium_group }}"
     system: true
 
-- name: Criar usuário de serviço Telium
+# Criamos a conta apenas se ela não existir. Alterar uma conta em uso
+# faz o usermod falhar ("user is currently used by process N"), e mexer
+# numa conta de login que já estava na máquina seria errado de qualquer forma.
+- name: Criar conta de serviço
   ansible.builtin.user:
     name: "{{ telium_user }}"
     group: "{{ telium_group }}"
@@ -67,6 +80,20 @@
     shell: /usr/sbin/nologin
     home: "{{ telium_base }}"
     create_home: false
+  when: not conta_servico_existe
+
+- name: Garantir que a conta de serviço pertence ao grupo correto
+  ansible.builtin.command: "usermod -a -G {{ telium_group }} {{ telium_user }}"
+  when: conta_servico_existe
+  changed_when: false
+  failed_when: false
+
+- name: Avisar sobre conta preexistente
+  ansible.builtin.debug:
+    msg: >-
+      A conta {{ telium_user }} já existia nesta máquina e foi reaproveitada,
+      sem alterar shell nem diretório home.
+  when: conta_servico_existe
 
 - name: Criar diretórios da aplicação
   ansible.builtin.file:

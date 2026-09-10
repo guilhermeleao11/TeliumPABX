@@ -1,4 +1,26 @@
 ---
+- name: Confirmar que o usuário nginx existe (dono do socket do FPM)
+  ansible.builtin.getent:
+    database: passwd
+    key: nginx
+    fail_key: false
+
+- name: Falhar cedo se o nginx ainda não foi instalado
+  ansible.builtin.assert:
+    that: (ansible_facts.getent_passwd['nginx'] | default(None)) is not none
+    fail_msg: >-
+      O usuário 'nginx' não existe. O papel nginx precisa rodar antes do php,
+      porque o pool do PHP-FPM entrega o socket para ele.
+    success_msg: "usuário nginx presente"
+
+- name: Criar diretório de sessões do PHP
+  ansible.builtin.file:
+    path: /var/lib/php/sessions
+    state: directory
+    owner: "{{ telium_user }}"
+    group: "{{ telium_group }}"
+    mode: "0750"
+
 - name: Instalar PHP 8.4 e extensões
   ansible.builtin.apt:
     name:

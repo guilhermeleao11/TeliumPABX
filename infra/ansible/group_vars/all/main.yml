@@ -30,8 +30,10 @@ asterisk_gerado_dir: /etc/asterisk/telium    # .conf gerados pela API
 src_dir: /usr/local/src/telium
 
 # ---------- usuários de sistema ----------
-telium_user: telium
-telium_group: telium
+# Conta de serviço da API. Nome propositalmente distinto de "telium"
+# para não colidir com uma conta de login que já exista na máquina.
+telium_user: teliumpbx
+telium_group: teliumpbx
 
 # ---------- banco ----------
 db_nome: telium_pabx

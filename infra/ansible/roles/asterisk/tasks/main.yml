@@ -102,6 +102,9 @@
     creates: "{{ src_dir }}/asterisk-{{ asterisk_versao }}/configure"
   when: ast_precisa_compilar
 
+# As dependências essenciais já foram instaladas acima. Este script cobre
+# os extras e às vezes tropeça em nomes de pacote que mudaram na distro,
+# então tratamos como melhor esforço.
 - name: Instalar pré-requisitos declarados pelo próprio Asterisk
   ansible.builtin.shell:
     cmd: ./contrib/scripts/install_prereq install
@@ -110,6 +113,15 @@
     DEBIAN_FRONTEND: noninteractive
   when: ast_precisa_compilar
   changed_when: true
+  failed_when: false
+  register: prereq
+
+- name: Aviso se algum pré-requisito extra falhou
+  ansible.builtin.debug:
+    msg: >-
+      install_prereq terminou com rc={{ prereq.rc }}. As dependências
+      essenciais já foram instaladas pelo playbook; seguindo com a compilação.
+  when: ast_precisa_compilar and prereq.rc | default(0) != 0
 
 - name: Configurar a compilação
   ansible.builtin.command:

@@ -33,10 +33,12 @@
   roles:
     - common
     - mariadb
+    # nginx vem antes do php porque o pool do PHP-FPM usa
+    # listen.owner = nginx, e esse usuário nasce com o pacote nginx.
+    - nginx
     - php
     - asterisk
     - janus
-    - nginx
     - api
     - seguranca
 
