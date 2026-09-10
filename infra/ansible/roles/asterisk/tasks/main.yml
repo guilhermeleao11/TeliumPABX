@@ -363,17 +363,49 @@
 
     porta = int(os.environ["AMI_PORTA"])
 
+    def pacote_completo(texto):
+        """Um pacote do AMI termina em linha em branco."""
+        return texto.endswith("\r\n\r\n") or texto.endswith("\n\n")
+
     try:
         with socket.create_connection(("127.0.0.1", porta), timeout=5) as s:
+            s.settimeout(5)
             s.recv(4096)                               # banner
             login = "Action: Login\r\nUsername: {}\r\nSecret: {}\r\n\r\n".format(
                 os.environ["AMI_USUARIO"], os.environ["AMI_SENHA"])
             s.sendall(login.encode())
-            resposta = s.recv(4096).decode(errors="replace")
+
+            # O Asterisk responde ao login e, se o usuario tem permissao de
+            # sistema, emite FullyBooted em seguida. Ler uma vez so pode
+            # devolver o evento e nao a resposta, entao lemos ate encontrar
+            # a linha Response: ou esgotar o tempo.
+            buffer = ""
+            resposta = ""
+            for _ in range(10):
+                try:
+                    pedaco = s.recv(4096).decode(errors="replace")
+                except socket.timeout:
+                    break
+                if not pedaco:
+                    break
+                buffer += pedaco
+                for bloco in buffer.split("\r\n\r\n"):
+                    if "Response:" in bloco:
+                        resposta = bloco
+                        break
+                if resposta or pacote_completo(buffer):
+                    if resposta:
+                        break
+
             s.sendall(b"Action: Logoff\r\n\r\n")
     except OSError as e:
         print("Nao foi possivel falar com o AMI em 127.0.0.1:{} - {}".format(porta, e))
         sys.exit(2)
+
+    if not resposta:
+        print("O AMI nao devolveu uma linha Response. Recebido:")
+        print(buffer.strip()[:400] or "(nada)")
+        sys.exit(3)
 
     for linha in resposta.splitlines():
         if linha.startswith(("Response:", "Message:")):
@@ -390,6 +422,13 @@
   register: ami_teste
   changed_when: false
   failed_when: false
+
+- name: Resultado do teste de AMI
+  ansible.builtin.debug:
+    msg: >-
+      rc={{ ami_teste.rc | default('(tarefa pulada)') }}
+      · {{ ami_teste.stdout_lines | default(['(sem saída)']) | join(' | ') }}
+      {{ ('· stderr: ' ~ ami_teste.stderr) if ami_teste.stderr | default('') else '' }}
 
 - name: Recarregar o manager e testar o AMI de novo
   when: ami_teste.rc | default(1) != 0
@@ -409,17 +448,49 @@
 
         porta = int(os.environ["AMI_PORTA"])
 
+        def pacote_completo(texto):
+            """Um pacote do AMI termina em linha em branco."""
+            return texto.endswith("\r\n\r\n") or texto.endswith("\n\n")
+
         try:
             with socket.create_connection(("127.0.0.1", porta), timeout=5) as s:
+                s.settimeout(5)
                 s.recv(4096)                               # banner
                 login = "Action: Login\r\nUsername: {}\r\nSecret: {}\r\n\r\n".format(
                     os.environ["AMI_USUARIO"], os.environ["AMI_SENHA"])
                 s.sendall(login.encode())
-                resposta = s.recv(4096).decode(errors="replace")
+
+                # O Asterisk responde ao login e, se o usuario tem permissao de
+                # sistema, emite FullyBooted em seguida. Ler uma vez so pode
+                # devolver o evento e nao a resposta, entao lemos ate encontrar
+                # a linha Response: ou esgotar o tempo.
+                buffer = ""
+                resposta = ""
+                for _ in range(10):
+                    try:
+                        pedaco = s.recv(4096).decode(errors="replace")
+                    except socket.timeout:
+                        break
+                    if not pedaco:
+                        break
+                    buffer += pedaco
+                    for bloco in buffer.split("\r\n\r\n"):
+                        if "Response:" in bloco:
+                            resposta = bloco
+                            break
+                    if resposta or pacote_completo(buffer):
+                        if resposta:
+                            break
+
                 s.sendall(b"Action: Logoff\r\n\r\n")
         except OSError as e:
             print("Nao foi possivel falar com o AMI em 127.0.0.1:{} - {}".format(porta, e))
             sys.exit(2)
+
+        if not resposta:
+            print("O AMI nao devolveu uma linha Response. Recebido:")
+            print(buffer.strip()[:400] or "(nada)")
+            sys.exit(3)
 
         for linha in resposta.splitlines():
             if linha.startswith(("Response:", "Message:")):
@@ -477,12 +548,24 @@
       ansible.builtin.debug:
         var: ami_diag.stdout_lines
 
-    - name: Interromper por falha no AMI
-      ansible.builtin.fail:
-        msg: >-
-          O AMI recusou as credenciais mesmo após recarregar. Sem AMI a API
-          não consegue aplicar configuração nem originar chamadas.
+    # Não interrompemos aqui: sem o resto do provisionamento o .env da API
+    # fica com a senha antiga, o que agrava o próprio problema. O site.yml
+    # cobra isso no final, depois de tudo instalado.
+    - name: Registrar que o AMI está com problema
+      ansible.builtin.set_fact:
+        ami_ok: false
+
+    - name: Aviso sobre o AMI
+      ansible.builtin.debug:
+        msg:
+          - "════════════════════════════════════════════════════════"
+          - "O AMI não autenticou. O provisionamento continua para que"
+          - "a API seja publicada com as credenciais corretas, mas"
+          - "aplicar configuração e originar chamadas não vão funcionar"
+          - "até isso ser resolvido."
+          - "════════════════════════════════════════════════════════"
 
 - name: Autenticação no AMI
   ansible.builtin.debug:
     msg: "AMI respondendo e autenticando como {{ ami_usuario }}"
+  when: ami_teste.rc | default(1) == 0

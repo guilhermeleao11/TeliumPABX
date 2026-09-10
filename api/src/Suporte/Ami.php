@@ -13,6 +13,7 @@ namespace Telium\Suporte;
 final class Ami
 {
     private $socket = null;
+    private int $sequencia = 0;
 
     /** Conexão compartilhada pela requisição inteira. */
     private static ?self $compartilhada = null;
@@ -99,7 +100,16 @@ final class Ami
             throw new \RuntimeException('O AMI aceitou a conexão mas não enviou o banner.');
         }
 
-        $r = $this->acao(['Action' => 'Login', 'Username' => $this->usuario, 'Secret' => $this->senha]);
+        // Events: off — este cliente é requisição/resposta. Sem isso o
+        // Asterisk começa a empurrar eventos (FullyBooted, chamadas, canais)
+        // que se intercalam com as respostas dos comandos.
+        $r = $this->acao([
+            'Action'   => 'Login',
+            'Username' => $this->usuario,
+            'Secret'   => $this->senha,
+            'Events'   => 'off',
+        ]);
+
         if (!str_contains($r, 'Success')) {
             $this->desconectar();
             throw new \RuntimeException('AMI recusou as credenciais: ' . $this->resumo($r));
@@ -111,13 +121,45 @@ final class Ami
         if (!$this->socket) {
             throw new \RuntimeException('AMI não conectado');
         }
+
+        // ActionID permite reconhecer a resposta certa mesmo que algum
+        // evento escape e chegue no meio.
+        $id = 'telium-' . (++$this->sequencia);
+        $campos['ActionID'] = $id;
+
         $pacote = '';
         foreach ($campos as $chave => $valor) {
             $pacote .= "{$chave}: {$valor}\r\n";
         }
         fwrite($this->socket, $pacote . "\r\n");
 
-        return $this->ler();
+        return $this->lerResposta($id);
+    }
+
+    /**
+     * Lê pacotes até encontrar a resposta do ActionID pedido.
+     * Eventos avulsos são descartados em vez de virarem "a resposta".
+     */
+    private function lerResposta(string $actionId): string
+    {
+        $limite = microtime(true) + $this->timeout;
+
+        while (microtime(true) < $limite) {
+            $pacote = $this->ler();
+
+            if ($pacote === '') {
+                break;
+            }
+            if (str_contains($pacote, "ActionID: {$actionId}")) {
+                return $pacote;
+            }
+            if (!str_contains($pacote, 'Event:') && str_contains($pacote, 'Response:')) {
+                return $pacote;                       // resposta sem ActionID ecoado
+            }
+            // qualquer outra coisa é evento: descarta e continua
+        }
+
+        return '';
     }
 
     public function comando(string $comando): string

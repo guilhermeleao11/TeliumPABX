@@ -34,6 +34,18 @@
     - seguranca
 
   post_tasks:
+    - name: Alertar sobre o AMI, se houver problema
+      ansible.builtin.debug:
+        msg:
+          - "════════════════════════════════════════════════════════"
+          - "ATENÇÃO: o AMI não autenticou durante a instalação."
+          - "Tudo o mais foi publicado, mas aplicar configurações e"
+          - "originar chamadas dependem dele."
+          - ""
+          - "Investigue com:  sudo bash infra/diagnostico-ami.sh"
+          - "════════════════════════════════════════════════════════"
+      when: not (ami_ok | default(true))
+
     - name: Proteger o diretório de credenciais
       ansible.builtin.file:
         path: "{{ credenciais_dir }}"
