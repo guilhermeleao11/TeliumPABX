@@ -448,14 +448,22 @@
         echo "### usuários do manager segundo o Asterisk"
         asterisk -rx "manager show users" 2>&1
         echo
-        echo "### manager.conf em disco confere com a senha esperada?"
-        if grep -qxF "secret = $(cat {{ credenciais_dir }}/ami_senha 2>/dev/null)" \
-             /etc/asterisk/manager.conf 2>/dev/null; then
-          echo "sim — manager.conf tem a mesma senha de {{ credenciais_dir }}/ami_senha"
+        echo "### senha em manager.conf x senha gerada"
+        disco=$(awk -F'=' '/^[[:space:]]*secret[[:space:]]*=/ {sub(/^[[:space:]]+/,"",$2); print $2; exit}' \
+                /etc/asterisk/manager.conf 2>/dev/null)
+        gerada=$(cat {{ credenciais_dir }}/ami_senha 2>/dev/null)
+        # medindo com wc: a forma de contar caracteres do bash abre
+        # comentário de Jinja e quebra o parser do Ansible
+        echo "em disco: $(printf %s "$disco" | wc -c) caracteres · gerada: $(printf %s "$gerada" | wc -c) caracteres"
+        if [ "$disco" = "$gerada" ]; then
+          echo "iguais"
         else
-          echo "NÃO — manager.conf e {{ credenciais_dir }}/ami_senha divergem,"
-          echo "ou você definiu vault_ami_senha (nesse caso a divergência é esperada)"
+          echo "DIFERENTES (esperado se você definiu vault_ami_senha)"
         fi
+
+        echo
+        echo "### detalhe do usuário do manager"
+        asterisk -rx "manager show user {{ ami_usuario }}" 2>&1 | grep -viE "secret|password"
         echo
         echo "### o Asterisk está escutando na porta do AMI?"
         ss -lntp 2>/dev/null | grep ":{{ ami_porta }}" || echo "(nada escutando na {{ ami_porta }})"
