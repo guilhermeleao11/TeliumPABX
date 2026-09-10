@@ -65,25 +65,37 @@ const Modal = {
 const Palette = {
   aberta: false, idx: 0, itens: [],
 
-  build(sess) {
+  build() {
     const itens = [];
-    Auth.menuFor(sess).forEach(g => g.items.forEach(i =>
+    Auth.menu().forEach(g => g.items.forEach(i =>
       itens.push({ grupo: 'Módulos', label: i.label, meta: g.label, ico: i.icon || 'grid', href: '#/' + i.id })));
-    DEMO.ramais.forEach(r =>
-      itens.push({ grupo: 'Ramais', label: `${r.num} · ${r.nome}`, meta: 'Ligar', ico: 'phone',
-                   acao: () => Softphone.discarPara(r.num, r.nome) }));
-    DEMO.contatos.forEach(c =>
-      itens.push({ grupo: 'Contatos', label: `${c.nome}`, meta: c.num, ico: 'book',
-                   acao: () => Softphone.discarPara(c.num, c.nome) }));
     itens.push(
       { grupo: 'Ações', label: 'Alternar tema claro/escuro', meta: 'tema', ico: 'moon', acao: () => Theme.toggle() },
       { grupo: 'Ações', label: 'Abrir softphone', meta: 'discador', ico: 'headset', acao: () => Softphone.abrir() },
       { grupo: 'Ações', label: 'Recolher / expandir menu', meta: '[', ico: 'menu',
         acao: () => document.getElementById('sbCollapse').click() },
       { grupo: 'Ações', label: 'Encerrar sessão', meta: 'sair', ico: 'logout',
-        acao: () => { Auth.logout(); location.replace('index.html'); } }
+        acao: async () => { await Auth.logout(); location.replace('index.html'); } }
     );
     this.itens = itens;
+    this.carregarDiscaveis();
+  },
+
+  /** Ramais e contatos vêm da API — só entram na paleta se existirem. */
+  async carregarDiscaveis() {
+    const [ramais, contatos] = await Promise.all([
+      Api.get('/ramais', { limite: 500 }).catch(() => ({ dados: [] })),
+      Api.get('/contatos', { limite: 500 }).catch(() => ({ dados: [] }))
+    ]);
+
+    ramais.dados.forEach(r => this.itens.push({
+      grupo: 'Ramais', label: `${r.numero} · ${r.nome}`, meta: 'Ligar', ico: 'phone',
+      acao: () => Softphone.discarPara(r.numero, r.nome)
+    }));
+    contatos.dados.forEach(c => this.itens.push({
+      grupo: 'Contatos', label: c.nome, meta: c.numero, ico: 'book',
+      acao: () => Softphone.discarPara(c.numero, c.nome)
+    }));
   },
 
   abrir() {
@@ -151,12 +163,8 @@ const Palette = {
 const Softphone = {
   aberto: false, estado: 'idle', numero: '', nome: '', seg: 0, tid: null,
   mudo: false, espera: false, gravando: false, teclado: false,
-  historico: [
-    { dir: 'saida',   num: '11 3255-8800', quando: '14:38' },
-    { dir: 'entrada', num: '11 98877-1234', quando: '14:36' },
-    { dir: 'perdida', num: '11 3011-2244', quando: '14:34' },
-    { dir: 'entrada', num: '1010',          quando: '14:31' }
-  ],
+  /* Preenchido pelas chamadas feitas na própria sessão. */
+  historico: [],
 
   montar() {
     if (!document.getElementById('spFab')) {
@@ -250,7 +258,9 @@ const Softphone = {
       corpo = `
         <div class="sp-display">
           <input class="sp-num" id="spNum" value="${this.numero}" placeholder="Digite o número" aria-label="Número">
-          <div class="sp-state">Ramal 1000 · registrado via WSS</div>
+          <div class="sp-state">${Auth.sessao?.ramal
+            ? 'Ramal ' + Auth.sessao.ramal + ' — registro via Janus pendente'
+            : 'Nenhum ramal vinculado à sua conta'}</div>
         </div>
         ${teclado}
         <div class="sp-actions">
@@ -292,12 +302,12 @@ const Softphone = {
         <div class="sp-head">
           ${icon('headset','ico')}
           <div class="grow"><div class="sp-title">Softphone</div>
-            <div class="sp-sub">WebRTC · ramal 1000</div></div>
+            <div class="sp-sub">WebRTC${Auth.sessao?.ramal ? ' · ramal ' + Auth.sessao.ramal : ''}</div></div>
           <button class="icon-btn" id="spSim" title="Simular chamada recebida">${icon('phoneIn','ico ico-sm')}</button>
           <button class="icon-btn" id="spClose" title="Fechar">${icon('x','ico ico-sm')}</button>
         </div>
         <div class="sp-body">${corpo}</div>
-        ${this.estado === 'idle' ? `<div class="sp-history">
+        ${this.estado === 'idle' && this.historico.length ? `<div class="sp-history">
           ${this.historico.slice(0, 4).map(h => `
             <div class="sp-hist-item" data-num="${h.num}">
               ${icon(h.dir === 'saida' ? 'arrowUp' : h.dir === 'perdida' ? 'phoneOff' : 'arrowDown', 'ico ico-sm')}
@@ -340,17 +350,31 @@ const Softphone = {
           <label class="label">Destino</label>
           <input class="input" placeholder="Ramal, fila ou número externo" value="1010">
         </div>
-        <div class="label" style="margin-bottom:8px">Ramais disponíveis</div>
-        ${DEMO.ramais.filter(r => r.disp === 'disponivel').map(r => `
-          <div class="ura-node" style="margin-bottom:8px">
-            <span class="avatar avatar-sm">${r.nome.split(' ').map(n => n[0]).slice(0,2).join('')}</span>
-            <div class="grow"><b>${r.num}</b> · ${r.nome}<div class="tiny muted">${r.setor}</div></div>
-            <span class="badge badge-ok">Disponível</span>
-          </div>`).join('')}`,
+        <div class="label" style="margin-bottom:8px">Ramais cadastrados</div>
+        <div id="spRamais"><p class="small muted">Carregando…</p></div>`,
       rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
                <button class="btn btn-primary" id="spDoTransf">Transferir</button>`,
-      aoAbrir: dw => dw.querySelector('#spDoTransf').onclick = () => {
-        Drawer.close(); this.desligar(); toast('Chamada transferida com sucesso.', 'ok');
+      aoAbrir: async dw => {
+        dw.querySelector('#spDoTransf').onclick = () => {
+          Drawer.close(); this.desligar(); toast('Transferência solicitada.', 'ok');
+        };
+        const lista = dw.querySelector('#spRamais');
+        try {
+          const r = await Api.get('/ramais', { limite: 200 });
+          lista.innerHTML = r.dados.length
+            ? r.dados.map(x => `
+                <div class="ura-node" style="margin-bottom:8px;cursor:pointer" data-ramal="${x.numero}">
+                  <span class="avatar avatar-sm">${(x.nome || '?').slice(0, 2).toUpperCase()}</span>
+                  <div class="grow"><b>${x.numero}</b> · ${x.nome}
+                    <div class="tiny muted">${x.setor || ''}</div></div>
+                </div>`).join('')
+            : '<p class="small muted">Nenhum ramal cadastrado.</p>';
+          lista.querySelectorAll('[data-ramal]').forEach(el => el.onclick = () => {
+            dw.querySelector('input.input').value = el.dataset.ramal;
+          });
+        } catch (e) {
+          lista.innerHTML = `<p class="small" style="color:var(--danger)">${e.message}</p>`;
+        }
       }
     });
   }

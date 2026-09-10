@@ -1,22 +1,15 @@
 /* =========================================================
-   Telium PABX — Sessão, permissões e tema
-   Protótipo de front-end: a validação real deve ocorrer no
-   servidor. Aqui a sessão vive em sessionStorage/localStorage.
+   Telium PABX — sessão e permissões
+   A verdade está no servidor; aqui guardamos só o resultado.
    ========================================================= */
-const SESSION_KEY = 'telium.session';
-const THEME_KEY   = 'telium.theme';
+const THEME_KEY = 'telium.theme';
 
-/* ---------------------------------------------------------
-   Armazenamento tolerante a falhas.
-   Abrindo as páginas por file:// alguns navegadores bloqueiam
-   Web Storage; nesse caso usamos window.name como cofre da
-   sessão (sobrevive à navegação dentro da mesma aba).
-   --------------------------------------------------------- */
+/* Armazenamento tolerante: abrindo por file:// alguns navegadores
+   bloqueiam Web Storage. */
 function makeStore(kind) {
   try {
     const s = window[kind];
-    const probe = '__telium_probe__';
-    s.setItem(probe, '1'); s.removeItem(probe);
+    s.setItem('__probe__', '1'); s.removeItem('__probe__');
     return s;
   } catch {
     return {
@@ -35,66 +28,66 @@ const LS = makeStore('localStorage');
 const SS = makeStore('sessionStorage');
 
 const Auth = {
-  /** Autentica contra a base demo. Retorna {ok, user} ou {ok:false, erro}. */
-  login(usuario, senha, lembrar) {
-    const u = USERS.find(x => x.user.toLowerCase() === String(usuario).trim().toLowerCase());
-    if (!u || u.pass !== senha) return { ok: false, erro: 'Usuário ou senha inválidos.' };
-    if (u.status === 'bloqueado') return { ok: false, erro: 'Usuário bloqueado. Procure o administrador.' };
-    if (u.status === 'inativo')   return { ok: false, erro: 'Usuário inativo. Acesso não permitido.' };
+  /** Preenchido por carregar() a partir de GET /api/me. */
+  sessao: null,
 
-    const sess = {
-      user: u.user, name: u.name, role: u.role, ramal: u.ramal,
-      email: u.email, setor: u.setor, desde: Date.now()
+  async login(usuario, senha, lembrar) {
+    try {
+      const r = await Api.post('/auth/login', { usuario, senha });
+
+      if (r.precisa_2fa) return { ok: false, precisa2fa: true };
+
+      Api.token = r.token;
+      if (lembrar) {
+        try { localStorage.setItem('telium.token', r.token); } catch { /* ignora */ }
+      }
+      return { ok: true, usuario: r.usuario };
+    } catch (e) {
+      return { ok: false, erro: e.message };
+    }
+  },
+
+  /** Busca no servidor quem somos e o que podemos. */
+  async carregar() {
+    const dados = await Api.get('/me');
+    this.sessao = {
+      ...dados.usuario,
+      allow: dados.permissoes.allow,
+      caps: dados.permissoes.caps,
+      empresa: dados.empresa,
+      janus: dados.janus
     };
-    const store = lembrar ? LS : SS;
-    store.setItem(SESSION_KEY, JSON.stringify(sess));
-    (lembrar ? SS : LS).removeItem(SESSION_KEY);
-    return { ok: true, user: sess };
+    return this.sessao;
   },
 
-  /** Sessão corrente ou null. */
-  current() {
-    const raw = SS.getItem(SESSION_KEY) || LS.getItem(SESSION_KEY);
-    try { return raw ? JSON.parse(raw) : null; } catch { return null; }
+  async logout() {
+    try { await Api.post('/auth/logout'); } catch { /* segue mesmo se falhar */ }
+    Api.token = null;
+    this.sessao = null;
   },
 
-  logout() {
-    SS.removeItem(SESSION_KEY);
-    LS.removeItem(SESSION_KEY);
-  },
-
-  /** Redireciona para o login se não houver sessão. */
-  requireSession(redirect = 'index.html') {
-    const s = this.current();
-    if (!s) { location.replace(redirect); return null; }
-    return s;
-  },
-
-  role(sess) { return ROLES[sess?.role] || ROLES.operador; },
-
-  /** O perfil enxerga esta chave de menu? Suporta '*' e 'grupo.*'. */
-  can(sess, key) {
-    const allow = this.role(sess).allow || [];
-    return allow.some(rule =>
-      rule === '*' ||
-      rule === key ||
-      (rule.endsWith('.*') && key.startsWith(rule.slice(0, -1)))
+  /** O perfil enxerga esta chave de menu? Espelha a regra do servidor. */
+  can(key) {
+    const allow = this.sessao?.allow || [];
+    return allow.some(regra =>
+      regra === '*' ||
+      regra === key ||
+      (regra.endsWith('.*') && key.startsWith(regra.slice(0, -1)))
     );
   },
 
-  /** O perfil pode executar a ação (criar/editar/excluir/exportar/...)? */
-  cap(sess, acao) { return (this.role(sess).caps || []).includes(acao); },
+  /** O perfil pode executar a ação? Só esconde botão — o servidor decide. */
+  cap(acao) { return (this.sessao?.caps || []).includes(acao); },
 
-  /** Menu filtrado pelas permissões do perfil. */
-  menuFor(sess) {
+  /** Menu filtrado pelas permissões recebidas do servidor. */
+  menu() {
     return MENU
-      .map(g => ({ ...g, items: g.items.filter(i => this.can(sess, i.id)) }))
+      .map(g => ({ ...g, items: g.items.filter(i => this.can(i.id)) }))
       .filter(g => g.items.length);
   },
 
-  /** Primeira rota disponível para o perfil. */
-  homeFor(sess) {
-    const m = this.menuFor(sess);
+  home() {
+    const m = this.menu();
     return m.length ? m[0].items[0].id : null;
   }
 };
@@ -113,5 +106,4 @@ const Theme = {
   init() { this.apply(this.get()); }
 };
 
-/* Aplica o tema o quanto antes para evitar "flash" de cor. */
 document.documentElement.setAttribute('data-theme', LS.getItem(THEME_KEY) || 'light');

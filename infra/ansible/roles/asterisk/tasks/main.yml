@@ -253,7 +253,6 @@
     - logger.conf
     - rtp.conf
     - http.conf
-    - manager.conf
     - ari.conf
     - res_odbc.conf
     - cdr.conf
@@ -267,6 +266,17 @@
     - musiconhold.conf
     - features.conf
   notify: recarregar asterisk
+
+- name: Publicar manager.conf
+  ansible.builtin.template:
+    src: manager.conf.j2
+    dest: /etc/asterisk/manager.conf
+    owner: asterisk
+    group: asterisk
+    mode: "0640"
+  notify:
+    - recarregar asterisk
+    - recarregar manager
 
 - name: Criar placeholders dos arquivos gerados (a API sobrescreve)
   ansible.builtin.copy:
@@ -331,3 +341,92 @@
 - name: Versão em execução
   ansible.builtin.debug:
     msg: "{{ ast_versao.stdout_lines[0] }}"
+
+# ------------------------------------------------------------------
+# O AMI é o caminho pelo qual a API aplica configuração e origina
+# chamadas. Se a autenticação não passar, nada disso funciona — melhor
+# descobrir aqui do que no /api/health.
+# ------------------------------------------------------------------
+- name: Testar autenticação no AMI
+  ansible.builtin.shell: |
+    python3 - <<'PYAMI'
+    import socket, sys
+    s = socket.create_connection(("127.0.0.1", {{ ami_porta }}), timeout=5)
+    s.recv(4096)
+    s.sendall(b"Action: Login\r\nUsername: {{ ami_usuario }}\r\nSecret: {{ ami_senha }}\r\n\r\n")
+    resposta = s.recv(4096).decode(errors="replace")
+    s.sendall(b"Action: Logoff\r\n\r\n")
+    s.close()
+    print(resposta.strip())
+    sys.exit(0 if "Success" in resposta else 1)
+    PYAMI
+  args:
+    executable: /bin/bash
+  register: ami_teste
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Recarregar o manager e testar o AMI de novo
+  when: ami_teste.rc != 0
+  block:
+    - name: Recarregar a configuração do manager
+      ansible.builtin.command: asterisk -rx "manager reload"
+      changed_when: true
+
+    - name: Nova tentativa de autenticação no AMI
+      ansible.builtin.shell: |
+        python3 - <<'PYAMI'
+        import socket, sys
+        s = socket.create_connection(("127.0.0.1", {{ ami_porta }}), timeout=5)
+        s.recv(4096)
+        s.sendall(b"Action: Login\r\nUsername: {{ ami_usuario }}\r\nSecret: {{ ami_senha }}\r\n\r\n")
+        resposta = s.recv(4096).decode(errors="replace")
+        s.sendall(b"Action: Logoff\r\n\r\n")
+        s.close()
+        print(resposta.strip())
+        sys.exit(0 if "Success" in resposta else 1)
+        PYAMI
+      args:
+        executable: /bin/bash
+      register: ami_teste
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+- name: Diagnosticar falha de autenticação no AMI
+  when: ami_teste.rc != 0
+  block:
+    - name: Coletar estado do manager
+      ansible.builtin.shell: |
+        echo "### usuários do manager segundo o Asterisk"
+        asterisk -rx "manager show users" 2>&1
+        echo
+        echo "### usuário {{ ami_usuario }}"
+        asterisk -rx "manager show user {{ ami_usuario }}" 2>&1 | grep -viE "secret|password"
+        echo
+        echo "### o arquivo em disco confere com a senha esperada?"
+        if grep -q "^secret = $(cat {{ credenciais_dir }}/ami_senha 2>/dev/null)$" /etc/asterisk/manager.conf 2>/dev/null; then
+          echo "sim — manager.conf tem a mesma senha de {{ credenciais_dir }}/ami_senha"
+        else
+          echo "NÃO — manager.conf e {{ credenciais_dir }}/ami_senha divergem"
+        fi
+      args:
+        executable: /bin/bash
+      register: ami_diag
+      changed_when: false
+      failed_when: false
+
+    - name: Estado do manager
+      ansible.builtin.debug:
+        var: ami_diag.stdout_lines
+
+    - name: Interromper por falha no AMI
+      ansible.builtin.fail:
+        msg: >-
+          O AMI recusou as credenciais mesmo após recarregar. Sem AMI a API
+          não consegue aplicar configuração nem originar chamadas.
+
+- name: Autenticação no AMI
+  ansible.builtin.debug:
+    msg: "AMI respondendo e autenticando como {{ ami_usuario }}"

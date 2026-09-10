@@ -106,15 +106,14 @@
         <button class="btn btn-primary btn-block login-btn" type="submit" id="btnEntrar">Entrar</button>
       </form>
 
-      <div class="divider">Contas de demonstração</div>
-      <div class="demo-list" id="demoList"></div>
 
-      <p class="login-foot">Ambiente de demonstração · nenhum dado é enviado a servidores.</p>
+      <p class="login-foot" id="rodapeLogin">Telium PABX · acesso restrito</p>
     </div>
   </main>
 </div>
 
 <script src="assets/js/icons.js"></script>
+<script src="assets/js/api.js"></script>
 <script src="assets/js/data.js"></script>
 <script src="assets/js/auth.js"></script>
 <script>
@@ -142,65 +141,63 @@ pwBtn.onclick = () => {
   senhaEl.focus();
 };
 
-/* ---------- Atalhos de conta demo ---------- */
-const demos = ['admin', 'supervisor', 'operador', 'auditor'];
-document.getElementById('demoList').innerHTML = demos.map(u => {
-  const usr = USERS.find(x => x.user === u), r = ROLES[usr.role];
-  return `<button type="button" class="demo-user" data-u="${usr.user}" data-p="${usr.pass}">
-    <span class="avatar avatar-sm">${usr.name.split(' ').map(n => n[0]).slice(0,2).join('')}</span>
-    <span><b>${usr.name}</b><small>${usr.user} · senha padrão</small></span>
-    <span class="badge badge-${r.color}">${r.label}</span>
-  </button>`;
-}).join('');
-document.querySelectorAll('.demo-user').forEach(b => {
-  b.onclick = () => {
-    document.getElementById('usuario').value = b.dataset.u;
-    senhaEl.value = b.dataset.p;
-    document.getElementById('alertBox').innerHTML = '';
-    document.getElementById('btnEntrar').focus();
-  };
-});
-
 /* ---------- Submissão ---------- */
 const alertBox = document.getElementById('alertBox');
 const btn = document.getElementById('btnEntrar');
 
-function erro(msg) {
-  alertBox.innerHTML = `<div class="login-alert">${icon('alert','ico ico-sm')}<span>${msg}</span></div>`;
+function aviso(msg, tipo = 'erro') {
+  alertBox.innerHTML = `<div class="login-alert" ${tipo === 'info'
+    ? 'style="background:var(--info-soft);color:var(--info);border-color:var(--info)"' : ''}>
+    ${icon(tipo === 'info' ? 'info' : 'alert','ico ico-sm')}<span>${msg}</span></div>`;
 }
 
-document.getElementById('loginForm').addEventListener('submit', e => {
+// Sessão expirada por inatividade
+if (new URLSearchParams(location.search).has('expirada')) {
+  aviso('Sua sessão expirou. Entre novamente.', 'info');
+}
+
+document.getElementById('loginForm').addEventListener('submit', async e => {
   e.preventDefault();
   const u = document.getElementById('usuario').value.trim();
   const p = senhaEl.value;
   alertBox.innerHTML = '';
 
-  if (!u || !p) { erro('Preencha usuário e senha.'); return; }
+  if (!u || !p) { aviso('Preencha usuário e senha.'); return; }
 
   btn.disabled = true;
   btn.innerHTML = `<span class="spin"></span> Verificando…`;
 
-  // Latência simulada — troque por uma chamada real à API de autenticação.
-  setTimeout(() => {
-    const r = Auth.login(u, p, document.getElementById('lembrar').checked);
-    if (!r.ok) {
-      btn.disabled = false;
-      btn.textContent = 'Entrar';
-      erro(r.erro);
-      senhaEl.select();
-      return;
-    }
-    location.href = 'app.html';
-  }, 620);
+  const r = await Auth.login(u, p, document.getElementById('lembrar').checked);
+
+  if (r.precisa2fa) {
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+    aviso('Esta conta exige código de verificação em dois fatores.', 'info');
+    return;
+  }
+
+  if (!r.ok) {
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+    aviso(r.erro || 'Não foi possível entrar.');
+    senhaEl.select();
+    return;
+  }
+
+  location.href = 'app.html';
 });
 
 document.getElementById('linkSenha').onclick = e => {
   e.preventDefault();
-  erro('Redefinição de senha: procure o administrador do PABX (ramal 1000).');
+  aviso('A redefinição de senha é feita por um administrador, pelo console ou pelo comando: php bin/telium senha &lt;usuario&gt;', 'info');
 };
 
 /* Já autenticado? vai direto ao console. */
-if (Auth.current()) location.replace('app.html');
+(async () => {
+  if (!Api.token) return;
+  try { await Api.get('/me'); location.replace('app.html'); }
+  catch { Api.token = null; }
+})();
 </script>
 </body>
 </html>

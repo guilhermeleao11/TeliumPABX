@@ -7,3 +7,10 @@
   ansible.builtin.command: asterisk -rx "core reload"
   changed_when: true
   failed_when: false
+
+# O manager faz parte do núcleo; recarregá-lo explicitamente garante que
+# uma troca de senha do AMI passe a valer sem reiniciar o Asterisk.
+- name: recarregar manager
+  ansible.builtin.command: asterisk -rx "manager reload"
+  changed_when: true
+  failed_when: false

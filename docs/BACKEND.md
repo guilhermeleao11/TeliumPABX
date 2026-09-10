@@ -124,17 +124,58 @@ Scripts em `infra/sql/`, aplicados pelo Ansible. DDL idempotente.
 
 PHP 8.4 + Slim 4, sem framework pesado. Rotas sob `/api`.
 
-### Já implementado
+### Implementado
 
+**Sessão**
 ```
-GET  /api/health              diagnóstico (banco, AMI, Janus) — público
-POST /api/auth/login          usuário + senha (+ código 2FA quando ativo)
+GET  /api/health                     diagnóstico (banco, AMI, Janus) — público
+POST /api/auth/login                 usuário + senha (+ 2FA quando ativo)
 POST /api/auth/logout
-GET  /api/me                  usuário, permissões resolvidas e dados do Janus
-GET  /api/config/estado       há configuração pendente?
-POST /api/config/gerar        regenera os .conf
-POST /api/config/aplicar      regenera e recarrega o Asterisk
+GET  /api/me                         usuário, permissões resolvidas e dados do Janus
 ```
+
+**Operação** — números apurados do CDR e do estado do Asterisk
+```
+GET  /api/painel/visaogeral          KPIs, volume por hora, top ramais, troncos, auditoria
+GET  /api/tempo-real                 filas e canais ativos, lidos pelo AMI
+GET  /api/sistema/estatisticas       CPU, memória, disco, uptime, versões
+GET  /api/sistema/asterisk           saída bruta de comandos do CLI
+```
+
+**Relatórios**
+```
+GET  /api/cdr                        filtros de data, sentido, estado e busca; paginado
+GET  /api/relatorios/filas           SLA e abandono por fila, série por dia
+GET  /api/relatorios/agentes         volume e TMA por ramal
+GET  /api/relatorios/tarifacao       custo por setor no mês
+GET  /api/gravacoes
+GET  /api/auditoria
+```
+
+**Cadastros** — CRUD completo, via um recurso REST genérico
+```
+/api/ramais          /api/troncos        /api/filas
+/api/rotas-entrada   /api/rotas-saida    /api/ura      /api/ura-opcoes
+/api/grupos-toque    /api/usuarios       /api/contatos
+/api/dispositivos    /api/tarifas        /api/integracoes
+```
+Cada um aceita `GET` (lista com `?q=`, filtros e paginação), `GET /{id}`,
+`POST`, `PUT /{id}` e `DELETE /{id}`, sempre com verificação de módulo e de ação.
+
+**Especiais**
+```
+GET  /api/perfis                     perfis com módulos e ações
+PUT  /api/perfis/{id}/permissoes     grava a matriz
+GET  /api/empresa      PUT /api/empresa
+POST /api/usuarios/{id}/senha        define senha e derruba as sessões
+GET  /api/ramais/{id}/credenciais    senha SIP (registrado na auditoria)
+GET  /api/config/estado              há configuração pendente?
+POST /api/config/gerar               regenera os .conf
+POST /api/config/aplicar             regenera e recarrega o Asterisk
+```
+
+Colunas sensíveis (`senha_sip`, `senha`, `senha_hash`, `totp_secret`, `segredo`)
+nunca saem nas listagens.
 
 ### Credenciais
 

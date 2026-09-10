@@ -1,79 +1,110 @@
 /* =========================================================
-   Telium PABX — Telas
-   Cada chave de PAGES corresponde a um id de item de menu.
-   render(ctx) -> HTML     mount(ctx) -> comportamento pós-render
-   ctx = { sess, item, group, can(acao) }
+   Telium PABX — telas (núcleo)
+   Todo dado vem da API. Base vazia mostra estado vazio,
+   nunca número inventado.
    ========================================================= */
 
-/* ------------------------- Helpers de UI ------------------------- */
-const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const initials = n => n.split(' ').filter(Boolean).map(p => p[0]).slice(0, 2).join('').toUpperCase();
+/* ------------------------- Helpers ------------------------- */
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const initials = n => String(n || '?').split(' ').filter(Boolean).map(p => p[0]).slice(0, 2).join('').toUpperCase();
+const num = v => Number(v || 0).toLocaleString('pt-BR');
+const moeda = v => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+function duracao(seg) {
+  seg = Number(seg || 0);
+  const h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60), s = seg % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+    : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function dataHora(iso) {
+  if (!iso) return '—';
+  const d = new Date(String(iso).replace(' ', 'T'));
+  return isNaN(d) ? String(iso) : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' });
+}
 
 function pageHead(titulo, sub, acoes = '') {
   return `<div class="page-head">
-    <div>
-      <h1>${titulo}</h1>
-      ${sub ? `<p>${sub}</p>` : ''}
-    </div>
+    <div><h1>${titulo}</h1>${sub ? `<p>${sub}</p>` : ''}</div>
     ${acoes ? `<div class="page-actions">${acoes}</div>` : ''}
   </div>`;
 }
 
 function readOnlyNote(ctx) {
-  if (ctx.can('editar')) return '';
-  return `<span class="badge badge-warn">${icon('eye','ico ico-sm')} Somente leitura</span>`;
+  return ctx.can('editar') ? '' :
+    `<span class="badge badge-warn">${icon('eye','ico ico-sm')} Somente leitura</span>`;
 }
 
-const RAMAL_STATUS = {
-  disponivel: ['ok',     'Disponível'],
-  emchamada:  ['info',   'Em chamada'],
-  ausente:    ['warn',   'Ausente'],
-  nperturbe:  ['danger', 'Não perturbe'],
-  offline:    ['',       'Offline']
-};
-const badgeRamal = d => {
-  const [tone, txt] = RAMAL_STATUS[d] || ['', d];
-  return `<span class="badge ${tone ? 'badge-' + tone : ''}"><i class="dot ${d === 'emchamada' ? 'dot-pulse' : ''}"></i>${txt}</span>`;
-};
+/** Estado vazio — a base nasce assim, então isto é caminho normal. */
+function vazio(ico, titulo, texto, acao = '') {
+  return `<div class="empty">
+    ${icon(ico)}<h3>${titulo}</h3><p>${texto}</p>
+    ${acao ? `<div style="margin-top:16px">${acao}</div>` : ''}
+  </div>`;
+}
 
-const CDR_STATUS = {
-  atendida:   ['ok',     'Atendida'],
-  perdida:    ['danger', 'Perdida'],
-  abandonada: ['warn',   'Abandonada'],
-  ocupado:    ['warn',   'Ocupado'],
-  falha:      ['danger', 'Falha']
-};
-const badgeCdr = s => {
-  const [tone, txt] = CDR_STATUS[s] || ['', s];
-  return `<span class="badge badge-${tone}">${txt}</span>`;
-};
-
-const DIR_ICO = { entrada: 'arrowDown', saida: 'arrowUp', interna: 'shuffle' };
-
-function meter(label, pct, tone) {
-  return `<div>
-    <div class="row-between small" style="margin-bottom:6px">
-      <span class="dim">${label}</span><b class="num">${pct}%</b>
-    </div>
-    <div class="hbar" style="grid-template-columns:1fr;padding:0">
-      <div class="track" style="height:8px">
-        <div class="fill" style="width:${pct}%;background:var(--${tone})"></div>
-      </div>
+/** Bloco de erro — rede fora, permissão negada, falha do servidor. */
+function blocoErro(e, contexto = '') {
+  const semRede = e?.semRede;
+  return `<div class="empty">
+    ${icon(semRede ? 'wifi' : 'alert')}
+    <h3>${semRede ? 'Sem comunicação com o servidor' : 'Não foi possível carregar'}</h3>
+    <p>${esc(e?.message || 'Erro desconhecido')}${contexto ? ` (${contexto})` : ''}</p>
+    <div style="margin-top:16px">
+      <button class="btn btn-outline btn-sm" onclick="App.route()">
+        ${icon('refresh','ico ico-sm')} Tentar de novo</button>
     </div>
   </div>`;
 }
 
-/* ------------------------- Gráfico: barras empilhadas -------------------------
-   Paleta de séries validada (slots 1 e 2 da paleta categórica padrão),
-   legenda sempre presente com 2 séries e tooltip por coluna.
------------------------------------------------------------------------------- */
+const badgeEstadoRamal = d => {
+  const [tone, txt] = ESTADO_RAMAL[d] || ['', d || '—'];
+  return `<span class="badge ${tone ? 'badge-' + tone : ''}"><i class="dot ${d === 'emchamada' ? 'dot-pulse' : ''}"></i>${txt}</span>`;
+};
+
+const badgeCdr = s => {
+  const [tone, txt] = DISPOSICAO_CDR[s] || ['', s || '—'];
+  return `<span class="badge ${tone ? 'badge-' + tone : ''}">${txt}</span>`;
+};
+
+function medidor(label, pct, tone, detalhe = '') {
+  return `<div>
+    <div class="row-between small" style="margin-bottom:6px">
+      <span class="dim">${label}</span>
+      <b class="num">${pct}%${detalhe ? ` <span class="muted" style="font-weight:400">${detalhe}</span>` : ''}</b>
+    </div>
+    <div class="track" style="display:block;height:8px;background:var(--surface-3);border-radius:6px;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:var(--${tone})"></div>
+    </div>
+  </div>`;
+}
+
+function hbars(itens, formata = num) {
+  if (!itens.length) return '<p class="small muted center" style="padding:20px">Sem dados no período.</p>';
+  const max = Math.max(...itens.map(i => Number(i.valor) || 0)) || 1;
+  return itens.map(i => `
+    <div class="hbar" style="grid-template-columns:150px 1fr 92px">
+      <span class="small truncate">${esc(i.label)}</span>
+      <span class="track"><span class="fill" style="width:${(Number(i.valor) / max * 100).toFixed(1)}%"></span></span>
+      <span class="val">${formata(i.valor)}</span>
+    </div>`).join('');
+}
+
+/* ------------------------- Gráfico de barras empilhadas ------------------------- */
 function stackedBarChart(el, cfg) {
-  const W = 760, H = 260, PAD = { t: 14, r: 10, b: 28, l: 40 };
-  const labels = cfg.labels, series = cfg.series;
+  if (!cfg.labels?.length) {
+    el.innerHTML = `<div class="empty" style="padding:32px">${icon('chart')}
+      <p>Sem chamadas registradas no período.</p></div>`;
+    return;
+  }
+
+  const W = 760, H = 260, PAD = { t: 14, r: 10, b: 28, l: 44 };
+  const { labels, series } = cfg;
   const n = labels.length;
-  const totals = labels.map((_, i) => series.reduce((s, se) => s + se.values[i], 0));
-  const rawMax = Math.max(...totals);
-  const step = Math.pow(10, Math.floor(Math.log10(rawMax))) / 2;
+  const totals = labels.map((_, i) => series.reduce((s, se) => s + (se.values[i] || 0), 0));
+  const rawMax = Math.max(...totals, 1);
+  const step = Math.max(1, Math.pow(10, Math.floor(Math.log10(rawMax))) / 2);
   const max = Math.ceil(rawMax / step) * step;
 
   const pw = W - PAD.l - PAD.r, ph = H - PAD.t - PAD.b;
@@ -97,30 +128,27 @@ function stackedBarChart(el, cfg) {
     const x = PAD.l + slot * i + (slot - bw) / 2;
     let acc = 0, segs = '';
     series.forEach((se, si) => {
-      const v = se.values[i];
+      const v = se.values[i] || 0;
       const y0 = y(acc + v), y1 = y(acc);
       let h = y1 - y0;
       const isTop = si === series.length - 1;
-      if (!isTop) h = Math.max(0, h - 2);            // 2px de respiro entre segmentos
+      if (!isTop) h = Math.max(0, h - 2);
       const yy = isTop ? y0 : y1 - h;
-      segs += `<path class="bar-seg" d="${topRound(x, yy, bw, h, isTop ? 4 : 0)}" fill="${se.color}"/>`;
+      if (v > 0) segs += `<path class="bar-seg" d="${topRound(x, yy, bw, h, isTop ? 4 : 0)}" fill="${se.color}"/>`;
       acc += v;
     });
-    cols += `<g class="col" data-i="${i}">
-      ${segs}
+    cols += `<g class="col" data-i="${i}">${segs}
       <rect class="bar-hit" x="${PAD.l + slot * i}" y="${PAD.t}" width="${slot}" height="${ph}" fill="transparent"/>
-      <text class="axis-txt" x="${PAD.l + slot * i + slot / 2}" y="${H - 8}" text-anchor="middle">${lb}</text>
-    </g>`;
+      <text class="axis-txt" x="${PAD.l + slot * i + slot / 2}" y="${H - 8}" text-anchor="middle">${lb}</text></g>`;
   });
 
   el.innerHTML = `
-    <svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img"
-         aria-label="${cfg.aria || 'Gráfico de barras empilhadas'}">
+    <svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${cfg.aria || 'Gráfico'}">
       ${grid}
       <line class="axis-line" x1="${PAD.l}" x2="${W - PAD.r}" y1="${PAD.t + ph}" y2="${PAD.t + ph}"/>
       ${cols}
     </svg>
-    <div class="viz-tip" id="${el.id}-tip"></div>`;
+    <div class="viz-tip"></div>`;
 
   const tip = el.querySelector('.viz-tip');
   el.querySelectorAll('.col').forEach(g => {
@@ -129,12 +157,12 @@ function stackedBarChart(el, cfg) {
       tip.innerHTML = `<b>${labels[i]}</b>` +
         series.map(se => `<div class="tr"><span class="row gap-6">
             <i class="sw" style="background:${se.color}"></i>${se.label}</span>
-            <span class="v num">${se.values[i]}</span></div>`).join('') +
+            <span class="v num">${se.values[i] || 0}</span></div>`).join('') +
         `<div class="tr" style="margin-top:5px;padding-top:5px;border-top:1px solid var(--border)">
            <span class="dim">Total</span><span class="v num">${totals[i]}</span></div>`;
       const r = el.getBoundingClientRect();
       tip.style.left = (ev.clientX - r.left) + 'px';
-      tip.style.top  = (ev.clientY - r.top - 6) + 'px';
+      tip.style.top = (ev.clientY - r.top - 6) + 'px';
       tip.classList.add('on');
     });
     g.addEventListener('mouseleave', () => tip.classList.remove('on'));
@@ -146,627 +174,912 @@ function stackedBarChart(el, cfg) {
    ======================================================================== */
 const PAGES = {};
 
-/* ------------------------- Visão geral ------------------------- */
+/* ------------------------- Painel · Visão geral ------------------------- */
 PAGES['dash.visaogeral'] = {
-  render(ctx) {
-    const kpis = DEMO.kpis.map(k => `
+  async render(ctx) {
+    let d;
+    try { d = await Api.get('/painel/visaogeral'); }
+    catch (e) { return pageHead('Visão Geral', '') + blocoErro(e); }
+
+    this._dados = d;
+
+    const kpis = d.kpis.map(k => `
       <div class="card kpi">
         <div class="k-top">
           <span class="k-label">${k.label}</span>
           <span class="k-ico" style="background:var(--${k.tone}-soft);color:var(--${k.tone})">${icon(k.ico)}</span>
         </div>
-        <div class="k-val">${k.value}</div>
+        <div class="k-val">${k.valor}</div>
         <div class="k-foot">
-          ${k.delta === null ? '' : `<span class="k-delta ${k.delta > 0 ? 'up' : 'down'}">
-             ${icon(k.delta > 0 ? 'arrowUp' : 'arrowDown','ico ico-sm')}${Math.abs(k.delta)}%</span>`}
-          <span>${k.foot}</span>
+          ${k.delta === null ? '' : `<span class="k-delta ${k.delta >= 0 ? 'up' : 'down'}">
+             ${icon(k.delta >= 0 ? 'arrowUp' : 'arrowDown','ico ico-sm')}${Math.abs(k.delta)}%</span>`}
+          <span>${k.rodape}</span>
         </div>
       </div>`).join('');
 
-    const legend = DEMO.volume.series.map(s =>
+    const legenda = (d.volume.series || []).map(s =>
       `<span class="li"><i class="sw" style="background:${s.color}"></i>${s.label}</span>`).join('');
 
-    const maxTop = Math.max(...DEMO.topRamais.map(r => r.qtd));
-    const top = DEMO.topRamais.map(r => `
-      <div class="hbar">
-        <span class="small truncate">${r.ramal}</span>
-        <span class="track"><span class="fill" style="width:${(r.qtd / maxTop * 100).toFixed(1)}%"></span></span>
-        <span class="val">${r.qtd}</span>
-      </div>`).join('');
+    const top = d.topRamais.length
+      ? hbars(d.topRamais.map(r => ({
+          label: `${r.ramal}${r.nome ? ' · ' + r.nome : ''}`, valor: r.qtd })))
+      : vazio('phone', 'Nenhuma chamada hoje',
+              'Os ramais mais ativos aparecem aqui assim que houver tráfego.');
 
-    const troncos = DEMO.troncos.map(t => `
-      <tr>
-        <td><b>${t.nome}</b><div class="tiny muted">${t.tipo} · ${t.ip}</div></td>
-        <td class="num">${t.canais}</td>
-        <td style="width:130px">
-          <div class="track" style="height:7px;background:var(--surface-3);border-radius:6px;overflow:hidden">
-            <div style="height:100%;width:${t.uso}%;background:var(--${t.uso > 80 ? 'danger' : t.uso > 60 ? 'warn' : 'ok'})"></div>
+    const troncos = d.troncos.length ? `
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Tronco</th><th>Tipo</th><th>Host</th><th>Canais</th><th>Estado</th></tr></thead>
+        <tbody>${d.troncos.map(t => `
+          <tr><td><b>${esc(t.nome)}</b></td>
+            <td><span class="badge">${esc(t.tipo)}</span></td>
+            <td class="mono small dim">${esc(t.host || '—')}</td>
+            <td class="num">${t.canais_max || '—'}</td>
+            <td>${badgeEstadoRamal(t.estado)}</td></tr>`).join('')}
+        </tbody></table></div>`
+      : vazio('network', 'Nenhum tronco cadastrado',
+              'Cadastre um tronco para conectar a central à operadora.',
+              ctx.can('criar') ? '<a class="btn btn-primary btn-sm" href="#/conn.troncos">Cadastrar tronco</a>' : '');
+
+    const ativ = d.atividades.length
+      ? d.atividades.map(a => `
+        <div class="row gap-12" style="padding:9px 0;border-bottom:1px solid var(--border)">
+          <span class="avatar avatar-sm">${initials(a.usuario_nome)}</span>
+          <div class="grow" style="min-width:0">
+            <div class="small truncate"><b>${esc(a.usuario_nome || 'sistema')}</b>
+              ${esc(a.acao)} em ${esc(a.modulo)}${a.objeto ? ` (${esc(a.objeto)})` : ''}</div>
+            <div class="tiny muted">${esc(a.ip || '')}</div>
           </div>
-        </td>
-        <td>${t.status === 'registrado' ? '<span class="badge badge-ok"><i class="dot"></i>Registrado</span>'
-             : t.status === 'alerta' ? '<span class="badge badge-warn"><i class="dot"></i>Latência alta</span>'
-             : '<span class="badge badge-danger"><i class="dot"></i>Offline</span>'}</td>
-        <td class="num small dim">${t.latencia}</td>
-      </tr>`).join('');
+          <span class="tiny muted">${esc(a.hora)}</span>
+        </div>`).join('')
+      : '<p class="small muted center" style="padding:24px">Nenhuma atividade registrada ainda.</p>';
 
-    const ativ = DEMO.atividades.map(a => `
-      <div class="row gap-12" style="padding:9px 0;border-bottom:1px solid var(--border)">
-        <span class="avatar avatar-sm">${initials(a.user)}</span>
-        <div class="grow">
-          <div class="small"><b>${a.user}</b> ${a.acao}</div>
-          <div class="tiny muted">${a.ip}</div>
-        </div>
-        <span class="tiny muted">${a.hora}</span>
-      </div>`).join('');
-
-    return pageHead(
-      'Visão Geral',
-      `Resumo operacional da central — atualizado às 14:42 de 10/09/2026.`,
-      `<button class="btn btn-outline btn-sm" id="btnRefresh">${icon('refresh','ico ico-sm')} Atualizar</button>
-       ${ctx.can('exportar') ? `<button class="btn btn-outline btn-sm">${icon('download','ico ico-sm')} Exportar</button>` : ''}
-       <span class="badge badge-ok"><i class="dot dot-pulse"></i>Sistema operacional</span>`
+    return pageHead('Visão Geral',
+      `Números da central, apurados do CDR e do estado do Asterisk.`,
+      `<button class="btn btn-outline btn-sm" id="btnRefresh">${icon('refresh','ico ico-sm')} Atualizar</button>`
     ) + `
     <div class="grid g-4" style="margin-bottom:16px">${kpis}</div>
-
     <div class="grid g-2-1" style="margin-bottom:16px">
       <div class="card">
         <div class="card-head">
-          <div>
-            <div class="card-title">Volume de chamadas por hora</div>
-            <div class="card-sub">Hoje · 07h às 18h</div>
-          </div>
-          <div class="legend">${legend}</div>
+          <div><div class="card-title">Volume de chamadas por hora</div>
+               <div class="card-sub">Hoje</div></div>
+          <div class="legend">${legenda}</div>
         </div>
-        <div class="card-body">
-          <div class="chart-wrap" id="chartVolume"></div>
-        </div>
+        <div class="card-body"><div class="chart-wrap" id="chartVolume"></div></div>
       </div>
-
       <div class="card">
-        <div class="card-head">
-          <div><div class="card-title">Ramais mais ativos</div>
-               <div class="card-sub">Chamadas atendidas hoje</div></div>
-        </div>
+        <div class="card-head"><div><div class="card-title">Ramais mais ativos</div>
+             <div class="card-sub">Chamadas atendidas hoje</div></div></div>
         <div class="card-body">${top}</div>
       </div>
     </div>
-
     <div class="grid g-2-1">
       <div class="card">
-        <div class="card-head">
-          <div><div class="card-title">Troncos</div>
-               <div class="card-sub">Estado de registro e ocupação de canais</div></div>
-          <a href="#/conn.troncos" class="small">Ver todos</a>
-        </div>
-        <div class="card-body tight table-wrap">
-          <table class="table">
-            <thead><tr><th>Tronco</th><th>Canais</th><th>Ocupação</th><th>Estado</th><th>Latência</th></tr></thead>
-            <tbody>${troncos}</tbody>
-          </table>
-        </div>
+        <div class="card-head"><div><div class="card-title">Troncos</div>
+             <div class="card-sub">Estado de registro no Asterisk</div></div>
+          <a href="#/conn.troncos" class="small">Gerenciar</a></div>
+        <div class="card-body tight">${troncos}</div>
       </div>
-
       <div class="card">
         <div class="card-head"><div class="card-title">Atividade recente</div></div>
         <div class="card-body" style="padding-top:4px">${ativ}</div>
       </div>
     </div>`;
   },
-  mount(ctx) {
+
+  mount() {
     const el = document.getElementById('chartVolume');
-    el.id = 'chartVolume';
-    stackedBarChart(el, { ...DEMO.volume, aria: 'Chamadas atendidas e perdidas por faixa de hora' });
-    const b = document.getElementById('btnRefresh');
-    if (b) b.onclick = () => toast('Indicadores atualizados.', 'ok');
+    if (el && this._dados) {
+      stackedBarChart(el, { ...this._dados.volume, aria: 'Chamadas atendidas e perdidas por hora' });
+    }
+    document.getElementById('btnRefresh')?.addEventListener('click', () => App.route());
   }
 };
 
-/* ------------------------- Tempo real ------------------------- */
+/* ------------------------- Painel · Tempo real ------------------------- */
 PAGES['dash.temporeal'] = {
-  render(ctx) {
-    const cards = DEMO.filas.map(f => `
+  async render(ctx) {
+    let d;
+    try { d = await Api.get('/tempo-real'); }
+    catch (e) { return pageHead('Wallboard — Tempo Real', '') + blocoErro(e); }
+
+    const cards = d.filas.length ? d.filas.map(f => `
       <div class="card" style="padding:16px">
         <div class="row-between" style="margin-bottom:12px">
-          <div><b>${f.nome}</b><div class="tiny muted">Fila ${f.num} · ${f.estrategia}</div></div>
-          <span class="badge ${f.espera > 2 ? 'badge-warn' : 'badge-ok'}"><i class="dot ${f.espera ? 'dot-pulse' : ''}"></i>${f.espera} na fila</span>
+          <div><b>${esc(f.nome)}</b><div class="tiny muted">Fila ${esc(f.numero)} · ${esc(f.estrategia)}</div></div>
+          <span class="badge ${f.espera > 2 ? 'badge-warn' : 'badge-ok'}">
+            <i class="dot ${f.espera ? 'dot-pulse' : ''}"></i>${f.espera} na fila</span>
         </div>
         <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:10px">
           <div><div class="tiny muted">Agentes</div><b class="num" style="font-size:18px">${f.online}/${f.agentes}</b></div>
-          <div><div class="tiny muted">TME</div><b class="num" style="font-size:18px">${f.tme}</b></div>
-          <div><div class="tiny muted">SLA</div><b class="num" style="font-size:18px;color:var(--${f.sla >= 90 ? 'ok' : 'warn'})">${f.sla}%</b></div>
+          <div><div class="tiny muted">Atendidas</div><b class="num" style="font-size:18px">${f.completadas}</b></div>
+          <div><div class="tiny muted">Abandonos</div><b class="num" style="font-size:18px">${f.abandonadas}</b></div>
         </div>
-      </div>`).join('');
+      </div>`).join('')
+      : `<div class="card span-2">${vazio('headset', 'Nenhuma fila cadastrada',
+          'Crie uma fila de atendimento para acompanhar o tempo real.',
+          ctx.can('criar') ? '<a class="btn btn-primary btn-sm" href="#/apps.filas">Criar fila</a>' : '')}</div>`;
 
-    const ativas = DEMO.ramais.filter(r => r.disp === 'emchamada').map(r => `
-      <tr>
-        <td><span class="row gap-8"><i class="dot dot-pulse" style="color:var(--ok)"></i><b>${r.num}</b> ${r.nome}</span></td>
-        <td class="mono">11 98877-1234</td>
-        <td><span class="badge badge-info">${icon('arrowDown','ico ico-sm')}Entrada</span></td>
-        <td class="num">00:03:12</td>
-        <td>SIP-Vivo-Principal</td>
-        <td class="col-actions">
-          <span class="row-actions">
-            <button class="btn btn-ghost btn-sm btn-icon" data-tip="Escuta">${icon('headset','ico ico-sm')}</button>
-            <button class="btn btn-ghost btn-sm btn-icon" data-tip="Gravar">${icon('mic','ico ico-sm')}</button>
-            <button class="btn btn-ghost btn-sm btn-icon" data-tip="Encerrar">${icon('phoneOff','ico ico-sm')}</button>
-          </span>
-        </td>
-      </tr>`).join('');
+    const chamadas = d.chamadas.length ? `
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Canal</th><th>Origem</th><th>Destino</th><th>Estado</th><th>Aplicação</th><th>Duração</th></tr></thead>
+        <tbody>${d.chamadas.map(c => `
+          <tr><td class="mono small">${esc(c.canal)}</td>
+            <td class="mono">${esc(c.cid || '—')}</td>
+            <td class="mono">${esc(c.exten || '—')}</td>
+            <td><span class="badge badge-info"><i class="dot dot-pulse"></i>${esc(c.estado)}</span></td>
+            <td class="small dim">${esc(c.aplicacao || '—')}</td>
+            <td class="num">${duracao(c.duracao)}</td></tr>`).join('')}
+        </tbody></table></div>`
+      : vazio('phone', 'Nenhuma chamada em andamento',
+              d.asterisk ? 'A central está ociosa neste momento.'
+                         : 'Não foi possível falar com o Asterisk para ler os canais ativos.');
 
     return pageHead('Wallboard — Tempo Real',
-      'Filas, agentes e chamadas em andamento. Atualização automática a cada 5 s.',
-      `<span class="badge badge-ok"><i class="dot dot-pulse"></i>Ao vivo</span>`) + `
+      'Filas e chamadas ativas, lidas direto do Asterisk.',
+      `<span class="badge ${d.asterisk ? 'badge-ok' : 'badge-danger'}">
+         <i class="dot ${d.asterisk ? 'dot-pulse' : ''}"></i>${d.asterisk ? 'Ao vivo' : 'Asterisk fora'}</span>`) + `
       <div class="grid g-4" style="margin-bottom:16px">${cards}</div>
       <div class="card">
         <div class="card-head"><div class="card-title">Chamadas em andamento</div>
-          <span class="badge">${DEMO.sistema.canaisAtivos} canais ativos</span></div>
-        <div class="card-body tight table-wrap">
-          <table class="table">
-            <thead><tr><th>Ramal</th><th>Número</th><th>Sentido</th><th>Duração</th><th>Tronco</th><th></th></tr></thead>
-            <tbody>${ativas}</tbody>
-          </table>
-        </div>
+          <span class="badge">${d.chamadas.length} canais</span></div>
+        <div class="card-body tight">${chamadas}</div>
       </div>`;
+  },
+  mount() {
+    clearInterval(this._t);
+    this._t = setInterval(() => {
+      if (location.hash.includes('dash.temporeal')) App.route(); else clearInterval(this._t);
+    }, 5000);
   }
 };
 
-/* ------------------------- Estatísticas do sistema ------------------------- */
+/* ------------------------- Painel · Sistema ------------------------- */
 PAGES['dash.sistema'] = {
-  render() {
-    const s = DEMO.sistema;
-    return pageHead('Estatísticas do Sistema', 'Recursos do servidor e informações da distribuição.') + `
+  async render() {
+    let s;
+    try { s = await Api.get('/sistema/estatisticas'); }
+    catch (e) { return pageHead('Estatísticas do Sistema', '') + blocoErro(e); }
+
+    const linhas = [
+      ['Sistema', s.sistema], ['Kernel', s.kernel], ['Uptime', s.uptime],
+      ['PHP', s.php], ['Banco', s.banco],
+      ['Asterisk', s.asterisk.ok ? s.asterisk.versao : 'indisponível'],
+      ['Canais ativos', s.asterisk.ok ? s.asterisk.canais_ativos : '—'],
+      ['Chamadas ativas', s.asterisk.ok ? s.asterisk.chamadas_ativas : '—'],
+    ];
+
+    return pageHead('Estatísticas do Sistema', 'Recursos do servidor, medidos agora.',
+      `<button class="btn btn-outline btn-sm" onclick="App.route()">${icon('refresh','ico ico-sm')} Atualizar</button>`) + `
       <div class="grid g-2-1">
         <div class="card">
           <div class="card-head"><div class="card-title">Recursos</div></div>
           <div class="card-body grid" style="gap:18px">
-            ${meter('CPU', s.cpu, 'ok')}
-            ${meter('Memória', s.mem, 'warn')}
-            ${meter('Disco /', s.disco, 'ok')}
+            ${medidor('CPU', s.cpu, s.cpu > 80 ? 'danger' : s.cpu > 60 ? 'warn' : 'ok')}
+            ${medidor('Memória', s.memoria.pct, s.memoria.pct > 85 ? 'danger' : s.memoria.pct > 70 ? 'warn' : 'ok',
+                      `${num(s.memoria.usado_mb)} / ${num(s.memoria.total_mb)} MB`)}
+            ${medidor('Disco /', s.disco.pct, s.disco.pct > 85 ? 'danger' : s.disco.pct > 70 ? 'warn' : 'ok',
+                      `${s.disco.usado_gb} / ${s.disco.total_gb} GB`)}
           </div>
         </div>
         <div class="card">
           <div class="card-head"><div class="card-title">Sistema</div></div>
-          <div class="card-body">
-            <div class="deflist">
-              ${[['Distribuição', s.distro], ['Asterisk', s.asterisk], ['Kernel', s.kernel],
-                 ['Uptime', s.uptime], ['Canais ativos', s.canaisAtivos], ['SIP peers', s.sipPeers]]
-                .map(([k, v]) => `<div class="defrow" style="grid-template-columns:150px 1fr;padding:9px 0">
-                    <div class="dt"><b>${k}</b></div><div class="mono small">${v}</div></div>`).join('')}
-            </div>
-          </div>
+          <div class="card-body"><div class="deflist">
+            ${linhas.map(([k, v]) => `<div class="defrow" style="grid-template-columns:150px 1fr;padding:9px 0">
+                <div class="dt"><b>${k}</b></div><div class="mono small">${esc(v)}</div></div>`).join('')}
+          </div></div>
         </div>
       </div>`;
   }
 };
 
-/* ------------------------- Asterisk Info ------------------------- */
+/* ------------------------- Painel · Asterisk ------------------------- */
 PAGES['dash.asterisk'] = {
-  render() {
-    return pageHead('Asterisk Info', 'Saída direta do núcleo Asterisk.') + `
-      <div class="card">
-        <div class="card-head"><div class="card-title">core show channels</div>
-          <button class="btn btn-outline btn-sm">${icon('refresh','ico ico-sm')} Recarregar</button></div>
-        <div class="card-body">
-          <pre class="mono small" style="margin:0;padding:16px;background:var(--surface-2);border-radius:var(--r-md);overflow-x:auto">Channel              Location             State   Application(Data)
-PJSIP/1010-00001a2b  600@from-internal    Up      Queue(600,tT)
-PJSIP/2031-00001a2c  s@macro-dial         Up      Dial(PJSIP/trunk-vivo)
-PJSIP/3001-00001a2d  s@ivr-1              Up      Background(ura-principal)
-DAHDI/1-1            s@from-pstn          Up      Queue(601)
+  async render() {
+    let d;
+    try { d = await Api.get('/sistema/asterisk'); }
+    catch (e) { return pageHead('Asterisk Info', '') + blocoErro(e); }
 
-4 active channels
-2 active calls
-3184 calls processed</pre>
+    return pageHead('Asterisk Info', 'Saída dos comandos de CLI, pelo AMI.',
+      `<button class="btn btn-outline btn-sm" onclick="App.route()">${icon('refresh','ico ico-sm')} Recarregar</button>`) +
+      Object.entries(d.comandos).map(([cmd, saida]) => `
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-head"><div class="card-title mono">${esc(cmd)}</div></div>
+          <div class="card-body"><div class="code">${esc(saida) || '(sem saída)'}</div></div>
+        </div>`).join('');
+  }
+};
+
+/* ========================================================================
+   Gerador de tela de cadastro
+   Lista + busca + gaveta de formulário + exclusão com confirmação.
+   Usado por ramais, troncos, filas, rotas, usuários e afins.
+   ======================================================================== */
+function paginaCrud(cfg) {
+  return {
+    _itens: [],
+
+    async render(ctx) {
+      let r;
+      try { r = await Api.get('/' + cfg.recurso, cfg.params || null); }
+      catch (e) { return pageHead(cfg.titulo, cfg.sub) + blocoErro(e); }
+
+      this._itens = r.dados || [];
+      if (cfg.aoCarregar) await cfg.aoCarregar(this, ctx);
+
+      const podeCriar = ctx.can('criar') && !cfg.somenteLeitura;
+      const botaoNovo = podeCriar
+        ? `<button class="btn btn-primary btn-sm" data-novo>${icon('plus','ico ico-sm')} ${cfg.rotuloNovo || 'Adicionar'}</button>`
+        : '';
+
+      const cabecalho = pageHead(cfg.titulo, cfg.sub,
+        `${readOnlyNote(ctx)}${cfg.acoesExtra ? cfg.acoesExtra(ctx) : ''}${botaoNovo}`);
+
+      if (!this._itens.length) {
+        return cabecalho + `<div class="card">${vazio(
+          cfg.ico || 'grid',
+          cfg.vazioTitulo || 'Nenhum registro cadastrado',
+          cfg.vazioTexto || 'Comece adicionando o primeiro.',
+          podeCriar ? `<button class="btn btn-primary btn-sm" data-novo>
+            ${icon('plus','ico ico-sm')} ${cfg.rotuloNovo || 'Adicionar'}</button>` : ''
+        )}</div>`;
+      }
+
+      const colunas = cfg.colunas;
+      const linhas = this._itens.map(item => `
+        <tr data-id="${item.id}" data-busca="${esc(cfg.textoBusca ? cfg.textoBusca(item).toLowerCase() : '')}">
+          ${colunas.map(c => `<td${c.classe ? ` class="${c.classe}"` : ''}>${c.render(item, ctx)}</td>`).join('')}
+          <td class="col-actions"><span class="row-actions">
+            ${cfg.acoesLinha ? cfg.acoesLinha(item, ctx) : ''}
+            ${ctx.can('editar') && !cfg.somenteLeitura
+              ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" data-editar="${item.id}">${icon('edit','ico ico-sm')}</button>` : ''}
+            ${ctx.can('excluir') && !cfg.somenteLeitura
+              ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-excluir="${item.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+          </span></td>
+        </tr>`).join('');
+
+      return cabecalho + `
+      <div class="card">
+        <div class="toolbar">
+          <div class="input-icon search-mini">${icon('search','ico ico-sm')}
+            <input class="input" data-filtro placeholder="${cfg.placeholderBusca || 'Buscar…'}">
+          </div>
+          ${cfg.filtrosExtra ? cfg.filtrosExtra(this._itens) : ''}
+          <span class="grow"></span>
+          <span class="small muted" data-contador></span>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr>${colunas.map(c => `<th${c.thClasse ? ` class="${c.thClasse}"` : ''}>${c.label}</th>`).join('')}<th></th></tr></thead>
+            <tbody>${linhas}</tbody>
+          </table>
         </div>
       </div>`;
-  }
-};
+    },
 
-/* ------------------------- Conectividade · Ramais ------------------------- */
-PAGES['conn.ramais'] = {
-  render(ctx) {
-    return pageHead('Ramais',
-      'Cadastro de ramais SIP/PJSIP, dispositivos e recursos por usuário.',
-      `${readOnlyNote(ctx)}
-       ${ctx.can('exportar') ? `<button class="btn btn-outline btn-sm">${icon('download','ico ico-sm')} Exportar CSV</button>` : ''}
-       ${ctx.can('criar') ? `<button class="btn btn-primary btn-sm" data-act="novo-ramal">${icon('plus','ico ico-sm')} Adicionar ramal</button>` : ''}`
-    ) + `
-    <div class="card">
-      <div class="toolbar">
-        <div class="input-icon search-mini">${icon('search','ico ico-sm')}
-          <input class="input" id="fRamal" placeholder="Buscar ramal, nome ou setor…">
-        </div>
-        <select class="select" id="fStatus" style="width:170px">
-          <option value="">Todos os estados</option>
-          <option value="disponivel">Disponível</option>
-          <option value="emchamada">Em chamada</option>
-          <option value="ausente">Ausente</option>
-          <option value="nperturbe">Não perturbe</option>
-          <option value="offline">Offline</option>
-        </select>
-        <select class="select" id="fSetor" style="width:170px">
-          <option value="">Todos os setores</option>
-          ${[...new Set(DEMO.ramais.map(r => r.setor))].map(s => `<option>${s}</option>`).join('')}
-        </select>
-        <span class="grow"></span>
-        <span class="small muted" id="ramalCount"></span>
-      </div>
-      <div class="table-wrap">
-        <table class="table" id="tabRamais">
-          <thead><tr>
-            <th style="width:90px">Ramal</th><th>Nome</th><th>Tecnologia</th><th>Setor</th>
-            <th>Dispositivo</th><th>Correio</th><th>Gravação</th><th>Estado</th><th></th>
-          </tr></thead>
-          <tbody>
-            ${DEMO.ramais.map(r => `
-              <tr data-busca="${esc((r.num + ' ' + r.nome + ' ' + r.setor).toLowerCase())}"
-                  data-status="${r.disp}" data-setor="${esc(r.setor)}">
-                <td><b class="mono">${r.num}</b></td>
-                <td><span class="row gap-8"><span class="avatar avatar-sm">${initials(r.nome)}</span>${r.nome}</span></td>
-                <td><span class="badge">${r.tec}</span></td>
-                <td class="dim">${r.setor}</td>
-                <td class="dim small">${r.device}</td>
-                <td>${r.vm ? icon('checkCirc','ico ico-sm') : '<span class="muted">—</span>'}</td>
-                <td>${r.gravar ? '<span class="badge badge-brand">Ativa</span>' : '<span class="muted">—</span>'}</td>
-                <td>${badgeRamal(r.disp)}</td>
-                <td class="col-actions"><span class="row-actions">
-                  <button class="btn btn-ghost btn-sm btn-icon" data-tip="Ligar" data-call="${r.num}" data-nome="${esc(r.nome)}">${icon('phone','ico ico-sm')}</button>
-                  <button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" data-edit="${r.num}" ${ctx.can('editar') ? '' : 'disabled'}>${icon('edit','ico ico-sm')}</button>
-                  <button class="btn btn-ghost btn-sm btn-icon" data-tip="Provisionar">${icon('download','ico ico-sm')}</button>
-                  <button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-del="${r.num}" ${ctx.can('excluir') ? '' : 'disabled'}>${icon('trash','ico ico-sm')}</button>
-                </span></td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>`;
-  },
-  mount(ctx) {
-    const q = document.getElementById('fRamal'), st = document.getElementById('fStatus'),
-          se = document.getElementById('fSetor'), cnt = document.getElementById('ramalCount'),
-          rows = [...document.querySelectorAll('#tabRamais tbody tr')];
-    const filtrar = () => {
-      const t = q.value.trim().toLowerCase();
-      let n = 0;
-      rows.forEach(r => {
-        const ok = (!t || r.dataset.busca.includes(t)) &&
-                   (!st.value || r.dataset.status === st.value) &&
-                   (!se.value || r.dataset.setor === se.value);
-        r.hidden = !ok; if (ok) n++;
-      });
-      cnt.textContent = `${n} de ${rows.length} ramais`;
-    };
-    [q, st, se].forEach(el => el.addEventListener('input', filtrar));
-    filtrar();
+    mount(ctx) {
+      const filtro = document.querySelector('[data-filtro]');
+      const contador = document.querySelector('[data-contador]');
+      const linhas = [...document.querySelectorAll('tbody tr[data-id]')];
 
-    const nv = document.querySelector('[data-act="novo-ramal"]');
-    if (nv) nv.onclick = () => formRamal(null, ctx);
-
-    document.querySelectorAll('[data-call]').forEach(b =>
-      b.onclick = () => Softphone.discarPara(b.dataset.call, b.dataset.nome));
-
-    document.querySelectorAll('[data-edit]').forEach(b =>
-      b.onclick = () => formRamal(DEMO.ramais.find(r => r.num === b.dataset.edit), ctx));
-
-    document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
-      const r = DEMO.ramais.find(x => x.num === b.dataset.del);
-      const ok = await Modal.confirm({
-        titulo: `Excluir o ramal ${r.num}?`,
-        texto: `${r.nome} perderá acesso imediato à central. Gravações e histórico de chamadas são preservados.`,
-        ok: 'Excluir ramal'
-      });
-      if (ok) { b.closest('tr').remove(); toast(`Ramal ${r.num} excluído.`, 'ok'); }
-    });
-  }
-};
-
-/* Formulário de ramal (gaveta com abas) — usado para criar e editar */
-function formRamal(ramal, ctx) {
-  const novo = !ramal;
-  const r = ramal || { num: '', nome: '', tec: 'PJSIP', setor: '', device: '', vm: true, gravar: true };
-  const abas = [
-    ['geral', 'Geral'], ['voz', 'Voz e correio'], ['rede', 'Rede / SIP'], ['perm', 'Permissões']
-  ];
-  Drawer.open({
-    wide: true,
-    titulo: novo ? 'Adicionar ramal' : `Ramal ${r.num} — ${r.nome}`,
-    sub: novo ? 'O ramal fica disponível assim que o dialplan for aplicado.' : 'Alterações exigem aplicar configurações.',
-    corpo: `
-      <div class="tabs" id="ramalTabs">
-        ${abas.map(([k, l], i) => `<button class="tab ${i === 0 ? 'on' : ''}" data-tab="${k}">${l}</button>`).join('')}
-      </div>
-
-      <div data-pane="geral">
-        <div class="form-grid">
-          <div class="field"><label class="label">Número do ramal</label>
-            <input class="input mono" value="${r.num}" placeholder="2035" ${novo ? '' : 'disabled'}></div>
-          <div class="field"><label class="label">Nome de exibição</label><input class="input" value="${esc(r.nome)}" placeholder="Nome do usuário"></div>
-          <div class="field"><label class="label">Setor / centro de custo</label><input class="input" value="${esc(r.setor)}" placeholder="Suporte N1"></div>
-          <div class="field"><label class="label">Tecnologia</label>
-            <select class="select"><option ${r.tec === 'PJSIP' ? 'selected' : ''}>PJSIP</option><option>SIP (legado)</option><option>DAHDi</option></select></div>
-          <div class="field"><label class="label">Dispositivo</label><input class="input" value="${esc(r.device || '')}" placeholder="Yealink T31"></div>
-          <div class="field"><label class="label">E-mail do usuário</label><input class="input" type="email" placeholder="usuario@telium.com.br"></div>
-          <div class="field full"><label class="label">Grupo de captura</label><input class="input mono" value="1" placeholder="1,2"></div>
-        </div>
-      </div>
-
-      <div data-pane="voz" hidden>
-        <div class="deflist">
-          <div class="defrow"><div class="dt"><b>Correio de voz</b><small>Cria a caixa postal do ramal</small></div>
-            <div class="right"><label class="switch"><input type="checkbox" ${r.vm ? 'checked' : ''}><span class="track"></span></label></div></div>
-          <div class="defrow"><div class="dt"><b>Enviar mensagens por e-mail</b><small>Anexa o áudio e apaga da caixa</small></div>
-            <div class="right"><label class="switch"><input type="checkbox" checked><span class="track"></span></label></div></div>
-          <div class="defrow"><div class="dt"><b>Gravação de chamadas</b><small>Entrantes e saintes</small></div>
-            <div class="right"><label class="switch"><input type="checkbox" ${r.gravar ? 'checked' : ''}><span class="track"></span></label></div></div>
-          <div class="defrow"><div class="dt"><b>Siga-me</b><small>Destino após tocar sem resposta</small></div>
-            <div><input class="input" placeholder="Celular ou outro ramal"></div></div>
-          <div class="defrow"><div class="dt"><b>Tempo de toque</b><small>Antes de cair no correio de voz</small></div>
-            <div><select class="select"><option>15 segundos</option><option selected>20 segundos</option><option>30 segundos</option></select></div></div>
-        </div>
-      </div>
-
-      <div data-pane="rede" hidden>
-        <div class="form-grid">
-          <div class="field"><label class="label">Senha SIP</label><input class="input mono" type="password" value="********************"></div>
-          <div class="field"><label class="label">Transporte</label>
-            <select class="select"><option>TLS (recomendado)</option><option>UDP</option><option>TCP</option><option>WSS (WebRTC)</option></select></div>
-          <div class="field"><label class="label">Codecs permitidos</label><input class="input mono" value="opus,alaw,g722"></div>
-          <div class="field"><label class="label">Máximo de contatos</label><input class="input" type="number" value="2"></div>
-          <div class="field full"><label class="label">Restringir a IPs / redes</label><input class="input mono" placeholder="10.0.0.0/24, 189.45.22.7"></div>
-          <div class="field full"><label class="check"><input type="checkbox" checked> <span>Exigir mídia criptografada (SRTP)</span></label></div>
-        </div>
-      </div>
-
-      <div data-pane="perm" hidden>
-        <div class="deflist">
-          ${[['Ligações locais e celular', true], ['DDD nacional', true],
-             ['Internacional', false], ['0300 / 0900', false],
-             ['Pode escutar chamadas de outros ramais', false],
-             ['Aparece no diretório da URA', true]].map(([l, on]) => `
-            <div class="defrow"><div class="dt"><b>${l}</b></div>
-              <div class="right"><label class="switch"><input type="checkbox" ${on ? 'checked' : ''}><span class="track"></span></label></div></div>`).join('')}
-          <div class="defrow"><div class="dt"><b>Conjunto de PIN</b><small>Exigido para chamadas tarifadas</small></div>
-            <div><select class="select"><option>Nenhum</option><option>PIN Comercial</option><option>PIN Diretoria</option></select></div></div>
-        </div>
-      </div>`,
-    rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
-             <button class="btn btn-primary" id="okRamal">${novo ? 'Criar ramal' : 'Salvar alterações'}</button>`,
-    aoAbrir: dw => {
-      dw.querySelectorAll('#ramalTabs .tab').forEach(t => t.onclick = () => {
-        dw.querySelectorAll('#ramalTabs .tab').forEach(x => x.classList.remove('on'));
-        t.classList.add('on');
-        dw.querySelectorAll('[data-pane]').forEach(p => p.hidden = p.dataset.pane !== t.dataset.tab);
-      });
-      dw.querySelector('#okRamal').onclick = () => {
-        Drawer.close();
-        toast(novo ? 'Ramal criado. Aplique as configurações para publicar.' : 'Ramal atualizado.', 'ok');
+      const aplicar = () => {
+        const t = (filtro?.value || '').trim().toLowerCase();
+        const extras = [...document.querySelectorAll('[data-filtro-campo]')];
+        let n = 0;
+        linhas.forEach(l => {
+          const item = this._itens.find(i => String(i.id) === l.dataset.id);
+          let ok = !t || l.dataset.busca.includes(t);
+          extras.forEach(sel => {
+            if (ok && sel.value) ok = String(item?.[sel.dataset.filtroCampo] ?? '') === sel.value;
+          });
+          l.hidden = !ok;
+          if (ok) n++;
+        });
+        if (contador) contador.textContent = `${n} de ${linhas.length} ${cfg.plural || 'registros'}`;
       };
+      filtro?.addEventListener('input', aplicar);
+      document.querySelectorAll('[data-filtro-campo]').forEach(s => s.addEventListener('change', aplicar));
+      aplicar();
+
+      document.querySelectorAll('[data-novo]').forEach(b =>
+        b.onclick = () => this.formulario(null, ctx));
+
+      document.querySelectorAll('[data-editar]').forEach(b =>
+        b.onclick = () => this.formulario(
+          this._itens.find(i => String(i.id) === b.dataset.editar), ctx));
+
+      document.querySelectorAll('[data-excluir]').forEach(b => b.onclick = async () => {
+        const item = this._itens.find(i => String(i.id) === b.dataset.excluir);
+        const ok = await Modal.confirm({
+          titulo: cfg.tituloExcluir ? cfg.tituloExcluir(item) : 'Excluir este registro?',
+          texto: cfg.textoExcluir ? cfg.textoExcluir(item) : 'Esta ação não pode ser desfeita.',
+          ok: 'Excluir'
+        });
+        if (!ok) return;
+        try {
+          await Api.delete(`/${cfg.recurso}/${item.id}`);
+          toast('Registro excluído.', 'ok');
+          App.route();
+        } catch (e) { toast(e.message, 'err'); }
+      });
+
+      if (cfg.aoMontar) cfg.aoMontar(this, ctx);
+    },
+
+    /** Gaveta de criação/edição montada a partir de cfg.campos. */
+    formulario(item, ctx) {
+      const novo = !item;
+      const campos = cfg.campos(item || {}, ctx, this);
+      const abas = [...new Set(campos.map(c => c.aba || 'Geral'))];
+
+      const corpoAba = aba => `<div class="form-grid">${campos
+        .filter(c => (c.aba || 'Geral') === aba)
+        .map(c => campoHtml(c, item || {}))
+        .join('')}</div>`;
+
+      Drawer.open({
+        wide: abas.length > 1,
+        titulo: novo ? (cfg.tituloNovo || 'Novo registro')
+                     : (cfg.tituloEditar ? cfg.tituloEditar(item) : 'Editar registro'),
+        sub: cfg.subFormulario || '',
+        corpo: (abas.length > 1
+          ? `<div class="tabs" data-abas>${abas.map((a, i) =>
+              `<button class="tab ${i === 0 ? 'on' : ''}" data-aba="${esc(a)}">${esc(a)}</button>`).join('')}</div>`
+          : '') +
+          abas.map((a, i) => `<div data-painel="${esc(a)}" ${i ? 'hidden' : ''}>${corpoAba(a)}</div>`).join(''),
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-salvar>${novo ? 'Criar' : 'Salvar alterações'}</button>`,
+        aoAbrir: dw => {
+          dw.querySelectorAll('[data-aba]').forEach(t => t.onclick = () => {
+            dw.querySelectorAll('[data-aba]').forEach(x => x.classList.remove('on'));
+            t.classList.add('on');
+            dw.querySelectorAll('[data-painel]').forEach(p =>
+              p.hidden = p.dataset.painel !== t.dataset.aba);
+          });
+
+          dw.querySelector('[data-salvar]').onclick = async ev => {
+            const botao = ev.currentTarget;
+            const dados = {};
+            let invalido = null;
+
+            campos.forEach(c => {
+              const el = dw.querySelector(`[name="${c.campo}"]`);
+              if (!el) return;
+              let v = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
+              if (c.obrigatorio && (v === '' || v === null)) invalido ??= c;
+              if (v === '' && c.tipo === 'number') v = null;
+              dados[c.campo] = v;
+            });
+
+            if (invalido) {
+              toast(`Preencha o campo "${invalido.label}".`, 'warn');
+              dw.querySelector(`[name="${invalido.campo}"]`)?.focus();
+              return;
+            }
+
+            botao.disabled = true;
+            botao.textContent = 'Salvando…';
+            try {
+              if (novo) await Api.post('/' + cfg.recurso, dados);
+              else await Api.put(`/${cfg.recurso}/${item.id}`, dados);
+              Drawer.close();
+              toast(novo ? 'Registro criado.' : 'Registro atualizado.', 'ok');
+              App.route();
+            } catch (e) {
+              botao.disabled = false;
+              botao.textContent = novo ? 'Criar' : 'Salvar alterações';
+              toast(e.message, 'err');
+            }
+          };
+        }
+      });
     }
-  });
+  };
 }
 
-/* ------------------------- Conectividade · Troncos ------------------------- */
-PAGES['conn.troncos'] = {
-  render(ctx) {
-    return pageHead('Troncos', 'Entroncamentos SIP e E1 com as operadoras.',
-      ctx.can('criar') ? `<button class="btn btn-primary btn-sm">${icon('plus','ico ico-sm')} Novo tronco</button>` : readOnlyNote(ctx)) + `
-    <div class="card"><div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Tronco</th><th>Tipo</th><th>Host / IP</th><th>Canais</th><th>Ocupação</th><th>Latência</th><th>Estado</th><th></th></tr></thead>
-        <tbody>${DEMO.troncos.map(t => `
-          <tr>
-            <td><b>${t.nome}</b></td>
-            <td><span class="badge">${t.tipo}</span></td>
-            <td class="mono small dim">${t.ip}</td>
-            <td class="num">${t.canais}</td>
-            <td style="width:150px">
-              <div class="track" style="height:7px;background:var(--surface-3);border-radius:6px;overflow:hidden">
-                <div style="height:100%;width:${t.uso}%;background:var(--${t.uso > 80 ? 'danger' : t.uso > 60 ? 'warn' : 'ok'})"></div>
-              </div>
-              <div class="tiny muted num" style="margin-top:3px">${t.uso}%</div>
-            </td>
-            <td class="num small">${t.latencia}</td>
-            <td>${t.status === 'registrado' ? '<span class="badge badge-ok"><i class="dot"></i>Registrado</span>'
-                 : t.status === 'alerta' ? '<span class="badge badge-warn"><i class="dot"></i>Latência alta</span>'
-                 : '<span class="badge badge-danger"><i class="dot"></i>Offline</span>'}</td>
-            <td class="col-actions"><span class="row-actions">
-              <button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" ${ctx.can('editar') ? '' : 'disabled'}>${icon('edit','ico ico-sm')}</button>
-              <button class="btn btn-ghost btn-sm btn-icon" data-tip="Reregistrar" ${ctx.can('reiniciar') ? '' : 'disabled'}>${icon('refresh','ico ico-sm')}</button>
-            </span></td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div></div>`;
-  }
-};
+/** Um campo do formulário da gaveta. */
+function campoHtml(c, item) {
+  const v = item[c.campo] ?? c.padrao ?? '';
+  const largura = c.largura === 'full' ? ' full' : '';
+  const desabilitado = c.somenteLeitura ? 'disabled' : '';
 
-/* ------------------------- Aplicações · Filas ------------------------- */
-PAGES['apps.filas'] = {
-  render(ctx) {
-    return pageHead('Filas de Atendimento', 'Distribuição de chamadas, agentes e metas de nível de serviço.',
-      ctx.can('criar') ? `<button class="btn btn-primary btn-sm">${icon('plus','ico ico-sm')} Nova fila</button>` : readOnlyNote(ctx)) + `
-    <div class="grid g-2" style="margin-bottom:16px">
-      ${DEMO.filas.map(f => `
-        <div class="card" style="padding:18px">
-          <div class="row-between" style="margin-bottom:14px">
-            <div class="row gap-12">
-              <span class="k-ico" style="background:var(--brand-soft);color:var(--brand);width:38px;height:38px;border-radius:11px;display:grid;place-items:center">${icon('headset')}</span>
-              <div><b style="font-size:15px">${f.nome}</b>
-                   <div class="tiny muted">Fila ${f.num} · estratégia <span class="mono">${f.estrategia}</span></div></div>
-            </div>
-            <label class="switch"><input type="checkbox" checked ${ctx.can('editar') ? '' : 'disabled'}><span class="track"></span></label>
-          </div>
-          <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:12px">
-            <div><div class="tiny muted">Agentes</div><b class="num">${f.online}/${f.agentes}</b></div>
-            <div><div class="tiny muted">Em espera</div><b class="num">${f.espera}</b></div>
-            <div><div class="tiny muted">TME</div><b class="num">${f.tme}</b></div>
-            <div><div class="tiny muted">Abandono</div><b class="num" style="color:var(--${f.abandono > 5 ? 'danger' : 'ok'})">${f.abandono}%</b></div>
-          </div>
-          <div style="margin-top:14px">
-            <div class="row-between tiny" style="margin-bottom:5px"><span class="muted">Nível de serviço</span><b class="num">${f.sla}%</b></div>
-            <div class="track" style="height:7px;background:var(--surface-3);border-radius:6px;overflow:hidden">
-              <div style="height:100%;width:${f.sla}%;background:var(--${f.sla >= 90 ? 'ok' : 'warn'})"></div>
-            </div>
-          </div>
-        </div>`).join('')}
+  if (c.tipo === 'switch') {
+    return `<div class="field${largura}">
+      <label class="label">${esc(c.label)}</label>
+      <label class="switch"><input type="checkbox" name="${c.campo}" ${Number(v) ? 'checked' : ''} ${desabilitado}>
+        <span class="track"></span></label>
+      ${c.ajuda ? `<span class="hint">${esc(c.ajuda)}</span>` : ''}
     </div>`;
   }
-};
+
+  if (c.tipo === 'select') {
+    return `<div class="field${largura}">
+      <label class="label">${esc(c.label)}</label>
+      <select class="select" name="${c.campo}" ${desabilitado}>
+        ${(c.opcoes || []).map(o => {
+          const val = o.valor ?? o;
+          const rot = o.rotulo ?? o;
+          return `<option value="${esc(val)}" ${String(v) === String(val) ? 'selected' : ''}>${esc(rot)}</option>`;
+        }).join('')}
+      </select>
+      ${c.ajuda ? `<span class="hint">${esc(c.ajuda)}</span>` : ''}
+    </div>`;
+  }
+
+  if (c.tipo === 'textarea') {
+    return `<div class="field${largura}">
+      <label class="label">${esc(c.label)}</label>
+      <textarea class="textarea" name="${c.campo}" placeholder="${esc(c.placeholder || '')}" ${desabilitado}>${esc(v)}</textarea>
+      ${c.ajuda ? `<span class="hint">${esc(c.ajuda)}</span>` : ''}
+    </div>`;
+  }
+
+  return `<div class="field${largura}">
+    <label class="label">${esc(c.label)}${c.obrigatorio ? ' *' : ''}</label>
+    <input class="input${c.mono ? ' mono' : ''}" type="${c.tipo || 'text'}" name="${c.campo}"
+           value="${esc(v)}" placeholder="${esc(c.placeholder || '')}" ${desabilitado}>
+    ${c.ajuda ? `<span class="hint">${esc(c.ajuda)}</span>` : ''}
+  </div>`;
+}
+
+/* ------------------------- Conectividade · Ramais ------------------------- */
+PAGES['conn.ramais'] = paginaCrud({
+  recurso: 'ramais',
+  titulo: 'Ramais',
+  sub: 'Cadastro de ramais SIP, dispositivos e recursos por usuário.',
+  ico: 'phone',
+  plural: 'ramais',
+  rotuloNovo: 'Adicionar ramal',
+  tituloNovo: 'Adicionar ramal',
+  subFormulario: 'Depois de salvar, aplique as configurações para o Asterisk assumir.',
+  vazioTitulo: 'Nenhum ramal cadastrado',
+  vazioTexto: 'Cadastre o primeiro ramal para começar a receber e originar chamadas.',
+  placeholderBusca: 'Buscar por número, nome ou setor…',
+  textoBusca: r => `${r.numero} ${r.nome} ${r.setor || ''}`,
+  tituloEditar: r => `Ramal ${r.numero} — ${r.nome}`,
+  tituloExcluir: r => `Excluir o ramal ${r.numero}?`,
+  textoExcluir: r => `${r.nome} perde o acesso à central assim que a configuração for aplicada. O histórico de chamadas é preservado.`,
+
+  colunas: [
+    { label: 'Ramal', thClasse: 'col-num', render: r => `<b class="mono">${esc(r.numero)}</b>` },
+    { label: 'Nome', render: r => `<span class="row gap-8"><span class="avatar avatar-sm">${initials(r.nome)}</span>${esc(r.nome)}</span>` },
+    { label: 'Setor', render: r => `<span class="dim">${esc(r.setor || '—')}</span>` },
+    { label: 'Tecnologia', render: r => `<span class="badge">${String(r.tecnologia || '').toUpperCase()}</span>` },
+    { label: 'Correio', render: r => Number(r.voicemail) ? icon('checkCirc','ico ico-sm') : '<span class="muted">—</span>' },
+    { label: 'Gravação', render: r => r.gravar && r.gravar !== 'nao'
+        ? `<span class="badge badge-brand">${esc(r.gravar)}</span>` : '<span class="muted">—</span>' },
+    { label: 'Estado', render: r => Number(r.ativo)
+        ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
+        : '<span class="badge"><i class="dot"></i>Inativo</span>' }
+  ],
+
+  filtrosExtra: itens => {
+    const setores = [...new Set(itens.map(i => i.setor).filter(Boolean))].sort();
+    return `<select class="select" data-filtro-campo="setor" style="width:180px">
+      <option value="">Todos os setores</option>
+      ${setores.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+    </select>`;
+  },
+
+  acoesLinha: (r, ctx) => ctx.can('editar')
+    ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Credenciais SIP" data-credencial="${r.id}">${icon('key','ico ico-sm')}</button>`
+    : '',
+
+  campos: (r) => [
+    { campo: 'numero', label: 'Número do ramal', obrigatorio: true, mono: true,
+      placeholder: '1001', somenteLeitura: !!r.id, ajuda: r.id ? 'O número não muda depois de criado.' : '' },
+    { campo: 'nome', label: 'Nome de exibição', obrigatorio: true, placeholder: 'Nome do usuário' },
+    { campo: 'setor', label: 'Setor / centro de custo', placeholder: 'Atendimento' },
+    { campo: 'email', label: 'E-mail', tipo: 'email', placeholder: 'usuario@empresa.com.br' },
+    { campo: 'senha_sip', label: r.id ? 'Nova senha SIP' : 'Senha SIP', obrigatorio: !r.id, mono: true,
+      placeholder: r.id ? 'deixe em branco para manter' : 'mínimo 12 caracteres',
+      ajuda: 'Use uma senha longa e aleatória: é o que protege o ramal contra fraude.' },
+    { campo: 'ativo', label: 'Ramal ativo', tipo: 'switch', padrao: 1 },
+
+    { aba: 'Voz', campo: 'voicemail', label: 'Correio de voz', tipo: 'switch', padrao: 1 },
+    { aba: 'Voz', campo: 'vm_email', label: 'Enviar mensagens por e-mail', tipo: 'switch', padrao: 1 },
+    { aba: 'Voz', campo: 'gravar', label: 'Gravação de chamadas', tipo: 'select',
+      opcoes: [{valor:'nao',rotulo:'Não gravar'},{valor:'entrada',rotulo:'Só entrantes'},
+               {valor:'saida',rotulo:'Só saintes'},{valor:'ambas',rotulo:'Entrantes e saintes'}] },
+    { aba: 'Voz', campo: 'tempo_toque', label: 'Tempo de toque (s)', tipo: 'number', padrao: 20 },
+    { aba: 'Voz', campo: 'siga_me', label: 'Siga-me', placeholder: 'Celular ou outro ramal', largura: 'full' },
+    { aba: 'Voz', campo: 'dnd', label: 'Não perturbe', tipo: 'switch' },
+
+    { aba: 'Rede', campo: 'transporte', label: 'Transporte', tipo: 'select',
+      opcoes: ['udp','tcp','tls','wss'], padrao: 'udp' },
+    { aba: 'Rede', campo: 'codecs', label: 'Codecs', mono: true, padrao: 'opus,alaw,ulaw,g722' },
+    { aba: 'Rede', campo: 'max_contatos', label: 'Máximo de contatos', tipo: 'number', padrao: 2 },
+    { aba: 'Rede', campo: 'srtp', label: 'Exigir mídia criptografada (SRTP)', tipo: 'switch' },
+    { aba: 'Rede', campo: 'contexto', label: 'Contexto', mono: true, padrao: 'interno' },
+    { aba: 'Rede', campo: 'callgroup', label: 'Grupo de chamada', mono: true },
+    { aba: 'Rede', campo: 'pickupgroup', label: 'Grupo de captura', mono: true },
+    { aba: 'Rede', campo: 'redes_permitidas', label: 'Restringir a redes', mono: true,
+      placeholder: '10.0.0.0/24', largura: 'full' },
+
+    { aba: 'Permissões', campo: 'perm_local', label: 'Ligações locais', tipo: 'switch', padrao: 1 },
+    { aba: 'Permissões', campo: 'perm_celular', label: 'Celular', tipo: 'switch', padrao: 1 },
+    { aba: 'Permissões', campo: 'perm_ddd', label: 'DDD nacional', tipo: 'switch', padrao: 1 },
+    { aba: 'Permissões', campo: 'perm_ddi', label: 'Internacional', tipo: 'switch' },
+    { aba: 'Permissões', campo: 'no_diretorio', label: 'Aparece no diretório', tipo: 'switch', padrao: 1 }
+  ],
+
+  aoMontar: (pagina) => {
+    document.querySelectorAll('[data-credencial]').forEach(b => b.onclick = async () => {
+      try {
+        const c = await Api.get(`/ramais/${b.dataset.credencial}/credenciais`);
+        Drawer.open({
+          titulo: `Credenciais SIP do ramal ${c.numero}`,
+          sub: 'Use estes dados para configurar o aparelho ou o softphone.',
+          corpo: `<div class="deflist">
+            ${[['Usuário', c.numero], ['Senha', c.senha_sip], ['Transporte', c.transporte]]
+              .map(([k, v]) => `<div class="defrow" style="grid-template-columns:140px 1fr;padding:12px 0">
+                <div class="dt"><b>${k}</b></div><div class="mono">${esc(v)}</div></div>`).join('')}
+          </div>
+          <p class="hint" style="margin-top:16px">Esta consulta fica registrada na auditoria.</p>`
+        });
+      } catch (e) { toast(e.message, 'err'); }
+    });
+  }
+});
+
+/* ------------------------- Conectividade · Troncos ------------------------- */
+PAGES['conn.troncos'] = paginaCrud({
+  recurso: 'troncos',
+  titulo: 'Troncos',
+  sub: 'Entroncamentos com as operadoras.',
+  ico: 'network',
+  plural: 'troncos',
+  rotuloNovo: 'Novo tronco',
+  tituloNovo: 'Novo tronco',
+  vazioTitulo: 'Nenhum tronco cadastrado',
+  vazioTexto: 'Sem tronco a central só faz chamadas internas. Cadastre o entroncamento da operadora.',
+  placeholderBusca: 'Buscar por nome ou host…',
+  textoBusca: t => `${t.nome} ${t.host || ''}`,
+  tituloEditar: t => `Tronco ${t.nome}`,
+  tituloExcluir: t => `Excluir o tronco ${t.nome}?`,
+  textoExcluir: () => 'As rotas de saída que usam este tronco deixarão de funcionar.',
+
+  colunas: [
+    { label: 'Tronco', render: t => `<b>${esc(t.nome)}</b>` },
+    { label: 'Tipo', render: t => `<span class="badge">${String(t.tipo || '').toUpperCase()}</span>` },
+    { label: 'Host', render: t => `<span class="mono small dim">${esc(t.host || '—')}:${t.porta || 5060}</span>` },
+    { label: 'Canais', render: t => `<span class="num">${t.canais_max || '—'}</span>` },
+    { label: 'Registra', render: t => Number(t.registrar) ? '<span class="badge badge-info">Sim</span>' : '<span class="muted">Não</span>' },
+    { label: 'Estado', render: t => Number(t.ativo)
+        ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
+        : '<span class="badge"><i class="dot"></i>Inativo</span>' }
+  ],
+
+  campos: (t) => [
+    { campo: 'nome', label: 'Nome do tronco', obrigatorio: true, placeholder: 'SIP-Operadora' },
+    { campo: 'tipo', label: 'Tipo', tipo: 'select', opcoes: ['pjsip','dahdi'], padrao: 'pjsip' },
+    { campo: 'host', label: 'Host da operadora', obrigatorio: true, mono: true, placeholder: 'sip.operadora.com.br' },
+    { campo: 'porta', label: 'Porta', tipo: 'number', padrao: 5060 },
+    { campo: 'transporte', label: 'Transporte', tipo: 'select', opcoes: ['udp','tcp','tls'], padrao: 'udp' },
+    { campo: 'canais_max', label: 'Canais contratados', tipo: 'number', placeholder: '30' },
+    { campo: 'usuario', label: 'Usuário de autenticação', mono: true },
+    { campo: 'senha', label: t.id ? 'Nova senha' : 'Senha', mono: true,
+      placeholder: t.id ? 'deixe em branco para manter' : '' },
+    { campo: 'registrar', label: 'Registrar no provedor', tipo: 'switch', padrao: 1 },
+    { campo: 'ativo', label: 'Tronco ativo', tipo: 'switch', padrao: 1 },
+    { campo: 'from_user', label: 'From user', mono: true },
+    { campo: 'from_domain', label: 'From domain', mono: true },
+    { campo: 'cid_saida', label: 'Identificação de saída', mono: true, placeholder: '1133255800' },
+    { campo: 'codecs', label: 'Codecs', mono: true, padrao: 'alaw,ulaw,g729' },
+    { campo: 'contexto_entrada', label: 'Contexto de entrada', mono: true, padrao: 'de-tronco', largura: 'full' }
+  ]
+});
+
+/* ------------------------- Aplicações · Filas ------------------------- */
+PAGES['apps.filas'] = paginaCrud({
+  recurso: 'filas',
+  titulo: 'Filas de Atendimento',
+  sub: 'Distribuição de chamadas, agentes e metas de nível de serviço.',
+  ico: 'headset',
+  plural: 'filas',
+  rotuloNovo: 'Nova fila',
+  tituloNovo: 'Nova fila',
+  vazioTitulo: 'Nenhuma fila cadastrada',
+  vazioTexto: 'Filas distribuem as chamadas entre os atendentes e medem o nível de serviço.',
+  placeholderBusca: 'Buscar por número ou nome…',
+  textoBusca: f => `${f.numero} ${f.nome}`,
+  tituloEditar: f => `Fila ${f.numero} — ${f.nome}`,
+  tituloExcluir: f => `Excluir a fila ${f.numero}?`,
+
+  colunas: [
+    { label: 'Fila', render: f => `<b class="mono">${esc(f.numero)}</b>` },
+    { label: 'Nome', render: f => esc(f.nome) },
+    { label: 'Estratégia', render: f => `<span class="badge mono">${esc(f.estrategia)}</span>` },
+    { label: 'SLA', render: f => `<span class="num">${f.sla_segundos}s</span>` },
+    { label: 'Espera máx.', render: f => `<span class="num">${duracao(f.max_espera)}</span>` },
+    { label: 'Gravação', render: f => Number(f.gravar) ? '<span class="badge badge-brand">Ativa</span>' : '<span class="muted">—</span>' }
+  ],
+
+  campos: () => [
+    { campo: 'numero', label: 'Número da fila', obrigatorio: true, mono: true, placeholder: '600' },
+    { campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'Suporte Técnico' },
+    { campo: 'estrategia', label: 'Estratégia', tipo: 'select',
+      opcoes: ['ringall','leastrecent','fewestcalls','random','rrmemory','linear','wrandom'], padrao: 'ringall',
+      ajuda: 'ringall toca em todos; rrmemory faz rodízio com memória.' },
+    { campo: 'timeout_agente', label: 'Toque por agente (s)', tipo: 'number', padrao: 20 },
+    { campo: 'retry', label: 'Intervalo entre tentativas (s)', tipo: 'number', padrao: 5 },
+    { campo: 'wrapuptime', label: 'Pausa pós-atendimento (s)', tipo: 'number', padrao: 10 },
+    { campo: 'sla_segundos', label: 'Meta de SLA (s)', tipo: 'number', padrao: 20 },
+    { campo: 'max_espera', label: 'Espera máxima (s)', tipo: 'number', padrao: 300 },
+    { campo: 'musica_espera', label: 'Música em espera', padrao: 'default' },
+    { campo: 'anuncio_posicao', label: 'Anunciar posição na fila', tipo: 'switch', padrao: 1 },
+    { campo: 'gravar', label: 'Gravar chamadas', tipo: 'switch', padrao: 1 },
+    { campo: 'ativo', label: 'Fila ativa', tipo: 'switch', padrao: 1 }
+  ]
+});
 
 /* ------------------------- Relatórios · CDR ------------------------- */
 PAGES['rel.cdr'] = {
-  render(ctx) {
-    return pageHead('CDR — Registro de Chamadas', 'Histórico detalhado de chamadas entrantes, saintes e internas.',
-      ctx.can('exportar') ? `<button class="btn btn-outline btn-sm">${icon('download','ico ico-sm')} Exportar</button>
-        <button class="btn btn-outline btn-sm">${icon('mail','ico ico-sm')} Agendar envio</button>` : readOnlyNote(ctx)) + `
+  _f: { de: '', ate: '', direcao: '', status: '', q: '', pagina: 1 },
+
+  async render(ctx) {
+    const hoje = new Date().toISOString().slice(0, 10);
+    if (!this._f.de) { this._f.de = hoje; this._f.ate = hoje; }
+
+    let r;
+    try { r = await Api.get('/cdr', this._f); }
+    catch (e) { return pageHead('CDR — Registro de Chamadas', '') + blocoErro(e); }
+
+    const corpo = r.dados.length ? `
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Data / hora</th><th>Origem</th><th>Destino</th><th>Sentido</th>
+                   <th>Duração</th><th>Falado</th><th>Tronco</th><th>Estado</th><th>Gravação</th></tr></thead>
+        <tbody>${r.dados.map(c => `
+          <tr>
+            <td class="mono small">${dataHora(c.calldate)}</td>
+            <td class="mono">${esc(c.src)}</td>
+            <td class="mono">${esc(c.dst)}</td>
+            <td>${c.direcao ? `<span class="badge">${icon(DIRECAO_ICO[c.direcao] || 'phone','ico ico-sm')}${esc(c.direcao)}</span>` : '<span class="muted">—</span>'}</td>
+            <td class="num">${duracao(c.duration)}</td>
+            <td class="num">${duracao(c.billsec)}</td>
+            <td class="small dim">${esc(c.tronco || '—')}</td>
+            <td>${badgeCdr(c.disposition)}</td>
+            <td>${c.gravacao ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Ouvir">${icon('play','ico ico-sm')}</button>` : '<span class="muted">—</span>'}</td>
+          </tr>`).join('')}
+        </tbody></table></div>
+      <div class="card-foot pager">
+        <span class="small muted">${num(r.total)} registros · página ${r.pagina} de ${Math.max(1, r.paginas)}</span>
+        <div class="pages">
+          <button data-pagina="${r.pagina - 1}" ${r.pagina <= 1 ? 'disabled' : ''}>${icon('chevronL','ico ico-sm')}</button>
+          <button class="on">${r.pagina}</button>
+          <button data-pagina="${r.pagina + 1}" ${r.pagina >= r.paginas ? 'disabled' : ''}>${icon('chevronR','ico ico-sm')}</button>
+        </div>
+      </div>`
+      : vazio('list', 'Nenhuma chamada no período',
+              'O CDR é preenchido pelo próprio Asterisk conforme as chamadas acontecem.');
+
+    return pageHead('CDR — Registro de Chamadas',
+      'Histórico de chamadas entrantes, saintes e internas.',
+      ctx.can('exportar') ? `<button class="btn btn-outline btn-sm" id="exportarCdr">${icon('download','ico ico-sm')} Exportar CSV</button>` : '') + `
     <div class="card">
       <div class="toolbar">
-        <input class="input" type="date" value="2026-09-10" style="width:160px">
+        <input class="input" type="date" data-f="de" value="${this._f.de}" style="width:160px">
         <span class="muted small">até</span>
-        <input class="input" type="date" value="2026-09-10" style="width:160px">
-        <select class="select" id="cdrDir" style="width:150px">
-          <option value="">Todos os sentidos</option><option value="entrada">Entrada</option>
-          <option value="saida">Saída</option><option value="interna">Interna</option>
+        <input class="input" type="date" data-f="ate" value="${this._f.ate}" style="width:160px">
+        <select class="select" data-f="direcao" style="width:150px">
+          <option value="">Todos os sentidos</option>
+          ${['entrada','saida','interna'].map(d =>
+            `<option value="${d}" ${this._f.direcao === d ? 'selected' : ''}>${d}</option>`).join('')}
         </select>
-        <select class="select" id="cdrSt" style="width:160px">
+        <select class="select" data-f="status" style="width:170px">
           <option value="">Todos os estados</option>
-          ${Object.entries(CDR_STATUS).map(([k, v]) => `<option value="${k}">${v[1]}</option>`).join('')}
+          ${Object.entries(DISPOSICAO_CDR).map(([k, v]) =>
+            `<option value="${k}" ${this._f.status === k ? 'selected' : ''}>${v[1]}</option>`).join('')}
         </select>
         <div class="input-icon search-mini">${icon('search','ico ico-sm')}
-          <input class="input" id="cdrQ" placeholder="Número ou ramal…">
-        </div>
+          <input class="input" data-f="q" value="${esc(this._f.q)}" placeholder="Número ou ramal…"></div>
       </div>
-      <div class="table-wrap">
-        <table class="table" id="tabCdr">
-          <thead><tr><th>Data / hora</th><th>Origem</th><th>Destino</th><th>Sentido</th>
-                     <th>Duração</th><th>Tronco</th><th>Estado</th><th>Gravação</th></tr></thead>
-          <tbody>${DEMO.cdr.map(c => `
-            <tr data-busca="${esc((c.origem + ' ' + c.destino).toLowerCase())}" data-dir="${c.dir}" data-st="${c.status}">
-              <td class="mono small">${c.data}</td>
-              <td class="mono">${c.origem}</td>
-              <td class="mono">${c.destino}</td>
-              <td><span class="badge">${icon(DIR_ICO[c.dir],'ico ico-sm')}${c.dir[0].toUpperCase() + c.dir.slice(1)}</span></td>
-              <td class="num">${c.dur}</td>
-              <td class="small dim">${c.tronco}</td>
-              <td>${badgeCdr(c.status)}</td>
-              <td>${c.grav ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Ouvir">${icon('play','ico ico-sm')}</button>` : '<span class="muted">—</span>'}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-      <div class="card-foot pager">
-        <span class="small muted" id="cdrCount"></span>
-        <div class="pages">
-          <button>${icon('chevronL','ico ico-sm')}</button>
-          <button class="on">1</button><button>2</button><button>3</button><button>…</button><button>27</button>
-          <button>${icon('chevronR','ico ico-sm')}</button>
-        </div>
-      </div>
+      ${corpo}
     </div>`;
   },
+
   mount() {
-    const q = document.getElementById('cdrQ'), d = document.getElementById('cdrDir'),
-          s = document.getElementById('cdrSt'), cnt = document.getElementById('cdrCount'),
-          rows = [...document.querySelectorAll('#tabCdr tbody tr')];
-    const f = () => {
-      const t = q.value.trim().toLowerCase(); let n = 0;
-      rows.forEach(r => {
-        const ok = (!t || r.dataset.busca.includes(t)) &&
-                   (!d.value || r.dataset.dir === d.value) &&
-                   (!s.value || r.dataset.st === s.value);
-        r.hidden = !ok; if (ok) n++;
+    let t;
+    document.querySelectorAll('[data-f]').forEach(el => {
+      const evento = el.tagName === 'SELECT' || el.type === 'date' ? 'change' : 'input';
+      el.addEventListener(evento, () => {
+        clearTimeout(t);
+        t = setTimeout(() => {
+          this._f[el.dataset.f] = el.value;
+          this._f.pagina = 1;
+          App.route();
+        }, evento === 'input' ? 400 : 0);
       });
-      cnt.textContent = `Exibindo ${n} de 3.184 registros`;
-    };
-    [q, d, s].forEach(el => el.addEventListener('input', f)); f();
+    });
+    document.querySelectorAll('[data-pagina]').forEach(b => b.onclick = () => {
+      this._f.pagina = Number(b.dataset.pagina);
+      App.route();
+    });
+    document.getElementById('exportarCdr')?.addEventListener('click',
+      () => toast('Exportação assíncrona ainda não implementada no servidor.', 'warn'));
   }
 };
 
 /* ------------------------- Administrador · Usuários ------------------------- */
 PAGES['admin.usuarios'] = {
-  render(ctx) {
-    return pageHead('Gerenciador de Usuários', 'Contas de acesso ao console e vínculo com ramais.',
-      ctx.can('criar') ? `<button class="btn btn-primary btn-sm">${icon('plus','ico ico-sm')} Novo usuário</button>` : readOnlyNote(ctx)) + `
-    <div class="grid g-4" style="margin-bottom:16px">
-      ${Object.entries(ROLES).map(([k, r]) => {
-        const n = USERS.filter(u => u.role === k).length;
-        return `<div class="card kpi">
-          <div class="k-top"><span class="k-label">${r.label}</span>
-            <span class="k-ico" style="background:var(--${r.color}-soft);color:var(--${r.color})">${icon('users')}</span></div>
-          <div class="k-val">${n}</div>
-          <div class="k-foot"><span>${r.desc}</span></div>
-        </div>`;
-      }).join('')}
-    </div>
-    <div class="card"><div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Usuário</th><th>Perfil</th><th>Ramal</th><th>Setor</th><th>E-mail</th><th>Último acesso</th><th>Estado</th><th></th></tr></thead>
-        <tbody>${USERS.map(u => {
-          const r = ROLES[u.role];
-          return `<tr>
-            <td><span class="row gap-10"><span class="avatar avatar-sm">${initials(u.name)}</span>
-                <span><b>${u.name}</b><div class="tiny muted mono">${u.user}</div></span></span></td>
-            <td><span class="badge badge-${r.color}">${icon('shield','ico ico-sm')}${r.label}</span></td>
-            <td class="mono">${u.ramal}</td>
-            <td class="dim">${u.setor}</td>
-            <td class="small dim">${u.email}</td>
-            <td class="small dim">${u.ultimo}</td>
-            <td>${u.status === 'ativo' ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
-                 : u.status === 'inativo' ? '<span class="badge"><i class="dot"></i>Inativo</span>'
-                 : '<span class="badge badge-danger"><i class="dot"></i>Bloqueado</span>'}</td>
-            <td class="col-actions"><span class="row-actions">
-              <button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" ${ctx.can('editar') ? '' : 'disabled'}>${icon('edit','ico ico-sm')}</button>
-              <button class="btn btn-ghost btn-sm btn-icon" data-tip="Redefinir senha" ${ctx.can('editar') ? '' : 'disabled'}>${icon('key','ico ico-sm')}</button>
-              <button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" ${ctx.can('excluir') ? '' : 'disabled'}>${icon('trash','ico ico-sm')}</button>
-            </span></td>
-          </tr>`;
-        }).join('')}
-        </tbody>
-      </table>
-    </div></div>`;
+  async render(ctx) {
+    let usuarios, perfis;
+    try {
+      [usuarios, perfis] = await Promise.all([Api.get('/usuarios'), Api.get('/perfis')]);
+    } catch (e) { return pageHead('Gerenciador de Usuários', '') + blocoErro(e); }
+
+    this._perfis = perfis.dados;
+    this._usuarios = usuarios.dados;
+    const porId = Object.fromEntries(perfis.dados.map(p => [p.id, p]));
+
+    const cartoes = perfis.dados.map(p => `
+      <div class="card kpi">
+        <div class="k-top"><span class="k-label">${esc(p.nome)}</span>
+          <span class="k-ico" style="background:var(--${p.cor}-soft);color:var(--${p.cor})">${icon('users')}</span></div>
+        <div class="k-val">${p.usuarios}</div>
+        <div class="k-foot"><span>${esc(p.descricao || '')}</span></div>
+      </div>`).join('');
+
+    const linhas = usuarios.dados.map(u => {
+      const p = porId[u.perfil_id] || { nome: '?', cor: '' };
+      return `<tr data-id="${u.id}">
+        <td><span class="row gap-10"><span class="avatar avatar-sm">${initials(u.nome)}</span>
+            <span><b>${esc(u.nome)}</b><div class="tiny muted mono">${esc(u.usuario)}</div></span></span></td>
+        <td><span class="badge badge-${p.cor}">${icon('shield','ico ico-sm')}${esc(p.nome)}</span></td>
+        <td class="mono">${esc(u.ramal || '—')}</td>
+        <td class="dim">${esc(u.setor || '—')}</td>
+        <td class="small dim">${esc(u.email || '—')}</td>
+        <td class="small dim">${u.ultimo_acesso ? dataHora(u.ultimo_acesso) : 'nunca'}</td>
+        <td>${u.status === 'ativo' ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
+             : u.status === 'inativo' ? '<span class="badge"><i class="dot"></i>Inativo</span>'
+             : '<span class="badge badge-danger"><i class="dot"></i>Bloqueado</span>'}</td>
+        <td class="col-actions"><span class="row-actions">
+          ${ctx.can('editar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" data-editar="${u.id}">${icon('edit','ico ico-sm')}</button>
+          <button class="btn btn-ghost btn-sm btn-icon" data-tip="Definir senha" data-senha="${u.id}">${icon('key','ico ico-sm')}</button>` : ''}
+          ${ctx.can('excluir') && u.usuario !== 'admin'
+            ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-excluir="${u.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+        </span></td>
+      </tr>`;
+    }).join('');
+
+    return pageHead('Gerenciador de Usuários',
+      'Contas de acesso ao console e vínculo com ramais.',
+      ctx.can('criar') ? `<button class="btn btn-primary btn-sm" data-novo>${icon('plus','ico ico-sm')} Novo usuário</button>` : readOnlyNote(ctx)) + `
+    <div class="grid g-4" style="margin-bottom:16px">${cartoes}</div>
+    <div class="card"><div class="table-wrap"><table class="table">
+      <thead><tr><th>Usuário</th><th>Perfil</th><th>Ramal</th><th>Setor</th>
+                 <th>E-mail</th><th>Último acesso</th><th>Estado</th><th></th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table></div></div>`;
+  },
+
+  mount(ctx) {
+    const form = (u) => {
+      const novo = !u;
+      Drawer.open({
+        titulo: novo ? 'Novo usuário' : `Editar ${u.nome}`,
+        sub: novo ? 'A senha é definida logo após a criação.' : '',
+        corpo: `<div class="form-grid">
+          ${campoHtml({ campo:'nome', label:'Nome completo', obrigatorio:true }, u || {})}
+          ${campoHtml({ campo:'usuario', label:'Usuário de login', obrigatorio:true, mono:true,
+                        somenteLeitura: !novo }, u || {})}
+          ${campoHtml({ campo:'email', label:'E-mail', tipo:'email' }, u || {})}
+          ${campoHtml({ campo:'ramal', label:'Ramal vinculado', mono:true }, u || {})}
+          ${campoHtml({ campo:'setor', label:'Setor' }, u || {})}
+          ${campoHtml({ campo:'perfil_id', label:'Perfil de acesso', tipo:'select',
+                        opcoes: this._perfis.map(p => ({ valor:p.id, rotulo:p.nome })) }, u || {})}
+          ${campoHtml({ campo:'status', label:'Estado', tipo:'select',
+                        opcoes:[{valor:'ativo',rotulo:'Ativo'},{valor:'inativo',rotulo:'Inativo'},
+                                {valor:'bloqueado',rotulo:'Bloqueado'}] }, u || {})}
+        </div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-salvar>${novo ? 'Criar usuário' : 'Salvar'}</button>`,
+        aoAbrir: dw => dw.querySelector('[data-salvar]').onclick = async () => {
+          const dados = {};
+          ['nome','usuario','email','ramal','setor','perfil_id','status'].forEach(c => {
+            const el = dw.querySelector(`[name="${c}"]`);
+            if (el && !el.disabled) dados[c] = el.value;
+          });
+          if (!dados.nome || (novo && !dados.usuario)) { toast('Nome e usuário são obrigatórios.', 'warn'); return; }
+          try {
+            if (novo) {
+              const criado = await Api.post('/usuarios', dados);
+              Drawer.close();
+              toast('Usuário criado. Defina a senha agora.', 'ok');
+              setTimeout(() => senhaForm(criado), 300);
+            } else {
+              await Api.put(`/usuarios/${u.id}`, dados);
+              Drawer.close();
+              toast('Usuário atualizado.', 'ok');
+              App.route();
+            }
+          } catch (e) { toast(e.message, 'err'); }
+        }
+      });
+    };
+
+    const senhaForm = (u) => Drawer.open({
+      titulo: `Definir senha de ${u.nome}`,
+      sub: 'Mínimo de 10 caracteres. As sessões abertas desse usuário são encerradas.',
+      corpo: `<div class="grid" style="gap:16px">
+        <div class="field"><label class="label">Nova senha</label>
+          <input class="input" type="password" name="senha" autocomplete="new-password"></div>
+        <div class="field"><label class="label">Repetir a senha</label>
+          <input class="input" type="password" name="senha2" autocomplete="new-password"></div>
+      </div>`,
+      rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+               <button class="btn btn-primary" data-ok>Definir senha</button>`,
+      aoAbrir: dw => dw.querySelector('[data-ok]').onclick = async () => {
+        const s1 = dw.querySelector('[name="senha"]').value;
+        const s2 = dw.querySelector('[name="senha2"]').value;
+        if (s1.length < 10) { toast('A senha precisa de pelo menos 10 caracteres.', 'warn'); return; }
+        if (s1 !== s2) { toast('As senhas não conferem.', 'warn'); return; }
+        try {
+          await Api.post(`/usuarios/${u.id}/senha`, { senha: s1 });
+          Drawer.close(); toast('Senha definida.', 'ok'); App.route();
+        } catch (e) { toast(e.message, 'err'); }
+      }
+    });
+
+    document.querySelectorAll('[data-novo]').forEach(b => b.onclick = () => form(null));
+    document.querySelectorAll('[data-editar]').forEach(b =>
+      b.onclick = () => form(this._usuarios.find(u => String(u.id) === b.dataset.editar)));
+    document.querySelectorAll('[data-senha]').forEach(b =>
+      b.onclick = () => senhaForm(this._usuarios.find(u => String(u.id) === b.dataset.senha)));
+    document.querySelectorAll('[data-excluir]').forEach(b => b.onclick = async () => {
+      const u = this._usuarios.find(x => String(x.id) === b.dataset.excluir);
+      const ok = await Modal.confirm({
+        titulo: `Excluir ${u.nome}?`,
+        texto: `A conta ${u.usuario} perde o acesso imediatamente.`, ok: 'Excluir'
+      });
+      if (!ok) return;
+      try { await Api.delete(`/usuarios/${u.id}`); toast('Usuário excluído.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
   }
 };
 
-/* ------------------------- Administrador · Perfis e permissões ------------------------- */
+/* ------------------------- Administrador · Permissões ------------------------- */
 PAGES['admin.permissoes'] = {
-  render(ctx) {
-    const roles = Object.entries(ROLES);
-    const editavel = ctx.can('permissoes');
+  async render(ctx) {
+    let r;
+    try { r = await Api.get('/perfis'); }
+    catch (e) { return pageHead('Perfis e Permissões', '') + blocoErro(e); }
 
-    const linhas = MENU.map(g => `
-      <tr class="group-row"><td colspan="${roles.length + 1}">${g.label}</td></tr>
+    this._perfis = r.dados;
+    const editavel = ctx.can('permissoes');
+    const podeModulo = (p, id) => (p.allow || []).some(regra =>
+      regra === '*' || regra === id || (regra.endsWith('.*') && id.startsWith(regra.slice(0, -1))));
+
+    const cartoes = r.dados.map(p => `
+      <div class="card" style="padding:16px">
+        <div class="row gap-10" style="margin-bottom:10px">
+          <span class="k-ico" style="background:var(--${p.cor}-soft);color:var(--${p.cor});width:34px;height:34px;border-radius:10px;display:grid;place-items:center">${icon('shield')}</span>
+          <div><b>${esc(p.nome)}</b><div class="tiny muted mono">${esc(p.chave)}</div></div>
+        </div>
+        <p class="small dim" style="min-height:38px">${esc(p.descricao || '')}</p>
+        <div class="row wrap gap-4" style="margin-top:10px">
+          ${(p.caps || []).map(c => `<span class="badge badge-brand">${esc(c)}</span>`).join('')
+            || '<span class="badge">somente leitura</span>'}
+        </div>
+      </div>`).join('');
+
+    const matriz = MENU.map(g => `
+      <tr class="group-row"><td colspan="${r.dados.length + 1}">${esc(g.label)}</td></tr>
       ${g.items.map(i => `
         <tr>
-          <td><span class="mod-name">${icon(i.icon || 'grid','ico ico-sm')}${i.label}
-              <span class="tiny muted mono">${i.id}</span></span></td>
-          ${roles.map(([k, r]) => {
-            const on = Auth.can({ role: k }, i.id);
-            return `<td class="role-cell">
-              <label class="switch"><input type="checkbox" ${on ? 'checked' : ''} ${editavel ? '' : 'disabled'}
-                     data-role="${k}" data-key="${i.id}"><span class="track"></span></label></td>`;
-          }).join('')}
-        </tr>`).join('')}
-    `).join('');
+          <td><span class="mod-name">${icon(i.icon || 'grid','ico ico-sm')}${esc(i.label)}
+              <span class="tiny muted mono">${esc(i.id)}</span></span></td>
+          ${r.dados.map(p => `<td class="role-cell">
+            <label class="switch"><input type="checkbox" ${podeModulo(p, i.id) ? 'checked' : ''}
+                   ${editavel ? '' : 'disabled'} data-perfil="${p.id}" data-modulo="${esc(i.id)}">
+              <span class="track"></span></label></td>`).join('')}
+        </tr>`).join('')}`).join('');
 
     return pageHead('Perfis e Permissões',
-      'Defina o que cada perfil enxerga no menu lateral e quais ações pode executar.',
-      editavel ? `<button class="btn btn-outline btn-sm">${icon('plus','ico ico-sm')} Novo perfil</button>
-                  <button class="btn btn-primary btn-sm" id="salvarPerms">${icon('check','ico ico-sm')} Salvar alterações</button>`
-               : readOnlyNote(ctx)) + `
-
-    <div class="grid g-4" style="margin-bottom:16px">
-      ${roles.map(([k, r]) => `
-        <div class="card" style="padding:16px">
-          <div class="row gap-10" style="margin-bottom:10px">
-            <span class="k-ico" style="background:var(--${r.color}-soft);color:var(--${r.color});width:34px;height:34px;border-radius:10px;display:grid;place-items:center">${icon('shield')}</span>
-            <div><b>${r.label}</b><div class="tiny muted mono">${k}</div></div>
-          </div>
-          <p class="small dim" style="min-height:38px">${r.desc}</p>
-          <div class="row wrap gap-4" style="margin-top:10px">
-            ${r.caps.map(c => `<span class="badge badge-brand">${c}</span>`).join('') || '<span class="badge">somente leitura</span>'}
-          </div>
-        </div>`).join('')}
-    </div>
-
+      'Define o que cada perfil enxerga no menu. O servidor revalida tudo a cada requisição.',
+      editavel ? `<button class="btn btn-primary btn-sm" id="salvarPerms">${icon('check','ico ico-sm')} Salvar alterações</button>` : readOnlyNote(ctx)) + `
+    <div class="grid g-4" style="margin-bottom:16px">${cartoes}</div>
     <div class="card">
       <div class="card-head">
         <div><div class="card-title">Matriz de acesso aos módulos</div>
@@ -775,173 +1088,65 @@ PAGES['admin.permissoes'] = {
           <input class="input" id="permQ" placeholder="Filtrar módulo…"></div>
       </div>
       <div class="table-wrap" style="max-height:620px;overflow-y:auto">
-        <table class="table matrix" id="tabPerm">
+        <table class="table matrix">
           <thead><tr><th>Módulo</th>
-            ${roles.map(([, r]) => `<th class="role-col">${r.label}</th>`).join('')}
-          </tr></thead>
-          <tbody>${linhas}</tbody>
+            ${r.dados.map(p => `<th class="role-col">${esc(p.nome)}</th>`).join('')}</tr></thead>
+          <tbody>${matriz}</tbody>
         </table>
       </div>
     </div>`;
   },
-  mount(ctx) {
+
+  mount() {
     const q = document.getElementById('permQ');
-    q.addEventListener('input', () => {
+    q?.addEventListener('input', () => {
       const t = q.value.trim().toLowerCase();
-      document.querySelectorAll('#tabPerm tbody tr').forEach(tr => {
+      document.querySelectorAll('.matrix tbody tr').forEach(tr => {
         if (tr.classList.contains('group-row')) { tr.hidden = !!t; return; }
         tr.hidden = t && !tr.textContent.toLowerCase().includes(t);
       });
     });
-    const s = document.getElementById('salvarPerms');
-    if (s) s.onclick = () => toast('Permissões salvas (protótipo — sem persistência).', 'ok');
+
+    document.getElementById('salvarPerms')?.addEventListener('click', async ev => {
+      const botao = ev.currentTarget;
+      botao.disabled = true; botao.textContent = 'Salvando…';
+      try {
+        for (const p of this._perfis) {
+          const allow = [...document.querySelectorAll(`[data-perfil="${p.id}"]:checked`)]
+            .map(c => c.dataset.modulo);
+          // '*' vira a lista explícita; se marcaram tudo, mantemos o curinga
+          const total = document.querySelectorAll(`[data-perfil="${p.id}"]`).length;
+          await Api.put(`/perfis/${p.id}/permissoes`, {
+            allow: allow.length === total ? ['*'] : allow,
+            caps: p.caps
+          });
+        }
+        toast('Permissões salvas. Usuários veem a mudança no próximo carregamento.', 'ok');
+        App.route();
+      } catch (e) {
+        botao.disabled = false; botao.textContent = 'Salvar alterações';
+        toast(e.message, 'err');
+      }
+    });
   }
 };
 
-/* ------------------------- PCU · Meu ramal ------------------------- */
-PAGES['pcu.meuramal'] = {
-  render(ctx) {
-    const s = ctx.sess;
-    const opcoes = [
-      ['Não perturbe (DND)', 'Encaminha as chamadas direto ao correio de voz.', false],
-      ['Siga-me', 'Toca também no celular após 15 segundos.', true],
-      ['Gravação de chamadas', 'Grava automaticamente chamadas entrantes e saintes.', true],
-      ['Correio de voz por e-mail', `Envia o áudio para ${s.email}.`, true],
-      ['Chamada em espera', 'Permite receber uma segunda chamada.', false]
-    ];
-    return pageHead('Meu Ramal', 'Preferências pessoais do seu ramal.') + `
-      <div class="grid g-2-1">
-        <div class="card">
-          <div class="card-head"><div class="card-title">Recursos do ramal ${s.ramal}</div></div>
-          <div class="card-body">
-            <div class="deflist">
-              ${opcoes.map(([t, d, on]) => `
-                <div class="defrow">
-                  <div class="dt"><b>${t}</b><small>${d}</small></div>
-                  <div class="right">
-                    <label class="switch"><input type="checkbox" ${on ? 'checked' : ''}><span class="track"></span></label>
-                  </div>
-                </div>`).join('')}
-            </div>
-          </div>
-          <div class="card-foot right">
-            <button class="btn btn-primary btn-sm">${icon('check','ico ico-sm')} Salvar preferências</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-head"><div class="card-title">Meu cartão</div></div>
-          <div class="card-body center">
-            <div class="avatar avatar-lg" style="margin:6px auto 12px">${initials(s.name)}</div>
-            <b style="font-size:16px">${s.name}</b>
-            <div class="small dim">${s.setor}</div>
-            <div class="badge badge-brand" style="margin-top:10px">Ramal ${s.ramal}</div>
-            <div class="deflist" style="margin-top:16px;text-align:left">
-              ${[['Usuário', s.user], ['E-mail', s.email], ['Perfil', Auth.role(s).label]]
-                .map(([k, v]) => `<div class="defrow" style="grid-template-columns:90px 1fr;padding:9px 0">
-                   <div class="dt"><b>${k}</b></div><div class="small dim truncate">${v}</div></div>`).join('')}
-            </div>
-          </div>
-        </div>
-      </div>`;
-  }
-};
-
-/* ------------------------- PCU · Minhas chamadas ------------------------- */
-PAGES['pcu.chamadas'] = {
-  render(ctx) {
-    const meu = ctx.sess.ramal;
-    const linhas = DEMO.cdr.slice(0, 8).map(c => `
-      <tr>
-        <td class="mono small">${c.data}</td>
-        <td><span class="badge">${icon(DIR_ICO[c.dir],'ico ico-sm')}${c.dir}</span></td>
-        <td class="mono">${c.dir === 'saida' ? c.destino : c.origem}</td>
-        <td class="num">${c.dur}</td>
-        <td>${badgeCdr(c.status)}</td>
-      </tr>`).join('');
-    return pageHead('Minhas Chamadas', `Histórico do ramal ${meu}.`) + `
-      <div class="card"><div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>Data / hora</th><th>Sentido</th><th>Contato</th><th>Duração</th><th>Estado</th></tr></thead>
-          <tbody>${linhas}</tbody>
-        </table>
-      </div></div>`;
-  }
-};
-
-/* ------------------------- Fallback genérico ------------------------- */
+/* ------------------------- Fallback e acesso negado ------------------------- */
 function paginaGenerica(ctx) {
   const { item, group } = ctx;
-  return pageHead(item.label,
-    `Módulo <span class="mono">${item.id}</span> do grupo ${group.label}.`,
-    `${readOnlyNote(ctx)}
-     ${ctx.can('editar') ? `<button class="btn btn-primary btn-sm">${icon('check','ico ico-sm')} Aplicar configurações</button>` : ''}`) + `
-  <div class="grid g-2-1">
-    <div class="card">
-      <div class="card-head">
-        <div><div class="card-title">Configurações do módulo</div>
-             <div class="card-sub">Estrutura de exemplo — ligar aos endpoints reais do Asterisk.</div></div>
-      </div>
-      <div class="card-body">
-        <div class="deflist">
-          <div class="defrow">
-            <div class="dt"><b>Módulo habilitado</b><small>Desative para ocultar o recurso da central.</small></div>
-            <div><label class="switch"><input type="checkbox" checked ${ctx.can('editar') ? '' : 'disabled'}><span class="track"></span></label></div>
-          </div>
-          <div class="defrow">
-            <div class="dt"><b>Nome de exibição</b><small>Como o módulo aparece para os usuários.</small></div>
-            <div><input class="input" value="${esc(item.label)}" ${ctx.can('editar') ? '' : 'disabled'}></div>
-          </div>
-          <div class="defrow">
-            <div class="dt"><b>Contexto Asterisk</b><small>Contexto de origem no dialplan.</small></div>
-            <div><input class="input mono" value="from-internal" ${ctx.can('editar') ? '' : 'disabled'}></div>
-          </div>
-          <div class="defrow">
-            <div class="dt"><b>Destino padrão</b><small>Para onde a chamada segue ao final.</small></div>
-            <div><select class="select" ${ctx.can('editar') ? '' : 'disabled'}>
-              <option>Ramal 1000 — Guilherme Leão</option><option>Fila 600 — Suporte Técnico</option>
-              <option>URA Principal</option><option>Correio de Voz</option><option>Desligar</option>
-            </select></div>
-          </div>
-          <div class="defrow">
-            <div class="dt"><b>Observações</b><small>Notas internas da equipe de TI.</small></div>
-            <div><textarea class="textarea" placeholder="Anotações sobre este módulo…" ${ctx.can('editar') ? '' : 'disabled'}></textarea></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="grid" style="align-content:start">
-      <div class="card">
-        <div class="card-head"><div class="card-title">Estado</div></div>
-        <div class="card-body grid" style="gap:12px">
-          <div class="row-between"><span class="dim small">Módulo</span><span class="badge badge-ok">Habilitado</span></div>
-          <div class="row-between"><span class="dim small">Versão</span><span class="mono small">17.0.3</span></div>
-          <div class="row-between"><span class="dim small">Publicador</span><span class="small">Telium Networks</span></div>
-          <div class="row-between"><span class="dim small">Licença</span><span class="small">GPLv3+</span></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-head"><div class="card-title">Seu acesso</div></div>
-        <div class="card-body">
-          <p class="small dim" style="margin-bottom:10px">Perfil <b>${Auth.role(ctx.sess).label}</b> — ações liberadas nesta tela:</p>
-          <div class="row wrap gap-4">
-            ${['criar','editar','excluir','exportar','reiniciar'].map(c =>
-              `<span class="badge ${ctx.can(c) ? 'badge-ok' : ''}">${ctx.can(c) ? icon('check','ico ico-sm') : icon('x','ico ico-sm')}${c}</span>`).join('')}
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>`;
+  return pageHead(item.label, `Módulo do grupo ${group.label}.`) + `
+    <div class="card">${vazio('package', 'Módulo ainda não implementado',
+      `A tela de <b>${esc(item.label)}</b> (<span class="mono">${esc(item.id)}</span>) ainda não foi construída.
+       Nada é exibido aqui para não passar a impressão de que existe configuração ativa.`)}
+    </div>`;
 }
 
-/* ------------------------- Acesso negado ------------------------- */
-function paginaNegada(sess, key) {
+function paginaNegada(key) {
   return `<div class="denied">
     <div class="lockcircle">${icon('lock')}</div>
     <h2 style="font-size:19px;margin-bottom:8px">Acesso não autorizado</h2>
-    <p class="dim">O perfil <b>${Auth.role(sess).label}</b> não tem permissão para abrir
-       <span class="mono">${esc(key)}</span>. Fale com um administrador do PABX.</p>
-    <div style="margin-top:18px"><a class="btn btn-primary btn-sm" href="#/${Auth.homeFor(sess)}">Voltar ao início</a></div>
+    <p class="dim">Seu perfil não tem permissão para abrir
+       <span class="mono">${esc(key)}</span>. Fale com um administrador.</p>
+    <div style="margin-top:18px"><a class="btn btn-primary btn-sm" href="#/${Auth.home()}">Voltar ao início</a></div>
   </div>`;
 }

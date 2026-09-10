@@ -3,6 +3,11 @@
 Referência: FreePBX/Sangoma 17, 3CX, Issabel, Wazo e portais de operadoras (Vivo Fixo, Zenvia).
 Legenda: **✅ pronto** · **◻ estrutura pronta, conteúdo genérico** · **⏳ depende do backend** · **✖ fora do escopo do front**
 
+> **Atualização:** o front deixou de usar massa fictícia. Todas as telas listadas
+> como ✅ consomem a API real; onde não há dado, aparece estado vazio explicando
+> o que fazer. Módulos sem tela própria dizem "não implementado" em vez de exibir
+> configuração falsa.
+
 ---
 
 ## 1. Acesso e segurança da interface

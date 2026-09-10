@@ -35,9 +35,9 @@
     <nav class="sb-nav" id="sbNav" aria-label="Navegação principal"></nav>
 
     <div class="sb-foot">
-      <div class="sb-status">
-        <i class="dot dot-pulse"></i>
-        <span class="grow"><b>Asterisk 20.9.2</b><br><span style="opacity:.7">27 canais ativos</span></span>
+      <div class="sb-status" id="sbStatus">
+        <i class="dot"></i>
+        <span class="grow"><b>Verificando…</b></span>
       </div>
       <button class="sb-collapse" id="sbCollapse" title="Recolher menu (tecla [)">
         <svg class="ico" viewBox="0 0 24 24" id="sbCollapseIco"></svg>
@@ -77,9 +77,9 @@
         </button>
 
         <div class="dd">
-          <button class="icon-btn" data-dd="notifMenu" title="Notificações" aria-label="Notificações">
+          <button class="icon-btn" id="notifBtn" data-dd="notifMenu" title="Avisos" aria-label="Avisos">
             <svg class="ico" viewBox="0 0 24 24" id="bellIco"></svg>
-            <i class="badge-dot"></i>
+            <i class="badge-dot" hidden></i>
           </button>
           <div class="dd-panel wide" id="notifMenu" hidden></div>
         </div>
@@ -101,6 +101,7 @@
 <div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script src="assets/js/icons.js"></script>
+<script src="assets/js/api.js"></script>
 <script src="assets/js/data.js"></script>
 <script src="assets/js/auth.js"></script>
 <script src="assets/js/ui.js"></script>

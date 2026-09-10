@@ -11,16 +11,14 @@ xdg-open index.html          # ou arraste o arquivo para o navegador
 python3 -m http.server 8080  # e acesse http://localhost:8080
 ```
 
-### Contas de demonstração
+### Acesso
 
-| Usuário      | Senha      | Perfil        | O que enxerga |
-|--------------|------------|---------------|----------------|
-| `admin`      | `T3l1um_@2024_@aD1m` | Administrador | Tudo — 8 grupos de menu |
-| `supervisor` | `T3l1um_@2024_@aD1m` | Supervisor    | Indicadores, relatórios, filas/URA, ramais (leitura), PCU |
-| `operador`   | `T3l1um_@2024_@aD1m` | Operador      | Visão geral, PCU, siga-me e correio de voz |
-| `auditor`    | `T3l1um_@2024_@aD1m` | Auditoria     | Relatórios e gravações, somente leitura |
+| Usuário | Senha |
+|---|---|
+| `admin` | `T3l1um_@2024_@aD1m` |
 
-Os botões abaixo do formulário preenchem as credenciais com um clique.
+É a única conta que nasce com a instalação. As demais são criadas pelo
+console, em *Administrador → Gerenciador de Usuários*.
 
 ## Estrutura do repositório
 
@@ -116,12 +114,30 @@ A pilha de produção está em `infra/` e `api/`:
 A API **gera os arquivos `.conf`** do Asterisk a partir do banco e recarrega pelo
 AMI — sem realtime e sem `sudo`.
 
-## O que falta para o front virar sistema
+## Dados
 
-- Trocar o objeto `DEMO` (`assets/js/data.js`) por chamadas a `/api/...`.
-- Trocar `Auth.login()` do protótipo por `POST /api/auth/login` (já implementado).
-- Ligar o softphone ao Janus via `janus.js` e o plugin SIP.
-- Barramento de tempo real (AMI → WebSocket) para wallboard e BLF.
+**Não há dado fictício em lugar nenhum.** A base nasce com a empresa, os quatro
+perfis de acesso e a conta `admin` — mais nada. Ramais, troncos, filas, rotas e
+URAs são cadastrados pelo console; CDR, CEL e gravações são escritos pelo próprio
+Asterisk conforme as chamadas acontecem.
+
+Telas sem dado mostram estado vazio explicando o que fazer, nunca número inventado.
+
+Para zerar a base operacional de uma instalação já em uso:
+
+```bash
+sudo ansible-playbook site.yml -e limpar_banco=true
+```
+
+Preserva empresa, perfis, permissões e a conta `admin`.
+
+## O que falta
+
+- Softphone ligado de fato ao Janus (`janus.js` + plugin SIP registrando o ramal).
+- Barramento de tempo real (AMI → WebSocket) no lugar do recarregamento a cada 5 s.
+- Módulos ainda sem tela própria mostram "não implementado" em vez de fingir
+  configuração: firewall, backup, certificados, correio de voz global, entre outros.
+- Exportação de relatórios em CSV/PDF.
 
 ## Paleta de dados
 

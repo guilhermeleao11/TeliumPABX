@@ -110,6 +110,35 @@
   loop: "{{ query('fileglob', playbook_dir + '/../sql/*.sql') | sort }}"
   changed_when: false
 
+# ------------------------------------------------------------------
+# Operações opcionais, sempre explícitas na linha de comando.
+# ------------------------------------------------------------------
+- name: Limpar a base operacional
+  when: limpar_banco | default(false) | bool
+  block:
+    - name: Avisar sobre a limpeza
+      ansible.builtin.debug:
+        msg:
+          - "LIMPANDO a base operacional: ramais, troncos, filas, URAs,"
+          - "rotas, CDR, gravações e todos os usuários menos o admin."
+          - "Empresa, perfis, permissões e a conta admin são preservados."
+
+    - name: Copiar o script de limpeza
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../sql/opcional/limpar.sql"
+        dest: /tmp/telium-sql/limpar.sql
+        mode: "0600"
+
+    - name: Executar a limpeza
+      ansible.builtin.shell:
+        cmd: "mariadb --protocol=socket -uroot {{ db_nome }} < /tmp/telium-sql/limpar.sql"
+      changed_when: true
+
+    - name: Reaplicar os dados essenciais
+      ansible.builtin.shell:
+        cmd: "mariadb --protocol=socket -uroot {{ db_nome }} < /tmp/telium-sql/03-seed.sql"
+      changed_when: true
+
 - name: Remover scripts temporários
   ansible.builtin.file:
     path: /tmp/telium-sql

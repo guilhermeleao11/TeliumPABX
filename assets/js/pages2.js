@@ -1,763 +1,682 @@
 /* =========================================================
-   Telium PABX — Telas (parte 2)
-   Rotas, URA, gravações, tarifação, provisionamento,
-   segurança, backup, multi-empresa, integrações e PCU.
+   Telium PABX — telas (parte 2)
+   Rotas, URA, relatórios, tarifação, provisionamento e PCU.
    ========================================================= */
 
-/* Barras horizontais simples (série única) */
-function hbars(itens, unidade = '') {
-  const max = Math.max(...itens.map(i => i.valor));
-  return itens.map(i => `
-    <div class="hbar" style="grid-template-columns:150px 1fr 92px">
-      <span class="small truncate">${i.label}</span>
-      <span class="track"><span class="fill" style="width:${(i.valor / max * 100).toFixed(1)}%"></span></span>
-      <span class="val">${i.exibe ?? i.valor}${unidade}</span>
-    </div>`).join('');
+/* Opções de destino usadas por rotas e URA — carregadas do banco. */
+async function opcoesDestino() {
+  const [ramais, filas, uras] = await Promise.all([
+    Api.get('/ramais', { limite: 500 }).catch(() => ({ dados: [] })),
+    Api.get('/filas', { limite: 200 }).catch(() => ({ dados: [] })),
+    Api.get('/ura', { limite: 100 }).catch(() => ({ dados: [] }))
+  ]);
+  return { ramais: ramais.dados, filas: filas.dados, uras: uras.dados };
 }
 
-const moeda = v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+function seletorDestino(prefixo, item, destinos) {
+  const tipos = [
+    { valor: 'ramal', rotulo: 'Ramal' }, { valor: 'fila', rotulo: 'Fila' },
+    { valor: 'ura', rotulo: 'URA' }, { valor: 'voicemail', rotulo: 'Correio de voz' },
+    { valor: 'anuncio', rotulo: 'Anúncio' }, { valor: 'desligar', rotulo: 'Desligar' }
+  ];
+  const valores = [
+    ...destinos.ramais.map(r => ({ valor: r.numero, rotulo: `Ramal ${r.numero} — ${r.nome}`, tipo: 'ramal' })),
+    ...destinos.filas.map(f => ({ valor: f.numero, rotulo: `Fila ${f.numero} — ${f.nome}`, tipo: 'fila' })),
+    ...destinos.uras.map(u => ({ valor: String(u.id), rotulo: `URA — ${u.nome}`, tipo: 'ura' }))
+  ];
+  return [
+    { campo: `${prefixo}_tipo`, label: 'Tipo de destino', tipo: 'select', opcoes: tipos },
+    { campo: `${prefixo}_valor`, label: 'Destino', tipo: 'select',
+      opcoes: valores.length ? valores : [{ valor: '', rotulo: 'cadastre ramais ou filas antes' }] }
+  ];
+}
 
-/* ===================== Conectividade · Rotas de Entrada ===================== */
-PAGES['conn.rotasentrada'] = {
-  render(ctx) {
-    return pageHead('Rotas de Entrada', 'Para onde vai cada número (DID) recebido das operadoras.',
-      ctx.can('criar') ? `<button class="btn btn-primary btn-sm" id="novaRotaIn">${icon('plus','ico ico-sm')} Nova rota</button>` : readOnlyNote(ctx)) + `
-    <div class="card"><div class="table-wrap">
-      <table class="table">
-        <thead><tr><th style="width:60px">Ord.</th><th>DID / Número</th><th>Descrição</th><th>CID de origem</th>
-                   <th>Condição horária</th><th>Destino</th><th></th></tr></thead>
-        <tbody>${DEMO.rotasEntrada.map(r => `
-          <tr>
-            <td><span class="grab">${icon('list','ico ico-sm')}</span> <b class="num">${r.prio}</b></td>
-            <td><b class="mono">${r.did}</b></td>
-            <td class="dim">${r.desc}</td>
-            <td class="small dim">${r.cid}</td>
-            <td><span class="badge">${icon('clock','ico ico-sm')}${r.hora}</span></td>
-            <td><span class="ura-dest">${icon('branch','ico ico-sm')}${r.destino}</span></td>
-            <td class="col-actions"><span class="row-actions">
-              <button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" ${ctx.can('editar') ? '' : 'disabled'}>${icon('edit','ico ico-sm')}</button>
-              <button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" ${ctx.can('excluir') ? '' : 'disabled'}>${icon('trash','ico ico-sm')}</button>
-            </span></td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div></div>`;
+/* ------------------------- Rotas de entrada ------------------------- */
+PAGES['conn.rotasentrada'] = paginaCrud({
+  recurso: 'rotas-entrada',
+  titulo: 'Rotas de Entrada',
+  sub: 'Para onde vai cada número recebido das operadoras.',
+  ico: 'arrowDown',
+  plural: 'rotas',
+  rotuloNovo: 'Nova rota',
+  tituloNovo: 'Nova rota de entrada',
+  vazioTitulo: 'Nenhuma rota de entrada',
+  vazioTexto: 'Sem rota, as chamadas que chegam pelos troncos não têm destino definido.',
+  placeholderBusca: 'Buscar por DID ou descrição…',
+  textoBusca: r => `${r.did} ${r.descricao || ''}`,
+  tituloEditar: r => `Rota ${r.did}`,
+  tituloExcluir: r => `Excluir a rota ${r.did}?`,
+
+  colunas: [
+    { label: 'Ordem', render: r => `<b class="num">${r.ordem}</b>` },
+    { label: 'DID', render: r => `<b class="mono">${esc(r.did)}</b>` },
+    { label: 'Descrição', render: r => `<span class="dim">${esc(r.descricao || '—')}</span>` },
+    { label: 'Destino', render: r => `<span class="ura-dest">${icon('branch','ico ico-sm')}${esc(r.destino_tipo)} ${esc(r.destino_valor)}</span>` },
+    { label: 'Gravar', render: r => Number(r.gravar) ? '<span class="badge badge-brand">Sim</span>' : '<span class="muted">—</span>' }
+  ],
+
+  aoCarregar: async (pagina) => { pagina._destinos = await opcoesDestino(); },
+
+  campos: (r, ctx, pagina) => [
+    { campo: 'did', label: 'DID / Número', obrigatorio: true, mono: true, placeholder: '1133255800',
+      ajuda: 'Aceita padrão do dialplan, por exemplo _X. para qualquer número.' },
+    { campo: 'descricao', label: 'Descrição', placeholder: 'Comercial 0800' },
+    ...seletorDestino('destino', r, pagina._destinos || { ramais: [], filas: [], uras: [] }),
+    { campo: 'ordem', label: 'Ordem de avaliação', tipo: 'number', padrao: 10 },
+    { campo: 'gravar', label: 'Gravar chamadas desta rota', tipo: 'switch' },
+    { campo: 'ativo', label: 'Rota ativa', tipo: 'switch', padrao: 1 }
+  ]
+});
+
+/* ------------------------- Rotas de saída ------------------------- */
+PAGES['conn.rotassaida'] = paginaCrud({
+  recurso: 'rotas-saida',
+  titulo: 'Rotas de Saída',
+  sub: 'Precedência, padrões de discagem e tronco utilizado.',
+  ico: 'arrowUp',
+  plural: 'rotas',
+  rotuloNovo: 'Nova rota',
+  tituloNovo: 'Nova rota de saída',
+  vazioTitulo: 'Nenhuma rota de saída',
+  vazioTexto: 'Sem rota de saída os ramais só fazem chamadas internas.',
+  placeholderBusca: 'Buscar por nome ou padrão…',
+  textoBusca: r => `${r.nome} ${r.padrao}`,
+  tituloEditar: r => `Rota ${r.nome}`,
+  tituloExcluir: r => `Excluir a rota ${r.nome}?`,
+
+  colunas: [
+    { label: 'Ordem', render: r => `<span class="grab">${icon('list','ico ico-sm')}</span> <b class="num">${r.ordem}</b>` },
+    { label: 'Rota', render: r => `<b>${esc(r.nome)}</b>` },
+    { label: 'Padrão', render: r => `<span class="badge mono">${esc(r.padrao)}</span>` },
+    { label: 'Classe', render: r => `<span class="badge">${esc(r.classe)}</span>` },
+    { label: 'Remove prefixo', render: r => `<span class="mono dim">${esc(r.prefixo_remover || '—')}</span>` }
+  ],
+
+  aoCarregar: async (pagina) => {
+    pagina._troncos = (await Api.get('/troncos', { limite: 200 }).catch(() => ({ dados: [] }))).dados;
   },
-  mount(ctx) {
-    const b = document.getElementById('novaRotaIn');
-    if (b) b.onclick = () => Drawer.open({
-      titulo: 'Nova rota de entrada', sub: 'Direcione um DID para o destino desejado',
-      corpo: `<div class="form-grid">
-        <div class="field"><label class="label">Descrição</label><input class="input" placeholder="Ex.: Comercial 0800"></div>
-        <div class="field"><label class="label">DID / Número</label><input class="input mono" placeholder="11 3255-8800"></div>
-        <div class="field"><label class="label">CID de origem</label><input class="input" placeholder="qualquer"></div>
-        <div class="field"><label class="label">Condição horária</label>
-          <select class="select"><option>Comercial</option><option>24x7</option><option>Plantão</option></select></div>
-        <div class="field full"><label class="label">Destino</label>
-          <select class="select"><option>URA Principal</option><option>Fila 600 — Suporte Técnico</option>
-            <option>Ramal 3001 — Recepção</option><option>Correio de voz</option></select></div>
-        <div class="field full"><label class="label">Destino fora do horário</label>
-          <select class="select"><option>Correio de voz da recepção</option><option>Anúncio + desligar</option></select></div>
-        <div class="field full"><label class="check"><input type="checkbox" checked> <span>Gravar chamadas desta rota</span></label></div>
-      </div>`,
-      rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
-               <button class="btn btn-primary" id="okRota">Criar rota</button>`,
-      aoAbrir: dw => dw.querySelector('#okRota').onclick = () => { Drawer.close(); toast('Rota de entrada criada.', 'ok'); }
-    });
-  }
-};
 
-/* ===================== Conectividade · Rotas de Saída ===================== */
-PAGES['conn.rotassaida'] = {
-  render(ctx) {
-    return pageHead('Rotas de Saída', 'Ordem de precedência, padrões de discagem e tronco utilizado.',
-      ctx.can('criar') ? `<button class="btn btn-primary btn-sm">${icon('plus','ico ico-sm')} Nova rota</button>` : readOnlyNote(ctx)) + `
-    <div class="card">
-      <div class="card-head"><div><div class="card-title">Precedência</div>
-        <div class="card-sub">A primeira rota cujo padrão casa com o número discado é usada. Arraste para reordenar.</div></div></div>
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th style="width:70px">Ordem</th><th>Rota</th><th>Padrão</th><th>Prefixo removido</th>
-                     <th>Tronco</th><th>Exige PIN</th><th></th></tr></thead>
-          <tbody>${[...DEMO.rotasSaida].sort((a, b) => a.ordem - b.ordem).map(r => `
-            <tr>
-              <td><span class="grab">${icon('list','ico ico-sm')}</span> <b class="num">${r.ordem}</b></td>
-              <td><b>${r.nome}</b></td>
-              <td><span class="badge mono">${r.padrao}</span></td>
-              <td class="mono dim">${r.prefixo || '—'}</td>
-              <td><span class="ura-dest">${icon('network','ico ico-sm')}${r.tronco}</span></td>
-              <td>${r.pin ? '<span class="badge badge-warn">Sim</span>' : '<span class="muted">—</span>'}</td>
-              <td class="col-actions"><span class="row-actions">
-                <button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" ${ctx.can('editar') ? '' : 'disabled'}>${icon('edit','ico ico-sm')}</button>
-              </span></td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-      <div class="card-foot small muted">
-        Sintaxe de padrão: <span class="mono">X</span> = 0-9 · <span class="mono">Z</span> = 1-9 ·
-        <span class="mono">N</span> = 2-9 · <span class="mono">[1-5]</span> = intervalo · <span class="mono">.</span> = um ou mais dígitos
-      </div>
-    </div>`;
+  campos: (r, ctx, pagina) => {
+    const troncos = (pagina._troncos || []).map(t => ({ valor: t.id, rotulo: t.nome }));
+    return [
+      { campo: 'nome', label: 'Nome da rota', obrigatorio: true, placeholder: 'Celular' },
+      { campo: 'ordem', label: 'Ordem de precedência', tipo: 'number', padrao: 10,
+        ajuda: 'A primeira rota cujo padrão casar é a usada.' },
+      { campo: 'padrao', label: 'Padrão de discagem', obrigatorio: true, mono: true, placeholder: '_09XXXXXXXX',
+        ajuda: 'X = 0-9 · Z = 1-9 · N = 2-9 · [1-5] = intervalo · . = um ou mais dígitos' },
+      { campo: 'classe', label: 'Classe', tipo: 'select',
+        opcoes: ['local','celular','ddd','ddi','emergencia','especial'], padrao: 'local',
+        ajuda: 'Usada para checar a permissão de discagem do ramal.' },
+      { campo: 'tronco_id', label: 'Tronco', tipo: 'select',
+        opcoes: troncos.length ? troncos : [{ valor: '', rotulo: 'cadastre um tronco antes' }] },
+      { campo: 'tronco_falha_id', label: 'Tronco reserva', tipo: 'select',
+        opcoes: [{ valor: '', rotulo: 'nenhum' }, ...troncos] },
+      { campo: 'prefixo_remover', label: 'Prefixo a remover', mono: true, placeholder: '0' },
+      { campo: 'prefixo_adicionar', label: 'Prefixo a adicionar', mono: true },
+      { campo: 'ativo', label: 'Rota ativa', tipo: 'switch', padrao: 1 }
+    ];
   }
-};
+});
 
-/* ===================== Aplicações · URA (construtor) ===================== */
+/* ------------------------- URA ------------------------- */
 PAGES['apps.ura'] = {
-  render(ctx) {
-    const u = DEMO.ura;
-    return pageHead('URA — Atendimento Digital', 'Monte a árvore de opções que o cliente ouve ao ligar.',
-      `<button class="btn btn-outline btn-sm" id="testarUra">${icon('play','ico ico-sm')} Testar URA</button>
-       ${ctx.can('editar') ? `<button class="btn btn-primary btn-sm" id="salvarUra">${icon('check','ico ico-sm')} Salvar</button>` : readOnlyNote(ctx)}`) + `
-    <div class="grid g-2-1">
-      <div class="card">
-        <div class="card-head"><div><div class="card-title">Árvore de opções</div>
-          <div class="card-sub">Arraste para reordenar · clique para editar o destino</div></div>
-          ${ctx.can('criar') ? `<button class="btn btn-outline btn-sm" id="addOpc">${icon('plus','ico ico-sm')} Opção</button>` : ''}</div>
-        <div class="card-body">
-          <div class="ura-root">
-            ${icon('speaker','ico ico-lg')}
-            <div class="grow"><b>${u.nome}</b><small>Áudio: ${u.audio} · timeout ${u.timeout}s · ${u.tentativas} tentativas</small></div>
-            <button class="btn btn-sm" style="background:rgba(255,255,255,.18);color:#fff">${icon('play','ico ico-sm')} Ouvir</button>
-          </div>
-          <div class="ura-tree">
-            ${u.opcoes.map(o => `
-              <div class="ura-node">
-                <span class="grab">${icon('list','ico ico-sm')}</span>
-                <span class="ura-key">${o.tecla}</span>
-                <div class="grow"><b>${o.label}</b><div class="tiny muted">tecla ${o.tecla}</div></div>
-                ${icon('chevronR','ico arrow')}
-                <span class="ura-dest">${icon(o.tipo === 'fila' ? 'headset' : o.tipo === 'ramal' ? 'phone' : 'branch','ico ico-sm')}${o.destino}</span>
-                <button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" ${ctx.can('editar') ? '' : 'disabled'}>${icon('edit','ico ico-sm')}</button>
-              </div>`).join('')}
-          </div>
-          <div class="grid g-2" style="margin-top:18px">
-            <div class="ura-node" style="border-style:dashed">
-              ${icon('clock','ico')}<div class="grow"><b>Sem resposta (timeout)</b>
-              <div class="tiny muted">${u.semResposta}</div></div>
-            </div>
-            <div class="ura-node" style="border-style:dashed">
-              ${icon('alert','ico')}<div class="grow"><b>Opção inválida</b>
-              <div class="tiny muted">${u.invalida}</div></div>
-            </div>
-          </div>
-        </div>
-      </div>
+  async render(ctx) {
+    let uras, destinos;
+    try {
+      uras = (await Api.get('/ura')).dados;
+      destinos = await opcoesDestino();
+    } catch (e) { return pageHead('URA — Atendimento Digital', '') + blocoErro(e); }
 
-      <div class="grid" style="align-content:start">
-        <div class="card">
-          <div class="card-head"><div class="card-title">Parâmetros</div></div>
-          <div class="card-body grid" style="gap:14px">
-            <div class="field"><label class="label">Nome da URA</label><input class="input" value="${u.nome}" ${ctx.can('editar') ? '' : 'disabled'}></div>
-            <div class="field"><label class="label">Áudio de saudação</label>
-              <select class="select" ${ctx.can('editar') ? '' : 'disabled'}><option>${u.audio}</option><option>ura-ferias.wav</option><option>Texto em voz (TTS)</option></select></div>
-            <div class="field"><label class="label">Tempo de espera por dígito</label><input class="input" type="number" value="${u.timeout}" ${ctx.can('editar') ? '' : 'disabled'}></div>
-            <div class="field"><label class="check"><input type="checkbox" checked ${ctx.can('editar') ? '' : 'disabled'}> <span>Permitir discagem direta de ramal</span></label></div>
-            <div class="field"><label class="check"><input type="checkbox" ${ctx.can('editar') ? '' : 'disabled'}> <span>Repetir menu ao expirar</span></label></div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><div class="card-title">Pré-visualização</div></div>
-          <div class="card-body">
-            <div class="code">Você ligou para a Telium.
-Para ${u.opcoes[0].label}, tecle 1.
-Para ${u.opcoes[1].label}, tecle 2.
-Para ${u.opcoes[2].label}, tecle 3.
-Para falar com um atendente, tecle 4.</div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-  },
-  mount(ctx) {
-    document.getElementById('testarUra')?.addEventListener('click', () => {
-      Softphone.discarPara('*99', 'Teste da URA'); toast('Discando para o teste da URA (*99).', 'ok');
-    });
-    document.getElementById('salvarUra')?.addEventListener('click', () => toast('URA salva. Aplique o dialplan para publicar.', 'ok'));
-    document.getElementById('addOpc')?.addEventListener('click', () => Drawer.open({
-      titulo: 'Nova opção da URA',
-      corpo: `<div class="form-grid">
-        <div class="field"><label class="label">Tecla</label>
-          <select class="select">${['5','6','7','8'].map(k => `<option>${k}</option>`).join('')}</select></div>
-        <div class="field"><label class="label">Rótulo</label><input class="input" placeholder="Ex.: Segunda via de boleto"></div>
-        <div class="field full"><label class="label">Destino</label>
-          <select class="select"><option>Fila 600 — Suporte Técnico</option><option>Fila 601 — Comercial</option>
-            <option>Ramal 3001 — Recepção</option><option>Anúncio</option><option>Outra URA</option></select></div>
-      </div>`,
-      rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
-               <button class="btn btn-primary" id="okOpc">Adicionar</button>`,
-      aoAbrir: dw => dw.querySelector('#okOpc').onclick = () => { Drawer.close(); toast('Opção adicionada à URA.', 'ok'); }
+    this._uras = uras;
+    this._destinos = destinos;
+
+    const cabecalho = pageHead('URA — Atendimento Digital',
+      'Árvore de opções que o cliente ouve ao ligar.',
+      ctx.can('criar') ? `<button class="btn btn-primary btn-sm" data-nova-ura>${icon('plus','ico ico-sm')} Nova URA</button>` : readOnlyNote(ctx));
+
+    if (!uras.length) {
+      return cabecalho + `<div class="card">${vazio('branch', 'Nenhuma URA cadastrada',
+        'A URA atende a chamada e oferece um menu de opções ao cliente.',
+        ctx.can('criar') ? '<button class="btn btn-primary btn-sm" data-nova-ura>Criar a primeira URA</button>' : '')}</div>`;
+    }
+
+    const opcoesPorUra = {};
+    await Promise.all(uras.map(async u => {
+      opcoesPorUra[u.id] = (await Api.get('/ura-opcoes', { ura_id: u.id }).catch(() => ({ dados: [] }))).dados;
     }));
-  }
-};
+    this._opcoes = opcoesPorUra;
 
-/* ===================== Relatórios · Gravações ===================== */
-PAGES['rel.gravacoes'] = {
-  render(ctx) {
-    return pageHead('Gravações', 'Busque, ouça e exporte gravações — com trilha de auditoria de quem acessou.',
-      ctx.can('exportar') ? `<button class="btn btn-outline btn-sm">${icon('download','ico ico-sm')} Exportar seleção</button>` : readOnlyNote(ctx)) + `
-    <div class="card">
-      <div class="toolbar">
-        <input class="input" type="date" value="2026-09-10" style="width:158px">
-        <div class="input-icon search-mini">${icon('search','ico ico-sm')}
-          <input class="input" id="gravQ" placeholder="Número, agente ou ID…"></div>
-        <select class="select" style="width:160px"><option>Todas as filas</option>
-          ${DEMO.filas.map(f => `<option>${f.num} — ${f.nome}</option>`).join('')}</select>
-        <select class="select" style="width:150px"><option>Qualquer duração</option><option>&gt; 1 min</option><option>&gt; 5 min</option></select>
-        <span class="grow"></span><span class="small muted" id="gravCount"></span>
-      </div>
-      <div class="card-body grid" style="gap:12px" id="gravList">
-        ${DEMO.gravacoes.map(g => `
-          <div class="card" style="padding:14px" data-busca="${esc((g.origem + ' ' + g.destino + ' ' + g.agente + ' ' + g.id).toLowerCase())}">
-            <div class="row-between" style="margin-bottom:10px">
-              <div class="row gap-10">
-                <span class="avatar avatar-sm">${initials(g.agente)}</span>
-                <div><b>${g.origem} → ${g.destino}</b>
-                  <div class="tiny muted">${g.data} · ${g.agente} · ${g.dur} · ${g.tam} · <span class="mono">${g.id}</span></div></div>
-              </div>
-              <div class="row gap-6">${g.tags.map(t => `<span class="chip">${t}</span>`).join('')}
-                ${g.fila !== '—' ? `<span class="badge badge-info">Fila ${g.fila}</span>` : ''}</div>
-            </div>
-            ${playerHTML(g.id, g.dur)}
-          </div>`).join('')}
-      </div>
-    </div>`;
+    return cabecalho + uras.map(u => `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head">
+          <div><div class="card-title">${esc(u.nome)}</div>
+               <div class="card-sub">Áudio ${esc(u.audio)} · espera ${u.timeout_digito}s · ${u.tentativas} tentativas</div></div>
+          <div class="row gap-6">
+            ${ctx.can('criar') ? `<button class="btn btn-outline btn-sm" data-nova-opcao="${u.id}">${icon('plus','ico ico-sm')} Opção</button>` : ''}
+            ${ctx.can('editar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar URA" data-editar-ura="${u.id}">${icon('edit','ico ico-sm')}</button>` : ''}
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="ura-root">${icon('speaker','ico ico-lg')}
+            <div class="grow"><b>${esc(u.nome)}</b><small>Toca ${esc(u.audio)} e aguarda o dígito</small></div>
+          </div>
+          ${(opcoesPorUra[u.id] || []).length ? `<div class="ura-tree">
+            ${opcoesPorUra[u.id].map(o => `
+              <div class="ura-node">
+                <span class="ura-key">${esc(o.tecla)}</span>
+                <div class="grow"><b>${esc(o.rotulo)}</b><div class="tiny muted">tecla ${esc(o.tecla)}</div></div>
+                ${icon('chevronR','ico arrow')}
+                <span class="ura-dest">${icon('branch','ico ico-sm')}${esc(o.destino_tipo)} ${esc(o.destino_valor)}</span>
+                ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Remover" data-excluir-opcao="${o.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+              </div>`).join('')}
+          </div>` : `<p class="small muted center" style="padding:20px">
+              Nenhuma opção configurada. A URA vai direto para o destino de tempo esgotado.</p>`}
+        </div>
+      </div>`).join('');
   },
-  mount() {
-    const q = document.getElementById('gravQ'), cnt = document.getElementById('gravCount');
-    const cards = [...document.querySelectorAll('#gravList > .card')];
-    const f = () => { const t = q.value.trim().toLowerCase(); let n = 0;
-      cards.forEach(c => { const ok = !t || c.dataset.busca.includes(t); c.hidden = !ok; if (ok) n++; });
-      cnt.textContent = `${n} gravações`; };
-    q.addEventListener('input', f); f();
-    document.querySelectorAll('.player .p-btn').forEach(b => b.onclick = () => {
-      const on = b.dataset.on === '1'; b.dataset.on = on ? '0' : '1';
-      b.innerHTML = icon(on ? 'play' : 'x', 'ico ico-sm');
-      toast(on ? 'Reprodução pausada.' : 'Reproduzindo gravação (demo).');
+
+  mount(ctx) {
+    const camposUra = (u = {}) => [
+      { campo: 'nome', label: 'Nome da URA', obrigatorio: true, placeholder: 'URA Principal' },
+      { campo: 'audio', label: 'Áudio de saudação', obrigatorio: true, mono: true, placeholder: 'ura-principal',
+        ajuda: 'Nome do arquivo em /var/lib/asterisk/sounds, sem extensão.' },
+      { campo: 'timeout_digito', label: 'Espera por dígito (s)', tipo: 'number', padrao: 8 },
+      { campo: 'tentativas', label: 'Tentativas', tipo: 'number', padrao: 3 },
+      { campo: 'discagem_direta', label: 'Permitir discagem direta de ramal', tipo: 'switch', padrao: 1 },
+      ...seletorDestino('destino_timeout', u, this._destinos),
+      { campo: 'ativo', label: 'URA ativa', tipo: 'switch', padrao: 1 }
+    ];
+
+    const salvar = async (caminho, dados, metodo = 'post') => {
+      try {
+        await Api[metodo](caminho, dados);
+        Drawer.close(); toast('URA atualizada.', 'ok'); App.route();
+      } catch (e) { toast(e.message, 'err'); }
+    };
+
+    const formUra = (u) => {
+      const campos = camposUra(u || {});
+      Drawer.open({
+        titulo: u ? `Editar ${u.nome}` : 'Nova URA',
+        corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, u || {})).join('')}</div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>${u ? 'Salvar' : 'Criar URA'}</button>`,
+        aoAbrir: dw => dw.querySelector('[data-ok]').onclick = () => {
+          const dados = {};
+          campos.forEach(c => {
+            const el = dw.querySelector(`[name="${c.campo}"]`);
+            if (el) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
+          });
+          salvar(u ? `/ura/${u.id}` : '/ura', dados, u ? 'put' : 'post');
+        }
+      });
+    };
+
+    const formOpcao = (uraId) => {
+      const campos = [
+        { campo: 'tecla', label: 'Tecla', obrigatorio: true, mono: true, placeholder: '1' },
+        { campo: 'rotulo', label: 'Rótulo', obrigatorio: true, placeholder: 'Suporte Técnico' },
+        ...seletorDestino('destino', {}, this._destinos),
+        { campo: 'ordem', label: 'Ordem', tipo: 'number', padrao: 10 }
+      ];
+      Drawer.open({
+        titulo: 'Nova opção da URA',
+        corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, {})).join('')}</div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>Adicionar</button>`,
+        aoAbrir: dw => dw.querySelector('[data-ok]').onclick = () => {
+          const dados = { ura_id: uraId };
+          campos.forEach(c => {
+            const el = dw.querySelector(`[name="${c.campo}"]`);
+            if (el) dados[c.campo] = el.value;
+          });
+          salvar('/ura-opcoes', dados);
+        }
+      });
+    };
+
+    document.querySelectorAll('[data-nova-ura]').forEach(b => b.onclick = () => formUra(null));
+    document.querySelectorAll('[data-editar-ura]').forEach(b =>
+      b.onclick = () => formUra(this._uras.find(u => String(u.id) === b.dataset.editarUra)));
+    document.querySelectorAll('[data-nova-opcao]').forEach(b =>
+      b.onclick = () => formOpcao(Number(b.dataset.novaOpcao)));
+    document.querySelectorAll('[data-excluir-opcao]').forEach(b => b.onclick = async () => {
+      const ok = await Modal.confirm({ titulo: 'Remover esta opção?', texto: 'A tecla deixa de existir na URA.', ok: 'Remover' });
+      if (!ok) return;
+      try { await Api.delete(`/ura-opcoes/${b.dataset.excluirOpcao}`); toast('Opção removida.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
     });
   }
 };
 
-/* ===================== Relatórios · Desempenho de Filas ===================== */
+/* ------------------------- Grupos de toque ------------------------- */
+PAGES['apps.grupostoque'] = paginaCrud({
+  recurso: 'grupos-toque',
+  titulo: 'Grupos de Toque',
+  sub: 'Um número que toca em vários ramais ao mesmo tempo.',
+  ico: 'users',
+  plural: 'grupos',
+  rotuloNovo: 'Novo grupo',
+  tituloNovo: 'Novo grupo de toque',
+  vazioTitulo: 'Nenhum grupo de toque',
+  vazioTexto: 'Grupos fazem um número tocar em vários ramais de uma vez.',
+  placeholderBusca: 'Buscar…',
+  textoBusca: g => `${g.numero} ${g.nome}`,
+  tituloEditar: g => `Grupo ${g.numero}`,
+  colunas: [
+    { label: 'Número', render: g => `<b class="mono">${esc(g.numero)}</b>` },
+    { label: 'Nome', render: g => esc(g.nome) },
+    { label: 'Ramais', render: g => `<span class="mono small">${esc(g.ramais)}</span>` },
+    { label: 'Toque', render: g => `<span class="num">${g.tempo_toque}s</span>` }
+  ],
+  campos: () => [
+    { campo: 'numero', label: 'Número do grupo', obrigatorio: true, mono: true, placeholder: '700' },
+    { campo: 'nome', label: 'Nome', obrigatorio: true },
+    { campo: 'ramais', label: 'Ramais', obrigatorio: true, mono: true, placeholder: '1000-1001-1002',
+      ajuda: 'Separe os ramais por hífen.', largura: 'full' },
+    { campo: 'tempo_toque', label: 'Tempo de toque (s)', tipo: 'number', padrao: 20 },
+    { campo: 'ativo', label: 'Grupo ativo', tipo: 'switch', padrao: 1 }
+  ]
+});
+
+/* ------------------------- Relatórios · Gravações ------------------------- */
+PAGES['rel.gravacoes'] = {
+  async render(ctx) {
+    let r;
+    try { r = await Api.get('/gravacoes'); }
+    catch (e) { return pageHead('Gravações', '') + blocoErro(e); }
+
+    const cabecalho = pageHead('Gravações',
+      'Busque e ouça gravações. Cada acesso fica registrado na auditoria.',
+      ctx.can('exportar') ? `<button class="btn btn-outline btn-sm">${icon('download','ico ico-sm')} Exportar seleção</button>` : '');
+
+    if (!r.dados.length) {
+      return cabecalho + `<div class="card">${vazio('mic', 'Nenhuma gravação disponível',
+        'As gravações aparecem aqui conforme as chamadas forem gravadas. Ative a gravação no ramal ou na fila.')}</div>`;
+    }
+
+    return cabecalho + `<div class="card"><div class="card-body grid" style="gap:12px">
+      ${r.dados.map(g => `
+        <div class="card" style="padding:14px">
+          <div class="row-between" style="margin-bottom:10px">
+            <div class="row gap-10"><span class="avatar avatar-sm">${initials(g.agente || g.ramal)}</span>
+              <div><b>${esc(g.origem)} → ${esc(g.destino)}</b>
+                <div class="tiny muted">${dataHora(g.inicio)} · ${esc(g.agente || '—')} · ${duracao(g.duracao)}</div></div></div>
+            ${g.fila ? `<span class="badge badge-info">Fila ${esc(g.fila)}</span>` : ''}
+          </div>
+          ${playerHTML(g.id, duracao(g.duracao))}
+        </div>`).join('')}
+    </div></div>`;
+  }
+};
+
+/* ------------------------- Relatórios · Filas ------------------------- */
 PAGES['rel.filas'] = {
-  render(ctx) {
-    const legend = DEMO.slaSemana.series.map(s =>
+  async render(ctx) {
+    let d;
+    try { d = await Api.get('/relatorios/filas', { dias: this._dias || 7 }); }
+    catch (e) { return pageHead('Desempenho de Filas', '') + blocoErro(e); }
+    this._d = d;
+
+    const cabecalho = pageHead('Desempenho de Filas',
+      `Nível de serviço e abandono nos últimos ${d.dias} dias.`,
+      `<div class="segmented" id="periodo">
+         ${[7, 30, 90].map(n => `<button class="${d.dias === n ? 'on' : ''}" data-dias="${n}">${n} dias</button>`).join('')}
+       </div>`);
+
+    if (!d.filas.length) {
+      return cabecalho + `<div class="card">${vazio('headset', 'Nenhuma fila cadastrada',
+        'Cadastre filas para acompanhar o nível de serviço.',
+        '<a class="btn btn-primary btn-sm" href="#/apps.filas">Ir para filas</a>')}</div>`;
+    }
+
+    const legenda = (d.serie.series || []).map(s =>
       `<span class="li"><i class="sw" style="background:${s.color}"></i>${s.label}</span>`).join('');
-    return pageHead('Desempenho de Filas', 'Nível de serviço, abandono e tempo de espera por fila.',
-      `<div class="segmented"><button class="on">7 dias</button><button>30 dias</button><button>Trimestre</button></div>
-       ${ctx.can('exportar') ? `<button class="btn btn-outline btn-sm">${icon('download','ico ico-sm')} Exportar</button>` : ''}`) + `
-    <div class="grid g-4" style="margin-bottom:16px">
-      ${[['Chamadas na semana','2.647','phone','brand'],['SLA médio','91,4%','target','ok'],
-         ['Abandono','4,0%','phoneOff','warn'],['TME médio','00:38','clock','info']].map(([l, v, i, t]) => `
-        <div class="card kpi"><div class="k-top"><span class="k-label">${l}</span>
-          <span class="k-ico" style="background:var(--${t}-soft);color:var(--${t})">${icon(i)}</span></div>
-          <div class="k-val">${v}</div><div class="k-foot"><span>últimos 7 dias</span></div></div>`).join('')}
-    </div>
+
+    return cabecalho + `
     <div class="card" style="margin-bottom:16px">
-      <div class="card-head"><div><div class="card-title">Atendimentos dentro e fora do SLA</div>
-        <div class="card-sub">Meta: atender 90% em até 20 segundos</div></div>
-        <div class="legend">${legend}</div></div>
+      <div class="card-head"><div><div class="card-title">Atendidas e não atendidas por dia</div>
+        <div class="card-sub">Somente chamadas que passaram por fila</div></div>
+        <div class="legend">${legenda}</div></div>
       <div class="card-body"><div class="chart-wrap" id="chartSla"></div></div>
     </div>
     <div class="card">
       <div class="card-head"><div class="card-title">Por fila</div></div>
       <div class="table-wrap"><table class="table">
-        <thead><tr><th>Fila</th><th>Recebidas</th><th>Atendidas</th><th>Abandonadas</th>
-                   <th>TME</th><th>TMA</th><th>SLA</th></tr></thead>
-        <tbody>${DEMO.filas.map(f => `
-          <tr><td><b>${f.num}</b> · ${f.nome}</td>
-            <td class="num">${(f.sla * 9).toFixed(0)}</td>
-            <td class="num">${(f.sla * 9 * (1 - f.abandono / 100)).toFixed(0)}</td>
-            <td class="num">${(f.sla * 9 * f.abandono / 100).toFixed(0)}</td>
-            <td class="num">${f.tme}</td><td class="num">03:${20 + f.agentes}</td>
-            <td><span class="badge badge-${f.sla >= 90 ? 'ok' : 'warn'}">${f.sla}%</span></td></tr>`).join('')}
+        <thead><tr><th>Fila</th><th>Agentes</th><th>Recebidas</th><th>Atendidas</th>
+                   <th>Abandonadas</th><th>TMA</th><th>Atendimento</th></tr></thead>
+        <tbody>${d.filas.map(f => `
+          <tr><td><b class="mono">${esc(f.numero)}</b> ${esc(f.nome)}</td>
+            <td class="num">${f.agentes}</td>
+            <td class="num">${num(f.recebidas)}</td>
+            <td class="num">${num(f.atendidas)}</td>
+            <td class="num">${num(f.abandonadas)}</td>
+            <td class="num">${f.tma ? duracao(f.tma) : '—'}</td>
+            <td>${f.sla === null ? '<span class="muted">sem chamadas</span>'
+                 : `<span class="badge badge-${f.sla >= 90 ? 'ok' : f.sla >= 75 ? 'warn' : 'danger'}">${f.sla}%</span>`}</td>
+          </tr>`).join('')}
         </tbody></table></div>
     </div>`;
   },
-  mount() { stackedBarChart(document.getElementById('chartSla'),
-    { ...DEMO.slaSemana, aria: 'Atendimentos dentro e fora do SLA por dia da semana' }); }
+  mount() {
+    const el = document.getElementById('chartSla');
+    if (el && this._d) stackedBarChart(el, { ...this._d.serie, aria: 'Chamadas por dia' });
+    document.querySelectorAll('#periodo [data-dias]').forEach(b => b.onclick = () => {
+      this._dias = Number(b.dataset.dias); App.route();
+    });
+  }
 };
 
-/* ===================== Relatórios · Agentes ===================== */
+/* ------------------------- Relatórios · Agentes ------------------------- */
 PAGES['rel.agentes'] = {
-  render(ctx) {
-    return pageHead('Produtividade de Agentes', 'Volume, tempo médio e aderência por atendente.',
-      ctx.can('exportar') ? `<button class="btn btn-outline btn-sm">${icon('download','ico ico-sm')} Exportar</button>` : '') + `
+  async render() {
+    let d;
+    try { d = await Api.get('/relatorios/agentes', { dias: 7 }); }
+    catch (e) { return pageHead('Produtividade de Agentes', '') + blocoErro(e); }
+
+    const cabecalho = pageHead('Produtividade de Agentes',
+      `Volume e tempo médio por ramal nos últimos ${d.dias} dias.`);
+
+    if (!d.dados.length) {
+      return cabecalho + `<div class="card">${vazio('users', 'Nenhum ramal cadastrado',
+        'Cadastre ramais para acompanhar a produtividade.',
+        '<a class="btn btn-primary btn-sm" href="#/conn.ramais">Ir para ramais</a>')}</div>`;
+    }
+
+    return cabecalho + `
     <div class="grid g-2-1">
       <div class="card">
         <div class="card-head"><div class="card-title">Ranking</div></div>
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Agente</th><th>Atendidas</th><th>TMA</th><th>Pausa</th><th>SLA</th><th>Avaliação</th></tr></thead>
-          <tbody>${DEMO.agentes.map(a => `
-            <tr><td><span class="row gap-8"><span class="avatar avatar-sm">${initials(a.nome)}</span>
-                    <span><b>${a.nome}</b><div class="tiny muted mono">${a.ramal}</div></span></span></td>
-              <td class="num">${a.atendidas}</td><td class="num">${a.tma}</td><td class="num">${a.pausa}</td>
-              <td><span class="badge badge-${a.sla >= 90 ? 'ok' : a.sla >= 80 ? 'warn' : 'danger'}">${a.sla}%</span></td>
-              <td><b class="num">${a.nota.toFixed(1)}</b> <span class="muted small">/5</span></td></tr>`).join('')}
+          <thead><tr><th>Agente</th><th>Ramal</th><th>Atendidas</th><th>TMA</th></tr></thead>
+          <tbody>${d.dados.map(a => `
+            <tr><td><span class="row gap-8"><span class="avatar avatar-sm">${initials(a.nome)}</span>${esc(a.nome)}</span></td>
+              <td class="mono">${esc(a.ramal)}</td>
+              <td class="num">${num(a.atendidas)}</td>
+              <td class="num">${a.tma ? duracao(Math.round(a.tma)) : '—'}</td></tr>`).join('')}
           </tbody></table></div>
       </div>
       <div class="card">
         <div class="card-head"><div class="card-title">Chamadas atendidas</div></div>
-        <div class="card-body">${hbars(DEMO.agentes.map(a => ({ label: a.nome, valor: a.atendidas })))}</div>
+        <div class="card-body">${hbars(d.dados.map(a => ({ label: a.nome, valor: Number(a.atendidas) })))}</div>
       </div>
     </div>`;
   }
 };
 
-/* ===================== Telium · Tarifação ===================== */
+/* ------------------------- Telium · Tarifação ------------------------- */
 PAGES['telium.tarifacao'] = {
-  render(ctx) {
-    const t = DEMO.tarifacao;
-    return pageHead('Tarifação e Custos', `Consumo de ${t.mes} por setor, destino e centro de custo.`,
-      `<div class="segmented"><button class="on">${t.mes}</button><button>Agosto/2026</button></div>
-       ${ctx.can('exportar') ? `<button class="btn btn-outline btn-sm">${icon('download','ico ico-sm')} Exportar rateio</button>` : ''}`) + `
+  async render(ctx) {
+    let d;
+    try { d = await Api.get('/relatorios/tarifacao', { mes: this._mes || '' }); }
+    catch (e) { return pageHead('Tarifação e Custos', '') + blocoErro(e); }
+
+    const cabecalho = pageHead('Tarifação e Custos',
+      `Consumo de chamadas saintes em ${d.mes}.`,
+      `<input class="input" type="month" id="mesTarifa" value="${d.mes}" style="width:170px">`);
+
+    const semCusto = !Number(d.totais?.chamadas);
+
+    return cabecalho + `
     <div class="grid g-4" style="margin-bottom:16px">
-      ${[['Custo total', moeda(t.total), 'creditCard', 'brand'],
-         ['Minutos falados', t.minutos.toLocaleString('pt-BR'), 'clock', 'info'],
-         ['Custo médio / min', moeda(t.total / t.minutos), 'target', 'ok'],
-         ['Economia vs. mês anterior', t.economia + '%', 'arrowDown', 'ok']].map(([l, v, i, tn]) => `
+      ${[['Custo total', semCusto ? '—' : moeda(d.totais.custo), 'creditCard', 'brand'],
+         ['Minutos falados', semCusto ? '—' : num(d.totais.minutos), 'clock', 'info'],
+         ['Chamadas', semCusto ? '0' : num(d.totais.chamadas), 'phone', 'ok'],
+         ['Custo médio / min', semCusto || !Number(d.totais.minutos) ? '—'
+            : moeda(d.totais.custo / d.totais.minutos), 'target', 'warn']].map(([l, v, i, t]) => `
         <div class="card kpi"><div class="k-top"><span class="k-label">${l}</span>
-          <span class="k-ico" style="background:var(--${tn}-soft);color:var(--${tn})">${icon(i)}</span></div>
-          <div class="k-val">${v}</div><div class="k-foot"><span>${t.mes}</span></div></div>`).join('')}
+          <span class="k-ico" style="background:var(--${t}-soft);color:var(--${t})">${icon(i)}</span></div>
+          <div class="k-val">${v}</div><div class="k-foot"><span>${d.mes}</span></div></div>`).join('')}
     </div>
-    <div class="grid g-2" style="margin-bottom:16px">
-      <div class="card">
+
+    ${semCusto ? `<div class="card">${vazio('creditCard', 'Sem chamadas tarifadas no mês',
+        'O custo é calculado sobre as chamadas saintes registradas no CDR, usando a tabela de tarifas.')}</div>`
+      : `<div class="card" style="margin-bottom:16px">
         <div class="card-head"><div class="card-title">Custo por setor</div></div>
-        <div class="card-body">${hbars(t.porSetor.map(s => ({ label: s.setor, valor: s.custo, exibe: moeda(s.custo) })))}</div>
-      </div>
-      <div class="card">
-        <div class="card-head"><div class="card-title">Custo por tipo de destino</div></div>
-        <div class="card-body">${hbars(t.porDestino.map(d => ({ label: d.tipo, valor: d.custo, exibe: moeda(d.custo) })))}</div>
-      </div>
-    </div>
+        <div class="card-body">${hbars(d.porSetor.map(s => ({ label: s.setor, valor: Number(s.custo) })), moeda)}</div>
+      </div>`}
+
     <div class="card">
-      <div class="card-head"><div class="card-title">Rateio por centro de custo</div>
-        <span class="badge">${t.porSetor.length} setores</span></div>
-      <div class="table-wrap"><table class="table">
-        <thead><tr><th>Setor</th><th>Chamadas</th><th>Minutos</th><th>Custo</th><th>Custo/min</th><th>% do total</th></tr></thead>
-        <tbody>${t.porSetor.map(s => `
-          <tr><td><b>${s.setor}</b></td><td class="num">${s.chamadas}</td><td class="num">${s.min.toLocaleString('pt-BR')}</td>
-            <td class="num"><b>${moeda(s.custo)}</b></td><td class="num dim">${moeda(s.custo / s.min)}</td>
-            <td style="width:170px"><div class="track" style="height:7px;background:var(--surface-3);border-radius:6px;overflow:hidden">
-              <div style="height:100%;width:${(s.custo / t.total * 100).toFixed(1)}%;background:var(--series-1)"></div></div>
-              <div class="tiny muted num">${(s.custo / t.total * 100).toFixed(1)}%</div></td></tr>`).join('')}
-        </tbody></table></div>
-    </div>`;
-  }
-};
-
-/* ===================== Telium · Integrações / API ===================== */
-PAGES['telium.integracoes'] = {
-  render(ctx) {
-    return pageHead('Integrações e API', 'Webhooks, chaves de API e conectores para CRM e helpdesk.',
-      ctx.can('criar') ? `<button class="btn btn-primary btn-sm">${icon('plus','ico ico-sm')} Nova integração</button>` : readOnlyNote(ctx)) + `
-    <div class="grid g-2-1">
-      <div class="card">
-        <div class="card-head"><div class="card-title">Integrações ativas</div></div>
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Integração</th><th>Tipo</th><th>Eventos</th><th>Último disparo</th><th>Estado</th><th></th></tr></thead>
-          <tbody>${DEMO.integracoes.map(i => `
-            <tr><td><b>${i.nome}</b></td><td><span class="badge">${i.tipo}</span></td>
-              <td class="small dim mono">${i.evento}</td><td class="small dim">${i.ult}</td>
-              <td>${i.estado === 'ativo' ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>' : '<span class="badge"><i class="dot"></i>Inativo</span>'}</td>
-              <td class="col-actions"><span class="row-actions">
-                <button class="btn btn-ghost btn-sm btn-icon" data-tip="Testar">${icon('play','ico ico-sm')}</button>
-                <button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" ${ctx.can('editar') ? '' : 'disabled'}>${icon('edit','ico ico-sm')}</button>
-              </span></td></tr>`).join('')}
-          </tbody></table></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><div class="card-title">Exemplo de webhook</div></div>
-        <div class="card-body">
-          <div class="code">POST /webhooks/telium
-{
-  "evento": "call.answered",
-  "empresa": "matriz",
-  "ramal": "2031",
-  "origem": "11 98877-1234",
-  "fila": "600",
-  "inicio": "2026-09-10T14:36:55Z",
-  "gravacao": "rec-8841"
-}</div>
-          <p class="small muted" style="margin-top:12px">Assinado com HMAC-SHA256 no cabeçalho
-            <span class="mono">X-Telium-Signature</span>.</p>
-        </div>
-      </div>
-    </div>`;
-  }
-};
-
-/* ===================== Conectividade · Provisionamento ===================== */
-PAGES['conn.provisionamento'] = {
-  render(ctx) {
-    return pageHead('Provisionamento de Telefones', 'Configuração automática de aparelhos por MAC address.',
-      ctx.can('criar') ? `<button class="btn btn-outline btn-sm">${icon('upload','ico ico-sm')} Importar CSV</button>
-        <button class="btn btn-primary btn-sm">${icon('plus','ico ico-sm')} Adicionar aparelho</button>` : readOnlyNote(ctx)) + `
-    <div class="grid g-4" style="margin-bottom:16px">
-      ${[['Aparelhos', DEMO.dispositivos.length, 'phone', 'brand'],
-         ['Provisionados', DEMO.dispositivos.filter(d => d.estado === 'provisionado').length, 'checkCirc', 'ok'],
-         ['Pendentes', DEMO.dispositivos.filter(d => d.estado === 'pendente').length, 'clock', 'warn'],
-         ['Com erro', DEMO.dispositivos.filter(d => d.estado === 'erro').length, 'alert', 'danger']].map(([l, v, i, t]) => `
-        <div class="card kpi"><div class="k-top"><span class="k-label">${l}</span>
-          <span class="k-ico" style="background:var(--${t}-soft);color:var(--${t})">${icon(i)}</span></div>
-          <div class="k-val">${v}</div></div>`).join('')}
-    </div>
-    <div class="card"><div class="table-wrap"><table class="table">
-      <thead><tr><th>MAC</th><th>Modelo</th><th>Ramal</th><th>Firmware</th><th>IP</th><th>Visto</th><th>Estado</th><th></th></tr></thead>
-      <tbody>${DEMO.dispositivos.map(d => `
-        <tr><td class="mono">${d.mac}</td><td><b>${d.modelo}</b></td><td class="mono">${d.ramal}</td>
-          <td class="mono small dim">${d.fw}</td><td class="mono small dim">${d.ip}</td><td class="small dim">${d.visto}</td>
-          <td>${d.estado === 'provisionado' ? '<span class="badge badge-ok"><i class="dot"></i>Provisionado</span>'
-              : d.estado === 'pendente' ? '<span class="badge badge-warn"><i class="dot"></i>Pendente</span>'
-              : '<span class="badge badge-danger"><i class="dot"></i>Erro</span>'}</td>
-          <td class="col-actions"><span class="row-actions">
-            <button class="btn btn-ghost btn-sm btn-icon" data-tip="Reprovisionar" ${ctx.can('reiniciar') ? '' : 'disabled'}>${icon('refresh','ico ico-sm')}</button>
-            <button class="btn btn-ghost btn-sm btn-icon" data-tip="Reiniciar aparelho" ${ctx.can('reiniciar') ? '' : 'disabled'}>${icon('power','ico ico-sm')}</button>
-          </span></td></tr>`).join('')}
-      </tbody></table></div></div>`;
-  }
-};
-
-/* ===================== Conectividade · Firewall / Segurança ===================== */
-PAGES['conn.firewall'] = {
-  render(ctx) {
-    const f = DEMO.firewall;
-    return pageHead('Firewall e Segurança SIP', 'Proteção contra fraude telefônica, brute force e varredura de ramais.',
-      ctx.can('editar') ? `<button class="btn btn-outline btn-sm">${icon('plus','ico ico-sm')} Regra</button>` : readOnlyNote(ctx)) + `
-    <div class="grid g-4" style="margin-bottom:16px">
-      ${[['Fail2ban', f.fail2ban ? 'Ativo' : 'Inativo', 'shield', f.fail2ban ? 'ok' : 'danger'],
-         ['IPs bloqueados', f.ipsBloqueados, 'lock', 'warn'],
-         ['Tentativas (24 h)', f.tentativas24h.toLocaleString('pt-BR'), 'alert', 'danger'],
-         ['TLS / SRTP', 'Habilitado', 'key', 'ok']].map(([l, v, i, t]) => `
-        <div class="card kpi"><div class="k-top"><span class="k-label">${l}</span>
-          <span class="k-ico" style="background:var(--${t}-soft);color:var(--${t})">${icon(i)}</span></div>
-          <div class="k-val" style="font-size:22px">${v}</div></div>`).join('')}
-    </div>
-    <div class="grid g-2">
-      <div class="card">
-        <div class="card-head"><div class="card-title">Bloqueios recentes</div>
-          <button class="btn btn-ghost btn-sm">Ver todos</button></div>
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>IP</th><th>País</th><th>Motivo</th><th>Tentativas</th><th>Quando</th><th></th></tr></thead>
-          <tbody>${f.bloqueios.map(b => `
-            <tr><td class="mono">${b.ip}</td><td><span class="badge">${b.pais}</span></td>
-              <td class="small">${b.motivo}</td><td class="num">${b.tentativas}</td><td class="small dim">${b.quando}</td>
-              <td class="col-actions"><button class="btn btn-ghost btn-sm" ${ctx.can('editar') ? '' : 'disabled'}>Liberar</button></td></tr>`).join('')}
-          </tbody></table></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><div class="card-title">Portas e zonas</div></div>
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Porta</th><th>Serviço</th><th>Zona</th><th>Estado</th></tr></thead>
-          <tbody>${f.portas.map(p => `
-            <tr><td class="mono">${p.porta}</td><td>${p.servico}</td>
-              <td><span class="badge ${p.zona === 'Confiável' ? 'badge-ok' : ''}">${p.zona}</span></td>
-              <td><span class="badge badge-${p.estado === 'aberta' ? 'info' : 'warn'}">${p.estado}</span></td></tr>`).join('')}
-          </tbody></table></div>
-        <div class="card-foot small muted">Limite antifraude: bloquear ramal após 10 chamadas internacionais em 1 h.</div>
-      </div>
-    </div>`;
-  }
-};
-
-/* ===================== Conectividade · WebRTC ===================== */
-PAGES['conn.webrtc'] = {
-  render(ctx) {
-    return pageHead('WebRTC / Softphone', 'Telefone no navegador — sem instalar aplicativo.',
-      `<button class="btn btn-primary btn-sm" id="abrirSp">${icon('headset','ico ico-sm')} Abrir softphone</button>`) + `
-    <div class="grid g-2-1">
-      <div class="card">
-        <div class="card-head"><div class="card-title">Parâmetros do gateway</div></div>
-        <div class="card-body"><div class="deflist">
-          ${[['Endpoint WSS', 'wss://pbx.telium.net:8089/ws'],
-             ['STUN / TURN', 'turn:turn.telium.net:3478 (autenticado)'],
-             ['Codecs', 'OPUS, G.711a, G.722'],
-             ['Criptografia', 'DTLS-SRTP obrigatório'],
-             ['Ramais habilitados', '48 de 52']].map(([k, v]) => `
-            <div class="defrow" style="grid-template-columns:180px 1fr;padding:11px 0">
-              <div class="dt"><b>${k}</b></div><div class="mono small">${v}</div></div>`).join('')}
-        </div></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><div class="card-title">Como funciona</div></div>
-        <div class="card-body">
-          <div class="timeline">
-            <div class="tl-item ok"><b>1. Registro</b><small>O navegador registra o ramal via WebSocket seguro.</small></div>
-            <div class="tl-item ok"><b>2. Sinalização</b><small>SIP sobre WSS negocia a chamada com o Asterisk.</small></div>
-            <div class="tl-item ok"><b>3. Mídia</b><small>Áudio trafega em SRTP direto entre navegador e PABX.</small></div>
-            <div class="tl-item"><b>4. Controle</b><small>Mudo, espera, transferência e DTMF pela própria interface.</small></div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-  },
-  mount() { document.getElementById('abrirSp').onclick = () => Softphone.abrir(); }
-};
-
-/* ===================== Administrador · Backup ===================== */
-PAGES['admin.backup'] = {
-  render(ctx) {
-    return pageHead('Backup e Restauração', 'Rotinas agendadas, destinos remotos e restauração pontual.',
-      ctx.can('criar') ? `<button class="btn btn-outline btn-sm">${icon('upload','ico ico-sm')} Restaurar arquivo</button>
-        <button class="btn btn-primary btn-sm" id="rodarBackup">${icon('database','ico ico-sm')} Executar agora</button>` : readOnlyNote(ctx)) + `
-    <div class="grid g-2-1">
-      <div class="card">
-        <div class="card-head"><div class="card-title">Histórico</div></div>
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Arquivo</th><th>Tipo</th><th>Tamanho</th><th>Quando</th><th>Destino</th><th>Estado</th><th></th></tr></thead>
-          <tbody>${DEMO.backups.map(b => `
-            <tr><td class="mono small">${b.nome}</td><td><span class="badge">${b.tipo}</span></td>
-              <td class="num">${b.tam}</td><td class="small dim">${b.quando}</td><td class="small dim">${b.destino}</td>
-              <td>${b.estado === 'ok' ? '<span class="badge badge-ok">Concluído</span>' : '<span class="badge badge-danger">Falhou</span>'}</td>
-              <td class="col-actions"><span class="row-actions">
-                <button class="btn btn-ghost btn-sm btn-icon" data-tip="Baixar">${icon('download','ico ico-sm')}</button>
-                <button class="btn btn-ghost btn-sm btn-icon" data-tip="Restaurar" ${ctx.can('reiniciar') ? '' : 'disabled'}>${icon('refresh','ico ico-sm')}</button>
-              </span></td></tr>`).join('')}
-          </tbody></table></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><div class="card-title">Agendamento</div></div>
-        <div class="card-body"><div class="deflist">
-          <div class="defrow"><div class="dt"><b>Backup diário</b><small>Todos os dias às 03:00</small></div>
-            <div class="right"><label class="switch"><input type="checkbox" checked ${ctx.can('editar') ? '' : 'disabled'}><span class="track"></span></label></div></div>
-          <div class="defrow"><div class="dt"><b>Enviar para S3</b><small>bucket telium-pbx-backups</small></div>
-            <div class="right"><label class="switch"><input type="checkbox" checked ${ctx.can('editar') ? '' : 'disabled'}><span class="track"></span></label></div></div>
-          <div class="defrow"><div class="dt"><b>Incluir gravações</b><small>Aumenta muito o tamanho do arquivo</small></div>
-            <div class="right"><label class="switch"><input type="checkbox" ${ctx.can('editar') ? '' : 'disabled'}><span class="track"></span></label></div></div>
-          <div class="defrow"><div class="dt"><b>Retenção</b><small>Backups mantidos antes do descarte</small></div>
-            <div><select class="select" ${ctx.can('editar') ? '' : 'disabled'}><option>30 dias</option><option>90 dias</option><option>1 ano</option></select></div></div>
-        </div></div>
-      </div>
+      <div class="card-head"><div><div class="card-title">Tabela de tarifas</div>
+        <div class="card-sub">Custo por minuto aplicado a cada padrão de destino</div></div>
+        <a class="btn btn-outline btn-sm" href="#/telium.tarifacao">${icon('edit','ico ico-sm')} Gerenciar</a></div>
+      ${d.tarifas.length ? `<div class="table-wrap"><table class="table">
+        <thead><tr><th>Nome</th><th>Padrão</th><th>Custo/min</th><th>Taxa fixa</th><th>Incremento</th></tr></thead>
+        <tbody>${d.tarifas.map(t => `
+          <tr><td><b>${esc(t.nome)}</b></td><td><span class="badge mono">${esc(t.padrao)}</span></td>
+            <td class="num">${moeda(t.custo_minuto)}</td><td class="num">${moeda(t.taxa_fixa)}</td>
+            <td class="num">${t.incremento_seg}s</td></tr>`).join('')}
+        </tbody></table></div>`
+        : vazio('creditCard', 'Nenhuma tarifa cadastrada',
+                'Sem tarifas o custo das chamadas não é calculado.')}
     </div>`;
   },
   mount() {
-    document.getElementById('rodarBackup')?.addEventListener('click', async () => {
-      const ok = await Modal.confirm({ titulo: 'Executar backup agora?',
-        texto: 'A central continua operando normalmente. O processo leva cerca de 4 minutos.',
-        ok: 'Executar', tone: 'brand', ico: 'database' });
-      if (ok) toast('Backup iniciado — você será notificado ao concluir.', 'ok');
+    document.getElementById('mesTarifa')?.addEventListener('change', e => {
+      this._mes = e.target.value; App.route();
     });
   }
 };
 
-/* ===================== PCU · Contatos (click-to-call) ===================== */
-PAGES['pcu.contatos'] = {
-  render() {
-    return pageHead('Meus Contatos', 'Agenda corporativa e pessoal — clique para ligar.',
-      `<button class="btn btn-primary btn-sm">${icon('plus','ico ico-sm')} Novo contato</button>`) + `
-    <div class="card">
-      <div class="toolbar">
-        <div class="input-icon search-mini">${icon('search','ico ico-sm')}
-          <input class="input" id="ctQ" placeholder="Buscar contato…"></div>
-        <div class="segmented" id="ctSeg">
-          <button class="on" data-g="">Todos</button><button data-g="Interno">Interno</button>
-          <button data-g="Clientes">Clientes</button><button data-g="Fornecedores">Fornecedores</button>
-        </div>
-      </div>
-      <div class="card-body tight table-wrap"><table class="table" id="tabCt">
-        <thead><tr><th>Contato</th><th>Número</th><th>Grupo</th><th></th></tr></thead>
-        <tbody>${DEMO.contatos.map(c => `
-          <tr data-busca="${esc((c.nome + ' ' + c.num).toLowerCase())}" data-g="${c.grupo}">
-            <td><span class="row gap-10"><span class="avatar avatar-sm">${initials(c.nome)}</span>
-              <span><b>${c.nome}</b>${c.fav ? ' <span class="badge badge-warn">favorito</span>' : ''}</span></span></td>
-            <td class="mono">${c.num}</td><td><span class="badge">${c.grupo}</span></td>
-            <td class="col-actions"><span class="row-actions">
-              <button class="btn btn-primary btn-sm" data-call="${c.num}" data-nome="${esc(c.nome)}">${icon('phone','ico ico-sm')} Ligar</button>
-            </span></td></tr>`).join('')}
-        </tbody></table></div>
-    </div>`;
+/* ------------------------- Provisionamento ------------------------- */
+PAGES['conn.provisionamento'] = paginaCrud({
+  recurso: 'dispositivos',
+  titulo: 'Provisionamento de Telefones',
+  sub: 'Configuração automática de aparelhos por MAC address.',
+  ico: 'phone',
+  plural: 'aparelhos',
+  rotuloNovo: 'Adicionar aparelho',
+  tituloNovo: 'Adicionar aparelho',
+  vazioTitulo: 'Nenhum aparelho cadastrado',
+  vazioTexto: 'Cadastre o MAC do telefone para ele receber a configuração automaticamente.',
+  placeholderBusca: 'Buscar por MAC, modelo ou IP…',
+  textoBusca: d => `${d.mac} ${d.modelo || ''} ${d.ip || ''}`,
+  tituloEditar: d => `Aparelho ${d.mac}`,
+  colunas: [
+    { label: 'MAC', render: d => `<span class="mono">${esc(d.mac)}</span>` },
+    { label: 'Modelo', render: d => `<b>${esc(d.modelo || '—')}</b>` },
+    { label: 'Ramal', render: d => `<span class="mono">${esc(d.ramal_id || '—')}</span>` },
+    { label: 'Firmware', render: d => `<span class="mono small dim">${esc(d.firmware || '—')}</span>` },
+    { label: 'IP', render: d => `<span class="mono small dim">${esc(d.ip || '—')}</span>` },
+    { label: 'Estado', render: d => d.estado === 'provisionado'
+        ? '<span class="badge badge-ok"><i class="dot"></i>Provisionado</span>'
+        : d.estado === 'pendente' ? '<span class="badge badge-warn"><i class="dot"></i>Pendente</span>'
+        : '<span class="badge badge-danger"><i class="dot"></i>Erro</span>' }
+  ],
+  aoCarregar: async (pagina) => {
+    pagina._ramais = (await Api.get('/ramais', { limite: 500 }).catch(() => ({ dados: [] }))).dados;
   },
-  mount() {
-    const q = document.getElementById('ctQ');
-    let grupo = '';
-    const rows = [...document.querySelectorAll('#tabCt tbody tr')];
-    const f = () => { const t = q.value.trim().toLowerCase();
-      rows.forEach(r => r.hidden = (t && !r.dataset.busca.includes(t)) || (grupo && r.dataset.g !== grupo)); };
-    q.addEventListener('input', f);
-    document.querySelectorAll('#ctSeg button').forEach(b => b.onclick = () => {
-      document.querySelectorAll('#ctSeg button').forEach(x => x.classList.remove('on'));
-      b.classList.add('on'); grupo = b.dataset.g; f();
-    });
-    document.querySelectorAll('[data-call]').forEach(b =>
-      b.onclick = () => Softphone.discarPara(b.dataset.call, b.dataset.nome));
+  campos: (d, ctx, pagina) => [
+    { campo: 'mac', label: 'MAC address', obrigatorio: true, mono: true, placeholder: '00:11:22:33:44:55' },
+    { campo: 'modelo', label: 'Modelo', placeholder: 'Yealink T31' },
+    { campo: 'fabricante', label: 'Fabricante', placeholder: 'Yealink' },
+    { campo: 'ramal_id', label: 'Ramal', tipo: 'select',
+      opcoes: [{ valor: '', rotulo: 'nenhum' },
+               ...(pagina._ramais || []).map(r => ({ valor: r.id, rotulo: `${r.numero} — ${r.nome}` }))] },
+    { campo: 'estado', label: 'Estado', tipo: 'select',
+      opcoes: ['pendente','provisionado','erro'], padrao: 'pendente' }
+  ]
+});
+
+/* ------------------------- Integrações ------------------------- */
+PAGES['telium.integracoes'] = paginaCrud({
+  recurso: 'integracoes',
+  titulo: 'Integrações e API',
+  sub: 'Webhooks, chaves de API e conectores.',
+  ico: 'layers',
+  plural: 'integrações',
+  rotuloNovo: 'Nova integração',
+  tituloNovo: 'Nova integração',
+  vazioTitulo: 'Nenhuma integração configurada',
+  vazioTexto: 'Webhooks avisam outros sistemas quando uma chamada começa ou termina.',
+  placeholderBusca: 'Buscar…',
+  textoBusca: i => i.nome,
+  tituloEditar: i => esc(i.nome),
+  colunas: [
+    { label: 'Integração', render: i => `<b>${esc(i.nome)}</b>` },
+    { label: 'Tipo', render: i => `<span class="badge">${esc(i.tipo)}</span>` },
+    { label: 'Eventos', render: i => `<span class="mono small dim">${esc(i.eventos || '—')}</span>` },
+    { label: 'Último disparo', render: i => `<span class="small dim">${i.ultimo_disparo ? dataHora(i.ultimo_disparo) : 'nunca'}</span>` },
+    { label: 'Estado', render: i => Number(i.ativo)
+        ? '<span class="badge badge-ok"><i class="dot"></i>Ativa</span>'
+        : '<span class="badge"><i class="dot"></i>Inativa</span>' }
+  ],
+  campos: () => [
+    { campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'Webhook do CRM' },
+    { campo: 'tipo', label: 'Tipo', tipo: 'select',
+      opcoes: [{valor:'webhook',rotulo:'Webhook'},{valor:'api_key',rotulo:'Chave de API'},
+               {valor:'syslog',rotulo:'Syslog'},{valor:'app',rotulo:'Aplicativo'}] },
+    { campo: 'url', label: 'URL de destino', mono: true, placeholder: 'https://…', largura: 'full' },
+    { campo: 'eventos', label: 'Eventos', mono: true, placeholder: 'call.answered, call.ended', largura: 'full' },
+    { campo: 'segredo', label: 'Segredo (HMAC)', mono: true, placeholder: 'deixe em branco para manter' },
+    { campo: 'ativo', label: 'Integração ativa', tipo: 'switch', padrao: 1 }
+  ]
+});
+
+/* ------------------------- Contatos ------------------------- */
+PAGES['pcu.contatos'] = paginaCrud({
+  recurso: 'contatos',
+  titulo: 'Contatos',
+  sub: 'Agenda corporativa. Clique para ligar.',
+  ico: 'book',
+  plural: 'contatos',
+  rotuloNovo: 'Novo contato',
+  tituloNovo: 'Novo contato',
+  vazioTitulo: 'Agenda vazia',
+  vazioTexto: 'Cadastre os contatos que a equipe mais usa para ligar com um clique.',
+  placeholderBusca: 'Buscar por nome ou número…',
+  textoBusca: c => `${c.nome} ${c.numero}`,
+  tituloEditar: c => esc(c.nome),
+  colunas: [
+    { label: 'Contato', render: c => `<span class="row gap-10"><span class="avatar avatar-sm">${initials(c.nome)}</span>
+        <span><b>${esc(c.nome)}</b>${Number(c.favorito) ? ' <span class="badge badge-warn">favorito</span>' : ''}</span></span>` },
+    { label: 'Número', render: c => `<span class="mono">${esc(c.numero)}</span>` },
+    { label: 'Grupo', render: c => c.grupo ? `<span class="badge">${esc(c.grupo)}</span>` : '<span class="muted">—</span>' }
+  ],
+  acoesLinha: c => `<button class="btn btn-primary btn-sm" data-ligar="${esc(c.numero)}" data-nome="${esc(c.nome)}">
+      ${icon('phone','ico ico-sm')} Ligar</button>`,
+  campos: () => [
+    { campo: 'nome', label: 'Nome', obrigatorio: true },
+    { campo: 'numero', label: 'Número', obrigatorio: true, mono: true },
+    { campo: 'grupo', label: 'Grupo', placeholder: 'Clientes' },
+    { campo: 'favorito', label: 'Favorito', tipo: 'switch' }
+  ],
+  aoMontar: () => {
+    document.querySelectorAll('[data-ligar]').forEach(b =>
+      b.onclick = () => Softphone.discarPara(b.dataset.ligar, b.dataset.nome));
   }
-};
+});
 
-/* ===================== PCU · Perfil e segurança ===================== */
-PAGES['pcu.perfil'] = {
-  render(ctx) {
-    const s = ctx.sess, r = Auth.role(s);
-    return pageHead('Meu Perfil e Segurança', 'Dados da conta, senha, autenticação em dois fatores e sessões ativas.') + `
-    <div class="grid g-2-1">
-      <div class="grid" style="align-content:start">
-        <div class="card">
-          <div class="card-head"><div class="card-title">Dados da conta</div></div>
-          <div class="card-body"><div class="form-grid">
-            <div class="field"><label class="label">Nome</label><input class="input" value="${s.name}"></div>
-            <div class="field"><label class="label">Usuário</label><input class="input mono" value="${s.user}" disabled></div>
-            <div class="field"><label class="label">E-mail</label><input class="input" value="${s.email}"></div>
-            <div class="field"><label class="label">Ramal</label><input class="input mono" value="${s.ramal}" disabled></div>
-            <div class="field full"><label class="label">Perfil de acesso</label>
-              <input class="input" value="${r.label} — ${r.desc}" disabled></div>
-          </div></div>
-          <div class="card-foot right"><button class="btn btn-primary btn-sm" id="salvarPerfil">Salvar</button></div>
-        </div>
+/* ------------------------- Tarifas (cadastro) ------------------------- */
+PAGES['cfg.tarifas'] = paginaCrud({
+  recurso: 'tarifas',
+  titulo: 'Tabela de Tarifas',
+  sub: 'Custo por minuto aplicado a cada padrão de destino.',
+  ico: 'creditCard',
+  plural: 'tarifas',
+  rotuloNovo: 'Nova tarifa',
+  vazioTitulo: 'Nenhuma tarifa cadastrada',
+  vazioTexto: 'Sem tarifas o custo das chamadas não é calculado.',
+  placeholderBusca: 'Buscar…',
+  textoBusca: t => `${t.nome} ${t.padrao}`,
+  colunas: [
+    { label: 'Nome', render: t => `<b>${esc(t.nome)}</b>` },
+    { label: 'Padrão', render: t => `<span class="badge mono">${esc(t.padrao)}</span>` },
+    { label: 'Custo/min', render: t => `<span class="num">${moeda(t.custo_minuto)}</span>` },
+    { label: 'Taxa fixa', render: t => `<span class="num">${moeda(t.taxa_fixa)}</span>` }
+  ],
+  campos: () => [
+    { campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'Celular' },
+    { campo: 'padrao', label: 'Padrão de destino', obrigatorio: true, mono: true, placeholder: '_09XXXXXXXX' },
+    { campo: 'custo_minuto', label: 'Custo por minuto', tipo: 'number', padrao: 0 },
+    { campo: 'taxa_fixa', label: 'Taxa fixa', tipo: 'number', padrao: 0 },
+    { campo: 'incremento_seg', label: 'Incremento (s)', tipo: 'number', padrao: 6 },
+    { campo: 'ativo', label: 'Tarifa ativa', tipo: 'switch', padrao: 1 }
+  ]
+});
 
-        <div class="card">
-          <div class="card-head"><div class="card-title">Segurança</div></div>
-          <div class="card-body"><div class="deflist">
-            <div class="defrow"><div class="dt"><b>Senha</b><small>Alterada há 62 dias</small></div>
-              <div class="right"><button class="btn btn-outline btn-sm" id="trocarSenha">Alterar senha</button></div></div>
-            <div class="defrow"><div class="dt"><b>Autenticação em dois fatores (2FA)</b>
-              <small>Código TOTP no aplicativo autenticador</small></div>
-              <div class="right"><label class="switch"><input type="checkbox" id="tog2fa"><span class="track"></span></label></div></div>
-            <div class="defrow"><div class="dt"><b>Encerrar sessão após inatividade</b><small>Recomendado para perfis administrativos</small></div>
-              <div><select class="select"><option>15 minutos</option><option selected>30 minutos</option><option>2 horas</option><option>Nunca</option></select></div></div>
-          </div></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><div class="card-title">Sessões ativas</div></div>
-        <div class="card-body">
-          <div class="timeline">
-            <div class="tl-item ok"><b>Este dispositivo</b><small>Linux · Chrome · 10.0.0.14 · agora</small></div>
-            <div class="tl-item"><b>Celular</b><small>Android · App Telium · 189.45.22.7 · há 3 h</small></div>
-            <div class="tl-item warn"><b>Desktop escritório</b><small>Windows · Edge · 10.0.0.51 · ontem</small></div>
-          </div>
-          <button class="btn btn-outline btn-sm btn-block" style="margin-top:8px" id="encerrarTodas">
-            ${icon('logout','ico ico-sm')} Encerrar as outras sessões</button>
-        </div>
-      </div>
-    </div>`;
-  },
-  mount() {
-    document.getElementById('salvarPerfil').onclick = () => toast('Perfil atualizado.', 'ok');
-    document.getElementById('trocarSenha').onclick = () => Drawer.open({
-      titulo: 'Alterar senha', sub: 'Mínimo de 10 caracteres, com número e símbolo',
-      corpo: `<div class="grid" style="gap:16px">
-        <div class="field"><label class="label">Senha atual</label><input class="input" type="password"></div>
-        <div class="field"><label class="label">Nova senha</label><input class="input" type="password"></div>
-        <div class="field"><label class="label">Confirmar nova senha</label><input class="input" type="password"></div>
-      </div>`,
-      rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
-               <button class="btn btn-primary" id="okSenha">Alterar senha</button>`,
-      aoAbrir: dw => dw.querySelector('#okSenha').onclick = () => { Drawer.close(); toast('Senha alterada.', 'ok'); }
-    });
-    document.getElementById('tog2fa').onchange = e => {
-      if (!e.target.checked) { toast('2FA desativado.', 'warn'); return; }
-      Drawer.open({
-        titulo: 'Ativar 2FA', sub: 'Leia o QR Code no seu aplicativo autenticador',
-        corpo: `<div class="center">
-          <div style="width:170px;height:170px;margin:0 auto 16px;background:
-            repeating-conic-gradient(var(--text) 0 25%, transparent 0 50%) 0 0/22px 22px;
-            border:8px solid var(--surface);outline:1px solid var(--border);border-radius:8px"></div>
-          <p class="small dim">Ou digite a chave manualmente:</p>
-          <div class="code" style="margin-top:8px;text-align:center">JBSW Y3DP EHPK 3PXP</div>
-          <div class="field" style="margin-top:18px;text-align:left">
-            <label class="label">Código de 6 dígitos</label><input class="input mono" placeholder="000000" maxlength="6"></div>
-        </div>`,
-        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
-                 <button class="btn btn-primary" id="ok2fa">Ativar</button>`,
-        aoAbrir: dw => dw.querySelector('#ok2fa').onclick = () => { Drawer.close(); toast('2FA ativado com sucesso.', 'ok'); }
-      });
-    };
-    document.getElementById('encerrarTodas').onclick = async () => {
-      const ok = await Modal.confirm({ titulo: 'Encerrar as outras sessões?',
-        texto: 'Os demais dispositivos precisarão entrar novamente.', ok: 'Encerrar' });
-      if (ok) toast('Outras sessões encerradas.', 'ok');
-    };
-  }
-};
-
-/* ===================== PCU · Correio de voz ===================== */
-PAGES['pcu.correiovoz'] = {
-  render(ctx) {
-    const msgs = [
-      { de: '11 98877-1234', nome: 'Cliente ACME', quando: 'Hoje, 11:24', dur: '00:38', novo: true },
-      { de: '11 3011-2244',  nome: 'Fornecedor Prisma', quando: 'Hoje, 09:02', dur: '01:12', novo: true },
-      { de: '1010',          nome: 'Marina Duarte', quando: 'Ontem, 17:40', dur: '00:22', novo: false }
-    ];
-    return pageHead('Meu Correio de Voz', `Ramal ${ctx.sess.ramal} · 2 mensagens novas`,
-      `<button class="btn btn-outline btn-sm">${icon('settings','ico ico-sm')} Preferências</button>`) + `
-    <div class="card"><div class="card-body grid" style="gap:12px">
-      ${msgs.map(m => `
-        <div class="card" style="padding:14px">
-          <div class="row-between" style="margin-bottom:10px">
-            <div class="row gap-10"><span class="avatar avatar-sm">${initials(m.nome)}</span>
-              <div><b>${m.nome}</b> ${m.novo ? '<span class="badge badge-brand">nova</span>' : ''}
-                <div class="tiny muted mono">${m.de} · ${m.quando} · ${m.dur}</div></div></div>
-            <div class="row gap-4">
-              <button class="btn btn-ghost btn-sm btn-icon" data-tip="Ligar de volta" data-call="${m.de}">${icon('phone','ico ico-sm')}</button>
-              <button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir">${icon('trash','ico ico-sm')}</button>
-            </div>
-          </div>
-          ${playerHTML('vm-' + m.de, m.dur)}
-        </div>`).join('')}
-    </div></div>`;
-  },
-  mount() {
-    document.querySelectorAll('[data-call]').forEach(b => b.onclick = () => Softphone.discarPara(b.dataset.call));
-  }
-};
-
-/* ===================== Configurações · Dados da Empresa ===================== */
+/* ------------------------- Configurações · Empresa ------------------------- */
 PAGES['cfg.empresa'] = {
-  render(ctx) {
-    const e = DEMO.empresa;
-    return pageHead('Dados da Empresa', 'Identificação da central: aparece em relatórios, gravações e no portal do usuário.',
+  async render(ctx) {
+    let e;
+    try { e = await Api.get('/empresa'); }
+    catch (err) { return pageHead('Dados da Empresa', '') + blocoErro(err); }
+    this._e = e;
+
+    const campos = [
+      { campo: 'nome', label: 'Nome fantasia', obrigatorio: true },
+      { campo: 'razao_social', label: 'Razão social' },
+      { campo: 'cnpj', label: 'CNPJ', mono: true },
+      { campo: 'telefone', label: 'Telefone principal', mono: true },
+      { campo: 'endereco', label: 'Endereço', largura: 'full' },
+      { campo: 'fuso', label: 'Fuso horário', tipo: 'select',
+        opcoes: ['America/Sao_Paulo','America/Manaus','America/Belem','America/Cuiaba'] },
+      { campo: 'idioma', label: 'Idioma', tipo: 'select', opcoes: ['pt_BR','en_US','es_ES'] },
+      { campo: 'plano', label: 'Plano' },
+      { campo: 'ramais_contratados', label: 'Ramais contratados', tipo: 'number' }
+    ];
+
+    const uso = e.ramais_contratados > 0
+      ? Math.round(e.ramais_usados / e.ramais_contratados * 100) : 0;
+
+    return pageHead('Dados da Empresa',
+      'Identificação da central: aparece em relatórios e no portal do usuário.',
       ctx.can('editar') ? `<button class="btn btn-primary btn-sm" id="salvarEmp">${icon('check','ico ico-sm')} Salvar</button>` : readOnlyNote(ctx)) + `
     <div class="grid g-2-1">
       <div class="card">
         <div class="card-head"><div class="card-title">Identificação</div></div>
         <div class="card-body"><div class="form-grid">
-          <div class="field"><label class="label">Nome fantasia</label><input class="input" value="${e.nome}" ${ctx.can('editar') ? '' : 'disabled'}></div>
-          <div class="field"><label class="label">Razão social</label><input class="input" value="${e.razao}" ${ctx.can('editar') ? '' : 'disabled'}></div>
-          <div class="field"><label class="label">CNPJ</label><input class="input mono" value="${e.cnpj}" ${ctx.can('editar') ? '' : 'disabled'}></div>
-          <div class="field"><label class="label">Telefone principal</label><input class="input mono" value="${e.telefone}" ${ctx.can('editar') ? '' : 'disabled'}></div>
-          <div class="field full"><label class="label">Endereço</label><input class="input" value="${e.endereco}" ${ctx.can('editar') ? '' : 'disabled'}></div>
-          <div class="field"><label class="label">Fuso horário</label>
-            <select class="select" ${ctx.can('editar') ? '' : 'disabled'}><option>${e.fuso}</option><option>America/Manaus</option><option>America/Belem</option></select></div>
-          <div class="field"><label class="label">Idioma do sistema</label>
-            <select class="select" ${ctx.can('editar') ? '' : 'disabled'}><option>${e.idioma}</option><option>English (US)</option><option>Español</option></select></div>
-          <div class="field full"><label class="label">Logotipo do portal</label>
-            <div class="row gap-12">
-              <div class="sb-mark" id="empMark" style="width:44px;height:44px"></div>
-              <button class="btn btn-outline btn-sm" ${ctx.can('editar') ? '' : 'disabled'}>${icon('upload','ico ico-sm')} Enviar imagem</button>
-              <span class="small muted">PNG ou SVG, até 1 MB</span>
-            </div></div>
+          ${campos.map(c => campoHtml({ ...c, somenteLeitura: !ctx.can('editar') }, e)).join('')}
         </div></div>
       </div>
-
-      <div class="grid" style="align-content:start">
-        <div class="card">
-          <div class="card-head"><div class="card-title">Licenciamento</div></div>
-          <div class="card-body grid" style="gap:14px">
-            <div class="row-between"><span class="dim small">Plano</span><span class="badge badge-brand">${e.plano}</span></div>
-            <div>
-              <div class="row-between small" style="margin-bottom:6px">
-                <span class="dim">Ramais</span><b class="num">${e.ramaisUsados} / ${e.ramaisContratados}</b></div>
-              <div class="track" style="height:8px;background:var(--surface-3);border-radius:6px;overflow:hidden">
-                <div style="height:100%;width:${(e.ramaisUsados / e.ramaisContratados * 100).toFixed(0)}%;background:var(--brand)"></div></div>
-            </div>
-            <div class="row-between"><span class="dim small">Troncos</span><b class="num">${e.troncos}</b></div>
-            <div class="row-between"><span class="dim small">Validade</span><span class="small">31/12/2026</span></div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head"><div class="card-title">Aparência do portal</div></div>
-          <div class="card-body"><div class="deflist">
-            <div class="defrow" style="grid-template-columns:1fr auto"><div class="dt"><b>Tema padrão</b><small>Aplicado a novos usuários</small></div>
-              <div><select class="select" style="width:130px" ${ctx.can('editar') ? '' : 'disabled'}><option>Claro</option><option>Escuro</option><option>Sistema</option></select></div></div>
-            <div class="defrow" style="grid-template-columns:1fr auto"><div class="dt"><b>Exibir marca Telium</b><small>No rodapé do portal do usuário</small></div>
-              <div><label class="switch"><input type="checkbox" checked ${ctx.can('editar') ? '' : 'disabled'}><span class="track"></span></label></div></div>
-          </div></div>
+      <div class="card">
+        <div class="card-head"><div class="card-title">Licenciamento</div></div>
+        <div class="card-body grid" style="gap:14px">
+          <div class="row-between"><span class="dim small">Plano</span>
+            <span class="badge badge-brand">${esc(e.plano || '—')}</span></div>
+          ${medidor('Ramais em uso', uso, uso > 90 ? 'danger' : 'brand',
+                    `${e.ramais_usados} / ${e.ramais_contratados}`)}
+          <div class="row-between"><span class="dim small">Troncos ativos</span>
+            <b class="num">${e.troncos}</b></div>
         </div>
       </div>
     </div>`;
   },
-  mount() {
-    const m = document.getElementById('empMark'); if (m) m.innerHTML = TELIUM_MARK;
-    document.getElementById('salvarEmp')?.addEventListener('click', () => toast('Dados da empresa salvos.', 'ok'));
+  mount(ctx) {
+    document.getElementById('salvarEmp')?.addEventListener('click', async ev => {
+      const dados = {};
+      document.querySelectorAll('.form-grid [name]').forEach(el => { dados[el.name] = el.value; });
+      ev.currentTarget.disabled = true;
+      try { await Api.put('/empresa', dados); toast('Dados da empresa salvos.', 'ok'); App.route(); }
+      catch (e) { ev.currentTarget.disabled = false; toast(e.message, 'err'); }
+    });
+  }
+};
+
+/* ------------------------- Registro de atividades ------------------------- */
+PAGES['rel.logs'] = {
+  async render() {
+    let r;
+    try { r = await Api.get('/auditoria'); }
+    catch (e) { return pageHead('Registro de Atividades', '') + blocoErro(e); }
+
+    const cabecalho = pageHead('Registro de Atividades',
+      'Trilha de auditoria: quem fez o quê, quando e de onde.');
+
+    if (!r.dados.length) {
+      return cabecalho + `<div class="card">${vazio('file', 'Nenhuma atividade registrada',
+        'Toda alteração feita pelo console é registrada aqui.')}</div>`;
+    }
+
+    return cabecalho + `<div class="card"><div class="table-wrap"><table class="table">
+      <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Módulo</th><th>Objeto</th><th>IP</th></tr></thead>
+      <tbody>${r.dados.map(a => `
+        <tr><td class="mono small">${dataHora(a.criado_em)}</td>
+          <td>${esc(a.usuario_nome || 'sistema')}</td>
+          <td><span class="badge">${esc(a.acao)}</span></td>
+          <td class="mono small dim">${esc(a.modulo)}</td>
+          <td class="small">${esc(a.objeto || '—')}</td>
+          <td class="mono small dim">${esc(a.ip || '—')}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
   }
 };
