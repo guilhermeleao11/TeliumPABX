@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+#
+# Tentativa de entrar no console pela API. O nginx-http-auth do fail2ban
+# só enxerga autenticação básica do próprio nginx; o login daqui é uma
+# chamada JSON, então o padrão tem de sair do log de acesso.
+[Definition]
+# O fail2ban tira a data da linha antes de aplicar o padrão, então o
+# que sobra entre o endereço e o pedido varia: [^"]* cobre os dois
+# formatos em vez de exigir os colchetes que já não estão mais lá.
+failregex = ^<HOST> -[^"]*"POST /api/auth/login[^"]*" (401|429)\s
+ignoreregex =
+datepattern = \[%%d/%%b/%%Y:%%H:%%M:%%S %%z\]

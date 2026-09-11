@@ -36,6 +36,15 @@
   when: instalar_firewall
   changed_when: false
 
+# O filtro precisa existir antes do jail que o nomeia, senão o fail2ban
+# recusa a configuração inteira ao reiniciar.
+- name: Instalar o filtro de login do console
+  ansible.builtin.template:
+    src: filter-telium-console.conf.j2
+    dest: /etc/fail2ban/filter.d/telium-console.conf
+    mode: "0644"
+  notify: reiniciar fail2ban
+
 - name: Configurar jail do Asterisk no fail2ban
   ansible.builtin.template:
     src: jail-telium.conf.j2

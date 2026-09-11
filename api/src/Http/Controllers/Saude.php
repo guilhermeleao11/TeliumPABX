@@ -9,11 +9,20 @@ use Telium\Gerador\Gerador;
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Ami;
 use Telium\Suporte\Bd;
+use Telium\Dominio\Sessao;
 use Telium\Suporte\Esquema;
 use Telium\Suporte\Versao;
 use Telium\Suporte\Resposta;
 
-/** GET /api/health — diagnóstico de dependências, sem exigir sessão. */
+/**
+ * GET /api/health — diagnóstico de dependências.
+ *
+ * A rota não exige sessão porque precisa responder quando o console
+ * inteiro está fora do ar, e é ela que o monitoramento consulta. Mas o
+ * detalhe só vai para quem está autenticado: a versão exata do PHP, a
+ * do MariaDB, o erro do AMI e a quantidade de ramais juntos são uma
+ * ficha técnica pronta para quem estiver escolhendo um exploit.
+ */
 final class Saude
 {
     public function __invoke(Request $req, Response $res): Response
@@ -31,6 +40,14 @@ final class Saude
             true
         );
 
+        if (!$this->autenticado($req)) {
+            return Resposta::json($res, [
+                'servico'  => Versao::NOME . ' — API',
+                'versao'   => Versao::NUMERO,
+                'saudavel' => $tudoOk,
+            ], $tudoOk ? 200 : 503);
+        }
+
         return Resposta::json($res, [
             'servico'   => Versao::NOME . ' — API',
             'versao'    => Versao::NUMERO,
@@ -39,6 +56,17 @@ final class Saude
             'saudavel'  => $tudoOk,
             'checagens' => $checagens,
         ], $tudoOk ? 200 : 503);
+    }
+
+    /** Tem sessão válida? A rota não exige, mas o detalhe depende disso. */
+    private function autenticado(Request $req): bool
+    {
+        $cabecalho = $req->getHeaderLine('Authorization');
+        $token = preg_match('/^Bearer\s+(\S+)$/i', $cabecalho, $m) === 1
+            ? $m[1]
+            : ($req->getCookieParams()['telium_sessao'] ?? '');
+
+        return $token !== '' && Sessao::usuarioDoToken((string) $token) !== null;
     }
 
     /**

@@ -23,8 +23,23 @@ logpath  = /var/log/asterisk/security
 maxretry = 5
 bantime  = 24h
 
+# O nginx-http-auth só pega autenticação básica do próprio nginx, que
+# este sistema não usa: o login do console é uma chamada JSON. Fica
+# desligado para não dar falsa sensação de cobertura.
 [nginx-http-auth]
-enabled = true
+enabled = false
+
+# Entrada no console. O limite por origem da API e o limit_req do nginx
+# já seguram a varredura; este bane quem insiste, e vale para o servidor
+# inteiro em vez de só para a API.
+[telium-console]
+enabled  = true
+port     = http,https
+filter   = telium-console
+logpath  = /var/log/nginx/access.log
+findtime = 10m
+maxretry = 15
+bantime  = 1h
 
 [sshd]
 enabled = true
