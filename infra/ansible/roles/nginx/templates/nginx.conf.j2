@@ -35,5 +35,14 @@ http {
         ''      close;
     }
 
+    # Teto de tentativas por origem. O bloqueio por conta não segura
+    # varredura — o atacante troca de usuário a cada palpite e nunca
+    # bloqueia ninguém. Aqui o custo é cortado antes de chegar no PHP,
+    # que gasta ~80 ms de CPU em cada conferência de senha.
+    limit_req_zone $binary_remote_addr zone=telium_login:10m rate=10r/m;
+    limit_req_zone $binary_remote_addr zone=telium_api:10m   rate=30r/s;
+    limit_req_status 429;
+    limit_conn_zone $binary_remote_addr zone=telium_conn:10m;
+
     include /etc/nginx/conf.d/*.conf;
 }

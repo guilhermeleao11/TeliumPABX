@@ -129,11 +129,32 @@ final class Ami
 
         $pacote = '';
         foreach ($campos as $chave => $valor) {
-            $pacote .= "{$chave}: {$valor}\r\n";
+            $pacote .= self::campo((string) $chave, (string) $valor);
         }
         fwrite($this->socket, $pacote . "\r\n");
 
         return $this->lerResposta($id);
+    }
+
+    /**
+     * Monta uma linha do pacote AMI.
+     *
+     * O protocolo separa campos por CRLF e ações por linha em branco, o
+     * que faz de uma quebra de linha dentro de um valor uma ação nova.
+     * Vários valores daqui vêm do cadastro — o destino de um siga-me, por
+     * exemplo — e um "\r\nAction: Command\r\nCommand: !comando" viraria
+     * execução de shell no servidor. A costura fica aqui, no único ponto
+     * por onde todo pacote passa.
+     */
+    private static function campo(string $chave, string $valor): string
+    {
+        $limpo = static fn (string $t): string => str_replace(
+            ["\r", "\n", "\0"],
+            '',
+            $t
+        );
+
+        return $limpo($chave) . ': ' . $limpo($valor) . "\r\n";
     }
 
     /**

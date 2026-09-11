@@ -17,6 +17,17 @@ final class Senha
     public const MINIMO = 8;
 
     /**
+     * Hash de mentira, para conferir contra quando o usuário não existe.
+     *
+     * Sem ele, um login inexistente respondia na hora e um existente
+     * esperava o PBKDF2 — a diferença de tempo era uma lista de contas
+     * válidas para quem medisse. O segredo dentro dele não importa: o
+     * que importa é gastar o mesmo trabalho.
+     */
+    public const HASH_FALSO = 'pbkdf2_sha256$390000$AAAAAAAAAAAAAAAAAAAAAA==$'
+                            . 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+
+    /**
      * Diz o que falta para a senha ser aceita.
      *
      * Devolve a lista de exigências não atendidas, em vez de um sim/não,

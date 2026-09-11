@@ -5,7 +5,10 @@
    ========================================================= */
 
 /* ------------------------- Helpers ------------------------- */
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// A apóstrofe entra na lista porque um dia alguém escreve um atributo
+// com aspas simples, e aí ela é a que abre a porta.
+const esc = s => String(s ?? '').replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const initials = n => String(n || '?').split(' ').filter(Boolean).map(p => p[0]).slice(0, 2).join('').toUpperCase();
 const num = v => Number(v || 0).toLocaleString('pt-BR');
 const moeda = v => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });

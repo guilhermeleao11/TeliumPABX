@@ -10,7 +10,7 @@ final class Bloco
 
     public function comentario(string $texto): static
     {
-        $this->linhas[] = '; ' . $texto;
+        $this->linhas[] = '; ' . self::umaLinha($texto);
         return $this;
     }
 
@@ -22,13 +22,13 @@ final class Bloco
 
     public function contexto(string $nome): static
     {
-        $this->linhas[] = "[{$nome}]";
+        $this->linhas[] = '[' . self::umaLinha($nome) . ']';
         return $this;
     }
 
     public function exten(string $exten, string $app): static
     {
-        $this->linhas[] = "exten => {$exten},1," . self::semComentario($app);
+        $this->linhas[] = 'exten => ' . self::umaLinha($exten) . ',1,' . self::semComentario($app);
         return $this;
     }
 
@@ -37,7 +37,7 @@ final class Bloco
         $app = self::semComentario($app);
         $this->linhas[] = $rotulo === null
             ? " same => n,{$app}"
-            : " same => n({$rotulo}),{$app}";
+            : ' same => n(' . self::umaLinha($rotulo) . '),' . $app;
         return $this;
     }
 
@@ -49,7 +49,25 @@ final class Bloco
      */
     private static function semComentario(string $app): string
     {
-        return str_replace(';', ' —', $app);
+        return self::umaLinha(str_replace(';', ' —', $app));
+    }
+
+    /**
+     * Uma linha escrita aqui é UMA linha, sempre.
+     *
+     * Nomes, descrições e destinos vêm do cadastro, e o cadastro vem da
+     * web. Uma quebra de linha no nome de uma fila fazia o texto seguinte
+     * virar dialplan de verdade: quem pudesse cadastrar uma fila
+     * escrevia um "exten => 6666,1,System(...)" e executava comando no
+     * servidor ao discar 6666. Este é o único lugar por onde toda linha
+     * gerada passa, então a costura fica aqui.
+     */
+    private static function umaLinha(string $texto): string
+    {
+        // \r e \n abrem linha nova; \0 corta o arquivo em C.
+        $limpo = str_replace(["\r\n", "\r", "\n"], ' ', $texto);
+
+        return str_replace("\0", '', $limpo);
     }
 
     /** @param string[] $apps */
@@ -63,7 +81,7 @@ final class Bloco
 
     public function crua(string $linha): static
     {
-        $this->linhas[] = $linha;
+        $this->linhas[] = self::umaLinha($linha);
         return $this;
     }
 

@@ -8,6 +8,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Telium\Dominio\Auditoria;
 use Telium\Dominio\Permissoes;
 use Telium\Dominio\Senha;
+use Telium\Dominio\Totp;
 use Telium\Dominio\Sessao;
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Bd;
@@ -18,6 +19,14 @@ final class Autenticacao
 {
     private const MAX_TENTATIVAS = 5;
     private const BLOQUEIO_MINUTOS = 15;
+
+    /**
+     * Bloqueio por conta não segura varredura: o atacante troca de
+     * usuário a cada tentativa e nunca bloqueia ninguém. Este teto é por
+     * origem, contando o que a auditoria já registra.
+     */
+    private const MAX_POR_IP = 20;
+    private const JANELA_IP_MINUTOS = 10;
 
     /** POST /api/auth/login */
     public function login(Request $req, Response $res): Response
@@ -31,6 +40,12 @@ final class Autenticacao
             return Resposta::erro($res, 'Informe usuário e senha', 422);
         }
 
+        // Origem com falhas demais entra em suspeita, mas ainda tem a
+        // senha conferida: quem sabe a senha não pode ficar de fora
+        // porque outra pessoa na mesma saída de internet errou a dela.
+        // Só o palpite errado é que bate na porta fechada.
+        $suspeito = $this->excedeuPorIp($ip);
+
         $usuario = Bd::um(
             'SELECT u.*, p.chave AS perfil_chave, p.nome AS perfil_nome, p.cor AS perfil_cor
                FROM usuarios u JOIN perfis p ON p.id = u.perfil_id
@@ -42,8 +57,13 @@ final class Autenticacao
         $generico = 'Usuário ou senha inválidos';
 
         if ($usuario === null) {
+            // Gasta o mesmo tempo de um hash de verdade. Sem isto, um
+            // usuário inexistente responde na hora e um existente demora
+            // — e o relógio vira uma lista de contas válidas.
+            Senha::verificar($senha, Senha::HASH_FALSO);
             Auditoria::registrar(null, 'login_falha', 'auth', $login, ['motivo' => 'inexistente'], $ip);
-            return Resposta::erro($res, $generico, 401);
+
+            return $suspeito ? $this->demais($res, $login, $ip) : Resposta::erro($res, $generico, 401);
         }
 
         if ($usuario['bloqueado_ate'] !== null && strtotime($usuario['bloqueado_ate']) > time()) {
@@ -64,19 +84,55 @@ final class Autenticacao
             );
 
             Auditoria::registrar($usuario, 'login_falha', 'auth', $login, ['tentativa' => $tentativas], $ip);
-            return Resposta::erro($res, $generico, 401);
+
+            return $suspeito ? $this->demais($res, $login, $ip) : Resposta::erro($res, $generico, 401);
         }
 
         if ($usuario['status'] !== 'ativo') {
             return Resposta::erro($res, "Usuário {$usuario['status']}. Procure o administrador.", 403);
         }
 
-        // 2FA fica para a etapa seguinte; o campo já existe no banco.
+        // Verificação em dois passos. Antes o código era só perguntado:
+        // qualquer valor digitado passava, e quem ligava o recurso ficava
+        // menos protegido do que quem não ligava.
         if ((int) $usuario['totp_ativo'] === 1) {
-            $codigo = (string) ($corpo['codigo'] ?? '');
+            $codigo = trim((string) ($corpo['codigo'] ?? ''));
+            $segredo = (string) ($usuario['totp_secret'] ?? '');
+
+            if ($segredo === '') {
+                Auditoria::registrar($usuario, 'login_falha', 'auth', $login,
+                                     ['motivo' => '2fa_sem_segredo'], $ip);
+
+                return Resposta::erro(
+                    $res,
+                    'A verificação em dois passos está ligada nesta conta, mas sem segredo '
+                    . 'cadastrado. Procure o administrador.',
+                    403
+                );
+            }
             if ($codigo === '') {
                 return Resposta::json($res, ['precisa_2fa' => true], 200);
             }
+
+            $passo = Totp::passoUsado($segredo, $codigo);
+            if ($passo === null) {
+                $this->contarFalha($usuario, $login, $ip, '2fa_invalido');
+
+                return Resposta::erro($res, 'Código de verificação inválido', 401);
+            }
+            // Um código vale trinta segundos; sem esta marca, quem o
+            // interceptasse entraria de novo dentro da mesma janela.
+            if ($passo <= (int) ($usuario['totp_ultimo_passo'] ?? 0)) {
+                $this->contarFalha($usuario, $login, $ip, '2fa_repetido');
+
+                return Resposta::erro(
+                    $res,
+                    'Este código já foi usado. Espere o próximo aparecer no aplicativo.',
+                    401
+                );
+            }
+            Bd::executar('UPDATE usuarios SET totp_ultimo_passo = ? WHERE id = ?',
+                         [$passo, $usuario['id']]);
         }
 
         Bd::executar(
@@ -197,6 +253,59 @@ final class Autenticacao
                 'cor'   => $u['perfil_cor'],
             ],
         ];
+    }
+
+    /**
+     * Falhas demais vindas desta origem na última janela?
+     *
+     * A auditoria já grava cada login_falha com IP e horário, então a
+     * contagem sai de lá em vez de inventar uma segunda tabela.
+     */
+    private function excedeuPorIp(string $ip): bool
+    {
+        if ($ip === '' || $ip === '0.0.0.0') {
+            return false;
+        }
+
+        $falhas = (int) Bd::valor(
+            "SELECT COUNT(*) FROM auditoria
+              WHERE ip = ? AND acao = 'login_falha'
+                AND criado_em > DATE_SUB(NOW(), INTERVAL ? MINUTE)",
+            [$ip, self::JANELA_IP_MINUTOS]
+        );
+
+        return $falhas >= self::MAX_POR_IP;
+    }
+
+    /** Resposta para quem errou vindo de uma origem já marcada. */
+    private function demais(Response $res, string $login, string $ip): Response
+    {
+        Auditoria::registrar(null, 'login_bloqueio_ip', 'auth', $login, [], $ip);
+
+        return Resposta::erro(
+            $res,
+            'Tentativas demais desta origem. Tente de novo em alguns minutos.',
+            429
+        );
+    }
+
+    /** Soma uma tentativa errada na conta e bloqueia no limite. */
+    private function contarFalha(array $usuario, string $login, string $ip, string $motivo): void
+    {
+        $tentativas = (int) $usuario['tentativas_login'] + 1;
+        $bloqueia = $tentativas >= self::MAX_TENTATIVAS;
+
+        Bd::executar(
+            'UPDATE usuarios SET tentativas_login = ?,
+                    bloqueado_ate = ' . ($bloqueia ? 'DATE_ADD(NOW(), INTERVAL ? MINUTE)' : 'NULL') . '
+              WHERE id = ?',
+            $bloqueia
+                ? [$tentativas, self::BLOQUEIO_MINUTOS, $usuario['id']]
+                : [$tentativas, $usuario['id']]
+        );
+
+        Auditoria::registrar($usuario, 'login_falha', 'auth', $login,
+                             ['motivo' => $motivo, 'tentativa' => $tentativas], $ip);
     }
 
     private function ip(Request $req): string

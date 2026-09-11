@@ -14,6 +14,14 @@ final class Sessao
         $token = bin2hex(random_bytes(32));
         $minutos = Ambiente::int('SESSAO_MINUTOS', 30);
 
+        // A consulta de validação já ignorava sessão vencida, então nada
+        // quebrava — mas a tabela só crescia. A limpeza mora no login
+        // porque é o único momento em que uma linha nova aparece, e de
+        // vez em quando para não pagar o DELETE em toda entrada.
+        if (random_int(1, 20) === 1) {
+            self::limparExpiradas();
+        }
+
         Bd::executar(
             'INSERT INTO sessoes (id, usuario_id, ip, user_agent, ultima_atividade, expira_em)
              VALUES (?, ?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL ? MINUTE))',
