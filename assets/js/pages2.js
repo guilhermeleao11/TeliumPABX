@@ -1203,7 +1203,10 @@ PAGES['admin.listanegra'] = paginaCrud({
                {valor:'silencio',rotulo:'Atender e ficar em silêncio'}] },
     { campo: 'audio_id', label: 'Anúncio (se escolher tocar um)', tipo: 'select',
       opcoes: [{ valor: '', rotulo: 'padrão do sistema' },
-               ...(pagina._audios || []).map(a => ({ valor: a.id, rotulo: a.nome }))] },
+               ...(pagina._audios || []).map(a => ({ valor: a.id, rotulo: a.nome }))],
+      ajuda: (pagina._audios || []).length
+        ? 'O padrão do sistema é a mensagem de número fora de serviço do Asterisk.'
+        : 'Nenhum áudio enviado ainda — vai tocar a mensagem de número fora de serviço do Asterisk. Envie os seus em Gravações do Sistema.' },
     { campo: 'ativo', label: 'Bloqueio ativo', tipo: 'switch', padrao: 1 }
   ]
 });

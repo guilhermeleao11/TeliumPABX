@@ -36,6 +36,12 @@ final class Recurso
     ) {
     }
 
+    /** Marcador interno: este "" deve ir para o banco como veio. */
+    private const MANTER_VAZIO = "\0manter-vazio";
+
+    /** @var array<string,array{nulo:bool, texto:bool, padrao:mixed}>|null */
+    private ?array $meta = null;
+
     // ------------------------------------------------------------------
     public function listar(Request $req, Response $res): Response
     {
@@ -175,10 +181,69 @@ final class Recurso
             if (!array_key_exists($coluna, $corpo)) {
                 continue;
             }
+
             $valor = $corpo[$coluna];
-            $dados[$coluna] = is_bool($valor) ? (int) $valor : $valor;
+            if (is_bool($valor)) {
+                $valor = (int) $valor;
+            }
+
+            // Um <select> sem escolha e um campo de número em branco chegam
+            // como "". Em coluna numérica ou de data isso não é "vazio", é
+            // "não informado" — e o MariaDB em modo estrito recusa a string.
+            if ($valor === '') {
+                $valor = $this->vazioVira($coluna);
+                if ($valor === self::MANTER_VAZIO) {
+                    $valor = '';
+                }
+            }
+
+            $dados[$coluna] = $valor;
         }
+
         return $dados;
+    }
+
+    /**
+     * No que um "" se transforma nesta coluna: NULL quando ela aceita,
+     * o valor padrão quando é obrigatória mas tem um, e nada quando é
+     * texto — aí "" é um valor legítimo.
+     */
+    private function vazioVira(string $coluna): mixed
+    {
+        $m = $this->colunasDaTabela()[$coluna] ?? null;
+
+        if ($m === null || $m['texto']) {
+            return self::MANTER_VAZIO;
+        }
+        if ($m['nulo']) {
+            return null;
+        }
+
+        return $m['padrao'] ?? self::MANTER_VAZIO;
+    }
+
+    /**
+     * Tipo e nulidade de cada coluna, lidos uma vez por requisição.
+     *
+     * @return array<string,array{nulo:bool, texto:bool, padrao:mixed}>
+     */
+    private function colunasDaTabela(): array
+    {
+        if ($this->meta !== null) {
+            return $this->meta;
+        }
+
+        $this->meta = [];
+        foreach (Bd::todos("SHOW COLUMNS FROM `{$this->tabela}`") as $c) {
+            $tipo = strtolower((string) ($c['Type'] ?? ''));
+            $this->meta[(string) $c['Field']] = [
+                'nulo'   => strtoupper((string) ($c['Null'] ?? '')) === 'YES',
+                'texto'  => preg_match('/char|text|blob|enum|set|json/', $tipo) === 1,
+                'padrao' => $c['Default'],
+            ];
+        }
+
+        return $this->meta;
     }
 
     /** Remove colunas sensíveis da resposta. */
