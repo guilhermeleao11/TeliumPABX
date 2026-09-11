@@ -30,9 +30,20 @@ final class GeradorFilas
         'estrito' => 'strict',
     ];
 
+    /** @var array<int,string> id do anúncio => arquivo que ele toca */
+    private array $anuncios = [];
+
     /** @return array<string,string> */
     public function gerar(): array
     {
+        // Nenhuma coluna guarda nome de arquivo: a fila aponta para um
+        // anúncio, e é aqui que ele vira o arquivo que o Asterisk toca.
+        foreach (Bd::todos('SELECT a.id, s.arquivo FROM anuncios a
+                              JOIN audios s ON s.id = a.audio_id
+                             WHERE a.ativo = 1') as $a) {
+            $this->anuncios[(int) $a['id']] = (string) $a['arquivo'];
+        }
+
         $b = (new Bloco())
             ->comentario('Gerado pelo Telium PABX — NÃO EDITE À MÃO')
             ->comentario('Gerado em ' . date('d/m/Y H:i:s'))
@@ -69,8 +80,9 @@ final class GeradorFilas
         // Com confirmação ligada ele não entra aqui: o mesmo áudio já é a
         // pergunta do "aperte 1 para atender", e tocar duas vezes seria
         // pior do que não tocar.
-        if (($f['audio_agente'] ?? '') !== '' && (int) $f['confirmar_atendimento'] !== 1) {
-            $b->crua("announce = {$f['audio_agente']}");
+        $sussurro = $this->anuncio($f['anuncio_agente_id'] ?? 0);
+        if ($sussurro !== '' && (int) $f['confirmar_atendimento'] !== 1) {
+            $b->crua("announce = {$sussurro}");
         }
 
         // Anúncios ao cliente que espera
@@ -81,8 +93,9 @@ final class GeradorFilas
             $b->crua('announce-frequency = ' . max(10, (int) $f['anuncio_frequencia']));
         }
 
-        if (($f['audio_periodico'] ?? '') !== '') {
-            $b->crua("periodic-announce = {$f['audio_periodico']}")
+        $periodico = $this->anuncio($f['anuncio_periodico_id'] ?? 0);
+        if ($periodico !== '') {
+            $b->crua("periodic-announce = {$periodico}")
               ->crua('periodic-announce-frequency = ' . max(10, (int) $f['periodico_segundos']));
         }
 
@@ -126,6 +139,11 @@ final class GeradorFilas
         }
 
         $b->branco();
+    }
+
+    private function anuncio(mixed $id): string
+    {
+        return $this->anuncios[(int) $id] ?? '';
     }
 
     /**

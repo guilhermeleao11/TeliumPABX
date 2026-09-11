@@ -5,17 +5,20 @@
 
 /* Opções de destino usadas por rotas e URA — carregadas do banco. */
 async function opcoesDestino() {
-  const [ramais, filas, uras, custom, grupos, audios] = await Promise.all([
+  const [ramais, filas, uras, custom, grupos, anuncios] = await Promise.all([
     Api.get('/ramais', { limite: 500 }).catch(() => ({ dados: [] })),
     Api.get('/filas', { limite: 200 }).catch(() => ({ dados: [] })),
     Api.get('/ura', { limite: 100 }).catch(() => ({ dados: [] })),
     Api.get('/destinos-personalizados', { limite: 200 }).catch(() => ({ dados: [] })),
     Api.get('/grupos-toque', { limite: 200 }).catch(() => ({ dados: [] })),
-    Api.get('/audios').catch(() => ({ dados: [] }))
+    Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] }))
   ]);
   return {
     ramais: ramais.dados, filas: filas.dados, uras: uras.dados,
-    grupos: grupos.dados, audios: audios.dados,
+    grupos: grupos.dados,
+    // Anúncio, não gravação: a gravação é matéria-prima, o anúncio é o
+    // que sabe o que fazer com ela.
+    anuncios: anuncios.dados.filter(a => Number(a.ativo)),
     personalizados: custom.dados.filter(d => Number(d.ativo))
   };
 }
@@ -41,8 +44,7 @@ function destinoSelect(prefixo, item, destinos, extras = {}) {
     grupo('URAs', (d.uras || []).map(u => ({ v: `ura|${u.id}`, r: u.nome }))),
     grupo('Grupos de toque', (d.grupos || []).map(g => ({ v: `grupo|${g.numero}`, r: `${g.numero} — ${g.nome}` }))),
     grupo('Correio de voz', (d.ramais || []).map(r => ({ v: `voicemail|${r.numero}`, r: `Caixa de ${r.numero} — ${r.nome}` }))),
-    grupo('Anúncios', (d.audios || []).filter(a => ['anuncio', 'ura', 'sistema'].includes(a.categoria))
-        .map(a => ({ v: `anuncio|${a.arquivo}`, r: a.nome }))),
+    grupo('Anúncios', (d.anuncios || []).map(a => ({ v: `anuncio|${a.id}`, r: a.nome }))),
     grupo('Destinos personalizados', (d.personalizados || []).map(x =>
         ({ v: `personalizado|${x.id}`, r: `${x.nome} (${x.contexto},${x.extensao})` }))),
     grupo('Encerrar', [{ v: 'desligar|', r: 'Desligar a chamada' }])
@@ -62,6 +64,13 @@ function destinoSelect(prefixo, item, destinos, extras = {}) {
     ${select}
     ${extras.ajuda ? `<span class="hint">${esc(extras.ajuda)}</span>` : ''}
   </div>`;
+}
+
+/** Opções de um <select> de anúncio — é o que os módulos escolhem. */
+function opcoesAnuncio(anuncios, rotuloVazio = '— nenhum —') {
+  return [{ valor: '', rotulo: rotuloVazio },
+    ...(anuncios || []).filter(a => Number(a.ativo))
+      .map(a => ({ valor: a.id, rotulo: a.nome }))];
 }
 
 /** Lê um destinoSelect de volta para {tipo, valor}. */
@@ -183,18 +192,18 @@ PAGES['conn.rotassaida'] = paginaCrud({
 /* ------------------------- URA ------------------------- */
 PAGES['apps.ura'] = {
   async render(ctx) {
-    let uras, destinos, audios;
+    let uras, destinos, anuncios;
     try {
-      [uras, destinos, audios] = await Promise.all([
+      [uras, destinos, anuncios] = await Promise.all([
         Api.get('/ura', { limite: 100 }),
         opcoesDestino(),
-        Api.get('/audios').catch(() => ({ dados: [] }))
+        Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] }))
       ]);
     } catch (e) { return pageHead('URA — Atendimento Digital', '') + blocoErro(e); }
 
     this._uras = uras.dados;
     this._destinos = destinos;
-    this._audios = audios.dados;
+    this._anuncios = anuncios.dados;
 
     const cabecalho = pageHead('URA — Atendimento Digital',
       'A URA atende, toca a saudação e manda a chamada para onde o cliente escolher.',
@@ -218,7 +227,7 @@ PAGES['apps.ura'] = {
 
     return cabecalho + this._uras.map(u => {
       const opcoes = opcoesPorUra[u.id] || [];
-      const audio = this._audios.find(a => a.arquivo === u.audio);
+      const anuncio = this._anuncios.find(a => String(a.id) === String(u.anuncio_id));
 
       return `<div class="card" style="margin-bottom:16px">
         <div class="card-head">
@@ -227,7 +236,7 @@ PAGES['apps.ura'] = {
             <div><div class="card-title">${esc(u.nome)}
               ${Number(u.ativo) ? '' : '<span class="badge">parada</span>'}</div>
               <div class="card-sub">
-                Toca ${audio ? esc(audio.nome) : `<span class="mono">${esc(u.audio)}</span>`}
+                Toca ${anuncio ? esc(anuncio.nome) : '<span class="badge badge-warn">sem anúncio de saudação</span>'}
                 · espera ${u.timeout_digito}s pelo dígito · ${u.tentativas} tentativas
                 ${Number(u.discagem_direta) ? '· aceita discagem direta de ramal' : ''}</div></div>
           </div>
@@ -269,10 +278,7 @@ PAGES['apps.ura'] = {
   mount(ctx) {
     const pagina = this;
 
-    const audiosSelect = () => [{ valor: '', rotulo: '— escolha a saudação —' },
-      ...(pagina._audios || [])
-        .filter(a => ['ura', 'anuncio', 'sistema'].includes(a.categoria))
-        .map(a => ({ valor: a.arquivo, rotulo: `${a.nome} (${a.arquivo})` }))];
+    const anunciosSelect = () => opcoesAnuncio(pagina._anuncios, '— escolha a saudação —');
 
     const linhaEntrada = (o = {}) => `
       <tr data-entrada>
@@ -294,9 +300,9 @@ PAGES['apps.ura'] = {
       const campos = [
         { campo: 'nome', label: 'Nome da URA', obrigatorio: true, largura: 'full',
           placeholder: 'URA Principal', ajuda: 'Só para você reconhecer nas rotas e nos destinos.' },
-        { campo: 'audio', label: 'Áudio de saudação', obrigatorio: true, tipo: 'select',
-          opcoes: audiosSelect(), largura: 'full',
-          ajuda: 'É a gravação que o cliente ouve. Envie a sua em Gravações do Sistema.' },
+        { campo: 'anuncio_id', label: 'Anúncio de saudação', obrigatorio: true, tipo: 'select',
+          opcoes: anunciosSelect(), largura: 'full',
+          ajuda: 'É o que o cliente ouve ao cair na URA. Os anúncios são montados em Aplicações › Anúncios, a partir dos áudios enviados.' },
         { campo: 'timeout_digito', label: 'Espera pelo dígito (s)', tipo: 'number', padrao: 8,
           ajuda: 'Quanto tempo a URA aguarda depois da saudação antes de considerar que ninguém digitou.' },
         { campo: 'tentativas', label: 'Tentativas', tipo: 'number', padrao: 3,
@@ -464,7 +470,10 @@ function descreveDestino(tipo, valor, destinos) {
       return p ? `destino ${p.nome}` : `destino personalizado ${valor}`;
     }
     case 'voicemail': return `correio de voz de ${valor}`;
-    case 'anuncio':   return `anúncio ${valor}`;
+    case 'anuncio': {
+      const a = achar(d.anuncios, 'id');
+      return a ? `anúncio ${a.nome}` : `anúncio ${valor}`;
+    }
     case 'externo':   return `número externo ${valor}`;
     case 'desligar':  return 'desligar';
     default:          return `${tipo} ${valor}`;
@@ -1743,7 +1752,7 @@ PAGES['admin.listanegra'] = paginaCrud({
   ],
 
   aoCarregar: async (pagina) => {
-    pagina._audios = (await Api.get('/audios', { categoria: 'anuncio' }).catch(() => ({ dados: [] }))).dados;
+    pagina._anuncios = (await Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] }))).dados;
   },
 
   campos: (n, ctx, pagina) => [
@@ -1756,12 +1765,11 @@ PAGES['admin.listanegra'] = paginaCrud({
                {valor:'ocupado',rotulo:'Sinal de ocupado'},
                {valor:'anuncio',rotulo:'Tocar um anúncio e desligar'},
                {valor:'silencio',rotulo:'Atender e ficar em silêncio'}] },
-    { campo: 'audio_id', label: 'Anúncio (se escolher tocar um)', tipo: 'select',
-      opcoes: [{ valor: '', rotulo: 'padrão do sistema' },
-               ...(pagina._audios || []).map(a => ({ valor: a.id, rotulo: a.nome }))],
-      ajuda: (pagina._audios || []).length
+    { campo: 'anuncio_id', label: 'Anúncio (se escolher tocar um)', tipo: 'select',
+      opcoes: opcoesAnuncio(pagina._anuncios, 'padrão do sistema'),
+      ajuda: (pagina._anuncios || []).length
         ? 'O padrão do sistema é a mensagem de número fora de serviço do Asterisk.'
-        : 'Nenhum áudio enviado ainda — vai tocar a mensagem de número fora de serviço do Asterisk. Envie os seus em Gravações do Sistema.' },
+        : 'Nenhum anúncio criado ainda — vai tocar a mensagem de número fora de serviço do Asterisk. Crie os seus em Aplicações › Anúncios.' },
     { campo: 'ativo', label: 'Bloqueio ativo', tipo: 'switch', padrao: 1 }
   ]
 });
@@ -2307,19 +2315,212 @@ PAGES['admin.certificados'] = {
   }
 };
 
+/* ------------------------- Anúncios ------------------------- */
+PAGES['apps.anuncios'] = {
+  async render(ctx) {
+    let r, audios, destinos;
+    try {
+      [r, audios, destinos] = await Promise.all([
+        Api.get('/anuncios', { limite: 200 }),
+        Api.get('/audios').catch(() => ({ dados: [] })),
+        opcoesDestino()
+      ]);
+    } catch (e) { return pageHead('Anúncios', '') + blocoErro(e); }
+
+    this._itens = r.dados || [];
+    this._audios = audios.dados || [];
+    this._destinos = destinos;
+
+    const cabecalho = pageHead('Anúncios',
+      `Uma gravação mais o que fazer com ela. É o anúncio que a URA, as filas, as
+       conferências e as rotas apontam — nenhum módulo usa o arquivo direto.`,
+      ctx.can('criar')
+        ? `<button class="btn btn-primary btn-sm" data-novo-anuncio>${icon('plus','ico ico-sm')} Novo anúncio</button>`
+        : readOnlyNote(ctx));
+
+    if (!this._audios.length) {
+      return cabecalho + `<div class="card">${vazio('mic', 'Nenhum áudio enviado ainda',
+        `O anúncio é montado a partir de um áudio. Envie o primeiro em
+         Administrador › Gravações do Sistema e volte aqui.`)}</div>`;
+    }
+
+    if (!this._itens.length) {
+      return cabecalho + `<div class="card">${vazio('speaker', 'Nenhum anúncio criado',
+        `Escolha uma das gravações enviadas, diga se o cliente pode pular, se alguma tecla
+         repete e para onde a chamada vai depois de tocar.`,
+        ctx.can('criar') ? '<button class="btn btn-primary btn-sm" data-novo-anuncio>Criar o primeiro</button>' : '')}
+      </div>`;
+    }
+
+    const linhas = this._itens.map(a => {
+      const audio = this._audios.find(x => String(x.id) === String(a.audio_id));
+      return `<tr data-id="${a.id}" data-busca="${esc(`${a.nome} ${a.descricao || ''}`.toLowerCase())}">
+        <td><b>${esc(a.nome)}</b>${a.descricao ? `<div class="tiny muted">${esc(a.descricao)}</div>` : ''}</td>
+        <td>${audio ? `${esc(audio.nome)}<div class="tiny muted mono">${esc(audio.arquivo)}</div>`
+                    : '<span class="badge badge-danger">gravação removida</span>'}</td>
+        <td>${[
+          Number(a.permitir_pular) && '<span class="badge">pode pular</span>',
+          a.repetir_tecla && `<span class="badge">repete no ${esc(a.repetir_tecla)}</span>`,
+          Number(a.retornar_ura) && '<span class="badge">volta à URA</span>',
+          Number(a.nao_responder) && '<span class="badge">não atende</span>'
+        ].filter(Boolean).join(' ') || '<span class="muted">—</span>'}</td>
+        <td class="small">${esc(descreveDestino(a.destino_tipo, a.destino_valor, this._destinos))}</td>
+        <td>${Number(a.ativo)
+          ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
+          : '<span class="badge">Parado</span>'}</td>
+        <td class="col-actions"><span class="row-actions">
+          ${ctx.can('editar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar"
+            data-editar-anuncio="${a.id}">${icon('edit','ico ico-sm')}</button>` : ''}
+          ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir"
+            data-excluir-anuncio="${a.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+        </span></td>
+      </tr>`;
+    }).join('');
+
+    return cabecalho + `
+      <div class="card">
+        <div class="toolbar">
+          <div class="input-icon search-mini">${icon('search','ico ico-sm')}
+            <input class="input" data-filtro placeholder="Buscar por nome…">
+          </div>
+          <span class="grow"></span>
+          <span class="small muted" data-contador></span>
+        </div>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Anúncio</th><th>Gravação</th><th>Comportamento</th>
+                     <th>Destino após tocar</th><th>Estado</th><th></th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table></div>
+      </div>`;
+  },
+
+  mount(ctx) {
+    const pagina = this;
+    const itens = this._itens || [];
+
+    const filtro = document.querySelector('[data-filtro]');
+    const contador = document.querySelector('[data-contador]');
+    const linhas = [...document.querySelectorAll('tr[data-id]')];
+    const aplicar = () => {
+      const t = (filtro?.value || '').trim().toLowerCase();
+      let n = 0;
+      linhas.forEach(l => { const ok = !t || l.dataset.busca.includes(t); l.hidden = !ok; if (ok) n++; });
+      if (contador) contador.textContent = `${n} de ${linhas.length} anúncios`;
+    };
+    filtro?.addEventListener('input', aplicar);
+    aplicar();
+
+    const formulario = item => {
+      const novo = !item;
+      const a = item || { ativo: 1 };
+      const campos = [
+        { campo: 'nome', label: 'Descrição', obrigatorio: true, largura: 'full',
+          placeholder: 'Aviso de horário de atendimento',
+          ajuda: 'É como o anúncio aparece nas listas de destino.' },
+        { campo: 'audio_id', label: 'Gravação', obrigatorio: true, tipo: 'select', largura: 'full',
+          opcoes: [{ valor: '', rotulo: '— escolha a gravação —' },
+                   ...(pagina._audios || []).map(x =>
+                     ({ valor: x.id, rotulo: `${x.nome} (${x.arquivo})` }))],
+          ajuda: 'Os arquivos vêm de Administrador › Gravações do Sistema.' },
+        { campo: 'repetir_tecla', label: 'Repetir', tipo: 'select',
+          opcoes: [{ valor: '', rotulo: 'Desabilitar' },
+                   ...['0','1','2','3','4','5','6','7','8','9','*','#']
+                     .map(t => ({ valor: t, rotulo: `Tecla ${t}` }))],
+          ajuda: 'A tecla que o cliente aperta para ouvir de novo.' },
+        { campo: 'permitir_pular', label: 'Permitir pular', tipo: 'switch',
+          ajuda: 'Qualquer tecla interrompe o anúncio e segue para o destino.' },
+        { campo: 'retornar_ura', label: 'Retornar para a URA', tipo: 'switch',
+          ajuda: 'Se a chamada veio de uma URA, volta para ela depois de tocar, em vez de ir ao destino.' },
+        { campo: 'nao_responder', label: 'Não atender o canal', tipo: 'switch',
+          ajuda: 'Toca sem atender. A operadora não tarifa, mas alguns aparelhos não reproduzem o áudio.' },
+        { campo: 'ativo', label: 'Anúncio ativo', tipo: 'switch', padrao: 1 }
+      ];
+
+      Drawer.open({
+        titulo: novo ? 'Novo anúncio' : `Editar ${a.nome}`,
+        sub: 'Toca a gravação e manda a chamada para onde você escolher.',
+        corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, a)).join('')}</div>
+          <div class="secao-form">
+            <b>Destino após reprodução</b>
+            <div class="form-grid" style="margin-top:10px">
+              ${destinoSelect('destino', a, pagina._destinos,
+                  { label: 'Para onde a chamada vai', largura: 'full',
+                    rotuloVazio: '— desligar depois de tocar —',
+                    ajuda: 'Com "retornar para a URA" ligado, isto só vale quando a chamada não veio de uma URA.' })}
+            </div>
+          </div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>${novo ? 'Criar anúncio' : 'Salvar'}</button>`,
+        aoAbrir: dw => dw.querySelector('[data-ok]').onclick = async ev => {
+          if (!validarCampos(dw, campos)) return;
+
+          const dados = {};
+          campos.forEach(c => {
+            const el = dw.querySelector(`[name="${c.campo}"]`);
+            if (el) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value.trim();
+          });
+          const { tipo, valor } = lerDestino(dw.querySelector('[name="destino"]'));
+          dados.destino_tipo = tipo;
+          dados.destino_valor = valor;
+
+          // Um anúncio que aponta para si mesmo prende a chamada num laço.
+          if (!novo && tipo === 'anuncio' && String(valor) === String(a.id)) {
+            marcarErro(dw, 'destino', 'O anúncio não pode ter ele mesmo como destino.');
+            avisoFormulario(dw, ['Destino aponta para o próprio anúncio']);
+            return;
+          }
+
+          const botao = ev.currentTarget;
+          botao.disabled = true;
+          botao.innerHTML = '<span class="spin"></span> Salvando…';
+          try {
+            if (novo) await Api.post('/anuncios', dados);
+            else await Api.put(`/anuncios/${a.id}`, dados);
+            Drawer.close();
+            toast('Anúncio salvo. Aplique as configurações para valer no Asterisk.', 'ok');
+            App.route();
+          } catch (e) {
+            botao.disabled = false;
+            botao.textContent = novo ? 'Criar anúncio' : 'Salvar';
+            if (e.detalhe?.campo) marcarErro(dw, e.detalhe.campo, e.message);
+            else toast(e.message, 'err');
+          }
+        }
+      });
+    };
+
+    document.querySelectorAll('[data-novo-anuncio]').forEach(b => b.onclick = () => formulario(null));
+    document.querySelectorAll('[data-editar-anuncio]').forEach(b => b.onclick = () =>
+      formulario(itens.find(x => String(x.id) === b.dataset.editarAnuncio)));
+
+    document.querySelectorAll('[data-excluir-anuncio]').forEach(b => b.onclick = async () => {
+      const a = itens.find(x => String(x.id) === b.dataset.excluirAnuncio);
+      const ok = await Modal.confirm({
+        titulo: `Excluir o anúncio ${a.nome}?`,
+        texto: `A gravação continua em Gravações do Sistema. Quem apontava para este anúncio
+                — URA, fila, rota — fica sem o áudio.`,
+        ok: 'Excluir'
+      });
+      if (!ok) return;
+      try { await Api.delete(`/anuncios/${a.id}`); toast('Anúncio excluído.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+  }
+};
+
 /* ------------------------- Conferências ------------------------- */
 PAGES['apps.conferencias'] = {
   async render(ctx) {
-    let r, audios;
+    let r, anuncios;
     try {
-      [r, audios] = await Promise.all([
+      [r, anuncios] = await Promise.all([
         Api.get('/conferencias', { limite: 200 }),
-        Api.get('/audios').catch(() => ({ dados: [] }))
+        Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] }))
       ]);
     } catch (e) { return pageHead('Conferências', '') + blocoErro(e); }
 
     this._itens = r.dados || [];
-    this._audios = audios.dados || [];
+    this._anuncios = anuncios.dados || [];
 
     const cabecalho = pageHead('Conferências',
       'Salas fixas em que várias pessoas conversam ao mesmo tempo. Basta discar o número da sala.',
@@ -2336,7 +2537,7 @@ PAGES['apps.conferencias'] = {
     }
 
     const cartoes = this._itens.map(c => {
-      const audio = this._audios.find(a => a.arquivo === c.audio_entrada);
+      const anuncio = this._anuncios.find(a => String(a.id) === String(c.anuncio_entrada_id));
       const sinais = [
         c.pin && '<span class="badge">PIN</span>',
         c.pin_admin && '<span class="badge badge-brand">PIN de admin</span>',
@@ -2362,8 +2563,8 @@ PAGES['apps.conferencias'] = {
           <div class="row gap-6 small">${icon('users','ico ico-sm')}
             <span>${Number(c.max_usuarios) > 0
               ? `até ${c.max_usuarios} pessoas` : 'sem limite de pessoas'}</span></div>
-          ${audio || c.audio_entrada ? `<div class="row gap-6 small">${icon('speaker','ico ico-sm')}
-            <span>${esc(audio ? audio.nome : c.audio_entrada)}</span></div>` : ''}
+          ${anuncio ? `<div class="row gap-6 small">${icon('speaker','ico ico-sm')}
+            <span>${esc(anuncio.nome)}</span></div>` : ''}
         </div>
 
         ${sinais ? `<div class="row gap-4 wrap" style="margin-bottom:10px">${sinais}</div>` : ''}
@@ -2387,9 +2588,7 @@ PAGES['apps.conferencias'] = {
     const pagina = this;
     const itens = this._itens || [];
 
-    const audiosSelect = () => [{ valor: '', rotulo: '— nenhum —' },
-      ...(pagina._audios || []).filter(a => ['anuncio', 'ura', 'sistema'].includes(a.categoria))
-        .map(a => ({ valor: a.arquivo, rotulo: `${a.nome} (${a.arquivo})` }))];
+    const anunciosSelect = () => opcoesAnuncio(pagina._anuncios);
 
     const formulario = item => {
       const novo = !item;
@@ -2415,9 +2614,9 @@ PAGES['apps.conferencias'] = {
         { aba: 'Entrada', campo: 'pin_admin', label: 'PIN de administrador', mono: true,
           padraoValido: /^[0-9]{0,16}$/, mensagemPadrao: 'só dígitos',
           ajuda: 'Quem entra com este PIN pode trancar a sala (tecla 2) e tirar o último que entrou (tecla 3).' },
-        { aba: 'Entrada', campo: 'audio_entrada', label: 'Mensagem de anúncio de entrada',
-          tipo: 'select', opcoes: audiosSelect(), largura: 'full',
-          ajuda: 'Tocada para quem entra, antes de cair na sala. Envie a sua em Gravações do Sistema.' },
+        { aba: 'Entrada', campo: 'anuncio_entrada_id', label: 'Mensagem de anúncio de entrada',
+          tipo: 'select', opcoes: anunciosSelect(), largura: 'full',
+          ajuda: 'Tocada para quem entra, antes de cair na sala. Os anúncios são montados em Aplicações › Anúncios.' },
         { aba: 'Entrada', campo: 'esperar_admin', label: 'Só começar quando o administrador entrar',
           tipo: 'switch', largura: 'full',
           ajuda: 'Quem chegar antes ouve música de espera. Quando o administrador sai, a sala encerra.' },

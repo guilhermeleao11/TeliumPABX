@@ -949,18 +949,22 @@ const VAZIA_FILA = [
 
 PAGES['apps.filas'] = {
   async render(ctx) {
-    let r, audios, pesquisas;
+    let r, anuncios, pesquisas, audios;
     try {
-      [r, audios, pesquisas] = await Promise.all([
+      [r, anuncios, pesquisas, audios] = await Promise.all([
         Api.get('/filas', { limite: 200 }),
-        Api.get('/audios').catch(() => ({ dados: [] })),
-        Api.get('/pesquisas', { limite: 100 }).catch(() => ({ dados: [] }))
+        Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] })),
+        Api.get('/pesquisas', { limite: 100 }).catch(() => ({ dados: [] })),
+        Api.get('/audios').catch(() => ({ dados: [] }))
       ]);
     } catch (e) { return pageHead('Filas de Atendimento', '') + blocoErro(e); }
 
     this._itens = r.dados || [];
-    this._audios = audios.dados || [];
+    this._anuncios = anuncios.dados || [];
     this._pesquisas = pesquisas.dados || [];
+    // Música em espera é classe do musiconhold, não anúncio: ela toca em
+    // laço enquanto o cliente espera, e não uma vez com um destino depois.
+    this._audios = audios.dados || [];
 
     const cabecalho = pageHead('Filas de Atendimento',
       'Distribuição das chamadas, agentes, anúncios e metas de nível de serviço.',
@@ -1030,9 +1034,7 @@ PAGES['apps.filas'] = {
 
   /** Os campos da fila, em abas. */
   campos(f = {}) {
-    const audios = cat => [{ valor: '', rotulo: '— nenhum —' },
-      ...this._audios.filter(a => !cat || a.categoria === cat)
-                     .map(a => ({ valor: a.arquivo, rotulo: `${a.nome} (${a.arquivo})` }))];
+    const anuncios = () => opcoesAnuncio(this._anuncios);
 
     return [
       { aba: 'Geral', campo: 'numero', label: 'Número da fila', obrigatorio: true, mono: true,
@@ -1058,14 +1060,14 @@ PAGES['apps.filas'] = {
                  ...this._audios.filter(a => a.categoria === 'espera')
                                 .map(a => ({ valor: a.arquivo, rotulo: a.nome }))],
         padrao: 'default', largura: 'full' },
-      { aba: 'Áudios', campo: 'audio_entrada', label: 'Anúncio de entrada, para o cliente',
-        tipo: 'select', opcoes: audios(''), largura: 'full',
+      { aba: 'Áudios', campo: 'anuncio_entrada_id', label: 'Anúncio de entrada, para o cliente',
+        tipo: 'select', opcoes: anuncios(), largura: 'full',
         ajuda: 'Toca uma vez, assim que a chamada entra na fila. Ex.: "Você ligou para o suporte, aguarde."' },
-      { aba: 'Áudios', campo: 'audio_agente', label: 'Sussurro, para quem vai atender',
-        tipo: 'select', opcoes: audios(''), largura: 'full',
+      { aba: 'Áudios', campo: 'anuncio_agente_id', label: 'Sussurro, para quem vai atender',
+        tipo: 'select', opcoes: anuncios(), largura: 'full',
         ajuda: 'Só o agente ouve, antes de a conversa começar. É como ele sabe de qual fila veio a chamada.' },
-      { aba: 'Áudios', campo: 'audio_periodico', label: 'Anúncio periódico, para quem espera',
-        tipo: 'select', opcoes: audios(''), largura: 'full' },
+      { aba: 'Áudios', campo: 'anuncio_periodico_id', label: 'Anúncio periódico, para quem espera',
+        tipo: 'select', opcoes: anuncios(), largura: 'full' },
       { aba: 'Áudios', campo: 'periodico_segundos', label: 'A cada quantos segundos', tipo: 'number',
         padrao: 60 },
 
@@ -1374,15 +1376,14 @@ async function paginaPesquisas(ctx, pagina) {
   try { r = await Api.get('/pesquisas', { limite: 100 }); }
   catch (e) { toast(e.message, 'err'); return; }
 
-  const audios = [{ valor: '', rotulo: '— sem áudio, só um bipe —' },
-    ...(pagina._audios || []).map(a => ({ valor: a.arquivo, rotulo: `${a.nome} (${a.arquivo})` }))];
+  const anuncios = opcoesAnuncio(pagina._anuncios, '— sem anúncio, só um bipe —');
 
   const campos = p => [
     { campo: 'nome', label: 'Nome', obrigatorio: true, largura: 'full', placeholder: 'Nota do atendimento' },
     { campo: 'descricao', label: 'Descrição', largura: 'full' },
-    { campo: 'audio_pergunta', label: 'Áudio da pergunta', tipo: 'select', opcoes: audios, largura: 'full',
-      ajuda: 'Ex.: "De 1 a 5, que nota você dá para o atendimento?". Sem áudio, o cliente só ouve um bipe — envie o seu em Gravações do Sistema.' },
-    { campo: 'audio_obrigado', label: 'Áudio de agradecimento', tipo: 'select', opcoes: audios, largura: 'full' },
+    { campo: 'anuncio_pergunta_id', label: 'Anúncio da pergunta', tipo: 'select', opcoes: anuncios, largura: 'full',
+      ajuda: 'Ex.: "De 1 a 5, que nota você dá para o atendimento?". Sem anúncio, o cliente só ouve um bipe — crie o seu em Aplicações › Anúncios.' },
+    { campo: 'anuncio_obrigado_id', label: 'Anúncio de agradecimento', tipo: 'select', opcoes: anuncios, largura: 'full' },
     { campo: 'nota_min', label: 'Nota mínima', tipo: 'number', padrao: 1 },
     { campo: 'nota_max', label: 'Nota máxima', tipo: 'number', padrao: 5,
       ajuda: 'A resposta é um dígito só, então vai de 1 a 9.' },
@@ -1424,12 +1425,12 @@ async function paginaPesquisas(ctx, pagina) {
     sub: 'Perguntam a nota logo depois que o atendente desliga a chamada.',
     wide: true,
     corpo: r.dados.length ? `<div class="table-wrap"><table class="table">
-        <thead><tr><th>Pesquisa</th><th>Notas</th><th>Áudio</th><th>Estado</th><th></th></tr></thead>
+        <thead><tr><th>Pesquisa</th><th>Notas</th><th>Anúncio</th><th>Estado</th><th></th></tr></thead>
         <tbody>${r.dados.map(p => `<tr>
           <td><b>${esc(p.nome)}</b>${p.descricao ? `<div class="tiny muted">${esc(p.descricao)}</div>` : ''}</td>
           <td class="num">${p.nota_min} a ${p.nota_max}</td>
-          <td>${p.audio_pergunta
-            ? `<span class="mono small">${esc(p.audio_pergunta)}</span>`
+          <td>${p.anuncio_pergunta_id
+            ? esc((pagina._anuncios || []).find(a => String(a.id) === String(p.anuncio_pergunta_id))?.nome || '—')
             : '<span class="badge badge-warn">só um bipe</span>'}</td>
           <td>${Number(p.ativo) ? '<span class="badge badge-ok">Ativa</span>' : '<span class="badge">Parada</span>'}</td>
           <td class="col-actions"><button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar"

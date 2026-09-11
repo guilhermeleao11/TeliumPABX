@@ -11,6 +11,8 @@ final class GeradorDialplan
     private Destino $destino;
     /** @var array<string,array<string,mixed>> */
     private array $ramais;
+    /** @var array<int,array<string,mixed>> anúncios ativos, indexados por id */
+    private array $anuncios;
 
     public function __construct()
     {
@@ -19,6 +21,14 @@ final class GeradorDialplan
 
         $personalizados = array_column(
             Bd::todos('SELECT * FROM destinos_personalizados WHERE ativo = 1'),
+            null,
+            'id'
+        );
+
+        // Nenhum módulo guarda mais nome de arquivo: todos apontam para um
+        // anúncio, e é aqui que o id vira o arquivo que o Asterisk toca.
+        $this->anuncios = array_column(
+            Bd::todos('SELECT a.*, s.arquivo FROM anuncios a JOIN audios s ON s.id = a.audio_id'),
             null,
             'id'
         );
@@ -38,10 +48,25 @@ final class GeradorDialplan
             'extensions.pesquisa.conf' => $this->pesquisas(),
             'extensions.confirmacao.conf' => $this->confirmacoesDeFila(),
             'extensions.conferencias.conf' => $this->conferencias(),
+            'extensions.anuncios.conf' => $this->anuncios(),
             'extensions.ura.conf'     => $this->uras(),
             'extensions.saida.conf'   => $this->rotasSaida(),
             'extensions.entrada.conf' => $this->rotasEntrada(),
         ];
+    }
+
+    /**
+     * O arquivo que um anúncio toca, ou '' se ele não existe mais.
+     *
+     * Quando um módulo só precisa do prompt — a saudação da URA, o
+     * sussurro da fila — é isto que ele usa; o destino do anúncio só
+     * vale quando o anúncio é o destino da chamada.
+     */
+    private function audioDoAnuncio(mixed $id): string
+    {
+        $a = $this->anuncios[(int) $id] ?? null;
+
+        return $a === null || (int) $a['ativo'] !== 1 ? '' : (string) $a['arquivo'];
     }
 
     private function cabecalho(string $titulo): Bloco
@@ -70,9 +95,10 @@ final class GeradorDialplan
                   ->contexto('telium-listanegra');
 
         $bloqueados = Bd::todos(
-            'SELECT ln.*, a.arquivo AS audio
+            'SELECT ln.*, s.arquivo AS audio
                FROM lista_negra ln
-          LEFT JOIN audios a ON a.id = ln.audio_id
+          LEFT JOIN anuncios an ON an.id = ln.anuncio_id AND an.ativo = 1
+          LEFT JOIN audios s ON s.id = an.audio_id
               WHERE ln.ativo = 1
            ORDER BY ln.numero'
         );
@@ -219,8 +245,9 @@ final class GeradorDialplan
 
             // Anúncio ao cliente antes de entrar na espera. Fica fora do
             // announce da fila de propósito: aquele é o sussurro do agente.
-            if (($f['audio_entrada'] ?? '') !== '') {
-                $b->same('Playback(' . $f['audio_entrada'] . ')');
+            $entrada = $this->audioDoAnuncio($f['anuncio_entrada_id'] ?? 0);
+            if ($entrada !== '') {
+                $b->same("Playback({$entrada})");
             }
 
             // 'c' devolve o cliente ao dialplan quando o atendente desliga;
@@ -272,6 +299,102 @@ final class GeradorDialplan
         }
 
         return $b->texto();
+    }
+
+    /**
+     * Anúncios.
+     *
+     * O anúncio é uma gravação mais o que fazer com ela: deixar pular,
+     * repetir numa tecla, voltar para a URA de onde a chamada veio e
+     * para onde ir depois. É o que os outros módulos apontam quando
+     * precisam tocar alguma coisa — nenhum guarda nome de arquivo.
+     */
+    private function anuncios(): string
+    {
+        $b = $this->cabecalho('Contextos: anúncios');
+
+        $ativos = array_filter($this->anuncios, static fn (array $a): bool => (int) $a['ativo'] === 1);
+
+        // Cada anúncio tem contexto próprio, como as URAs. Num contexto
+        // só, a tecla que repete um anúncio colidiria com o número de
+        // outro — o anúncio 2 repetindo no 1 roubaria o anúncio 1.
+        $b->contexto('telium-anuncios');
+        foreach ($ativos as $a) {
+            $b->exten((string) $a['id'], "Goto(telium-anuncio-{$a['id']},s,1)");
+        }
+        if ($ativos === []) {
+            $b->comentario('nenhum anúncio ativo');
+        }
+        $b->branco();
+
+        foreach ($ativos as $a) {
+            $id = (int) $a['id'];
+            $pular = (int) $a['permitir_pular'] === 1;
+            $repete = trim((string) ($a['repetir_tecla'] ?? ''));
+
+            // Com tecla para pular ou repetir, o áudio tem de ser tocado
+            // por Background, que escuta o teclado; Playback não escuta.
+            $tocar = ($pular || $repete !== '')
+                ? "Background({$a['arquivo']})"
+                : "Playback({$a['arquivo']})";
+
+            $b->comentario(str_repeat('-', 62))
+              ->comentario("Anúncio {$id} — {$a['nome']}")
+              ->comentario(str_repeat('-', 62))
+              ->contexto("telium-anuncio-{$id}")
+              ->exten('s', "NoOp(Anúncio: {$a['nome']})");
+
+            if ((int) $a['nao_responder'] === 1) {
+                // Sem atender, a operadora não tarifa a chamada.
+                $b->same('NoOp(Tocando sem atender o canal)');
+            } else {
+                $b->same('Answer()')->same('Wait(1)');
+            }
+
+            $b->same($tocar, 'toca');
+
+            if ($repete !== '' || $pular) {
+                $b->same('WaitExten(1)');
+            }
+
+            $saida = $this->saidaDoAnuncio($a);
+            $b->same(array_shift($saida), 'saida')->apps($saida);
+
+            if ($repete !== '') {
+                $b->branco()
+                  ->comentario("tecla {$repete} ouve de novo")
+                  ->exten($repete, 'Goto(s,toca)');
+            }
+            if ($pular || $repete !== '') {
+                $b->comentario('qualquer outra tecla, ou o tempo acabar, segue adiante')
+                  ->exten('i', 'Goto(s,saida)')
+                  ->exten('t', 'Goto(s,saida)');
+            }
+
+            $b->branco();
+        }
+
+        return $b->texto();
+    }
+
+    /**
+     * Para onde a chamada vai quando o anúncio termina.
+     *
+     * @return string[]
+     */
+    private function saidaDoAnuncio(array $a): array
+    {
+        $linhas = ['NoOp(Fim do anúncio)'];
+
+        if ((int) $a['retornar_ura'] === 1) {
+            // A URA marca de onde a chamada saiu; sem essa marca, não há
+            // para onde voltar e vale o destino configurado.
+            $linhas[] = 'ExecIf($["${TELIUM_URA_ORIGEM}" != ""]'
+                      . '?Goto(telium-ura-${TELIUM_URA_ORIGEM},s,1))';
+            $linhas[] = 'NoOp(A chamada não veio de uma URA; vale o destino configurado)';
+        }
+
+        return [...$linhas, ...$this->destino->linhas($a['destino_tipo'], $a['destino_valor'])];
     }
 
     /**
@@ -333,8 +456,9 @@ final class GeradorDialplan
                   ->same('NoOp(PIN aceito)', 'entra');
             }
 
-            if ((string) ($s['audio_entrada'] ?? '') !== '') {
-                $b->same('Playback(' . $s['audio_entrada'] . ')');
+            $entrada = $this->audioDoAnuncio($s['anuncio_entrada_id'] ?? 0);
+            if ($entrada !== '') {
+                $b->same("Playback({$entrada})");
             }
             if ((int) $s['gravar'] === 1) {
                 // Mesmo formato e mesma árvore das gravações de chamada,
@@ -375,7 +499,7 @@ final class GeradorDialplan
         $b = $this->cabecalho('Contextos: confirmação de atendimento nas filas');
 
         $filas = Bd::todos(
-            'SELECT numero, nome, audio_agente FROM filas
+            'SELECT numero, nome, anuncio_agente_id FROM filas
               WHERE ativo = 1 AND confirmar_atendimento = 1 ORDER BY numero'
         );
 
@@ -384,7 +508,7 @@ final class GeradorDialplan
         }
 
         foreach ($filas as $f) {
-            $audio = (string) ($f['audio_agente'] ?? '');
+            $audio = $this->audioDoAnuncio($f['anuncio_agente_id'] ?? 0);
 
             $b->branco()
               ->comentario("Fila {$f['numero']} — {$f['nome']}")
@@ -418,7 +542,7 @@ final class GeradorDialplan
             $id = (int) $p['id'];
             $min = (int) $p['nota_min'];
             $max = (int) $p['nota_max'];
-            $prompt = ($p['audio_pergunta'] ?? '') !== '' ? (string) $p['audio_pergunta'] : 'beep';
+            $prompt = $this->audioDoAnuncio($p['anuncio_pergunta_id'] ?? 0) ?: 'beep';
 
             $b->branco()
               ->comentario("{$id} — {$p['nome']} (nota de {$min} a {$max})")
@@ -440,11 +564,8 @@ final class GeradorDialplan
               ))
               ->same('NoOp(Nota ${TELIUM_NOTA} registrada)');
 
-            if (($p['audio_obrigado'] ?? '') !== '') {
-                $b->same('Playback(' . $p['audio_obrigado'] . ')');
-            } else {
-                $b->same('Playback(auth-thankyou)');
-            }
+            $obrigado = $this->audioDoAnuncio($p['anuncio_obrigado_id'] ?? 0);
+            $b->same('Playback(' . ($obrigado ?: 'auth-thankyou') . ')');
 
             $b->same('Hangup()')
               // Uma tecla fora da faixa vira nova tentativa, não descarte.
@@ -477,6 +598,7 @@ final class GeradorDialplan
 
         foreach ($uras as $u) {
             $tentativas = max(1, (int) $u['tentativas']);
+            $saudacao = $this->audioDoAnuncio($u['anuncio_id'] ?? 0);
             $b->comentario(str_repeat('-', 62))
               ->comentario("URA {$u['id']} — {$u['nome']}")
               ->comentario(str_repeat('-', 62))
@@ -488,7 +610,9 @@ final class GeradorDialplan
               ->same('Set(INVALIDAS=0)')
               ->same('Set(TENTATIVA=$[${TENTATIVA} + 1])', 'menu')
               ->same("GotoIf(\$[\${TENTATIVA} > {$tentativas}]?falha)")
-              ->same("Background({$u['audio']})")
+              ->same($saudacao !== ''
+                  ? "Background({$saudacao})"
+                  : 'NoOp(URA sem anúncio de saudação escolhido)')
               ->same("WaitExten({$u['timeout_digito']})")
               ->same('NoOp(Sem resposta na URA)', 'falha')
               ->apps($this->destino->linhas($u['destino_timeout_tipo'], $u['destino_timeout_valor']));
@@ -502,7 +626,10 @@ final class GeradorDialplan
                 $b->branco()
                   ->comentario("tecla {$o['tecla']} → {$o['rotulo']} ("
                       . $this->destino->descricao($o['destino_tipo'], $o['destino_valor']) . ')')
-                  ->exten($o['tecla'], "NoOp({$o['rotulo']})");
+                  ->exten($o['tecla'], "NoOp({$o['rotulo']})")
+                  // Marca de onde a chamada saiu: é o que deixa um anúncio
+                  // com "retornar para a URA" saber para onde voltar.
+                  ->same("Set(__TELIUM_URA_ORIGEM={$u['id']})");
 
                 // "repetir menu" aponta para a própria URA: volta ao rótulo
                 if ($o['destino_tipo'] === 'ura' && (int) $o['destino_valor'] === (int) $u['id']) {

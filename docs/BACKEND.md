@@ -81,6 +81,24 @@ pelo AMI em 127.0.0.1.
 O gerador é idempotente: compara o conteúdo (ignorando a linha de data) e só
 reescreve o que mudou de fato.
 
+### Anúncios
+
+O arquivo enviado em Gravações do Sistema é matéria-prima. Quem os módulos usam
+é o **anúncio**: uma gravação mais o que fazer com ela — deixar pular, repetir
+numa tecla, voltar para a URA de onde a chamada veio e para onde ir depois.
+
+Por isso nenhuma tabela guarda mais nome de arquivo de áudio: `ura`, `filas`,
+`conferencias`, `pesquisas` e `lista_negra` apontam para `anuncios`, e o gerador
+resolve o id no arquivo na hora de escrever o dialplan.
+
+Cada anúncio tem contexto próprio (`telium-anuncio-<id>`), como as URAs: num
+contexto só, a tecla que repete um anúncio colidiria com o número de outro.
+Quando o anúncio precisa ouvir o teclado — porque deixa pular ou repete —, o
+áudio sai em `Background`, não em `Playback`.
+
+"Retornar para a URA" funciona porque cada saída de URA marca
+`__TELIUM_URA_ORIGEM` antes de ir para o destino.
+
 ### Filas e URA
 
 A fila emite `queues.conf` com o que o `app_queue` entrega de verdade — sussurro

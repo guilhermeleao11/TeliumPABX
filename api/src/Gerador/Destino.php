@@ -28,7 +28,7 @@ final class Destino
             'ura'       => ["Goto(telium-ura-{$valor},s,1)"],
             'grupo'     => ["Goto(telium-grupos,{$valor},1)"],
             'voicemail' => ["VoiceMail({$valor}@telium,u)", 'Hangup()'],
-            'anuncio'   => ["Playback({$valor})", 'Hangup()'],
+            'anuncio'   => ["Goto(telium-anuncios,{$valor},1)"],
             'externo'   => ["Goto(telium-saida,{$valor},1)"],
             'personalizado' => $this->paraPersonalizado((string) $valor),
             'desligar'  => ['Hangup()'],
