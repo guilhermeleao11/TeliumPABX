@@ -25,7 +25,7 @@
     mode: "0440"
     validate: "visudo -cf %s"
     content: |
-      # {{ ansible_managed }}
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão.
       {{ telium_user }} ALL=(root) NOPASSWD: /usr/local/sbin/telium-backup
 
 - name: Instalar a unidade de backup
@@ -33,7 +33,7 @@
     dest: /etc/systemd/system/telium-backup.service
     mode: "0644"
     content: |
-      # {{ ansible_managed }}
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão.
       [Unit]
       Description=Telium PABX — backup
       After=mariadb.service
@@ -50,7 +50,7 @@
     dest: /etc/systemd/system/telium-backup.timer
     mode: "0644"
     content: |
-      # {{ ansible_managed }}
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão.
       [Unit]
       Description=Verifica rotinas de backup a cada minuto
 
