@@ -127,3 +127,21 @@
 - name: Saída do aplicador de configuração
   ansible.builtin.debug:
     var: aplicar_config.stdout_lines
+
+# Depois de tudo publicado, a bateria confere o que já foi corrigido uma
+# vez: a injeção pelo cadastro, o TOTP, as permissões, a integridade do
+# banco e se alguma rota da API ficou sem exigir sessão. Falha aqui
+# interrompe o playbook — é exatamente o que se quer saber antes de
+# entregar a central.
+- name: Rodar a bateria de testes
+  ansible.builtin.command:
+    cmd: php bin/telium testar
+    chdir: "{{ telium_api }}"
+  become_user: "{{ telium_user }}"
+  become: true
+  register: testes
+  changed_when: false
+
+- name: Resultado da bateria de testes
+  ansible.builtin.debug:
+    var: testes.stdout_lines

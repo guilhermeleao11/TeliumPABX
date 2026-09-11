@@ -10,6 +10,7 @@ declare(strict_types=1);
  *   php bin/telium aplicar-config   — gera e recarrega o Asterisk
  *   php bin/telium doctor           — diagnóstico das dependências
  *   php bin/telium senha <usuario>  — define uma nova senha
+ *   php bin/telium testar           — roda a bateria de testes
  */
 
 use Telium\Dominio\Senha;
@@ -18,6 +19,7 @@ use Telium\Gerador\Gerador;
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Ami;
 use Telium\Suporte\Bd;
+use Telium\Suporte\Testes;
 
 require __DIR__ . '/../vendor/autoload.php';
 Ambiente::carregar(__DIR__ . '/../.env');
@@ -32,6 +34,7 @@ try {
         'aplicar-config' => aplicarConfig(),
         'doctor'         => doctor(),
         'senha'          => trocarSenha($argv[2] ?? ''),
+        'testar'         => testar(),
         default          => ajuda(),
     };
 } catch (Throwable $e) {
@@ -259,4 +262,40 @@ function ajuda(): void
       php bin/telium senha <usuario>   define uma nova senha (aceita pipe)
 
     TXT;
+}
+
+/**
+ * Bateria de testes.
+ *
+ * Roda também na máquina do cliente, depois de instalar ou atualizar: é
+ * a forma de conferir que nada do que já foi corrigido voltou.
+ */
+function testar(): void
+{
+    global $verde, $vermelho, $amarelo, $zero;
+
+    echo "Telium PABX " . \Telium\Suporte\Versao::NUMERO . " — bateria de testes\n";
+
+    $comBanco = true;
+    try {
+        Bd::valor('SELECT 1');
+    } catch (Throwable $e) {
+        $comBanco = false;
+        echo "{$amarelo}! sem banco ({$e->getMessage()}) — só os testes que não dependem dele{$zero}\n";
+    }
+
+    $r = (new Testes())->rodar($comBanco);
+
+    echo "\n";
+    if ($r['falhou'] === 0) {
+        echo "{$verde}✓ {$r['passou']} testes, nenhuma falha{$zero}\n";
+
+        return;
+    }
+
+    echo "{$vermelho}✗ {$r['falhou']} de " . ($r['passou'] + $r['falhou']) . " falharam{$zero}\n";
+    foreach ($r['erros'] as $e) {
+        echo "  - {$e}\n";
+    }
+    exit(1);
 }

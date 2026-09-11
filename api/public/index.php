@@ -603,4 +603,11 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     }
 })->add(new MwAutenticacao());
 
+// A bateria de testes monta o mesmo aplicativo para percorrer as rotas
+// sem subir servidor nenhum; nesse caso ela é que decide o que fazer
+// com ele. Fora daí, nada muda.
+if (defined('TELIUM_SEM_RUN')) {
+    return $app;
+}
+
 $app->run();
