@@ -192,8 +192,18 @@ const Softphone = {
 
     SipLink.ao((evento, dados) => this.doSip(evento, dados));
     SipLink.iniciar({
-      ws: cfg.ws, ramal: cfg.ramal, senha: cfg.senha,
-      dominio: cfg.dominio, nome: cfg.nome
+      // O endereço sai da própria origem da página, e não do hostname
+      // configurado no servidor: quem abre o console pelo IP tentaria
+      // abrir o WebSocket num nome que a máquina dele não resolve, e o
+      // registro falharia sem dizer por quê. Pela origem, o certificado
+      // também já é o que o navegador aceitou para entrar aqui.
+      ws: location.protocol === 'https:'
+        ? `wss://${location.host}/ws`
+        : (cfg.ws || `ws://${location.host}/ws`),
+      ramal: cfg.ramal,
+      senha: cfg.senha,
+      dominio: cfg.dominio || location.hostname,
+      nome: cfg.nome
     });
   },
 

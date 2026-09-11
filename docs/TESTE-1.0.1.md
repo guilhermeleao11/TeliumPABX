@@ -46,6 +46,23 @@ sudo asterisk -rx "parking show"
 - O caminho inteiro de uma chamada entrante está ligado ponta a ponta:
   rota de entrada → condição horária → URA → fila → pesquisa de satisfação.
 
+## WebRTC: o que já foi provado e o que falta
+
+Provado com nginx e Asterisk de verdade:
+
+- `transport-wss` carrega (`pjsip show transports`).
+- O Asterisk publica `/asterisk/ws` (`http show status`).
+- O caminho inteiro faz o upgrade: `https://SEU-IP/ws` → nginx → Asterisk
+  responde **101 Switching Protocols** com `Sec-WebSocket-Protocol: sip`.
+- Um ramal com WebRTC ligado sai com o perfil completo — conferido no
+  `pjsip show endpoint`: `use_avpf`, `ice_support`, `rtcp_mux`,
+  `media_encryption: dtls` e o par DTLS do módulo de Certificados.
+- O endereço do WebSocket é montado pela origem da página, então funciona
+  tanto por IP quanto por nome, com o certificado que o navegador já aceitou.
+
+**Falta o que só um navegador de verdade mostra:** o registro do JsSIP, o
+aperto de mão DTLS e o áudio. É o primeiro item da lista abaixo.
+
 ## O que testar na tela
 
 **Ramais.** O cadastro tem oito abas. Crie um ramal usando o botão de

@@ -168,22 +168,17 @@ final class Autenticacao
                               . 'Ligue a opção no cadastro do ramal para usar o softphone do navegador.'];
         }
 
-        $ws = (string) Ambiente::get('SOFTPHONE_WS', '');
-        $dominio = (string) Ambiente::get('SIP_DOMINIO', '');
-
-        if ($ws === '' || $dominio === '') {
-            return ['disponivel' => false,
-                    'motivo' => 'O endereço do softphone não está configurado no servidor '
-                              . '(SOFTPHONE_WS e SIP_DOMINIO). Rode o playbook do Ansible.'];
-        }
-
+        // O endereço do WebSocket é resolvido no navegador, pela origem da
+        // página: quem entra pelo IP e quem entra pelo nome chegam ao
+        // mesmo lugar, com o certificado que já foi aceito. O que vem
+        // daqui é só o rumo de quem preferir fixar outro endereço.
         return [
             'disponivel' => true,
-            'ws'         => $ws,
+            'ws'         => (string) Ambiente::get('SOFTPHONE_WS', ''),
             'ramal'      => (string) $r['numero'],
             'nome'       => (string) $r['nome'],
             'senha'      => (string) $r['senha_sip'],
-            'dominio'    => $dominio,
+            'dominio'    => (string) Ambiente::get('SIP_DOMINIO', ''),
         ];
     }
 
