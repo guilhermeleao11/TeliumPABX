@@ -52,16 +52,23 @@ external_signaling_address = {{ nat_ip_publico }}
 {% endif %}
 
 ; ------------------------------------------------------------------
-; WebRTC direto no Asterisk (WSS) — DESATIVADO.
-; Nesta arquitetura quem fala WebRTC com o navegador é o Janus.
-; Para usar sem o Janus: habilite o bloco abaixo, ligue tlsenable
-; no http.conf e aponte os ramais com webrtc=yes para este transporte.
+; WebRTC: o navegador fala direto com o Asterisk.
+;
+; Fica preso em 127.0.0.1 porque quem atende o navegador é o nginx, que
+; já termina TLS com o certificado do console e repassa em /ws. Assim o
+; softphone usa o mesmo endereço e o mesmo certificado do resto do
+; sistema, e não há uma segunda porta TLS para manter.
+;
+; O ramal marcado como WebRTC no console sai com este transporte, e o
+; gerador liga junto o que o navegador exige: AVPF, ICE, rtcp-mux e
+; DTLS — faltando qualquer um, a chamada conecta e fica muda.
 ; ------------------------------------------------------------------
-;[transport-wss]
-;type     = transport
-;protocol = wss
-;bind     = 0.0.0.0:{{ ast_http_porta }}
+[transport-wss]
+type     = transport
+protocol = wss
+bind     = 127.0.0.1:{{ ast_http_porta }}
 
+#include "telium/pjsip.acl.conf"
 #include "telium/pjsip.trunks.conf"
 #include "telium/pjsip.endpoints.conf"
 #include "telium/pjsip_custom.conf"

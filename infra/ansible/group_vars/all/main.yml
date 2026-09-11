@@ -110,6 +110,10 @@ cert_janus_dir: /etc/janus/certs
 
 # ---------- opções de execução ----------
 compilar_asterisk: true                      # false pula a compilação (VM já provisionada)
+# O WebRTC do softphone vai direto ao Asterisk, pelo nginx em /ws. O
+# Janus fica disponível para um módulo futuro de sala de vídeo, mas não
+# está no caminho de nenhuma chamada — por isso não é instalado por padrão.
+instalar_janus: false
 compilar_janus: true
 instalar_firewall: true
 sons_pt_br: true

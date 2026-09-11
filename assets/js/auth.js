@@ -55,7 +55,7 @@ const Auth = {
       allow: dados.permissoes.allow,
       caps: dados.permissoes.caps,
       empresa: dados.empresa,
-      janus: dados.janus
+      softphone: dados.softphone
     };
     return this.sessao;
   },

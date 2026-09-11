@@ -17,7 +17,7 @@ final class GeradorPjsip
         return [
             'pjsip.endpoints.conf' => $this->endpoints(),
             'pjsip.trunks.conf'    => $this->troncos(),
-            'acl.conf'             => $this->acls(),
+            'pjsip.acl.conf'       => $this->acls(),
         ];
     }
 
@@ -187,10 +187,11 @@ final class GeradorPjsip
           ->crua('maximum_expiration = ' . max(60, (int) $r['expira_max']))
           ->crua('minimum_expiration = ' . max(30, (int) $r['expira_min']));
 
-        if (($r['redes_permitidas'] ?? '') !== '') {
-            $b->crua("contact_acl = telium-{$n}");
-        }
-
+        // Nada de contact_acl aqui: no PJSIP essa opção não existe no aor
+        // nem no endpoint, e escrevê-la derruba o objeto inteiro — o ramal
+        // deixa de registrar. Restrição de rede no PJSIP é global, por um
+        // objeto type=acl, e é assim que ela sai: uma lista só, montada a
+        // partir das redes que os ramais declararam.
         $b->branco();
 
         // ---------- identificação por alias ou rede ----------
@@ -215,35 +216,55 @@ final class GeradorPjsip
     {
         $b = (new Bloco())
             ->comentario('Gerado pelo Telium PABX — NÃO EDITE À MÃO')
-            ->comentario('Redes de onde cada ramal pode registrar')
+            ->comentario('Redes de onde os ramais podem registrar')
             ->comentario('Gerado em ' . date('d/m/Y H:i:s'))
             ->branco();
 
-        $restritos = Bd::todos(
-            "SELECT numero, redes_permitidas FROM ramais
-              WHERE ativo = 1 AND redes_permitidas IS NOT NULL AND redes_permitidas <> ''
-           ORDER BY numero"
+        $redes = $this->redesPermitidas();
+
+        if ($redes === []) {
+            return $b->comentario('nenhuma restrição de rede declarada')->texto();
+        }
+
+        // Uma ACL só, aplicada a todo o SIP. O PJSIP não restringe rede
+        // por ramal: quem declara redes no cadastro está dizendo de onde
+        // os ramais desta central podem falar, e é isso que sai aqui.
+        $b->comentario('União das redes declaradas nos ramais')
+          ->crua('[telium-ramais]')
+          ->crua('type = acl')
+          ->crua('deny = 0.0.0.0/0.0.0.0');
+
+        foreach ($redes as $rede) {
+            $b->crua("permit = {$rede}");
+        }
+
+        return $b->branco()->texto();
+    }
+
+    /**
+     * As redes que os ramais declararam, sem repetição.
+     *
+     * @return string[]
+     */
+    private function redesPermitidas(): array
+    {
+        $redes = [];
+
+        $linhas = Bd::todos(
+            "SELECT redes_permitidas FROM ramais
+              WHERE ativo = 1 AND redes_permitidas IS NOT NULL AND redes_permitidas <> ''"
         );
 
-        if ($restritos === []) {
-            return $b->comentario('nenhum ramal com restrição de rede')->texto();
-        }
-
-        foreach ($restritos as $r) {
-            $b->comentario("Ramal {$r['numero']}")
-              ->crua("[telium-{$r['numero']}]")
-              ->crua('deny = 0.0.0.0/0.0.0.0');
-
-            foreach (explode(',', (string) $r['redes_permitidas']) as $rede) {
+        foreach ($linhas as $linha) {
+            foreach (explode(',', (string) $linha['redes_permitidas']) as $rede) {
                 $rede = trim($rede);
-                if ($rede !== '') {
-                    $b->crua("permit = {$rede}");
+                if ($rede !== '' && !in_array($rede, $redes, true)) {
+                    $redes[] = $rede;
                 }
             }
-            $b->branco();
         }
 
-        return $b->texto();
+        return $redes;
     }
 
     /** "opus, alaw ,ulaw" vira "opus,alaw,ulaw". */

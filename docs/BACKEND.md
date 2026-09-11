@@ -81,6 +81,36 @@ pelo AMI em 127.0.0.1.
 O gerador é idempotente: compara o conteúdo (ignorando a linha de data) e só
 reescreve o que mudou de fato.
 
+### Softphone do navegador
+
+O navegador fala SIP sobre WebSocket **direto com o Asterisk**. O Janus saiu do
+caminho da chamada: ele era usado só como gateway SIP, que é a única coisa que o
+Asterisk faz nativamente — a força dele é SFU e vídeo, que este sistema não usa.
+Continua instalável (`instalar_janus`), fora do caminho, para um módulo futuro de
+sala de vídeo.
+
+O caminho é: navegador → nginx (`/ws`, TLS com o certificado do console) →
+Asterisk (`transport-wss` preso em 127.0.0.1). Nenhuma porta nova no firewall, e
+um certificado só para tudo.
+
+Com isso o ramal do navegador é **um ramal de verdade**: aparece em
+`pjsip show contacts`, o BLF e os hints funcionam, `*8` captura ele e ele entra
+na fila como `PJSIP/1003`. Pelo Janus, quem registrava era o Janus.
+
+Ligar o `webrtc` no cadastro do ramal faz o gerador emitir o pacote inteiro —
+`transport-wss`, `use_avpf`, `ice_support`, `rtcp_mux`, `media_encryption=dtls` e
+o par DTLS do módulo de certificados. Faltando qualquer um, a chamada conecta e
+fica muda, que é o pior jeito de descobrir o problema.
+
+`GET /api/me` devolve o ramal e a senha SIP do próprio usuário, e só quando esse
+ramal está marcado como WebRTC. A senha vai para o navegador porque é assim que
+um softphone autentica; o que limita o estrago é o alcance.
+
+No front, `assets/js/sip.js` embrulha o JsSIP e o `Softphone` do `ui.js` só
+desenha. O bundle em `assets/js/vendor/jssip.min.js` é versionado: o console não
+tem etapa de build e um PABX na rede do cliente não pode depender de CDN — o
+`LEIAME.md` ao lado tem o comando que o regenera.
+
 ### Console do Asterisk limpo
 
 O console é onde se descobre problema de telefonia, então tudo o que enche o log

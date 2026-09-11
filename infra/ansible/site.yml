@@ -29,7 +29,8 @@
     - nginx
     - php
     - asterisk
-    - janus
+    - role: janus
+      when: instalar_janus | default(false)
     - backup
     - certificados
     - api

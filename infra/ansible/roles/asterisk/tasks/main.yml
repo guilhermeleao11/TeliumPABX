@@ -297,7 +297,6 @@
     - resolver_unbound.conf
     - queuerules.conf
     - res_fax.conf
-    - acl.conf
     - voicemail.conf
     - musiconhold.conf
     - features.conf
@@ -407,7 +406,7 @@
     - { arquivo: "voicemail.conf",          conteudo: "[telium]\n; gerado pela API" }
     - { arquivo: "confbridge.conf",         conteudo: "; gerado pela API" }
     - { arquivo: "res_parking.conf",        conteudo: "; gerado pela API" }
-    - { arquivo: "acl.conf",                conteudo: "; gerado pela API" }
+    - { arquivo: "pjsip.acl.conf",          conteudo: "; gerado pela API" }
   loop_control:
     label: "{{ item.arquivo }}"
 

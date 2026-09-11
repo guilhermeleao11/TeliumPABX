@@ -177,6 +177,60 @@ const Softphone = {
     }
     const dock = document.createElement('div');
     dock.id = 'spDock'; document.body.appendChild(dock);
+
+    this.conectar();
+  },
+
+  /** Registra o ramal do usuário, se ele tiver um marcado como WebRTC. */
+  conectar() {
+    const cfg = Auth.sessao?.softphone;
+    this.registro = cfg?.disponivel
+      ? { estado: 'registrando', motivo: '' }
+      : { estado: 'indisponivel', motivo: cfg?.motivo || 'Nenhum ramal WebRTC vinculado à sua conta.' };
+
+    if (!cfg?.disponivel) { this.pintar(); return; }
+
+    SipLink.ao((evento, dados) => this.doSip(evento, dados));
+    SipLink.iniciar({
+      ws: cfg.ws, ramal: cfg.ramal, senha: cfg.senha,
+      dominio: cfg.dominio, nome: cfg.nome
+    });
+  },
+
+  /** Tudo o que a camada SIP avisa chega aqui. */
+  doSip(evento, dados) {
+    if (evento === 'estado') {
+      this.registro = { estado: SipLink.estado, motivo: SipLink.motivo };
+      this.pintar();
+      return;
+    }
+    if (evento === 'entrante') {
+      this.numero = dados.numero || 'desconhecido';
+      this.nome = dados.nome || '';
+      this.estado = 'recebendo';
+      const novo = !this.aberto;
+      this.aberto = true;
+      this.pintar(novo);
+      return;
+    }
+    if (evento === 'chamando') { this.estado = 'chamando'; this.pintar(); return; }
+    if (evento === 'atendida') {
+      if (this.estado === 'em chamada') return;
+      this.estado = 'em chamada';
+      this.seg = 0;
+      clearInterval(this.tid);
+      this.tid = setInterval(() => {
+        this.seg++;
+        const el = document.getElementById('spTimer');
+        if (el) el.textContent = this.fmt(this.seg);
+      }, 1000);
+      this.pintar();
+      return;
+    }
+    if (evento === 'encerrada') {
+      if (dados.motivo) toast(dados.motivo, 'warn');
+      this.limpar();
+    }
   },
 
   abrir() { const novo = !this.aberto; this.aberto = true; this.pintar(novo); },
@@ -190,7 +244,7 @@ const Softphone = {
   },
 
   tecla(t) {
-    if (this.estado === 'em chamada') { toast(`DTMF enviado: ${t}`); return; }
+    if (this.estado === 'em chamada') { SipLink.dtmf(t); return; }
     this.numero += t;
     this.visor();            // atualiza só o campo — redesenhar tudo causava piscada
   },
@@ -206,39 +260,59 @@ const Softphone = {
 
   ligar() {
     if (!this.numero) { toast('Informe um número para discar.', 'warn'); return; }
-    this.estado = 'chamando'; this.pintar();
-    clearTimeout(this._t1);
-    this._t1 = setTimeout(() => {
-      if (this.estado !== 'chamando') return;
-      this.estado = 'em chamada'; this.seg = 0;
-      this.tid = setInterval(() => { this.seg++; const el = document.getElementById('spTimer');
-        if (el) el.textContent = this.fmt(this.seg); }, 1000);
-      this.pintar();
-    }, 1800);
+    if (this.registro?.estado !== 'pronto') {
+      toast(this.registro?.motivo || 'O ramal ainda não registrou na central.', 'warn');
+      return;
+    }
+
+    // A chamada só sai depois que o navegador libera o microfone, e isso
+    // é uma pergunta ao usuário: o estado só muda quando o SIP avisa.
+    if (!SipLink.ligar(this.numero.replace(/[^0-9*#+]/g, ''))) {
+      toast('Não foi possível iniciar a chamada.', 'err');
+      return;
+    }
+    this.estado = 'chamando';
+    this.pintar();
   },
 
-  receber() {
-    if (this.estado !== 'idle') return;
-    const novo = !this.aberto;
-    this.numero = '11 98877-1234'; this.nome = 'Cliente ACME'; this.aberto = true;
-    this.estado = 'recebendo'; this.pintar(novo);
+  atender() {
+    SipLink.atender();
   },
-
-  atender() { this.estado = 'em chamada'; this.seg = 0;
-    this.tid = setInterval(() => { this.seg++; const el = document.getElementById('spTimer');
-      if (el) el.textContent = this.fmt(this.seg); }, 1000);
-    this.pintar(); },
 
   desligar() {
-    clearInterval(this.tid); clearTimeout(this._t1); this.tid = null;
-    if (this.estado === 'em chamada')
-      this.historico.unshift({ dir: 'saida', num: this.numero, quando: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) });
+    SipLink.desligar();
+    this.limpar();
+  },
+
+  /** Volta o discador ao repouso, sem mexer na camada SIP. */
+  limpar() {
+    clearInterval(this.tid);
+    this.tid = null;
+    if (this.estado === 'em chamada' && this.numero) {
+      this.historico.unshift({
+        dir: 'saida', num: this.numero,
+        quando: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      });
+    }
     this.estado = 'idle'; this.numero = ''; this.nome = '';
     this.mudo = this.espera = this.gravando = this.teclado = false;
     this.pintar();
   },
 
   fmt(s) { return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; },
+
+  /** Uma linha dizendo se dá para ligar, e por que não quando não dá. */
+  textoRegistro() {
+    const r = this.registro || {};
+    const ramal = Auth.sessao?.softphone?.ramal;
+    switch (r.estado) {
+      case 'pronto':       return `Ramal ${ramal} registrado`;
+      case 'registrando':  return `Registrando o ramal ${ramal}…`;
+      case 'erro':         return r.motivo || 'Falha no registro';
+      case 'indisponivel': return r.motivo;
+      default:             return 'Softphone desconectado';
+    }
+  },
 
   pintar(animar = false) {
     const dock = document.getElementById('spDock');
@@ -258,9 +332,7 @@ const Softphone = {
       corpo = `
         <div class="sp-display">
           <input class="sp-num" id="spNum" value="${this.numero}" placeholder="Digite o número" aria-label="Número">
-          <div class="sp-state">${Auth.sessao?.ramal
-            ? 'Ramal ' + Auth.sessao.ramal + ' — registro via Janus pendente'
-            : 'Nenhum ramal vinculado à sua conta'}</div>
+          <div class="sp-state">${this.textoRegistro()}</div>
         </div>
         ${teclado}
         <div class="sp-actions">
@@ -302,8 +374,7 @@ const Softphone = {
         <div class="sp-head">
           ${icon('headset','ico')}
           <div class="grow"><div class="sp-title">Softphone</div>
-            <div class="sp-sub">WebRTC${Auth.sessao?.ramal ? ' · ramal ' + Auth.sessao.ramal : ''}</div></div>
-          <button class="icon-btn" id="spSim" title="Simular chamada recebida">${icon('phoneIn','ico ico-sm')}</button>
+            <div class="sp-sub">${this.textoRegistro()}</div></div>
           <button class="icon-btn" id="spClose" title="Fechar">${icon('x','ico ico-sm')}</button>
         </div>
         <div class="sp-body">${corpo}</div>
@@ -319,7 +390,6 @@ const Softphone = {
 
     // eventos
     dock.querySelector('#spClose').onclick = () => this.fechar();
-    dock.querySelector('#spSim').onclick   = () => this.receber();
     dock.querySelectorAll('.sp-key').forEach(b => b.onclick = () => this.tecla(b.dataset.k));
     const num = dock.querySelector('#spNum');
     if (num) num.oninput = e => this.numero = e.target.value;
@@ -332,9 +402,9 @@ const Softphone = {
       const t = b.dataset.t;
       if (t === 'transf') { this.transferir(); return; }
       this[t === 'kpad' ? 'teclado' : t] = !this[t === 'kpad' ? 'teclado' : t];
+      if (t === 'mudo')   SipLink.mudo(this.mudo);
+      if (t === 'espera') SipLink.espera(this.espera);
       this.pintar();
-      if (t === 'mudo')   toast(this.mudo ? 'Microfone mudo.' : 'Microfone ativo.');
-      if (t === 'espera') toast(this.espera ? 'Chamada em espera.' : 'Chamada retomada.');
     });
   },
 
@@ -356,7 +426,14 @@ const Softphone = {
                <button class="btn btn-primary" id="spDoTransf">Transferir</button>`,
       aoAbrir: async dw => {
         dw.querySelector('#spDoTransf').onclick = () => {
-          Drawer.close(); this.desligar(); toast('Transferência solicitada.', 'ok');
+          const destino = dw.querySelector('.input').value.trim();
+          if (!destino) { toast('Informe o destino.', 'warn'); return; }
+          if (!SipLink.transferir(destino.replace(/[^0-9*#+]/g, ''))) {
+            toast('Não foi possível transferir.', 'err');
+            return;
+          }
+          Drawer.close();
+          toast(`Transferindo para ${destino}…`, 'ok');
         };
         const lista = dw.querySelector('#spRamais');
         try {

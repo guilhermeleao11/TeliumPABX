@@ -130,11 +130,59 @@ final class Autenticacao
             'usuario'    => $this->publico($usuario),
             'permissoes' => ['allow' => $allow, 'caps' => $caps],
             'empresa'    => Bd::um('SELECT nome, plano, ramais_contratados FROM empresa WHERE id = 1'),
-            'janus'      => [
-                'ws'    => Ambiente::get('JANUS_WS'),
-                'proxy' => Ambiente::get('JANUS_SIP_PROXY'),
-            ],
+            'softphone'  => $this->softphone($usuario),
         ]);
+    }
+
+    /**
+     * O que o softphone do navegador precisa para registrar.
+     *
+     * A senha SIP vai para o navegador porque é assim que um softphone
+     * WebRTC autentica — não há como registrar sem ela. O que limita o
+     * estrago é o alcance: só o ramal do próprio usuário, só quando ele
+     * está marcado como WebRTC, e só dentro da sessão já autenticada.
+     *
+     * @return array<string,mixed>
+     */
+    private function softphone(array $usuario): array
+    {
+        $fora = ['disponivel' => false, 'motivo' => 'Este usuário não tem ramal WebRTC.'];
+
+        if (($usuario['ramal'] ?? '') === '') {
+            return $fora;
+        }
+
+        $r = Bd::um(
+            'SELECT numero, nome, senha_sip, webrtc, ativo FROM ramais WHERE numero = ?',
+            [$usuario['ramal']]
+        );
+
+        if ($r === null || (int) $r['ativo'] !== 1) {
+            return ['disponivel' => false, 'motivo' => 'O ramal deste usuário não existe ou está inativo.'];
+        }
+        if ((int) $r['webrtc'] !== 1) {
+            return ['disponivel' => false,
+                    'motivo' => "O ramal {$r['numero']} não está marcado como WebRTC. "
+                              . 'Ligue a opção no cadastro do ramal para usar o softphone do navegador.'];
+        }
+
+        $ws = (string) Ambiente::get('SOFTPHONE_WS', '');
+        $dominio = (string) Ambiente::get('SIP_DOMINIO', '');
+
+        if ($ws === '' || $dominio === '') {
+            return ['disponivel' => false,
+                    'motivo' => 'O endereço do softphone não está configurado no servidor '
+                              . '(SOFTPHONE_WS e SIP_DOMINIO). Rode o playbook do Ansible.'];
+        }
+
+        return [
+            'disponivel' => true,
+            'ws'         => $ws,
+            'ramal'      => (string) $r['numero'],
+            'nome'       => (string) $r['nome'],
+            'senha'      => (string) $r['senha_sip'],
+            'dominio'    => $dominio,
+        ];
     }
 
     private function publico(array $u): array
