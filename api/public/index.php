@@ -5,6 +5,8 @@ use Slim\Factory\AppFactory;
 use Slim\Routing\RouteCollectorProxy;
 use Telium\Http\Controllers\Autenticacao as CtrlAuth;
 use Telium\Http\Controllers\Cadastros;
+use Telium\Http\Controllers\Audios;
+use Telium\Http\Controllers\Backup;
 use Telium\Http\Controllers\Cli;
 use Telium\Http\Controllers\Configuracao as CtrlConfig;
 use Telium\Http\Controllers\Painel;
@@ -197,6 +199,52 @@ $recursos = [
             modulo: 'telium.tarifacao',
         ),
     ],
+    'codigos-recurso' => [
+        'modulo' => 'admin.codigos',
+        'recurso' => new Recurso(
+            tabela: 'codigos_recurso',
+            colunas: ['nome', 'codigo', 'descricao', 'categoria', 'ativo'],
+            ordem: 'categoria, codigo',
+            busca: ['nome', 'codigo', 'descricao'],
+            filtros: ['categoria', 'ativo'],
+            afetaAsterisk: true,
+            modulo: 'admin.codigos',
+        ),
+    ],
+    'lista-negra' => [
+        'modulo' => 'admin.listanegra',
+        'recurso' => new Recurso(
+            tabela: 'lista_negra',
+            colunas: ['numero', 'descricao', 'tratamento', 'audio_id', 'ativo'],
+            ordem: 'numero',
+            busca: ['numero', 'descricao'],
+            filtros: ['tratamento', 'ativo'],
+            afetaAsterisk: true,
+            modulo: 'admin.listanegra',
+        ),
+    ],
+    'lista-permitida' => [
+        'modulo' => 'admin.allowlist',
+        'recurso' => new Recurso(
+            tabela: 'lista_permitida',
+            colunas: ['numero', 'descricao', 'ativo'],
+            ordem: 'numero',
+            busca: ['numero', 'descricao'],
+            afetaAsterisk: true,
+            modulo: 'admin.allowlist',
+        ),
+    ],
+    'backup-rotinas' => [
+        'modulo' => 'admin.backup',
+        'recurso' => new Recurso(
+            tabela: 'backup_rotinas',
+            colunas: ['nome', 'periodicidade', 'hora', 'dia_semana', 'dia_mes', 'inclui_banco',
+                      'inclui_config', 'inclui_audios', 'inclui_gravacoes', 'retencao', 'ativo'],
+            ordem: 'id',
+            busca: ['nome'],
+            modulo: 'admin.backup',
+        ),
+    ],
     'integracoes' => [
         'modulo' => 'telium.integracoes',
         'recurso' => new Recurso(
@@ -260,6 +308,24 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('admin.usuarios', 'editar'));
     $g->get('/ramais/{id}/credenciais', [Cadastros::class, 'credenciaisRamal'])
       ->add(new Permissao('conn.ramais', 'editar'));
+
+    // ---- backup e restauração ----
+    $g->get('/backup', [Backup::class, 'estado'])->add(new Permissao('admin.backup'));
+    $g->post('/backup/executar', [Backup::class, 'executar'])
+      ->add(new Permissao('admin.backup', 'criar'));
+    $g->post('/backup/{id}/restaurar', [Backup::class, 'restaurar'])
+      ->add(new Permissao('admin.backup', 'reiniciar'));
+    $g->delete('/backup/{id}', [Backup::class, 'remover'])
+      ->add(new Permissao('admin.backup', 'excluir'));
+
+    // ---- áudios do sistema ----
+    $g->get('/audios', [Audios::class, 'listar'])->add(new Permissao('admin.gravacoes'));
+    $g->post('/audios', [Audios::class, 'enviar'])
+      ->add(new Permissao('admin.gravacoes', 'criar'));
+    $g->put('/audios/{id}', [Audios::class, 'atualizar'])
+      ->add(new Permissao('admin.gravacoes', 'editar'));
+    $g->delete('/audios/{id}', [Audios::class, 'remover'])
+      ->add(new Permissao('admin.gravacoes', 'excluir'));
 
     // ---- console do Asterisk ----
     $g->get('/cli/sugestoes', [Cli::class, 'sugestoes'])->add(new Permissao('admin.cli'));

@@ -30,6 +30,7 @@
     - php
     - asterisk
     - janus
+    - backup
     - api
     - seguranca
 

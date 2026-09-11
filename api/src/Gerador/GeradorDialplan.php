@@ -23,6 +23,9 @@ final class GeradorDialplan
     public function gerar(): array
     {
         return [
+            'extensions.recursos.conf'   => $this->codigosRecurso(),
+            'extensions.listanegra.conf' => $this->listaNegra(),
+            'extensions.allowlist.conf'  => $this->listaPermitida(),
             'extensions.ramais.conf'  => $this->ramais(),
             'extensions.grupos.conf'  => $this->grupos(),
             'extensions.filas.conf'   => $this->filas(),
@@ -40,6 +43,148 @@ final class GeradorDialplan
             ->comentario('Gerado em ' . date('d/m/Y H:i:s'))
             ->comentario('Personalizações vão em extensions_custom.conf')
             ->branco();
+    }
+
+    // ---------------------------------------------------------------
+    /**
+     * Códigos de recurso (*8, *43, *97…). Os números vêm do banco para
+     * poderem ser trocados pelo console sem mexer em arquivo.
+     */
+    private function codigosRecurso(): string
+    {
+        $b = $this->cabecalho('Contexto: códigos de recurso')->contexto('telium-recursos');
+
+        $codigos = Bd::todos('SELECT * FROM codigos_recurso WHERE ativo = 1 ORDER BY categoria, codigo');
+        $porChave = array_column($codigos, null, 'chave');
+
+        // Cada chave sabe o que faz; o código discado é configurável.
+        $acoes = [
+            'eco' => ['Answer()', 'Wait(1)', 'Playback(demo-echotest)', 'Echo()', 'Hangup()'],
+            'hora' => ['Answer()', 'Wait(1)', 'SayUnixTime(,${TELIUM_TZ},HM)', 'Hangup()'],
+            'meu_ramal' => ['Answer()', 'Wait(1)', 'SayDigits(${CALLERID(num)})', 'Hangup()'],
+            'vm_proprio' => ['Answer()', 'VoiceMailMain(${CALLERID(num)}@telium)', 'Hangup()'],
+            'vm_outro' => ['Answer()', 'VoiceMailMain(@telium)', 'Hangup()'],
+            'captura' => ['Pickup()', 'Hangup()'],
+            'diretorio' => ['Answer()', 'Directory(telium,interno,f)', 'Hangup()'],
+            'estacionar' => ['Park()', 'Hangup()'],
+            'dnd_ligar' => [
+                'Answer()',
+                'Set(DB(dnd/${CALLERID(num)})=1)',
+                'Playback(activated)',
+                'Hangup()',
+            ],
+            'dnd_desligar' => [
+                'Answer()',
+                'Noop(${DB_DELETE(dnd/${CALLERID(num)})})',
+                'Playback(de-activated)',
+                'Hangup()',
+            ],
+            'sigame_desligar' => [
+                'Answer()',
+                'Noop(${DB_DELETE(sigame/${CALLERID(num)})})',
+                'Playback(de-activated)',
+                'Hangup()',
+            ],
+            'gravar_alterna' => ['Noop(Alternar gravação)', 'Return()'],
+        ];
+
+        foreach ($codigos as $c) {
+            $chave = (string) $c['chave'];
+            $codigo = (string) $c['codigo'];
+
+            $b->branco()->comentario("{$codigo} — {$c['nome']}");
+
+            // Códigos que recebem um argumento discado depois do prefixo
+            if ($chave === 'captura_dir') {
+                $b->exten("_{$codigo}X.", 'NoOp(Captura direta)')
+                  ->same('Pickup(${EXTEN:' . strlen($codigo) . '}@PICKUPMARK)')
+                  ->same('Hangup()');
+                continue;
+            }
+            if ($chave === 'sigame_ligar') {
+                $b->exten("_{$codigo}X.", 'Answer()')
+                  ->same('Set(DB(sigame/${CALLERID(num)})=${EXTEN:' . strlen($codigo) . '})')
+                  ->same('Playback(activated)')
+                  ->same('Hangup()');
+                continue;
+            }
+
+            $passos = $acoes[$chave] ?? ['NoOp(Código sem ação definida: ' . $chave . ')', 'Hangup()'];
+            $b->exten($codigo, "NoOp({$c['nome']})")->apps($passos);
+        }
+
+        if ($codigos === []) {
+            $b->comentario('nenhum código de recurso ativo');
+        }
+
+        return $b->texto();
+    }
+
+    /**
+     * Lista negra. Em vez de varrer uma tabela em tempo de chamada, cada
+     * número vira uma extensão neste contexto e o dialplan pergunta ao
+     * próprio Asterisk se ela existe — o que também faz padrões valerem.
+     */
+    private function listaNegra(): string
+    {
+        $b = $this->cabecalho('Contexto: lista negra de entrantes')
+                  ->contexto('telium-listanegra');
+
+        $bloqueados = Bd::todos(
+            'SELECT ln.*, a.arquivo AS audio
+               FROM lista_negra ln
+          LEFT JOIN audios a ON a.id = ln.audio_id
+              WHERE ln.ativo = 1
+           ORDER BY ln.numero'
+        );
+
+        if ($bloqueados === []) {
+            return $b->comentario('nenhum número bloqueado')->texto();
+        }
+
+        foreach ($bloqueados as $n) {
+            $numero = (string) $n['numero'];
+
+            $b->branco()
+              ->comentario(($n['descricao'] ?: 'sem descrição') . " — {$n['tratamento']}")
+              ->exten($numero, "NoOp(Lista negra: {$numero})")
+              ->same('Set(CDR(userfield)=lista-negra)');
+
+            $b->apps(match ($n['tratamento']) {
+                'ocupado'  => ['Busy(5)', 'Hangup()'],
+                'silencio' => ['Answer()', 'Wait(600)', 'Hangup()'],
+                'anuncio'  => $n['audio']
+                    ? ['Answer()', 'Wait(1)', "Playback({$n['audio']})", 'Hangup()']
+                    : ['Answer()', 'Wait(1)', 'Playback(ss-noservice)', 'Hangup()'],
+                default    => ['Hangup(21)'],
+            });
+        }
+
+        return $b->texto();
+    }
+
+    /**
+     * Allowlist: números que a lista negra nunca barra, mesmo casando
+     * com algum padrão dela.
+     */
+    private function listaPermitida(): string
+    {
+        $b = $this->cabecalho('Contexto: exceções da lista negra')
+                  ->contexto('telium-allowlist');
+
+        $permitidos = Bd::todos('SELECT * FROM lista_permitida WHERE ativo = 1 ORDER BY numero');
+
+        if ($permitidos === []) {
+            return $b->comentario('nenhuma exceção cadastrada')->texto();
+        }
+
+        foreach ($permitidos as $n) {
+            $b->comentario((string) ($n['descricao'] ?: 'sem descrição'))
+              ->exten((string) $n['numero'], 'NoOp(Allowlist)')
+              ->same('Return()');
+        }
+
+        return $b->texto();
     }
 
     // ---------------------------------------------------------------
@@ -258,7 +403,8 @@ final class GeradorDialplan
                   . $this->destino->descricao($r['destino_tipo'], $r['destino_valor']))
               ->exten($r['did'], "NoOp(Rota de entrada: {$r['descricao']})")
               ->same('Set(CDR(direcao)=entrada)')
-              ->same('Set(CDR(tronco)=${TELIUM_TRONCO})');
+              ->same('Set(CDR(tronco)=${TELIUM_TRONCO})')
+              ->same('GoSub(sub-listanegra,s,1)');
 
             if ((int) $r['gravar'] === 1) {
                 $b->same('Answer()')

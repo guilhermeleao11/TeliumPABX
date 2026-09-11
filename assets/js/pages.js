@@ -10,6 +10,16 @@ const initials = n => String(n || '?').split(' ').filter(Boolean).map(p => p[0])
 const num = v => Number(v || 0).toLocaleString('pt-BR');
 const moeda = v => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+/** Bytes em unidade legível — 8 KB não deve virar "0.0 MB". */
+function tamanho(bytes) {
+  const b = Number(bytes || 0);
+  if (b === 0) return '—';
+  if (b < 1024) return `${b} B`;
+  if (b < 1048576) return `${(b / 1024).toFixed(0)} KB`;
+  if (b < 1073741824) return `${(b / 1048576).toFixed(1)} MB`;
+  return `${(b / 1073741824).toFixed(2)} GB`;
+}
+
 function duracao(seg) {
   seg = Number(seg || 0);
   const h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60), s = seg % 60;

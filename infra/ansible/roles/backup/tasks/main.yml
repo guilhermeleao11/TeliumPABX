@@ -1,0 +1,89 @@
+---
+- name: Criar diretório de backups
+  ansible.builtin.file:
+    path: "{{ backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Instalar o executor de backup
+  ansible.builtin.template:
+    src: telium-backup.j2
+    dest: /usr/local/sbin/telium-backup
+    owner: root
+    group: root
+    mode: "0750"
+
+# Regra de sudo sem curinga nenhum: a API dispara o executor, que decide
+# o que fazer lendo o banco. Nenhum argumento é aceito.
+- name: Permitir que a API dispare o backup
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/telium-backup
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+    content: |
+      # {{ ansible_managed }}
+      {{ telium_user }} ALL=(root) NOPASSWD: /usr/local/sbin/telium-backup
+
+- name: Instalar a unidade de backup
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/telium-backup.service
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      [Unit]
+      Description=Telium PABX — backup
+      After=mariadb.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/telium-backup
+      Nice=10
+      IOSchedulingClass=idle
+  notify: recarregar systemd
+
+- name: Instalar o temporizador de backup
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/telium-backup.timer
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      [Unit]
+      Description=Verifica rotinas de backup a cada minuto
+
+      [Timer]
+      OnCalendar=*:0/1
+      AccuracySec=30s
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+  notify: recarregar systemd
+
+- name: Aplicar mudanças de unidade antes de habilitar
+  ansible.builtin.meta: flush_handlers
+
+- name: Habilitar o temporizador de backup
+  ansible.builtin.systemd_service:
+    name: telium-backup.timer
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Criar diretório de áudios do sistema
+  ansible.builtin.file:
+    path: "{{ audios_dir }}"
+    state: directory
+    owner: "{{ telium_user }}"
+    group: asterisk
+    mode: "02775"
+
+- name: Instalar utilitários de áudio
+  ansible.builtin.apt:
+    name:
+      - sox
+      - libsox-fmt-all
+    state: present

@@ -54,45 +54,22 @@ exten => s,1,GotoIf($["${TELIUM_PERM}" = ""]?permitido)
  same => n(permitido),Return()
 
 ; ------------------------------------------------------------------
-; Recursos internos (códigos de serviço) — estático
+; Sub-rotina: barrar entrante que esteja na lista negra
+;   Pergunta ao próprio Asterisk se o número tem extensão no contexto
+;   gerado, o que faz padrões (_11999X.) valerem sem varrer tabela.
 ; ------------------------------------------------------------------
-[telium-recursos]
-; Teste de eco
-exten => *43,1,Answer()
- same => n,Wait(1)
- same => n,Playback(demo-echotest)
- same => n,Echo()
- same => n,Hangup()
+[sub-listanegra]
+exten => s,1,GotoIf($["${CALLERID(num)}" = ""]?segue)
+ same => n,GotoIf($[${DIALPLAN_EXISTS(telium-allowlist,${CALLERID(num)},1)}]?segue)
+ same => n,GotoIf($[${DIALPLAN_EXISTS(telium-listanegra,${CALLERID(num)},1)}]?bloqueia)
+ same => n(segue),Return()
+ same => n(bloqueia),NoOp(Chamada de ${CALLERID(num)} barrada pela lista negra)
+ same => n,Goto(telium-listanegra,${CALLERID(num)},1)
 
-; Hora certa
-exten => *60,1,Answer()
- same => n,Wait(1)
- same => n,SayUnixTime(,${TELIUM_TZ},HM)
- same => n,Hangup()
-
-; Correio de voz do próprio ramal / de outro
-exten => *97,1,Answer()
- same => n,VoiceMailMain(${CALLERID(num)}@telium)
- same => n,Hangup()
-exten => *98,1,Answer()
- same => n,VoiceMailMain(@telium)
- same => n,Hangup()
-
-; Captura de chamada do grupo
-exten => *8,1,Pickup()
- same => n,Hangup()
-
-; Quem sou eu (fala o número do ramal)
-exten => *65,1,Answer()
- same => n,Wait(1)
- same => n,SayDigits(${CALLERID(num)})
- same => n,Hangup()
-
-; Diretório por nome
-exten => *411,1,Answer()
- same => n,Directory(telium,interno,f)
- same => n,Hangup()
-
+; ------------------------------------------------------------------
+; Recursos internos que não são configuráveis por código
+; ------------------------------------------------------------------
+; ------------------------------------------------------------------
 ; ------------------------------------------------------------------
 ; Contexto dos ramais
 ; ------------------------------------------------------------------
@@ -118,6 +95,9 @@ exten => _X.,1,Answer()
  same => n,Playback(privacy-you-are-not-permitted)
  same => n,Hangup(31)
 
+#include "telium/extensions.recursos.conf"
+#include "telium/extensions.listanegra.conf"
+#include "telium/extensions.allowlist.conf"
 #include "telium/extensions.ramais.conf"
 #include "telium/extensions.grupos.conf"
 #include "telium/extensions.filas.conf"

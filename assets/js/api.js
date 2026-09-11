@@ -55,6 +55,30 @@ const Api = {
     return dados;
   },
 
+  /** Envio de arquivo (multipart). Não define Content-Type: o navegador cuida do boundary. */
+  async upload(caminho, formData) {
+    const cabecalhos = { 'Accept': 'application/json' };
+    if (this.token) cabecalhos['Authorization'] = `Bearer ${this.token}`;
+
+    let resposta;
+    try {
+      resposta = await fetch(this.base + caminho, {
+        method: 'POST', headers: cabecalhos, credentials: 'same-origin', body: formData
+      });
+    } catch (e) {
+      throw new ErroApi('Não foi possível enviar o arquivo. Verifique a conexão.', 0, e);
+    }
+
+    const texto = await resposta.text();
+    let dados = null;
+    if (texto) { try { dados = JSON.parse(texto); } catch { /* resposta não-JSON */ } }
+
+    if (!resposta.ok) {
+      throw new ErroApi(dados?.erro || `Erro ${resposta.status} ao enviar`, resposta.status, dados);
+    }
+    return dados;
+  },
+
   get(caminho, params = null) {
     const qs = params ? '?' + new URLSearchParams(
       Object.fromEntries(Object.entries(params).filter(([, v]) => v !== '' && v != null))

@@ -289,6 +289,9 @@
   loop:
     - { arquivo: "pjsip.endpoints.conf", conteudo: "; gerado pela API — não edite à mão" }
     - { arquivo: "pjsip.trunks.conf",    conteudo: "; gerado pela API — não edite à mão" }
+    - { arquivo: "extensions.recursos.conf",   conteudo: "[telium-recursos]\n; gerado pela API" }
+    - { arquivo: "extensions.listanegra.conf", conteudo: "[telium-listanegra]\n; gerado pela API" }
+    - { arquivo: "extensions.allowlist.conf",  conteudo: "[telium-allowlist]\n; gerado pela API" }
     - { arquivo: "extensions.ramais.conf",  conteudo: "[telium-ramais]\n; gerado pela API" }
     - { arquivo: "extensions.saida.conf",   conteudo: "[telium-saida]\n; gerado pela API" }
     - { arquivo: "extensions.entrada.conf", conteudo: "[telium-entrada]\n; gerado pela API" }

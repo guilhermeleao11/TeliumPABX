@@ -772,3 +772,488 @@ PAGES['admin.cli'] = {
     entrada.focus();
   }
 };
+
+/* ------------------------- Administrador · Backup e Restauração ------------------------- */
+PAGES['admin.backup'] = {
+  async render(ctx) {
+    let d;
+    try { d = await Api.get('/backup'); }
+    catch (e) { return pageHead('Backup e Restauração', '') + blocoErro(e); }
+    this._d = d;
+
+    const rotinas = d.rotinas.map(r => {
+      const quando = r.periodicidade === 'diaria' ? `todo dia às ${String(r.hora).slice(0,5)}`
+        : r.periodicidade === 'semanal' ? `${['domingo','segunda','terça','quarta','quinta','sexta','sábado'][r.dia_semana ?? 0]} às ${String(r.hora).slice(0,5)}`
+        : r.periodicidade === 'mensal' ? `dia ${r.dia_mes} às ${String(r.hora).slice(0,5)}`
+        : 'somente manual';
+      const inclui = [
+        Number(r.inclui_banco) && 'banco', Number(r.inclui_config) && 'configuração',
+        Number(r.inclui_audios) && 'áudios', Number(r.inclui_gravacoes) && 'gravações'
+      ].filter(Boolean);
+
+      return `<div class="card" style="padding:16px">
+        <div class="row-between" style="margin-bottom:10px">
+          <div><b>${esc(r.nome)}</b><div class="tiny muted">${esc(quando)}</div></div>
+          <label class="switch"><input type="checkbox" ${Number(r.ativo) ? 'checked' : ''}
+                 ${ctx.can('editar') ? '' : 'disabled'} data-rotina-ativa="${r.id}">
+            <span class="track"></span></label>
+        </div>
+        <div class="row wrap gap-4" style="margin-bottom:10px">
+          ${inclui.map(i => `<span class="chip">${i}</span>`).join('') || '<span class="chip">nada selecionado</span>'}
+        </div>
+        <div class="row-between">
+          <span class="tiny muted">mantém ${r.retencao} arquivos</span>
+          ${ctx.can('editar') ? `<button class="btn btn-outline btn-sm" data-editar-rotina="${r.id}">
+            ${icon('edit','ico ico-sm')} Ajustar</button>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    const historico = d.historico.length ? `
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Arquivo</th><th>Origem</th><th>Conteúdo</th><th>Tamanho</th>
+                   <th>Quando</th><th>Estado</th><th></th></tr></thead>
+        <tbody>${d.historico.map(b => {
+          const inclui = [
+            Number(b.inclui_banco) && 'banco', Number(b.inclui_config) && 'config',
+            Number(b.inclui_audios) && 'áudios', Number(b.inclui_gravacoes) && 'gravações'
+          ].filter(Boolean).join(', ');
+          const estado = {
+            concluido: '<span class="badge badge-ok">Concluído</span>',
+            falha: '<span class="badge badge-danger">Falhou</span>',
+            executando: '<span class="badge badge-info"><i class="dot dot-pulse"></i>Executando</span>',
+            pendente: '<span class="badge badge-warn">Na fila</span>'
+          }[b.estado] || b.estado;
+
+          return `<tr>
+            <td class="mono small">${b.arquivo ? esc(b.arquivo) : '<span class="muted">removido pela retenção</span>'}</td>
+            <td><span class="badge">${esc(b.origem)}</span></td>
+            <td class="small dim">${esc(inclui)}</td>
+            <td class="num">${tamanho(b.tamanho)}</td>
+            <td class="small dim">${dataHora(b.concluido_em || b.criado_em)}</td>
+            <td>${estado}</td>
+            <td class="col-actions"><span class="row-actions">
+              ${b.saida ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Ver detalhes" data-saida="${b.id}">${icon('file','ico ico-sm')}</button>` : ''}
+              ${b.arquivo && b.estado === 'concluido' && ctx.can('reiniciar')
+                ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Restaurar" data-restaurar="${b.id}">${icon('refresh','ico ico-sm')}</button>` : ''}
+              ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-excluir-bkp="${b.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+            </span></td>
+          </tr>`;
+        }).join('')}
+        </tbody></table></div>`
+      : vazio('database', 'Nenhum backup ainda',
+              'Execute o primeiro agora ou ative uma rotina para o sistema cuidar disso sozinho.');
+
+    return pageHead('Backup e Restauração',
+      `Os arquivos ficam em <span class="mono">${esc(d.destino)}</span> no próprio servidor.`,
+      `${d.executando ? '<span class="badge badge-info"><i class="dot dot-pulse"></i>Backup em andamento</span>' : ''}
+       ${ctx.can('criar') ? `<button class="btn btn-primary btn-sm" id="backupAgora">
+         ${icon('database','ico ico-sm')} Fazer backup agora</button>` : readOnlyNote(ctx)}`) + `
+
+    <div class="grid g-4" style="margin-bottom:16px">
+      <div class="card kpi">
+        <div class="k-top"><span class="k-label">Espaço livre</span>
+          <span class="k-ico" style="background:var(--${d.disco.pct_uso > 85 ? 'danger' : 'ok'}-soft);color:var(--${d.disco.pct_uso > 85 ? 'danger' : 'ok'})">${icon('hardDrive')}</span></div>
+        <div class="k-val">${d.disco.livre_gb} GB</div>
+        <div class="k-foot"><span>de ${d.disco.total_gb} GB · ${d.disco.pct_uso}% em uso</span></div>
+      </div>
+      ${rotinas}
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div><div class="card-title">Histórico</div>
+        <div class="card-sub">A retenção apaga os mais antigos automaticamente.</div></div></div>
+      <div class="card-body tight">${historico}</div>
+    </div>`;
+  },
+
+  mount(ctx) {
+    const opcoesConteudo = (v = {}) => [
+      { campo: 'inclui_banco', label: 'Banco de dados', tipo: 'switch', padrao: v.inclui_banco ?? 1,
+        ajuda: 'Ramais, filas, rotas, usuários, CDR — tudo o que o console guarda.' },
+      { campo: 'inclui_config', label: 'Configuração', tipo: 'switch', padrao: v.inclui_config ?? 1,
+        ajuda: 'Arquivos do Asterisk, do Janus e do Telium.' },
+      { campo: 'inclui_audios', label: 'Áudios do sistema', tipo: 'switch', padrao: v.inclui_audios ?? 1,
+        ajuda: 'Saudações de URA, anúncios e música em espera.' },
+      { campo: 'inclui_gravacoes', label: 'Gravações de chamadas', tipo: 'switch', padrao: v.inclui_gravacoes ?? 0,
+        ajuda: 'Pode ficar muito grande. Deixe desligado se o disco for apertado.' }
+    ];
+
+    document.getElementById('backupAgora')?.addEventListener('click', () => {
+      const campos = [
+        ...opcoesConteudo(),
+        { campo: 'retencao', label: 'Quantos arquivos manter', tipo: 'number', padrao: 5,
+          ajuda: 'Ao passar disso, os mais antigos são apagados.' }
+      ];
+      Drawer.open({
+        titulo: 'Fazer backup agora',
+        sub: 'O backup roda em segundo plano; você pode sair desta tela.',
+        corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, {})).join('')}</div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>Iniciar backup</button>`,
+        aoAbrir: dw => dw.querySelector('[data-ok]').onclick = async ev => {
+          const dados = {};
+          campos.forEach(c => {
+            const el = dw.querySelector(`[name="${c.campo}"]`);
+            if (el) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
+          });
+          ev.currentTarget.disabled = true;
+          try {
+            const r = await Api.post('/backup/executar', dados);
+            Drawer.close();
+            toast(r.detalhe, r.disparado ? 'ok' : 'warn');
+            setTimeout(() => App.route(), 1500);
+          } catch (e) { ev.currentTarget.disabled = false; toast(e.message, 'err'); }
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-editar-rotina]').forEach(b => b.onclick = () => {
+      const r = this._d.rotinas.find(x => String(x.id) === b.dataset.editarRotina);
+      const campos = [
+        { campo: 'nome', label: 'Nome da rotina', obrigatorio: true },
+        { campo: 'periodicidade', label: 'Quando executar', tipo: 'select',
+          opcoes: [{valor:'diaria',rotulo:'Todo dia'},{valor:'semanal',rotulo:'Uma vez por semana'},
+                   {valor:'mensal',rotulo:'Uma vez por mês'},{valor:'manual',rotulo:'Só quando eu mandar'}] },
+        { campo: 'hora', label: 'Horário', tipo: 'time' },
+        { campo: 'dia_semana', label: 'Dia da semana (se semanal)', tipo: 'select',
+          opcoes: [{valor:'',rotulo:'—'},
+            ...['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado']
+              .map((d,i) => ({ valor: i, rotulo: d }))] },
+        { campo: 'dia_mes', label: 'Dia do mês (se mensal)', tipo: 'number' },
+        ...opcoesConteudo(r),
+        { campo: 'retencao', label: 'Quantos arquivos manter', tipo: 'number' },
+        { campo: 'ativo', label: 'Rotina ativa', tipo: 'switch' }
+      ];
+      Drawer.open({
+        titulo: `Ajustar ${r.nome}`,
+        corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, r)).join('')}</div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>Salvar</button>`,
+        aoAbrir: dw => dw.querySelector('[data-ok]').onclick = async ev => {
+          const dados = {};
+          campos.forEach(c => {
+            const el = dw.querySelector(`[name="${c.campo}"]`);
+            if (el) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : (el.value || null);
+          });
+          ev.currentTarget.disabled = true;
+          try {
+            await Api.put(`/backup-rotinas/${r.id}`, dados);
+            Drawer.close(); toast('Rotina atualizada.', 'ok'); App.route();
+          } catch (e) { ev.currentTarget.disabled = false; toast(e.message, 'err'); }
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-rotina-ativa]').forEach(c => c.onchange = async () => {
+      try {
+        await Api.put(`/backup-rotinas/${c.dataset.rotinaAtiva}`, { ativo: c.checked ? 1 : 0 });
+        toast(c.checked ? 'Rotina ativada.' : 'Rotina desativada.', 'ok');
+      } catch (e) { c.checked = !c.checked; toast(e.message, 'err'); }
+    });
+
+    document.querySelectorAll('[data-saida]').forEach(b => b.onclick = () => {
+      const bk = this._d.historico.find(x => String(x.id) === b.dataset.saida);
+      Drawer.open({
+        titulo: bk.arquivo || `Backup #${bk.id}`,
+        sub: dataHora(bk.concluido_em || bk.criado_em),
+        corpo: `<div class="code">${esc(bk.saida || '(sem detalhes)')}</div>`
+      });
+    });
+
+    document.querySelectorAll('[data-restaurar]').forEach(b => b.onclick = async () => {
+      const bk = this._d.historico.find(x => String(x.id) === b.dataset.restaurar);
+      const ok = await Modal.confirm({
+        titulo: 'Restaurar este backup?',
+        texto: `O conteúdo atual será substituído pelo de ${bk.arquivo}. O Asterisk é parado durante `
+             + 'a restauração e volta em seguida. As chamadas em andamento caem.',
+        ok: 'Restaurar mesmo assim'
+      });
+      if (!ok) return;
+      try {
+        const r = await Api.post(`/backup/${bk.id}/restaurar`);
+        toast(r.detalhe || 'Restauração iniciada.', 'warn');
+      } catch (e) { toast(e.message, 'err'); }
+    });
+
+    document.querySelectorAll('[data-excluir-bkp]').forEach(b => b.onclick = async () => {
+      const ok = await Modal.confirm({ titulo: 'Excluir este backup?',
+        texto: 'O arquivo é apagado do servidor.', ok: 'Excluir' });
+      if (!ok) return;
+      try { await Api.delete(`/backup/${b.dataset.excluirBkp}`); toast('Backup excluído.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+  }
+};
+
+/* ------------------------- Administrador · Gravações do Sistema ------------------------- */
+const CATEGORIAS_AUDIO = [
+  { valor: 'ura',     rotulo: 'Saudação de URA' },
+  { valor: 'anuncio', rotulo: 'Anúncio' },
+  { valor: 'espera',  rotulo: 'Música em espera' },
+  { valor: 'fila',    rotulo: 'Mensagem de fila' },
+  { valor: 'sistema', rotulo: 'Aviso do sistema' }
+];
+
+PAGES['admin.gravacoes'] = {
+  async render(ctx) {
+    let d;
+    try { d = await Api.get('/audios'); }
+    catch (e) { return pageHead('Gravações do Sistema', '') + blocoErro(e); }
+    this._d = d;
+
+    const cabecalho = pageHead('Gravações do Sistema',
+      'Áudios usados por URAs, filas e anúncios. O envio é convertido para os formatos que o Asterisk toca.',
+      `${d.conversor ? '' : '<span class="badge badge-warn">sox ausente no servidor</span>'}
+       ${ctx.can('criar') ? `<button class="btn btn-primary btn-sm" id="enviarAudio">
+         ${icon('upload','ico ico-sm')} Enviar áudio</button>` : readOnlyNote(ctx)}`);
+
+    if (!d.dados.length) {
+      return cabecalho + `<div class="card">${vazio('mic', 'Nenhum áudio enviado',
+        `Envie as saudações e anúncios que a URA e as filas vão tocar. Eles ficam em
+         <span class="mono">${esc(d.diretorio)}</span>.`,
+        ctx.can('criar') ? '<button class="btn btn-primary btn-sm" id="enviarAudio">Enviar o primeiro</button>' : '')}
+      </div>`;
+    }
+
+    const porCategoria = {};
+    d.dados.forEach(a => { (porCategoria[a.categoria] ??= []).push(a); });
+
+    return cabecalho + Object.entries(porCategoria).map(([cat, itens]) => {
+      const rotulo = CATEGORIAS_AUDIO.find(c => c.valor === cat)?.rotulo || cat;
+      return `<div class="card" style="margin-bottom:16px">
+        <div class="card-head"><div class="card-title">${esc(rotulo)}</div>
+          <span class="badge">${itens.length}</span></div>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Nome</th><th>Arquivo</th><th>Duração</th><th>Formatos</th>
+                     <th>Enviado por</th><th></th></tr></thead>
+          <tbody>${itens.map(a => `
+            <tr>
+              <td><b>${esc(a.nome)}</b>${a.descricao ? `<div class="tiny muted">${esc(a.descricao)}</div>` : ''}</td>
+              <td class="mono small">${esc(a.arquivo)}</td>
+              <td class="num">${a.duracao ? duracao(a.duracao) : '—'}</td>
+              <td>${String(a.formatos).split(',').map(f => `<span class="badge">${esc(f)}</span>`).join(' ')}</td>
+              <td class="small dim">${esc(a.enviado_por_nome || '—')}</td>
+              <td class="col-actions"><span class="row-actions">
+                ${ctx.can('editar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" data-editar-audio="${a.id}">${icon('edit','ico ico-sm')}</button>` : ''}
+                ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-excluir-audio="${a.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+              </span></td>
+            </tr>`).join('')}
+          </tbody></table></div>
+      </div>`;
+    }).join('');
+  },
+
+  mount(ctx) {
+    document.querySelectorAll('#enviarAudio').forEach(b => b.onclick = () => {
+      Drawer.open({
+        titulo: 'Enviar áudio',
+        sub: 'Aceita wav, mp3, ogg, gsm e outros. O servidor converte para WAV 8 kHz e GSM.',
+        corpo: `
+          <div class="grid" style="gap:16px">
+            <div class="field">
+              <label class="label">Arquivo *</label>
+              <input class="input" type="file" name="arquivo"
+                     accept=".wav,.mp3,.ogg,.gsm,.flac,.m4a,.g722,audio/*">
+              <span class="hint">Até 20 MB.</span>
+            </div>
+            ${campoHtml({ campo:'nome', label:'Nome', obrigatorio:true,
+                          placeholder:'Saudação principal' }, {})}
+            ${campoHtml({ campo:'nome_arquivo', label:'Nome do arquivo no Asterisk', mono:true,
+                          placeholder:'gerado a partir do nome',
+                          ajuda:'É o que você seleciona na URA e nas filas.' }, {})}
+            ${campoHtml({ campo:'categoria', label:'Categoria', tipo:'select',
+                          opcoes: CATEGORIAS_AUDIO }, {})}
+            ${campoHtml({ campo:'descricao', label:'Descrição', tipo:'textarea' }, {})}
+          </div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>Enviar</button>`,
+        aoAbrir: dw => dw.querySelector('[data-ok]').onclick = async ev => {
+          const arquivo = dw.querySelector('[name="arquivo"]').files[0];
+          const nome = dw.querySelector('[name="nome"]').value.trim();
+
+          if (!arquivo) { toast('Escolha um arquivo de áudio.', 'warn'); return; }
+          if (!nome) { toast('Informe o nome do áudio.', 'warn'); return; }
+
+          const fd = new FormData();
+          fd.append('arquivo', arquivo);                              // o binário
+          fd.append('nome', nome);
+          fd.append('nome_arquivo', dw.querySelector('[name="nome_arquivo"]').value.trim());
+          fd.append('categoria', dw.querySelector('[name="categoria"]').value);
+          fd.append('descricao', dw.querySelector('[name="descricao"]').value);
+
+          const botao = ev.currentTarget;
+          botao.disabled = true;
+          botao.innerHTML = `<span class="spin"></span> Enviando…`;
+          try {
+            const r = await Api.upload('/audios', fd);
+            Drawer.close();
+            toast(`Áudio enviado como ${r.arquivo} (${r.formatos.join(', ')}).`, 'ok');
+            App.route();
+          } catch (e) {
+            botao.disabled = false;
+            botao.textContent = 'Enviar';
+            toast(e.message, 'err');
+          }
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-editar-audio]').forEach(b => b.onclick = () => {
+      const a = this._d.dados.find(x => String(x.id) === b.dataset.editarAudio);
+      const campos = [
+        { campo: 'nome', label: 'Nome', obrigatorio: true },
+        { campo: 'categoria', label: 'Categoria', tipo: 'select', opcoes: CATEGORIAS_AUDIO },
+        { campo: 'descricao', label: 'Descrição', tipo: 'textarea', largura: 'full' }
+      ];
+      Drawer.open({
+        titulo: `Editar ${a.nome}`,
+        sub: `Arquivo <span class="mono">${esc(a.arquivo)}</span> — para trocar o áudio, envie outro e exclua este.`,
+        corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, a)).join('')}</div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>Salvar</button>`,
+        aoAbrir: dw => dw.querySelector('[data-ok]').onclick = async () => {
+          const dados = {};
+          campos.forEach(c => { dados[c.campo] = dw.querySelector(`[name="${c.campo}"]`).value; });
+          try { await Api.put(`/audios/${a.id}`, dados); Drawer.close(); toast('Áudio atualizado.', 'ok'); App.route(); }
+          catch (e) { toast(e.message, 'err'); }
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-excluir-audio]').forEach(b => b.onclick = async () => {
+      const a = this._d.dados.find(x => String(x.id) === b.dataset.excluirAudio);
+      const ok = await Modal.confirm({
+        titulo: `Excluir ${a.nome}?`,
+        texto: 'Os arquivos de áudio são apagados do servidor. Se algo ainda usa este som, a exclusão é recusada.',
+        ok: 'Excluir'
+      });
+      if (!ok) return;
+      try { await Api.delete(`/audios/${a.id}`); toast('Áudio excluído.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+  }
+};
+
+/* ------------------------- Administrador · Códigos de Recurso ------------------------- */
+PAGES['admin.codigos'] = paginaCrud({
+  recurso: 'codigos-recurso',
+  titulo: 'Códigos de Recurso',
+  sub: 'O que o usuário disca para usar cada facilidade. Pode trocar qualquer código.',
+  ico: 'grid',
+  plural: 'códigos',
+  somenteLeitura: false,
+  rotuloNovo: 'Novo código',
+  vazioTitulo: 'Nenhum código de recurso',
+  vazioTexto: 'Os códigos padrão são criados na instalação.',
+  placeholderBusca: 'Buscar por nome ou código…',
+  textoBusca: c => `${c.codigo} ${c.nome} ${c.descricao || ''}`,
+  tituloEditar: c => `${c.codigo} — ${c.nome}`,
+  tituloExcluir: c => `Excluir o código ${c.codigo}?`,
+  textoExcluir: () => 'A facilidade deixa de atender nesse número depois de aplicar as configurações.',
+
+  colunas: [
+    { label: 'Código', render: c => `<b class="mono" style="font-size:15px">${esc(c.codigo)}</b>` },
+    { label: 'Facilidade', render: c => `<b>${esc(c.nome)}</b>${c.descricao ? `<div class="tiny muted">${esc(c.descricao)}</div>` : ''}` },
+    { label: 'Categoria', render: c => `<span class="badge">${esc(c.categoria)}</span>` },
+    { label: 'Chave', render: c => `<span class="mono tiny muted">${esc(c.chave)}</span>` },
+    { label: 'Estado', render: c => Number(c.ativo)
+        ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
+        : '<span class="badge"><i class="dot"></i>Desligado</span>' }
+  ],
+
+  filtrosExtra: itens => {
+    const cats = [...new Set(itens.map(i => i.categoria))].sort();
+    return `<select class="select" data-filtro-campo="categoria" style="width:170px">
+      <option value="">Todas as categorias</option>
+      ${cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+    </select>`;
+  },
+
+  campos: (c) => [
+    { campo: 'codigo', label: 'Código discado', obrigatorio: true, mono: true, placeholder: '*8',
+      ajuda: 'Comece com * ou # para não colidir com número de ramal.' },
+    { campo: 'nome', label: 'Nome da facilidade', obrigatorio: true },
+    { campo: 'categoria', label: 'Categoria', tipo: 'select',
+      opcoes: ['atendimento','correio','desvio','diagnostico','gravacao','geral'] },
+    { campo: 'ativo', label: 'Código ativo', tipo: 'switch', padrao: 1 },
+    { campo: 'descricao', label: 'Descrição', tipo: 'textarea', largura: 'full' }
+  ]
+});
+
+/* ------------------------- Administrador · Lista Negra ------------------------- */
+PAGES['admin.listanegra'] = paginaCrud({
+  recurso: 'lista-negra',
+  titulo: 'Lista Negra',
+  sub: 'Números barrados na entrada. A verificação acontece antes de qualquer rota.',
+  ico: 'phoneOff',
+  plural: 'números',
+  rotuloNovo: 'Bloquear número',
+  tituloNovo: 'Bloquear número',
+  vazioTitulo: 'Nenhum número bloqueado',
+  vazioTexto: 'Bloqueie telemarketing e trotes. Aceita padrão do dialplan, como _115555X. para uma faixa inteira.',
+  placeholderBusca: 'Buscar por número ou descrição…',
+  textoBusca: n => `${n.numero} ${n.descricao || ''}`,
+  tituloEditar: n => `Bloqueio de ${n.numero}`,
+  tituloExcluir: n => `Liberar ${n.numero}?`,
+  textoExcluir: () => 'O número volta a conseguir ligar para a central.',
+
+  colunas: [
+    { label: 'Número', render: n => `<b class="mono">${esc(n.numero)}</b>` },
+    { label: 'Descrição', render: n => `<span class="dim">${esc(n.descricao || '—')}</span>` },
+    { label: 'Tratamento', render: n => {
+        const t = { desligar: ['danger','Desliga na hora'], ocupado: ['warn','Sinal de ocupado'],
+                    anuncio: ['info','Toca anúncio'], silencio: ['','Silêncio'] }[n.tratamento] || ['', n.tratamento];
+        return `<span class="badge badge-${t[0]}">${t[1]}</span>`;
+      } },
+    { label: 'Bloqueios', render: n => `<span class="num">${num(n.bloqueios)}</span>` },
+    { label: 'Estado', render: n => Number(n.ativo)
+        ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
+        : '<span class="badge"><i class="dot"></i>Pausado</span>' }
+  ],
+
+  aoCarregar: async (pagina) => {
+    pagina._audios = (await Api.get('/audios', { categoria: 'anuncio' }).catch(() => ({ dados: [] }))).dados;
+  },
+
+  campos: (n, ctx, pagina) => [
+    { campo: 'numero', label: 'Número ou padrão', obrigatorio: true, mono: true,
+      placeholder: '1199998888', largura: 'full',
+      ajuda: 'Número exato, ou padrão do dialplan: _115555X. barra a faixa 115555 0-9 e mais dígitos.' },
+    { campo: 'descricao', label: 'Motivo', placeholder: 'Telemarketing insistente', largura: 'full' },
+    { campo: 'tratamento', label: 'O que fazer com a chamada', tipo: 'select',
+      opcoes: [{valor:'desligar',rotulo:'Desligar na hora'},
+               {valor:'ocupado',rotulo:'Sinal de ocupado'},
+               {valor:'anuncio',rotulo:'Tocar um anúncio e desligar'},
+               {valor:'silencio',rotulo:'Atender e ficar em silêncio'}] },
+    { campo: 'audio_id', label: 'Anúncio (se escolher tocar um)', tipo: 'select',
+      opcoes: [{ valor: '', rotulo: 'padrão do sistema' },
+               ...(pagina._audios || []).map(a => ({ valor: a.id, rotulo: a.nome }))] },
+    { campo: 'ativo', label: 'Bloqueio ativo', tipo: 'switch', padrao: 1 }
+  ]
+});
+
+/* ------------------------- Administrador · Allowlist ------------------------- */
+PAGES['admin.allowlist'] = paginaCrud({
+  recurso: 'lista-permitida',
+  titulo: 'Allowlist',
+  sub: 'Números que nunca são barrados, mesmo que casem com algum padrão da lista negra.',
+  ico: 'checkCirc',
+  plural: 'números',
+  rotuloNovo: 'Liberar número',
+  vazioTitulo: 'Nenhuma exceção cadastrada',
+  vazioTexto: 'Use quando um padrão da lista negra for amplo demais e pegar um número que você quer atender.',
+  placeholderBusca: 'Buscar…',
+  textoBusca: n => `${n.numero} ${n.descricao || ''}`,
+  colunas: [
+    { label: 'Número', render: n => `<b class="mono">${esc(n.numero)}</b>` },
+    { label: 'Descrição', render: n => `<span class="dim">${esc(n.descricao || '—')}</span>` },
+    { label: 'Estado', render: n => Number(n.ativo)
+        ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>' : '<span class="badge">Pausado</span>' }
+  ],
+  campos: () => [
+    { campo: 'numero', label: 'Número ou padrão', obrigatorio: true, mono: true, largura: 'full' },
+    { campo: 'descricao', label: 'Motivo', largura: 'full' },
+    { campo: 'ativo', label: 'Ativo', tipo: 'switch', padrao: 1 }
+  ]
+});

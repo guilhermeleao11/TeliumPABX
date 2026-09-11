@@ -40,6 +40,9 @@ telium_log: /var/log/telium
 asterisk_conf_dir: /etc/asterisk
 asterisk_gerado_dir: /etc/asterisk/telium    # .conf gerados pela API
 src_dir: /usr/local/src/telium
+backup_dir: /var/backup/pabx-telium
+audios_dir: /var/lib/asterisk/sounds/telium
+gravacoes_dir: /var/spool/asterisk/monitor
 
 # ---------- usuários de sistema ----------
 # Conta de serviço da API. Nome propositalmente distinto de "telium"

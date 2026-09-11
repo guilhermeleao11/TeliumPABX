@@ -1,0 +1,220 @@
+#!/usr/bin/env bash
+# =========================================================
+# {{ ansible_managed }}
+# Telium PABX — executor de backup e restauração
+#
+# Roda como root, sem argumentos. Lê o que fazer no banco:
+#   · sistema.restaurar_backup_id  → restaura aquele arquivo
+#   · backups com estado 'pendente' → executa o backup
+#   · rotinas vencidas              → cria o job e executa
+#
+# Não receber argumentos é intencional: a regra de sudo para a API
+# fica sem curinga nenhum.
+# =========================================================
+set -uo pipefail
+
+DESTINO={{ backup_dir }}
+BANCO={{ db_nome }}
+DIR_CONFIG_ASTERISK={{ asterisk_conf_dir }}
+DIR_TELIUM={{ telium_etc }}
+DIR_AUDIOS={{ audios_dir }}
+DIR_GRAVACOES={{ gravacoes_dir }}
+JANUS_ETC={{ janus_prefix }}/etc/janus
+
+mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1" 2>/dev/null; }
+escapar() { printf '%s' "$1" | sed "s/'/''/g"; }
+log() { echo "[$(date '+%F %T')] $*"; }
+
+# ---------------------------------------------------------
+concluir() {   # concluir <id> <estado> <arquivo> <tamanho> <saida>
+  local id="$1" estado="$2" arq="$3" tam="$4" saida
+  saida=$(escapar "$5")
+  mysql "UPDATE backups SET estado='${estado}', arquivo=NULLIF('${arq}',''),
+         tamanho=${tam}, concluido_em=NOW(), saida='${saida}' WHERE id=${id};"
+}
+
+podar() {      # mantém apenas os N mais recentes
+  local reter="$1"
+  [ "$reter" -ge 1 ] 2>/dev/null || reter=5
+
+  local sobrando
+  sobrando=$(ls -1t "$DESTINO"/telium-*.tar.gz 2>/dev/null | tail -n +$((reter + 1)))
+  [ -z "$sobrando" ] && return 0
+
+  echo "$sobrando" | while read -r velho; do
+    log "removendo backup antigo: $(basename "$velho")"
+    rm -f "$velho"
+    mysql "UPDATE backups SET estado='concluido', arquivo=NULL
+           WHERE arquivo='$(escapar "$(basename "$velho")")';"
+  done
+}
+
+# ---------------------------------------------------------
+executar_backup() {
+  local id="$1"
+  local banco config audios gravacoes reter
+  read -r banco config audios gravacoes reter <<< "$(mysql \
+    "SELECT inclui_banco, inclui_config, inclui_audios, inclui_gravacoes, retencao
+       FROM backups WHERE id=${id};")"
+
+  mysql "UPDATE backups SET estado='executando', iniciado_em=NOW() WHERE id=${id};"
+
+  local carimbo nome trabalho erros saida rc=0
+  carimbo=$(date '+%Y%m%d-%H%M%S')
+  nome="telium-${carimbo}.tar.gz"
+  trabalho=$(mktemp -d /tmp/telium-backup.XXXXXX)
+  erros=$(mktemp -d /tmp/telium-erros.XXXXXX)   # fora do que vai para o tar
+  saida=""
+
+  mkdir -p "$DESTINO"
+
+  if [ "$banco" = "1" ]; then
+    log "exportando o banco"
+    if mariadb-dump --protocol=socket -uroot --single-transaction --routines \
+         --default-character-set=utf8mb4 "$BANCO" > "$trabalho/banco.sql" 2>"$erros/banco"; then
+      saida+="banco: $(du -h "$trabalho/banco.sql" | cut -f1)"$'\n'
+    else
+      saida+="banco: FALHOU — $(head -3 "$erros/banco")"$'\n'
+      rc=1
+    fi
+  fi
+
+  mkdir -p "$trabalho/config"
+  if [ "$config" = "1" ]; then
+    log "copiando configuração"
+    cp -a "$DIR_CONFIG_ASTERISK" "$trabalho/config/asterisk" 2>/dev/null
+    cp -a "$DIR_TELIUM"          "$trabalho/config/telium"   2>/dev/null
+    [ -d "$JANUS_ETC" ] && cp -a "$JANUS_ETC" "$trabalho/config/janus" 2>/dev/null
+    cp -a /etc/odbc.ini /etc/odbcinst.ini "$trabalho/config/" 2>/dev/null
+    saida+="config: $(du -sh "$trabalho/config" | cut -f1)"$'\n'
+  fi
+
+  if [ "$audios" = "1" ] && [ -d "$DIR_AUDIOS" ]; then
+    log "copiando áudios"
+    cp -a "$DIR_AUDIOS" "$trabalho/audios" 2>/dev/null
+    saida+="áudios: $(du -sh "$trabalho/audios" | cut -f1)"$'\n'
+  fi
+
+  if [ "$gravacoes" = "1" ] && [ -d "$DIR_GRAVACOES" ]; then
+    log "copiando gravações (pode demorar)"
+    cp -a "$DIR_GRAVACOES" "$trabalho/gravacoes" 2>/dev/null
+    saida+="gravações: $(du -sh "$trabalho/gravacoes" | cut -f1)"$'\n'
+  fi
+
+  cat > "$trabalho/manifesto.txt" <<MANIFESTO
+Telium PABX — backup
+gerado em: $(date '+%F %T')
+host: $(hostname)
+inclui: banco=${banco} config=${config} audios=${audios} gravacoes=${gravacoes}
+asterisk: $(asterisk -V 2>/dev/null || echo 'n/d')
+MANIFESTO
+
+  log "compactando"
+  if tar -czf "$DESTINO/$nome" -C "$trabalho" . 2>>"$erros/tar"; then
+    chmod 600 "$DESTINO/$nome"
+    local tam
+    tam=$(stat -c %s "$DESTINO/$nome")
+    saida+="arquivo: ${nome} ($(du -h "$DESTINO/$nome" | cut -f1))"
+    [ "$rc" -eq 0 ] && concluir "$id" concluido "$nome" "$tam" "$saida" \
+                    || concluir "$id" falha "$nome" "$tam" "$saida"
+    podar "$reter"
+    log "pronto: $nome"
+  else
+    saida+="tar: FALHOU — $(head -3 "$erros/tar")"
+    concluir "$id" falha "" 0 "$saida"
+    rc=1
+  fi
+
+  rm -rf "$trabalho" "$erros"
+  return $rc
+}
+
+# ---------------------------------------------------------
+executar_restauracao() {
+  local id="$1" arq
+  arq=$(mysql "SELECT arquivo FROM backups WHERE id=${id};")
+  mysql "DELETE FROM sistema WHERE chave='restaurar_backup_id';"
+
+  if [ -z "$arq" ] || [ ! -f "$DESTINO/$arq" ]; then
+    log "arquivo de backup não encontrado: ${arq:-(vazio)}"
+    return 1
+  fi
+
+  log "RESTAURANDO $arq — o Asterisk será parado"
+  local trabalho
+  trabalho=$(mktemp -d /tmp/telium-restore.XXXXXX)
+  tar -xzf "$DESTINO/$arq" -C "$trabalho" || { log "falha ao extrair"; rm -rf "$trabalho"; return 1; }
+
+  systemctl stop asterisk 2>/dev/null
+
+  if [ -f "$trabalho/banco.sql" ]; then
+    log "restaurando o banco"
+    mariadb --protocol=socket -uroot "$BANCO" < "$trabalho/banco.sql"
+  fi
+  if [ -d "$trabalho/config/asterisk" ]; then
+    log "restaurando a configuração do Asterisk"
+    cp -a "$trabalho/config/asterisk/." "$DIR_CONFIG_ASTERISK/"
+    chown -R asterisk:asterisk "$DIR_CONFIG_ASTERISK"
+  fi
+  [ -d "$trabalho/audios" ] && cp -a "$trabalho/audios/." "$DIR_AUDIOS/"
+
+  systemctl start asterisk 2>/dev/null
+  rm -rf "$trabalho"
+  log "restauração concluída"
+}
+
+# ---------------------------------------------------------
+criar_jobs_das_rotinas() {
+  local agora_h agora_dow agora_dom
+  agora_h=$(date '+%H:%M')
+  agora_dow=$(date '+%w')
+  agora_dom=$(date '+%-d')
+
+  mysql "SELECT id, periodicidade, TIME_FORMAT(hora,'%H:%i'),
+                IFNULL(dia_semana,-1), IFNULL(dia_mes,-1),
+                inclui_banco, inclui_config, inclui_audios, inclui_gravacoes, retencao,
+                IFNULL(DATE(ultimo_em),'')
+           FROM backup_rotinas WHERE ativo=1;" |
+  while read -r rid per hora dow dom b c a g ret ultimo; do
+    [ "$hora" = "$agora_h" ] || continue
+    [ "$ultimo" = "$(date '+%Y-%m-%d')" ] && continue
+    case "$per" in
+      diaria)  ;;
+      semanal) [ "$dow" = "$agora_dow" ] || continue ;;
+      mensal)  [ "$dom" = "$agora_dom" ] || continue ;;
+      *) continue ;;
+    esac
+    log "rotina ${rid} vencida, criando job"
+    mysql "INSERT INTO backups (rotina_id, origem, estado, inclui_banco, inclui_config,
+                                inclui_audios, inclui_gravacoes, retencao)
+           VALUES (${rid}, 'agendado', 'pendente', ${b}, ${c}, ${a}, ${g}, ${ret});
+           UPDATE backup_rotinas SET ultimo_em=NOW() WHERE id=${rid};"
+  done
+}
+
+# ---------------------------------------------------------
+main() {
+  mkdir -p "$DESTINO"
+  chmod 700 "$DESTINO"
+
+  local restaurar
+  restaurar=$(mysql "SELECT valor FROM sistema WHERE chave='restaurar_backup_id';")
+  if [ -n "$restaurar" ]; then
+    executar_restauracao "$restaurar"
+    return $?
+  fi
+
+  criar_jobs_das_rotinas
+
+  local pendentes
+  pendentes=$(mysql "SELECT id FROM backups WHERE estado='pendente' ORDER BY id LIMIT 3;")
+  [ -z "$pendentes" ] && { log "nada a fazer"; return 0; }
+
+  local falhou=0
+  for id in $pendentes; do
+    executar_backup "$id" || falhou=1
+  done
+  return $falhou
+}
+
+main "$@"
