@@ -7,6 +7,7 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Telium\Dominio\Auditoria;
 use Telium\Gerador\Aplicador;
+use Telium\Gerador\Conferencia;
 use Telium\Gerador\Gerador;
 use Telium\Suporte\Bd;
 use Telium\Suporte\Esquema;
@@ -60,7 +61,10 @@ final class Configuracao
             ['arquivos' => array_keys($arquivos)],
         );
 
-        return Resposta::json($res, ['arquivos' => $arquivos]);
+        return Resposta::json($res, [
+            'arquivos'  => $arquivos,
+            'problemas' => Conferencia::problemas(),
+        ]);
     }
 
     /** POST /api/config/aplicar — gera e recarrega o Asterisk. */
@@ -82,7 +86,8 @@ final class Configuracao
         Auditoria::registrar($usuario, 'aplicar', 'config', null, $resultado['etapas']);
 
         return Resposta::json($res, [
-            'arquivos' => $arquivos,
+            'arquivos'  => $arquivos,
+            'problemas' => Conferencia::problemas(),
             'aplicado' => $resultado['sucesso'],
             'etapas'   => $resultado['etapas'],
             'saida'    => $resultado['saida'],

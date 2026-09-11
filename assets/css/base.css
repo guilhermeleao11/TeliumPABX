@@ -357,3 +357,17 @@ tr:hover .row-actions { opacity: 1; }
   z-index: 200; box-shadow: var(--shadow-md);
 }
 [data-tip]:hover::after { opacity: 1; transform: translateY(-50%) scale(1); }
+
+/* Problemas de cadastro listados na barra de aplicar: destino apagado,
+   fila sem agente, grupo chamando ramal que não existe mais. */
+.lista-problemas {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.lista-problemas li { color: var(--text-muted); }
+.lista-problemas li.grave { color: var(--danger); }
+.lista-problemas b { color: var(--text); }

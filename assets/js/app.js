@@ -277,13 +277,30 @@ const App = {
         barra.className = 'barra-aplicar ' + (r.aplicado ? 'ok' : 'erro');
         const etapas = Object.entries(r.etapas || {})
           .map(([nome, estado]) => `${estado === 'ok' ? '✓' : '✗'} ${nome}`).join('   ');
+
+        // Destino apagado não quebra a geração, mas derruba a chamada de
+        // quem discar. O Asterisk só escreve isso no console dele; aqui
+        // sobe para quem aplicou, que é quem pode consertar.
+        const problemas = r.problemas || [];
+        const erros = problemas.filter(p => p.nivel === 'erro');
+        const listaProblemas = problemas.length ? `
+          <ul class="lista-problemas">
+            ${problemas.map(p => `<li class="${p.nivel === 'erro' ? 'grave' : ''}">
+              <b>${esc(p.onde)}</b> ${esc(p.texto)}</li>`).join('')}
+          </ul>` : '';
+
+        if (r.aplicado && erros.length) barra.className = 'barra-aplicar';
+
         barra.innerHTML = `
-          ${icon(r.aplicado ? 'checkCirc' : 'alert', 'ico')}
+          ${icon(r.aplicado && !erros.length ? 'checkCirc' : 'alert', 'ico')}
           <div class="grow">
-            <b>${r.aplicado
-              ? 'Configuração aplicada no Asterisk'
-              : 'O Asterisk recusou parte da recarga'}</b>
+            <b>${!r.aplicado
+              ? 'O Asterisk recusou parte da recarga'
+              : erros.length
+                ? `Configuração aplicada, com ${erros.length} problema${erros.length > 1 ? 's' : ''} no cadastro`
+                : 'Configuração aplicada no Asterisk'}</b>
             <p>${esc(etapas)}</p>
+            ${listaProblemas}
           </div>
           ${r.aplicado ? '' : '<button class="btn btn-outline btn-sm" id="verSaida">Ver a saída</button>'}`;
 
@@ -294,8 +311,9 @@ const App = {
         });
       }
 
-      // Some sozinha quando deu certo; o erro fica até a próxima checagem.
-      if (r.aplicado) {
+      // Some sozinha quando deu certo; o erro e a lista de problemas
+      // ficam na tela até a próxima checagem.
+      if (r.aplicado && !(r.problemas || []).some(p => p.nivel === 'erro')) {
         setTimeout(() => this.verificarConfig(), 4000);
       }
     } catch (e) {
