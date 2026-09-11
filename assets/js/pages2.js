@@ -459,7 +459,8 @@ function descreveDestino(tipo, valor, destinos) {
     }
     case 'ura': {
       const u = achar(d.uras, 'id');
-      return u ? `URA ${u.nome}` : `URA ${valor}`;
+      if (!u) return `URA ${valor}`;
+      return /^ura\b/i.test(u.nome) ? u.nome : `URA ${u.nome}`;
     }
     case 'grupo': {
       const g = achar(d.grupos, 'numero');
@@ -2311,6 +2312,419 @@ PAGES['admin.certificados'] = {
       if (!ok) return;
       try { await Api.delete(`/certificados/${c.id}`); toast('Certificado excluído.', 'ok'); App.route(); }
       catch (e) { toast(e.message, 'err'); }
+    });
+  }
+};
+
+/* ------------------------- Grupos de Horário ------------------------- */
+const DIAS_SEMANA = [
+  { valor: '', rotulo: '—' }, { valor: 0, rotulo: 'domingo' }, { valor: 1, rotulo: 'segunda' },
+  { valor: 2, rotulo: 'terça' }, { valor: 3, rotulo: 'quarta' }, { valor: 4, rotulo: 'quinta' },
+  { valor: 5, rotulo: 'sexta' }, { valor: 6, rotulo: 'sábado' }
+];
+const MESES = [{ valor: '', rotulo: '—' },
+  ...['janeiro','fevereiro','março','abril','maio','junho','julho','agosto',
+      'setembro','outubro','novembro','dezembro'].map((m, i) => ({ valor: i + 1, rotulo: m }))];
+const DIAS_MES = [{ valor: '', rotulo: '—' },
+  ...Array.from({ length: 31 }, (_, i) => ({ valor: i + 1, rotulo: String(i + 1) }))];
+
+/** "seg a sex, 08:00 às 18:00" — a faixa em português, para a lista. */
+function descreveFaixa(f) {
+  const curto = ['dom','seg','ter','qua','qui','sex','sáb'];
+  const mes = ['', 'jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  const par = (de, ate, mapa) => {
+    if (de === null || de === undefined || de === '') return null;
+    const a = mapa ? mapa[de] : de;
+    const b = (ate === null || ate === undefined || ate === '') ? a : (mapa ? mapa[ate] : ate);
+    return a === b ? `${a}` : `${a} a ${b}`;
+  };
+
+  const partes = [];
+  const semana = par(f.dia_semana_inicio, f.dia_semana_fim, curto);
+  const dia = par(f.dia_mes_inicio, f.dia_mes_fim, null);
+  const m = par(f.mes_inicio, f.mes_fim, mes);
+
+  if (semana) partes.push(semana);
+  if (dia) partes.push(`dia ${dia}`);
+  if (m) partes.push(m);
+  if (!partes.length) partes.push('todos os dias');
+
+  const hora = (f.hora_inicio && f.hora_fim)
+    ? `${String(f.hora_inicio).slice(0, 5)} às ${String(f.hora_fim).slice(0, 5)}`
+    : 'o dia inteiro';
+
+  return `${partes.join(', ')} · ${hora}`;
+}
+
+PAGES['apps.grupohorario'] = {
+  async render(ctx) {
+    let r;
+    try { r = await Api.get('/grupos-horario', { limite: 200 }); }
+    catch (e) { return pageHead('Grupos de Horário', '') + blocoErro(e); }
+    this._itens = r.dados || [];
+
+    const cabecalho = pageHead('Grupos de Horário',
+      `As faixas de tempo que uma condição horária consulta: hora, dia da semana,
+       dia do mês e mês. Um grupo pode ter várias faixas.`,
+      ctx.can('criar')
+        ? `<button class="btn btn-primary btn-sm" data-novo-grupo>${icon('plus','ico ico-sm')} Novo grupo</button>`
+        : readOnlyNote(ctx));
+
+    if (!this._itens.length) {
+      return cabecalho + `<div class="card">${vazio('calendar', 'Nenhum grupo de horário',
+        `Crie um com o horário comercial, por exemplo, e depois use-o numa condição horária
+         para mandar a chamada para a URA durante o expediente e para o recado fora dele.`,
+        ctx.can('criar') ? '<button class="btn btn-primary btn-sm" data-novo-grupo>Criar o primeiro</button>' : '')}
+      </div>`;
+    }
+
+    const faixas = {};
+    await Promise.all(this._itens.map(async g => {
+      faixas[g.id] = (await Api.get(`/grupos-horario/${g.id}/faixas`).catch(() => ({ faixas: [] }))).faixas || [];
+    }));
+    this._faixas = faixas;
+
+    return cabecalho + `<div class="agenda-grid larga">${this._itens.map(g => `
+      <div class="card" style="padding:16px">
+        <div class="row-between" style="margin-bottom:10px">
+          <div><b>${esc(g.nome)}</b>
+            ${g.descricao ? `<div class="tiny muted">${esc(g.descricao)}</div>` : ''}</div>
+          <span class="badge">${(faixas[g.id] || []).length} faixa(s)</span>
+        </div>
+        <div class="contato-dados" style="margin-bottom:10px">
+          ${(faixas[g.id] || []).length
+            ? faixas[g.id].map(f => `<div class="row gap-6 small">${icon('clock','ico ico-sm')}
+                <span>${esc(descreveFaixa(f))}</span></div>`).join('')
+            : '<span class="tiny muted">Sem faixas: uma condição com este grupo nunca estará dentro.</span>'}
+        </div>
+        <div class="contato-acoes">
+          <span class="grow"></span>
+          ${ctx.can('editar') ? `<button class="btn btn-outline btn-sm" data-editar-grupo="${g.id}">
+            ${icon('edit','ico ico-sm')} Editar</button>` : ''}
+          ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir"
+            data-excluir-grupo="${g.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+        </div>
+      </div>`).join('')}</div>`;
+  },
+
+  mount(ctx) {
+    const pagina = this;
+    const itens = this._itens || [];
+
+    const sel = (nome, opcoes, v) => `<select class="select" name="${nome}">
+      ${opcoes.map(o => `<option value="${esc(o.valor)}"
+        ${String(o.valor) === String(v ?? '') ? 'selected' : ''}>${esc(o.rotulo)}</option>`).join('')}
+    </select>`;
+
+    const linhaFaixa = (f = {}) => `
+      <tr data-faixa>
+        <td><div class="row gap-6">
+          <input class="input" type="time" name="hora_inicio" style="width:120px"
+                 value="${esc(String(f.hora_inicio || '').slice(0, 5))}">
+          <span class="tiny muted">às</span>
+          <input class="input" type="time" name="hora_fim" style="width:120px"
+                 value="${esc(String(f.hora_fim || '').slice(0, 5))}">
+        </div><span class="hint">Em branco: o dia inteiro.</span></td>
+        <td><div class="row gap-6">
+          ${sel('dia_semana_inicio', DIAS_SEMANA, f.dia_semana_inicio)}
+          ${sel('dia_semana_fim', DIAS_SEMANA, f.dia_semana_fim)}
+        </div></td>
+        <td><div class="row gap-6">
+          ${sel('dia_mes_inicio', DIAS_MES, f.dia_mes_inicio)}
+          ${sel('dia_mes_fim', DIAS_MES, f.dia_mes_fim)}
+        </div></td>
+        <td><div class="row gap-6">
+          ${sel('mes_inicio', MESES, f.mes_inicio)}
+          ${sel('mes_fim', MESES, f.mes_fim)}
+        </div></td>
+        <td class="col-actions"><button class="btn btn-ghost btn-sm btn-icon" data-tip="Tirar"
+          data-tirar-faixa>${icon('x','ico ico-sm')}</button></td>
+      </tr>`;
+
+    const formulario = item => {
+      const novo = !item;
+      const g = item || {};
+      const faixas = novo ? [] : (pagina._faixas[g.id] || []);
+      const campos = [
+        { campo: 'nome', label: 'Descrição', obrigatorio: true, largura: 'full',
+          placeholder: 'Horário comercial' },
+        { campo: 'descricao', label: 'Observação', largura: 'full' }
+      ];
+
+      Drawer.open({
+        titulo: novo ? 'Novo grupo de horário' : `Editar ${g.nome}`,
+        sub: 'Cada faixa vale por si: basta uma casar para a condição estar dentro do horário.',
+        wide: true,
+        corpo: `
+          <div class="form-grid">${campos.map(c => campoHtml(c, g)).join('')}</div>
+          <div class="secao-form">
+            <div class="row-between">
+              <div><b>Horários</b>
+                <div class="tiny muted">Deixe em branco o que não importa naquela faixa.</div></div>
+              <button class="btn btn-outline btn-sm" id="addFaixa">
+                ${icon('plus','ico ico-sm')} Adicionar horário</button>
+            </div>
+            <div class="table-wrap" style="margin-top:10px"><table class="table" id="tabelaFaixas">
+              <thead><tr><th style="width:290px">Hora</th><th>Dia da semana</th>
+                         <th>Dia do mês</th><th>Mês</th><th></th></tr></thead>
+              <tbody>${faixas.map(linhaFaixa).join('')}</tbody>
+            </table></div>
+          </div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>${novo ? 'Criar grupo' : 'Salvar'}</button>`,
+        aoAbrir: dw => {
+          const corpo = dw.querySelector('#tabelaFaixas tbody');
+          const ligar = () => dw.querySelectorAll('[data-tirar-faixa]').forEach(b =>
+            b.onclick = () => b.closest('tr').remove());
+          ligar();
+
+          dw.querySelector('#addFaixa').onclick = () => {
+            corpo.insertAdjacentHTML('beforeend', linhaFaixa());
+            ligar();
+          };
+          if (!faixas.length) dw.querySelector('#addFaixa').click();
+
+          dw.querySelector('[data-ok]').onclick = async ev => {
+            if (!validarCampos(dw, campos)) return;
+
+            const dados = {};
+            campos.forEach(c => { dados[c.campo] = dw.querySelector(`[name="${c.campo}"]`).value.trim(); });
+
+            const lista = [...corpo.querySelectorAll('tr[data-faixa]')].map(tr => {
+              const v = n => tr.querySelector(`[name="${n}"]`).value;
+              return {
+                hora_inicio: v('hora_inicio'), hora_fim: v('hora_fim'),
+                dia_semana_inicio: v('dia_semana_inicio'), dia_semana_fim: v('dia_semana_fim'),
+                dia_mes_inicio: v('dia_mes_inicio'), dia_mes_fim: v('dia_mes_fim'),
+                mes_inicio: v('mes_inicio'), mes_fim: v('mes_fim')
+              };
+            });
+
+            const botao = ev.currentTarget;
+            botao.disabled = true;
+            botao.innerHTML = '<span class="spin"></span> Salvando…';
+            try {
+              const r = novo ? await Api.post('/grupos-horario', dados)
+                             : await Api.put(`/grupos-horario/${g.id}`, dados);
+              await Api.put(`/grupos-horario/${novo ? r.id : g.id}/faixas`, { faixas: lista });
+              Drawer.close();
+              toast('Grupo salvo. Aplique as configurações.', 'ok');
+              App.route();
+            } catch (e) {
+              botao.disabled = false;
+              botao.textContent = novo ? 'Criar grupo' : 'Salvar';
+              toast(e.message, 'err');
+            }
+          };
+        }
+      });
+    };
+
+    document.querySelectorAll('[data-novo-grupo]').forEach(b => b.onclick = () => formulario(null));
+    document.querySelectorAll('[data-editar-grupo]').forEach(b => b.onclick = () =>
+      formulario(itens.find(x => String(x.id) === b.dataset.editarGrupo)));
+    document.querySelectorAll('[data-excluir-grupo]').forEach(b => b.onclick = async () => {
+      const g = itens.find(x => String(x.id) === b.dataset.excluirGrupo);
+      const ok = await Modal.confirm({
+        titulo: `Excluir o grupo ${g.nome}?`,
+        texto: 'As faixas somem junto. Condições horárias que usam este grupo ficam sem referência.',
+        ok: 'Excluir'
+      });
+      if (!ok) return;
+      try { await Api.delete(`/grupos-horario/${g.id}`); toast('Grupo excluído.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+  }
+};
+
+/* ------------------------- Condições Horárias ------------------------- */
+PAGES['apps.condicoes'] = {
+  async render(ctx) {
+    let r, grupos, destinos;
+    try {
+      [r, grupos, destinos] = await Promise.all([
+        Api.get('/condicoes-horarias', { limite: 200 }),
+        Api.get('/grupos-horario', { limite: 200 }).catch(() => ({ dados: [] })),
+        opcoesDestino()
+      ]);
+    } catch (e) { return pageHead('Condições Horárias', '') + blocoErro(e); }
+
+    this._itens = r.dados || [];
+    this._grupos = grupos.dados || [];
+    this._destinos = destinos;
+
+    const cabecalho = pageHead('Condições Horárias',
+      `Se estiver dentro do grupo de horário, a chamada vai para um destino; fora dele,
+       para outro. O código <span class="mono">*27</span> força aberto ou fechado sem mexer aqui.`,
+      ctx.can('criar')
+        ? `<button class="btn btn-primary btn-sm" data-nova-cond>${icon('plus','ico ico-sm')} Nova condição</button>`
+        : readOnlyNote(ctx));
+
+    if (!this._grupos.length) {
+      return cabecalho + `<div class="card">${vazio('calendar', 'Crie um grupo de horário antes',
+        `A condição pergunta "estamos dentro deste grupo?". Monte as faixas em
+         Aplicações › Grupos de Horário e volte aqui.`)}</div>`;
+    }
+
+    if (!this._itens.length) {
+      return cabecalho + `<div class="card">${vazio('clock', 'Nenhuma condição horária',
+        'Use uma na rota de entrada para atender diferente dentro e fora do expediente.',
+        ctx.can('criar') ? '<button class="btn btn-primary btn-sm" data-nova-cond>Criar a primeira</button>' : '')}
+      </div>`;
+    }
+
+    // O estado de agora vem do servidor: é o relógio dele que vale.
+    const estados = {};
+    await Promise.all(this._itens.map(async c => {
+      estados[c.id] = await Api.get(`/condicoes-horarias/${c.id}/agora`).catch(() => null);
+    }));
+    this._estados = estados;
+
+    return cabecalho + `<div class="agenda-grid larga">${this._itens.map(c => {
+      const g = this._grupos.find(x => String(x.id) === String(c.grupo_horario_id));
+      const e = estados[c.id];
+      const agora = !e ? '<span class="badge">estado desconhecido</span>'
+        : e.forcado
+          ? `<span class="badge badge-warn">forçado ${esc(e.forcado)}</span>`
+          : e.dentro
+            ? '<span class="badge badge-ok"><i class="dot"></i>Dentro do horário</span>'
+            : '<span class="badge badge-info">Fora do horário</span>';
+
+      return `<div class="card" style="padding:16px">
+        <div class="row-between" style="margin-bottom:10px">
+          <div><b>${esc(c.nome)}</b>
+            ${c.descricao ? `<div class="tiny muted">${esc(c.descricao)}</div>` : ''}
+            <div class="tiny muted">Grupo ${esc(g?.nome || 'removido')}${e ? ` · ${e.faixas} faixa(s)` : ''}</div></div>
+          ${agora}
+        </div>
+
+        <div class="contato-dados" style="margin-bottom:10px">
+          <div class="row gap-6 small">${icon('checkCirc','ico ico-sm')}
+            <span>Dentro → <b>${esc(descreveDestino(c.destino_dentro_tipo, c.destino_dentro_valor, this._destinos))}</b></span></div>
+          <div class="row gap-6 small">${icon('phoneOff','ico ico-sm')}
+            <span>Fora → <b>${esc(descreveDestino(c.destino_fora_tipo, c.destino_fora_valor, this._destinos))}</b></span></div>
+        </div>
+
+        <div class="contato-acoes">
+          ${ctx.can('editar') ? `<div class="segmented" data-forcar="${c.id}">
+            <button data-modo="auto" class="${e && !e.forcado ? 'on' : ''}">Pelo relógio</button>
+            <button data-modo="aberto" class="${e?.forcado === 'aberto' ? 'on' : ''}">Forçar aberto</button>
+            <button data-modo="fechado" class="${e?.forcado === 'fechado' ? 'on' : ''}">Forçar fechado</button>
+          </div>` : ''}
+          <span class="grow"></span>
+          ${ctx.can('editar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar"
+            data-editar-cond="${c.id}">${icon('edit','ico ico-sm')}</button>` : ''}
+          ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir"
+            data-excluir-cond="${c.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+  },
+
+  mount(ctx) {
+    const pagina = this;
+    const itens = this._itens || [];
+
+    const formulario = item => {
+      const novo = !item;
+      const c = item || { ativo: 1 };
+      const campos = [
+        { campo: 'nome', label: 'Nome', obrigatorio: true, largura: 'full', placeholder: 'Expediente' },
+        { campo: 'descricao', label: 'Observação', largura: 'full' },
+        { campo: 'grupo_horario_id', label: 'Grupo de horário', obrigatorio: true, tipo: 'select',
+          largura: 'full',
+          opcoes: [{ valor: '', rotulo: '— escolha o grupo —' },
+                   ...pagina._grupos.map(g => ({ valor: g.id, rotulo: g.nome }))],
+          ajuda: 'As faixas deste grupo é que dizem se estamos dentro ou fora.' },
+        { campo: 'ativo', label: 'Condição ativa', tipo: 'switch', padrao: 1 }
+      ];
+
+      Drawer.open({
+        titulo: novo ? 'Nova condição horária' : `Editar ${c.nome}`,
+        sub: 'Aponte uma rota de entrada ou uma URA para esta condição e ela decide o resto.',
+        wide: true,
+        corpo: `<div class="form-grid">${campos.map(x => campoHtml(x, c)).join('')}</div>
+          <div class="secao-form">
+            <b>Para onde a chamada vai</b>
+            <div class="form-grid" style="margin-top:10px">
+              ${destinoSelect('destino_dentro', c, pagina._destinos,
+                  { label: 'Dentro do horário', largura: 'full',
+                    ajuda: 'Quando alguma faixa do grupo cobre o momento da chamada.' })}
+              ${destinoSelect('destino_fora', c, pagina._destinos,
+                  { label: 'Fora do horário', largura: 'full',
+                    ajuda: 'Fim de semana, madrugada, feriado — o que o grupo não cobre.' })}
+            </div>
+          </div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>${novo ? 'Criar condição' : 'Salvar'}</button>`,
+        aoAbrir: dw => dw.querySelector('[data-ok]').onclick = async ev => {
+          if (!validarCampos(dw, campos)) return;
+
+          const dados = {};
+          campos.forEach(x => {
+            const el = dw.querySelector(`[name="${x.campo}"]`);
+            if (el) dados[x.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value.trim();
+          });
+          ['destino_dentro', 'destino_fora'].forEach(pref => {
+            const { tipo, valor } = lerDestino(dw.querySelector(`[name="${pref}"]`));
+            dados[`${pref}_tipo`] = tipo;
+            dados[`${pref}_valor`] = valor;
+          });
+
+          if (!dados.destino_dentro_tipo || !dados.destino_fora_tipo) {
+            const faltam = [];
+            if (!dados.destino_dentro_tipo) { marcarErro(dw, 'destino_dentro', 'Escolha o destino.'); faltam.push('Dentro do horário'); }
+            if (!dados.destino_fora_tipo) { marcarErro(dw, 'destino_fora', 'Escolha o destino.'); faltam.push('Fora do horário'); }
+            avisoFormulario(dw, faltam);
+            return;
+          }
+
+          const botao = ev.currentTarget;
+          botao.disabled = true;
+          botao.innerHTML = '<span class="spin"></span> Salvando…';
+          try {
+            if (novo) await Api.post('/condicoes-horarias', dados);
+            else await Api.put(`/condicoes-horarias/${c.id}`, dados);
+            Drawer.close();
+            toast('Condição salva. Aplique as configurações.', 'ok');
+            App.route();
+          } catch (e) {
+            botao.disabled = false;
+            botao.textContent = novo ? 'Criar condição' : 'Salvar';
+            if (e.detalhe?.campo) marcarErro(dw, e.detalhe.campo, e.message);
+            else toast(e.message, 'err');
+          }
+        }
+      });
+    };
+
+    document.querySelectorAll('[data-nova-cond]').forEach(b => b.onclick = () => formulario(null));
+    document.querySelectorAll('[data-editar-cond]').forEach(b => b.onclick = () =>
+      formulario(itens.find(x => String(x.id) === b.dataset.editarCond)));
+
+    document.querySelectorAll('[data-excluir-cond]').forEach(b => b.onclick = async () => {
+      const c = itens.find(x => String(x.id) === b.dataset.excluirCond);
+      const ok = await Modal.confirm({
+        titulo: `Excluir a condição ${c.nome}?`,
+        texto: 'As rotas que apontavam para ela ficam sem destino.',
+        ok: 'Excluir'
+      });
+      if (!ok) return;
+      try { await Api.delete(`/condicoes-horarias/${c.id}`); toast('Condição excluída.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+
+    document.querySelectorAll('[data-forcar]').forEach(grupo => {
+      grupo.querySelectorAll('[data-modo]').forEach(b => b.onclick = async () => {
+        const id = grupo.dataset.forcar;
+        try {
+          await Api.post(`/condicoes-horarias/${id}/forcar`, { modo: b.dataset.modo });
+          toast(b.dataset.modo === 'auto'
+            ? 'Voltou a seguir o relógio.'
+            : `Forçado ${b.dataset.modo} até alguém desfazer.`, 'ok');
+          App.route();
+        } catch (e) { toast(e.message, 'err'); }
+      });
     });
   }
 };

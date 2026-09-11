@@ -81,6 +81,22 @@ pelo AMI em 127.0.0.1.
 O gerador é idempotente: compara o conteúdo (ignorando a linha de data) e só
 reescreve o que mudou de fato.
 
+### Grupos de horário e condições horárias
+
+O grupo guarda as faixas: hora, dia da semana, dia do mês e mês, cada dimensão
+com início e fim e o direito de ficar em branco. O gerador compõe o
+`GotoIfTime(<horas>,<dias da semana>,<dias do mês>,<meses>?dentro)` — uma linha
+por faixa, e basta uma casar.
+
+A condição pergunta ao relógio do servidor e manda para um destino ou para o
+outro. Antes disso ela consulta `DB(condicao/<id>)`: o código `*27` e o botão da
+tela gravam ali `aberto` ou `fechado`, e essa marca vence o relógio — é como se
+libera um feriado sem mexer na configuração.
+
+`GET /api/condicoes-horarias/{id}/agora` responde o que a tela mostra: dentro ou
+fora neste instante, e se está forçado. O cálculo é o mesmo do dialplan, inclusive
+para faixas que viram a volta (sexta a segunda, novembro a fevereiro).
+
 ### Anúncios
 
 O arquivo enviado em Gravações do Sistema é matéria-prima. Quem os módulos usam

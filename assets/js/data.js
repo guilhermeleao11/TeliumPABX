@@ -44,12 +44,8 @@ const MENU = [
       { id: 'apps.sigame',       label: 'Siga-me',                icon: 'shuffle' },
       { id: 'apps.correiovoz',   label: 'Correio de Voz',         icon: 'voicemail' },
       { id: 'apps.disa',         label: 'DISA',                   icon: 'key' },
-      { id: 'apps.diretorio',    label: 'Diretório',              icon: 'book' },
       { id: 'apps.estacionamento', label: 'Estacionamento',       icon: 'package' },
       { id: 'apps.paging',       label: 'Megafonia e Interfonia', icon: 'volume' },
-      { id: 'apps.retorno',      label: 'Chamada de Retorno',     icon: 'phoneIn' },
-      { id: 'apps.fluxo',        label: 'Controle de Fluxo',      icon: 'route' },
-      { id: 'apps.idchamador',   label: 'Definir ID do Chamador', icon: 'creditCard' },
       { id: 'apps.tts',          label: 'Texto em Voz',           icon: 'mic' },
       { id: 'apps.despertar',    label: 'Chamadas de Despertar',  icon: 'clock' }
     ]

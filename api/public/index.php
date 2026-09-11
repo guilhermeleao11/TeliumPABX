@@ -11,6 +11,7 @@ use Telium\Http\Controllers\Contatos;
 use Telium\Http\Controllers\Destinos;
 use Telium\Http\Controllers\Filas;
 use Telium\Http\Controllers\Gravacoes;
+use Telium\Http\Controllers\Horarios;
 use Telium\Http\Controllers\Ura;
 use Telium\Http\Controllers\Audios;
 use Telium\Http\Controllers\Backup;
@@ -107,6 +108,30 @@ $recursos = [
             filtros: ['ativo'],
             afetaAsterisk: true,
             modulo: 'apps.filas',
+        ),
+    ],
+    'grupos-horario' => [
+        'modulo' => 'apps.grupohorario',
+        'recurso' => new Recurso(
+            tabela: 'grupos_horario',
+            colunas: ['nome', 'descricao'],
+            ordem: 'nome',
+            busca: ['nome', 'descricao'],
+            afetaAsterisk: true,
+            modulo: 'apps.grupohorario',
+        ),
+    ],
+    'condicoes-horarias' => [
+        'modulo' => 'apps.condicoes',
+        'recurso' => new Recurso(
+            tabela: 'condicoes_horarias',
+            colunas: ['nome','descricao','grupo_horario_id','destino_dentro_tipo','destino_dentro_valor',
+                      'destino_fora_tipo','destino_fora_valor','ativo'],
+            ordem: 'nome',
+            busca: ['nome', 'descricao'],
+            filtros: ['ativo', 'grupo_horario_id'],
+            afetaAsterisk: true,
+            modulo: 'apps.condicoes',
         ),
     ],
     'anuncios' => [
@@ -445,6 +470,16 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     // ---- conferências ----
     $g->get('/conferencias/{id}/situacao', [Conferencias::class, 'situacao'])
       ->add(new Permissao('apps.conferencias'));
+
+    // ---- grupos de horário: as faixas ----
+    $g->get('/grupos-horario/{id}/faixas', [Horarios::class, 'faixas'])
+      ->add(new Permissao('apps.grupohorario'));
+    $g->put('/grupos-horario/{id}/faixas', [Horarios::class, 'salvarFaixas'])
+      ->add(new Permissao('apps.grupohorario', 'editar'));
+    $g->get('/condicoes-horarias/{id}/agora', [Horarios::class, 'agora'])
+      ->add(new Permissao('apps.condicoes'));
+    $g->post('/condicoes-horarias/{id}/forcar', [Horarios::class, 'forcar'])
+      ->add(new Permissao('apps.condicoes', 'editar'));
 
     // ---- console do Asterisk ----
     $g->get('/cli/sugestoes', [Cli::class, 'sugestoes'])->add(new Permissao('admin.cli'));

@@ -49,6 +49,7 @@ final class GeradorDialplan
             'extensions.confirmacao.conf' => $this->confirmacoesDeFila(),
             'extensions.conferencias.conf' => $this->conferencias(),
             'extensions.anuncios.conf' => $this->anuncios(),
+            'extensions.condicoes.conf' => $this->condicoesHorarias(),
             'extensions.ura.conf'     => $this->uras(),
             'extensions.saida.conf'   => $this->rotasSaida(),
             'extensions.entrada.conf' => $this->rotasEntrada(),
@@ -299,6 +300,101 @@ final class GeradorDialplan
         }
 
         return $b->texto();
+    }
+
+    /**
+     * Condições horárias.
+     *
+     * Cada condição pergunta ao relógio do servidor se estamos dentro de
+     * alguma faixa do grupo e manda a chamada para um destino ou outro.
+     * O código *27 pode forçar aberto ou fechado, e essa marca vence o
+     * relógio — é como se libera um feriado sem mexer na configuração.
+     */
+    private function condicoesHorarias(): string
+    {
+        $b = $this->cabecalho('Contexto: condições horárias')->contexto('telium-condicoes');
+
+        $condicoes = Bd::todos(
+            'SELECT c.*, g.nome AS grupo_nome
+               FROM condicoes_horarias c
+          LEFT JOIN grupos_horario g ON g.id = c.grupo_horario_id
+              WHERE c.ativo = 1 ORDER BY c.id'
+        );
+
+        if ($condicoes === []) {
+            return $b->comentario('nenhuma condição horária ativa')->texto();
+        }
+
+        foreach ($condicoes as $c) {
+            $id = (int) $c['id'];
+            $faixas = Bd::todos(
+                'SELECT * FROM grupo_horario_faixas WHERE grupo_id = ? ORDER BY ordem, id',
+                [$c['grupo_horario_id']]
+            );
+
+            $b->branco()
+              ->comentario("{$id} — {$c['nome']} (grupo: " . ($c['grupo_nome'] ?? 'sem grupo') . ')')
+              ->exten((string) $id, "NoOp(Condição horária: {$c['nome']})")
+              ->same('Set(TELIUM_FORCA=${DB(condicao/' . $id . ')})')
+              ->same('GotoIf($["${TELIUM_FORCA}" = "aberto"]?dentro)')
+              ->same('GotoIf($["${TELIUM_FORCA}" = "fechado"]?fora)');
+
+            if ($faixas === []) {
+                $b->comentario('  grupo sem faixas: nunca está dentro');
+            }
+
+            foreach ($faixas as $f) {
+                $regra = $this->faixaDeHorario($f);
+                $b->comentario("  faixa: {$regra}")
+                  ->same("GotoIfTime({$regra}?dentro)");
+            }
+
+            // Sem casar com nenhuma faixa, a chamada segue para "fora".
+            $fora = $this->destino->linhas($c['destino_fora_tipo'], $c['destino_fora_valor']);
+            $b->same(array_shift($fora), 'fora')->apps($fora);
+
+            $dentro = $this->destino->linhas($c['destino_dentro_tipo'], $c['destino_dentro_valor']);
+            $b->same(array_shift($dentro), 'dentro')->apps($dentro);
+        }
+
+        return $b->texto();
+    }
+
+    /**
+     * Uma faixa no formato do GotoIfTime:
+     *   <horas>,<dias da semana>,<dias do mês>,<meses>
+     * O asterisco em qualquer posição quer dizer "tanto faz".
+     */
+    private function faixaDeHorario(array $f): string
+    {
+        // Dia da semana vem 0=domingo, e o mês vem 1=janeiro: por isso o
+        // mapa dos meses começa no índice 1, e não no 0.
+        $semana = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+        $meses = [1 => 'jan', 'feb', 'mar', 'apr', 'may', 'jun',
+                       'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+        $intervalo = static function (mixed $de, mixed $ate, ?array $mapa = null): string {
+            if ($de === null || $de === '') {
+                return '*';
+            }
+            $ini = $mapa === null ? (string) $de : ($mapa[(int) $de] ?? '*');
+            $fim = ($ate === null || $ate === '')
+                ? $ini
+                : ($mapa === null ? (string) $ate : ($mapa[(int) $ate] ?? $ini));
+
+            return $ini === $fim ? $ini : "{$ini}-{$fim}";
+        };
+
+        $horas = ($f['hora_inicio'] ?? null) === null || ($f['hora_fim'] ?? null) === null
+            ? '*'
+            : substr((string) $f['hora_inicio'], 0, 5) . '-' . substr((string) $f['hora_fim'], 0, 5);
+
+        return implode(',', [
+            $horas,
+            $intervalo($f['dia_semana_inicio'] ?? null, $f['dia_semana_fim'] ?? null, $semana),
+            $intervalo($f['dia_mes_inicio'] ?? null, $f['dia_mes_fim'] ?? null),
+            $intervalo($f['mes_inicio'] ?? null, $f['mes_fim'] ?? null, $meses),
+        ]);
     }
 
     /**

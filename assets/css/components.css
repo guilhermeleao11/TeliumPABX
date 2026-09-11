@@ -370,3 +370,10 @@ kbd.k { font: 600 10.5px var(--font); background: var(--surface); border: 1px so
 .secao-form .input.erro, .secao-form .select.erro {
   border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft);
 }
+
+/* Cartões com mais informação por linha (horários, condições) */
+.agenda-grid.larga { grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+.agenda-grid.larga .segmented button { font-size: 12px; padding: 0 10px; white-space: nowrap; }
+@media (max-width: 760px) {
+  .agenda-grid.larga { grid-template-columns: 1fr; }
+}
