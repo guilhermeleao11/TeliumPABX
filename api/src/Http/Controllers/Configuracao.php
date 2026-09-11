@@ -21,9 +21,24 @@ final class Configuracao
             'SELECT id, sucesso, criado_em, reloads FROM config_aplicacoes ORDER BY id DESC LIMIT 1'
         );
 
+        // Quantos arquivos mudariam se aplicássemos agora. É o que a barra
+        // mostra, e sai de uma geração em memória — nada é escrito aqui.
+        $pendentes = 0;
+        try {
+            foreach ((new Gerador())->simular() as $estado) {
+                if ($estado !== 'inalterado') {
+                    $pendentes++;
+                }
+            }
+        } catch (\Throwable) {
+            // Sem acesso ao diretório, a contagem fica em zero e a barra
+            // mostra o texto genérico — o aviso continua valendo.
+        }
+
         return Resposta::json($res, [
-            'pendente'        => (new Gerador())->pendente(),
-            'ultima_aplicacao' => $ultima,
+            'pendente'           => (new Gerador())->pendente(),
+            'arquivos_pendentes' => $pendentes,
+            'ultima_aplicacao'   => $ultima,
         ]);
     }
 

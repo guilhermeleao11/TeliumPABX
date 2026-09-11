@@ -377,3 +377,34 @@ kbd.k { font: 600 10.5px var(--font); background: var(--surface); border: 1px so
 @media (max-width: 760px) {
   .agenda-grid.larga { grid-template-columns: 1fr; }
 }
+
+/* ---------- Barra de configuração pendente ---------- */
+.barra-aplicar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 11px 24px;
+  background: var(--warn-soft);
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
+  color: var(--warn);
+  position: sticky; top: 0; z-index: 30;
+}
+.barra-aplicar .ico { flex: none; }
+.barra-aplicar b { color: var(--text); font-size: 13.5px; }
+.barra-aplicar p { margin: 0; font-size: 12.5px; color: var(--text-2); }
+.barra-aplicar .grow { flex: 1; }
+.barra-aplicar.ok {
+  background: var(--ok-soft); color: var(--ok);
+  border-bottom-color: color-mix(in srgb, var(--ok) 28%, transparent);
+}
+.barra-aplicar.erro {
+  background: var(--danger-soft); color: var(--danger);
+  border-bottom-color: color-mix(in srgb, var(--danger) 28%, transparent);
+}
+.barra-aplicar .detalhe {
+  flex-basis: 100%; margin: 4px 0 0;
+  font: 11.5px/1.5 var(--mono, ui-monospace, monospace);
+  color: var(--text-2); white-space: pre-wrap;
+  max-height: 150px; overflow: auto;
+}
+@media (max-width: 700px) {
+  .barra-aplicar { padding: 10px 16px; }
+}

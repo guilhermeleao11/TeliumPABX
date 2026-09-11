@@ -160,6 +160,7 @@ const App = {
 
     this.configPendente = !!estado?.pendente;
     this.pintarStatus(saude);
+    this.pintarBarraAplicar(estado);
 
     const avisos = [];
     if (this.configPendente) {
@@ -185,16 +186,49 @@ const App = {
       ${avisos.map(a => `
         <div class="notif">
           <span class="n-ico" style="background:var(--${a.tone}-soft);color:var(--${a.tone})">${icon(a.ico,'ico ico-sm')}</span>
-          <div class="grow"><b>${esc(a.titulo)}</b><p>${esc(a.texto)}</p>
-            ${a.acao === 'aplicar' && Auth.cap('reiniciar')
-              ? `<button class="btn btn-primary btn-sm" id="aplicarConfig" style="margin-top:8px">
-                   ${icon('check','ico ico-sm')} Aplicar configurações</button>` : ''}
-          </div>
+          <div class="grow"><b>${esc(a.titulo)}</b><p>${esc(a.texto)}</p></div>
         </div>`).join('')}`
       : `<div class="dd-head"><b>Avisos</b></div>
          <div class="empty" style="padding:26px">${icon('checkCirc')}<p>Nada pendente. Tudo em ordem.</p></div>`;
 
-    document.getElementById('aplicarConfig')?.addEventListener('click', ev => this.aplicarConfig(ev.currentTarget));
+  },
+
+  /**
+   * A barra de aplicar mora acima do conteúdo e aparece sozinha quando
+   * há alteração pendente. Antes o botão ficava escondido no sino, e
+   * ninguém achava — configuração salva e não aplicada não vale nada.
+   */
+  pintarBarraAplicar(estado) {
+    const barra = document.getElementById('barraAplicar');
+    if (!barra) return;
+
+    if (!this.configPendente) {
+      barra.hidden = true;
+      barra.className = 'barra-aplicar';
+      barra.innerHTML = '';
+      return;
+    }
+
+    const podeAplicar = Auth.cap('reiniciar');
+    const quantos = Number(estado?.arquivos_pendentes ?? 0);
+
+    barra.hidden = false;
+    barra.className = 'barra-aplicar';
+    barra.innerHTML = `
+      ${icon('alert', 'ico')}
+      <div class="grow">
+        <b>Alterações ainda não aplicadas no Asterisk</b>
+        <p>${quantos > 0
+          ? `${quantos} arquivo${quantos > 1 ? 's' : ''} de configuração ${quantos > 1 ? 'serão reescritos' : 'será reescrito'} a partir do banco.`
+          : 'O que você salvou está no banco, mas a central ainda opera com a configuração anterior.'}</p>
+      </div>
+      ${podeAplicar
+        ? `<button class="btn btn-primary btn-sm" id="aplicarConfig">
+             ${icon('check','ico ico-sm')} Aplicar configurações</button>`
+        : '<span class="small">Peça a um administrador para aplicar.</span>'}`;
+
+    document.getElementById('aplicarConfig')
+      ?.addEventListener('click', ev => this.aplicarConfig(ev.currentTarget));
   },
 
   /** Rodapé da sidebar: estado real do Asterisk, sem número fixo. */
@@ -223,18 +257,42 @@ const App = {
   },
 
   async aplicarConfig(botao) {
+    const barra = document.getElementById('barraAplicar');
     botao.disabled = true;
     botao.innerHTML = `<span class="spin"></span> Aplicando…`;
+
     try {
       const r = await Api.post('/config/aplicar');
-      toast(r.aplicado
-        ? 'Configuração aplicada no Asterisk.'
-        : 'A configuração foi gerada, mas o Asterisk recusou parte da recarga.',
-        r.aplicado ? 'ok' : 'warn');
-      this.verificarConfig();
+
+      // O resultado fica na barra, não num toast que some em três
+      // segundos: quando uma recarga falha, é isso que se quer ler.
+      if (barra) {
+        barra.className = 'barra-aplicar ' + (r.aplicado ? 'ok' : 'erro');
+        const etapas = Object.entries(r.etapas || {})
+          .map(([nome, estado]) => `${estado === 'ok' ? '✓' : '✗'} ${nome}`).join('   ');
+        barra.innerHTML = `
+          ${icon(r.aplicado ? 'checkCirc' : 'alert', 'ico')}
+          <div class="grow">
+            <b>${r.aplicado
+              ? 'Configuração aplicada no Asterisk'
+              : 'O Asterisk recusou parte da recarga'}</b>
+            <p>${esc(etapas)}</p>
+          </div>
+          ${r.aplicado ? '' : '<button class="btn btn-outline btn-sm" id="verSaida">Ver a saída</button>'}`;
+
+        document.getElementById('verSaida')?.addEventListener('click', () => {
+          barra.insertAdjacentHTML('beforeend',
+            `<pre class="detalhe">${esc(r.saida || 'sem saída')}</pre>`);
+          document.getElementById('verSaida').remove();
+        });
+      }
+
+      // Some sozinha quando deu certo; o erro fica até a próxima checagem.
+      if (r.aplicado) {
+        setTimeout(() => this.verificarConfig(), 4000);
+      }
     } catch (e) {
       toast(e.message, 'err');
-    } finally {
       botao.disabled = false;
       botao.innerHTML = `${icon('check','ico ico-sm')} Aplicar configurações`;
     }

@@ -8,12 +8,16 @@ use Telium\Suporte\Bd;
 /** Gera pjsip.endpoints.conf e pjsip.trunks.conf. */
 final class GeradorPjsip
 {
+    /** Onde o papel do Asterisk deixa o par TLS trocável pelo console. */
+    private const CERT_DIR = '/etc/asterisk/keys';
+
     /** @return array<string,string> nome do arquivo => conteúdo */
     public function gerar(): array
     {
         return [
             'pjsip.endpoints.conf' => $this->endpoints(),
             'pjsip.trunks.conf'    => $this->troncos(),
+            'acl.conf'             => $this->acls(),
         ];
     }
 
@@ -25,72 +29,240 @@ final class GeradorPjsip
             ->comentario('Gerado em ' . date('d/m/Y H:i:s'))
             ->branco();
 
-        $ramais = Bd::todos('SELECT * FROM ramais WHERE ativo = 1 ORDER BY numero');
-
-        foreach ($ramais as $r) {
-            $numero    = $r['numero'];
-            $transporte = 'transport-' . ($r['transporte'] === 'wss' ? 'wss' : $r['transporte']);
-            $codecs    = implode(',', array_map('trim', explode(',', (string) $r['codecs'])));
-            $permissoes = $this->permissoes($r);
-            $webrtc     = (int) $r['webrtc'] === 1;
-
-            $b->comentario(str_repeat('-', 62))
-              ->comentario("Ramal {$numero} — {$r['nome']}" . ($r['setor'] ? " ({$r['setor']})" : ''))
-              ->comentario(str_repeat('-', 62))
-              ->crua("[{$numero}]")
-              ->crua('type = endpoint')
-              ->crua("transport = {$transporte}")
-              ->crua("context = {$r['contexto']}")
-              ->crua('disallow = all')
-              ->crua("allow = {$codecs}")
-              ->crua("auth = {$numero}")
-              ->crua("aors = {$numero}")
-              ->crua(sprintf('callerid = "%s" <%s>', $this->limpar((string) $r['nome']), $numero))
-              ->crua('direct_media = no')
-              ->crua('force_rport = yes')
-              ->crua('rewrite_contact = yes')
-              ->crua('rtp_symmetric = yes')
-              ->crua('dtmf_mode = rfc4733')
-              ->crua('device_state_busy_at = ' . max(1, (int) $r['max_contatos']))
-              ->crua("set_var = TELIUM_PERM={$permissoes}")
-              ->crua("set_var = TELIUM_RAMAL={$numero}");
-
-            if ((int) $r['voicemail'] === 1) {
-                // "mailboxes", no plural: com "mailbox" o Asterisk não
-                // reconhece a opção e descarta o endpoint inteiro — o ramal
-                // simplesmente não existe.
-                $b->crua("mailboxes = {$numero}@telium");
-            }
-            if ($r['callgroup']) {
-                $b->crua("call_group = {$r['callgroup']}");
-            }
-            if ($r['pickupgroup']) {
-                $b->crua("pickup_group = {$r['pickupgroup']}");
-            }
-            if ($webrtc) {
-                // Caminho alternativo: navegador falando direto com o Asterisk.
-                $b->crua('webrtc = yes');
-            } elseif ((int) $r['srtp'] === 1) {
-                $b->crua('media_encryption = sdes');
-            }
-
-            $b->branco()
-              ->crua("[{$numero}]")
-              ->crua('type = auth')
-              ->crua('auth_type = userpass')
-              ->crua("username = {$numero}")
-              ->crua("password = {$r['senha_sip']}")
-              ->branco()
-              ->crua("[{$numero}]")
-              ->crua('type = aor')
-              ->crua('max_contacts = ' . max(1, (int) $r['max_contatos']))
-              ->crua('remove_existing = yes')
-              ->crua('qualify_frequency = 60')
-              ->crua('qualify_timeout = 3')
-              ->branco();
+        foreach (Bd::todos('SELECT * FROM ramais WHERE ativo = 1 ORDER BY numero') as $r) {
+            $this->endpoint($b, $r);
         }
 
         return $b->texto();
+    }
+
+    /** Um ramal: endpoint, auth e aor. */
+    private function endpoint(Bloco $b, array $r): void
+    {
+        $n = (string) $r['numero'];
+        $sim = static fn (mixed $v): string => ((int) $v === 1 ? 'yes' : 'no');
+        $webrtc = (int) $r['webrtc'] === 1;
+
+        // Com WebRTC ligado, o Asterisk exige o pacote inteiro: AVPF, ICE,
+        // rtcp-mux e DTLS. Deixar qualquer um de fora dá chamada que conecta
+        // e não tem áudio, que é o pior jeito de descobrir o problema.
+        $avpf     = $webrtc || (int) $r['avpf'] === 1;
+        $ice      = $webrtc || (int) $r['ice'] === 1;
+        $mux      = $webrtc || (int) $r['rtcp_mux'] === 1;
+        $dtls     = $webrtc || (int) $r['dtls'] === 1;
+        $transporte = 'transport-' . ($webrtc ? 'wss' : (string) $r['transporte']);
+
+        $b->comentario(str_repeat('-', 62))
+          ->comentario("Ramal {$n} — {$r['nome']}" . ($r['setor'] ? " ({$r['setor']})" : '')
+              . ($webrtc ? ' — WebRTC' : ''))
+          ->comentario(str_repeat('-', 62))
+          ->crua("[{$n}]")
+          ->crua('type = endpoint')
+          ->crua("transport = {$transporte}")
+          ->crua('context = ' . ($r['contexto_custom'] ?: $r['contexto']))
+          ->crua('disallow = all')
+          ->crua('allow = ' . $this->lista((string) $r['codecs']))
+          ->crua("auth = {$n}")
+          ->crua("aors = {$n}")
+          ->crua(sprintf('callerid = "%s" <%s>', $this->limpar((string) $r['nome']), $n))
+          ->crua("set_var = TELIUM_PERM={$this->permissoes($r)}")
+          ->crua("set_var = TELIUM_RAMAL={$n}");
+
+        if (($r['codecs_negados'] ?? '') !== '') {
+            $b->crua('disallow = ' . $this->lista((string) $r['codecs_negados']));
+        }
+
+        // ---------- sinalização ----------
+        $b->crua('dtmf_mode = ' . $this->dtmf((string) $r['dtmf_modo']))
+          ->crua('direct_media = ' . $sim($r['direct_media']))
+          ->crua('force_rport = ' . $sim($r['forcar_rport']))
+          ->crua('rewrite_contact = ' . $sim($r['reescrever_contato']))
+          ->crua('rtp_symmetric = ' . $sim($r['rtp_simetrico']))
+          ->crua('trust_id_inbound = ' . $sim($r['trust_rpid']))
+          ->crua('send_rpid = ' . $sim($r['envia_rpid']))
+          ->crua('send_pai = ' . $sim($r['envia_pai']))
+          ->crua('send_connected_line = ' . $sim($r['send_connected']))
+          ->crua('user_eq_phone = ' . $sim($r['user_eq_phone']))
+          ->crua('refer_blind_progress = ' . $sim($r['refer_blind_progress']))
+          ->crua('device_state_busy_at = ' . max(1, (int) $r['max_contatos']));
+
+        if ((int) $r['usar_transporte_recebido'] === 1 || $webrtc) {
+            $b->crua('use_ptime = no')
+              ->crua('media_use_received_transport = yes');
+        }
+
+        // ---------- temporizadores ----------
+        $b->crua('timers = ' . match ($r['timers_sessao']) {
+            'nao'         => 'no',
+            'obrigatorio' => 'required',
+            default       => 'yes',
+        })
+          ->crua('timers_sess_expires = ' . max(90, (int) $r['timers_expira']));
+
+        foreach ([
+            'rtp_timeout'      => (int) $r['rtp_timeout'],
+            'rtp_timeout_hold' => (int) $r['rtp_timeout_hold'],
+            'dtls_rekey'       => $dtls ? (int) $r['dtls_rekey'] : 0,
+        ] as $opcao => $valor) {
+            if ($valor > 0) {
+                $b->crua("{$opcao} = {$valor}");
+            }
+        }
+
+        // ---------- mídia ----------
+        $b->crua('max_audio_streams = ' . max(1, (int) $r['max_audio']));
+        if ((int) $r['max_video'] > 0) {
+            $b->crua('max_video_streams = ' . (int) $r['max_video']);
+        }
+        if (($r['media_address'] ?? '') !== '') {
+            $b->crua("media_address = {$r['media_address']}");
+        }
+        if ($avpf) {
+            $b->crua('use_avpf = yes');
+        }
+        if ($ice) {
+            $b->crua('ice_support = yes');
+        }
+        if ($mux) {
+            $b->crua('rtcp_mux = yes');
+        }
+
+        if ($dtls) {
+            // O par é o mesmo do SIP TLS, trocável pelo módulo de certificados.
+            $b->crua('media_encryption = dtls')
+              ->crua('dtls_auto_generate_cert = no')
+              ->crua('dtls_cert_file = ' . self::CERT_DIR . '/asterisk.crt')
+              ->crua('dtls_private_key = ' . self::CERT_DIR . '/asterisk.key')
+              ->crua("dtls_verify = {$r['dtls_verificar']}")
+              ->crua("dtls_setup = {$r['dtls_setup']}");
+        } elseif ((int) $r['srtp'] === 1) {
+            $b->crua('media_encryption = sdes');
+        }
+        if ((int) $r['srtp_oportunista'] === 1 && !$dtls) {
+            $b->crua('media_encryption_optimistic = yes');
+        }
+
+        // ---------- correio de voz ----------
+        if ((int) $r['voicemail'] === 1) {
+            // "mailboxes", no plural: com "mailbox" o Asterisk não reconhece
+            // a opção e descarta o endpoint inteiro — o ramal deixa de existir.
+            $b->crua("mailboxes = {$n}@telium")
+              ->crua('mwi_subscribe_replaces_unsolicited = '
+                  . ($r['mwi_tipo'] === 'nao_solicitado' ? 'no' : 'yes'));
+
+            if ($r['mwi_tipo'] === 'nao_solicitado') {
+                $b->crua('aggregate_mwi = ' . $sim($r['mwi_agregado']));
+            }
+        }
+
+        // ---------- grupos e identificação extra ----------
+        foreach ([
+            'call_group'       => $r['callgroup'],
+            'pickup_group'     => $r['pickupgroup'],
+            'accountcode'      => $r['accountcode'],
+            'outbound_proxy'   => $r['proxy_saida'],
+            'message_context'  => $r['contexto_mensagens'],
+        ] as $opcao => $valor) {
+            if (($valor ?? '') !== '') {
+                $b->crua("{$opcao} = {$valor}");
+            }
+        }
+
+        // ---------- auth ----------
+        $b->branco()
+          ->crua("[{$n}]")
+          ->crua('type = auth')
+          ->crua('auth_type = userpass')
+          ->crua("username = {$n}")
+          ->crua("password = {$r['senha_sip']}")
+          ->branco();
+
+        // ---------- aor ----------
+        $b->crua("[{$n}]")
+          ->crua('type = aor')
+          ->crua('max_contacts = ' . max(1, (int) $r['max_contatos']))
+          ->crua('remove_existing = ' . $sim($r['remove_existing']))
+          ->crua('qualify_frequency = ' . max(0, (int) $r['qualify_freq']))
+          ->crua('qualify_timeout = 3')
+          ->crua('maximum_expiration = ' . max(60, (int) $r['expira_max']))
+          ->crua('minimum_expiration = ' . max(30, (int) $r['expira_min']));
+
+        if (($r['redes_permitidas'] ?? '') !== '') {
+            $b->crua("contact_acl = telium-{$n}");
+        }
+
+        $b->branco();
+
+        // ---------- identificação por alias ou rede ----------
+        if (($r['alias_sip'] ?? '') !== '') {
+            $b->comentario("alias SIP de {$n}")
+              ->crua("[{$n}-alias]")
+              ->crua('type = identify')
+              ->crua("endpoint = {$n}")
+              ->crua("match_header = From: <sip:{$r['alias_sip']}@")
+              ->branco();
+        }
+    }
+
+    /**
+     * ACLs nomeadas dos ramais que restringem redes.
+     *
+     * O endpoint aponta para "telium-<ramal>" com contact_acl; sem este
+     * arquivo a referência ficaria pendurada e o registro do ramal seria
+     * recusado sem explicação.
+     */
+    private function acls(): string
+    {
+        $b = (new Bloco())
+            ->comentario('Gerado pelo Telium PABX — NÃO EDITE À MÃO')
+            ->comentario('Redes de onde cada ramal pode registrar')
+            ->comentario('Gerado em ' . date('d/m/Y H:i:s'))
+            ->branco();
+
+        $restritos = Bd::todos(
+            "SELECT numero, redes_permitidas FROM ramais
+              WHERE ativo = 1 AND redes_permitidas IS NOT NULL AND redes_permitidas <> ''
+           ORDER BY numero"
+        );
+
+        if ($restritos === []) {
+            return $b->comentario('nenhum ramal com restrição de rede')->texto();
+        }
+
+        foreach ($restritos as $r) {
+            $b->comentario("Ramal {$r['numero']}")
+              ->crua("[telium-{$r['numero']}]")
+              ->crua('deny = 0.0.0.0/0.0.0.0');
+
+            foreach (explode(',', (string) $r['redes_permitidas']) as $rede) {
+                $rede = trim($rede);
+                if ($rede !== '') {
+                    $b->crua("permit = {$rede}");
+                }
+            }
+            $b->branco();
+        }
+
+        return $b->texto();
+    }
+
+    /** "opus, alaw ,ulaw" vira "opus,alaw,ulaw". */
+    private function lista(string $bruto): string
+    {
+        $itens = array_filter(array_map('trim', explode(',', $bruto)), static fn ($x) => $x !== '');
+
+        return implode(',', $itens);
+    }
+
+    private function dtmf(string $modo): string
+    {
+        return match ($modo) {
+            'inband'    => 'inband',
+            'info'      => 'info',
+            'auto'      => 'auto',
+            'auto_info' => 'auto_info',
+            default     => 'rfc4733',
+        };
     }
 
     private function troncos(): string

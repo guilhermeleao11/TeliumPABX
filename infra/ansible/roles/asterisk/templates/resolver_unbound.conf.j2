@@ -1,0 +1,6 @@
+; {{ ansible_managed }}
+; Resolução de DNS do Asterisk. Usa o resolvedor do sistema, que é o que
+; o restante da VM já usa — inclusive para o SRV dos troncos.
+[general]
+hosts = /etc/hosts
+resolv = /etc/resolv.conf

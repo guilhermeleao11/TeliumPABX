@@ -1,6 +1,8 @@
 ; {{ ansible_managed }}
-[general]
-parkeddynamic = no
+;
+; Sem [general] aqui: estacionamento saiu do features.conf no Asterisk 12
+; e vive em res_parking.conf, que a API gera. Deixar "parkeddynamic" nesta
+; seção rende dois avisos a cada "core reload" e não configura nada.
 
 ; Os códigos apertados durante a chamada vêm do módulo Códigos de
 ; Recurso do console; o arquivo abaixo é gerado pela API. Os valores

@@ -44,6 +44,9 @@ final class Aplicador
                 $sucesso = $sucesso && $ok;
             }
         } catch (\Throwable $e) {
+            // Sem esta etapa, a tela mostraria "recusou parte da recarga"
+            // com a lista vazia, sem dizer que o problema foi a conexão.
+            $etapas['conexão com o Asterisk'] = 'falhou';
             $sucesso = false;
             $saida .= 'ERRO: ' . $e->getMessage() . "\n";
         }

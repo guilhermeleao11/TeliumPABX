@@ -81,6 +81,31 @@ pelo AMI em 127.0.0.1.
 O gerador é idempotente: compara o conteúdo (ignorando a linha de data) e só
 reescreve o que mudou de fato.
 
+### Console do Asterisk limpo
+
+O console é onde se descobre problema de telefonia, então tudo o que enche o log
+sem dizer nada foi tratado. Um `core reload` numa instalação nova saía com cerca
+de 35 erros e 20 avisos, quase todos "Unable to load config file" de módulo que
+esta instalação não usa. Hoje sai com **zero erros**.
+
+Três frentes:
+
+- **`noload` do que não usamos** — o assistente de PJSIP (que reclamava oito
+  vezes por reload), realtime sqlite/pgsql/curl/ldap, os backends de CDR e CEL
+  que não são o ODBC, AEL, HEP, statsd, geolocation, phoneprov, SMDI, minivm e o
+  hardware analógico antigo. `res_websocket_client` **fica**: a ARI depende dele.
+- **Arquivos que faltavam** — `indications.conf` (tons do Brasil, não os
+  americanos), `udptl.conf` (T.38 do fax), `pjproject.conf`, `queuerules.conf`,
+  `res_fax.conf`, `resolver_unbound.conf` e `acl.conf`.
+- **Placeholders de tudo o que a API gera** — um `#include` de arquivo ausente
+  não é ignorado: o módulo inteiro recusa carregar. Faltavam os de `res_parking`,
+  `confbridge`, `acl` e cinco contextos novos, então numa instalação nova o
+  estacionamento e as conferências não subiam antes do primeiro "aplicar".
+
+Duas correções nossas no meio do caminho: `parkeddynamic` ainda estava no
+`features.conf` (saiu de lá no Asterisk 12) e o `acl.conf` gerado tinha uma seção
+`[general]`, que ali não existe — toda seção é o nome de uma ACL.
+
 ### Estacionamento e chamadas de despertar
 
 O estacionamento emite `res_parking.conf`, um lote por linha da tabela. O lote

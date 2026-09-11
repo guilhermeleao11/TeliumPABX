@@ -1,0 +1,12 @@
+; {{ ansible_managed }}
+; Só o que importa do PJPROJECT no log: erro e aviso. Sem isto, cada
+; reload reclama do arquivo ausente.
+[startup]
+log_level = 2
+
+[log_mappings]
+asterisk_error = 0
+asterisk_warning = 1
+asterisk_notice = 2
+asterisk_verbose = 3,4,5
+asterisk_debug = 6

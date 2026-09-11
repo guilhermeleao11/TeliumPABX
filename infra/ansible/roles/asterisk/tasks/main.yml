@@ -291,6 +291,13 @@
     - queues.conf
     - confbridge.conf
     - res_parking.conf
+    - indications.conf
+    - udptl.conf
+    - pjproject.conf
+    - resolver_unbound.conf
+    - queuerules.conf
+    - res_fax.conf
+    - acl.conf
     - voicemail.conf
     - musiconhold.conf
     - features.conf
@@ -359,6 +366,17 @@
     - recarregar asterisk
     - recarregar manager
 
+# O pacote deixa arquivos que só rendem aviso: users.conf está obsoleto e
+# o extensions.ael traz um dialplan de exemplo com macros que não existem.
+- name: Remover arquivos de exemplo que só enchem o log
+  ansible.builtin.file:
+    path: "/etc/asterisk/{{ item }}"
+    state: absent
+  loop:
+    - users.conf
+    - extensions.ael
+    - extensions.lua
+
 - name: Criar placeholders dos arquivos gerados (a API sobrescreve)
   ansible.builtin.copy:
     dest: "{{ asterisk_gerado_dir }}/{{ item.arquivo }}"
@@ -379,8 +397,17 @@
     - { arquivo: "extensions.ura.conf",     conteudo: "[telium-ura]\n; gerado pela API" }
     - { arquivo: "extensions.filas.conf",   conteudo: "[telium-filas]\n; gerado pela API" }
     - { arquivo: "extensions.grupos.conf",  conteudo: "[telium-grupos]\n; gerado pela API" }
+    - { arquivo: "extensions.pesquisa.conf",     conteudo: "[telium-pesquisa]\n; gerado pela API" }
+    - { arquivo: "extensions.confirmacao.conf",  conteudo: "; gerado pela API" }
+    - { arquivo: "extensions.conferencias.conf", conteudo: "[telium-conferencias]\n; gerado pela API" }
+    - { arquivo: "extensions.anuncios.conf",     conteudo: "[telium-anuncios]\n; gerado pela API" }
+    - { arquivo: "extensions.condicoes.conf",    conteudo: "[telium-condicoes]\n; gerado pela API" }
+    - { arquivo: "extensions.estacionamento.conf", conteudo: "; gerado pela API" }
     - { arquivo: "queues.conf",             conteudo: "; gerado pela API" }
-    - { arquivo: "voicemail.conf",          conteudo: "; gerado pela API" }
+    - { arquivo: "voicemail.conf",          conteudo: "[telium]\n; gerado pela API" }
+    - { arquivo: "confbridge.conf",         conteudo: "; gerado pela API" }
+    - { arquivo: "res_parking.conf",        conteudo: "; gerado pela API" }
+    - { arquivo: "acl.conf",                conteudo: "; gerado pela API" }
   loop_control:
     label: "{{ item.arquivo }}"
 

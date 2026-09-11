@@ -1,14 +1,66 @@
 ; {{ ansible_managed }}
+;
+; O console do Asterisk é onde se descobre problema de telefonia. Cada
+; módulo que carrega sem configuração enche o log de "Unable to load
+; config file" e esconde o erro que interessa — por isso tudo o que esta
+; instalação não usa sai daqui, em vez de ganhar um arquivo vazio.
 [modules]
 autoload = yes
 
-; Canais que não usamos nesta instalação
+; ---------- canais que não usamos ----------
 noload => chan_dahdi.so
 noload => chan_iax2.so
 noload => chan_mgcp.so
 noload => chan_skinny.so
 noload => chan_unistim.so
+; WebRTC entra pelo Janus, não por canal websocket do Asterisk.
+; res_websocket_client fica: a ARI depende dele e não carrega sem ele.
+noload => chan_websocket.so
 
-; Sem realtime: a configuração vem de arquivos gerados pela API
+; ---------- realtime: a configuração vem de arquivos gerados ----------
 noload => res_config_curl.so
 noload => res_config_ldap.so
+noload => res_config_sqlite3.so
+noload => res_config_odbc.so
+; O assistente de PJSIP procura pjsip_wizard.conf a cada reload e
+; reclama oito vezes seguidas. Quem escreve o pjsip aqui é a API.
+noload => res_pjsip_config_wizard.so
+
+; ---------- telemetria e integrações que não usamos ----------
+noload => res_statsd.so
+noload => res_hep.so
+noload => res_hep_pjsip.so
+noload => res_hep_rtcp.so
+noload => res_phoneprov.so
+noload => res_config_pgsql.so
+noload => res_speech_aeap.so
+noload => res_geolocation.so
+noload => res_pjsip_geolocation.so
+noload => res_aeap.so
+noload => res_smdi.so
+noload => res_clialiases.so
+
+; ---------- correio de voz: usamos o app_voicemail ----------
+noload => app_minivm.so
+
+; ---------- CDR e CEL: gravamos por ODBC, no MariaDB ----------
+noload => cdr_csv.so
+noload => cdr_custom.so
+noload => cdr_sqlite3_custom.so
+noload => cdr_pgsql.so
+noload => cdr_manager.so
+noload => cel_custom.so
+noload => cel_sqlite3_custom.so
+noload => cel_pgsql.so
+
+; ---------- dialplan em AEL: o nosso é gerado em extensions.conf ----------
+noload => pbx_ael.so
+noload => res_ael_share.so
+
+; ---------- provisionamento de telefone pelo Asterisk ----------
+noload => res_pjsip_phoneprov_provider.so
+
+; ---------- hardware de telefone analógico antigo ----------
+noload => res_adsi.so
+noload => app_adsiprog.so
+noload => app_getcpeid.so

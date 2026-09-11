@@ -1,0 +1,9 @@
+; {{ ansible_managed }}
+; T.38, usado pelo código de recurso de fax.
+[general]
+udptlstart = {{ udptl_inicio | default(4000) }}
+udptlend = {{ udptl_fim | default(4999) }}
+udptlchecksums = no
+udptlfecentries = 3
+udptlfecspan = 3
+use_even_ports = no

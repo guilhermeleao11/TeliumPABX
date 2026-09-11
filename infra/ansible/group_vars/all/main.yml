@@ -69,6 +69,8 @@ sip_porta: 5060
 sip_tls_porta: 5061
 ast_rtp_inicio: 10000
 ast_rtp_fim: 10200
+udptl_inicio: 4000                           # T.38, usado na recepção de fax
+udptl_fim: 4999
 ast_http_porta: 8090                         # ARI/HTTP do Asterisk (8088 é do Janus)
 ami_porta: 5038
 ami_usuario: telium

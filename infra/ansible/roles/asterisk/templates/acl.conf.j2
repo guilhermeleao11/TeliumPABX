@@ -1,0 +1,7 @@
+; {{ ansible_managed }}
+; As ACLs por ramal são geradas pela API em {{ asterisk_gerado_dir }}.
+;
+; Sem [general] aqui: no acl.conf toda seção é o nome de uma ACL, e uma
+; chamada "general" faz o Asterisk reclamar de tipo desconhecido.
+
+#include "telium/acl.conf"

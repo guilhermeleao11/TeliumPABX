@@ -22,12 +22,14 @@ final class Gerador
         $this->destino = rtrim($destino ?? (string) Ambiente::get('ASTERISK_GERADO_DIR', '/etc/asterisk/telium'), '/');
     }
 
-    /** @return array<string,array{status:string,bytes:int}> */
-    public function gerar(): array
+    /**
+     * Monta o conteúdo de todos os arquivos, sem tocar no disco.
+     *
+     * @return array<string,string>
+     */
+    private function arquivos(): array
     {
-        $this->conferirDestino();
-
-        $arquivos = [
+        return [
             ...(new GeradorPjsip())->gerar(),
             ...(new GeradorDialplan())->gerar(),
             ...(new GeradorRecursos())->gerar(),
@@ -36,6 +38,35 @@ final class Gerador
             ...(new GeradorEstacionamento())->gerar(),
             ...(new GeradorVoicemail())->gerar(),
         ];
+    }
+
+    /**
+     * O que mudaria se gerássemos agora, sem escrever nada.
+     *
+     * @return array<string,string> arquivo => inalterado|criado|atualizado
+     */
+    public function simular(): array
+    {
+        $resultado = [];
+
+        foreach ($this->arquivos() as $nome => $conteudo) {
+            $caminho = "{$this->destino}/{$nome}";
+            $anterior = is_file($caminho) ? (string) file_get_contents($caminho) : null;
+
+            $resultado[$nome] = $anterior === null
+                ? 'criado'
+                : ($this->semData($anterior) === $this->semData($conteudo) ? 'inalterado' : 'atualizado');
+        }
+
+        return $resultado;
+    }
+
+    /** @return array<string,array{status:string,bytes:int}> */
+    public function gerar(): array
+    {
+        $this->conferirDestino();
+
+        $arquivos = $this->arquivos();
 
         $resultado = [];
         $mudou = false;
