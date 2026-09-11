@@ -123,3 +123,11 @@ sons_pt_br: true
 # chamada nova — por isso acompanha o número de núcleos da máquina.
 asterisk_max_chamadas: 480
 asterisk_max_carga: "{{ (ansible_facts.processor_vcpus | default(2) | int * 1.5) | round(1) }}"
+
+# ICE do softphone do navegador. O STUN público resolve a maioria dos
+# casos; o TURN fica em branco até existir um servidor próprio, porque
+# com ele toda a mídia passa a trafegar pelo relay.
+softphone_stun: "stun:stun.l.google.com:19302"
+softphone_turn: ""
+softphone_turn_usuario: ""
+softphone_turn_senha: ""

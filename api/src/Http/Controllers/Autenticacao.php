@@ -235,7 +235,38 @@ final class Autenticacao
             'nome'       => (string) $r['nome'],
             'senha'      => (string) $r['senha_sip'],
             'dominio'    => (string) Ambiente::get('SIP_DOMINIO', ''),
+            'ice'        => $this->ice(),
         ];
+    }
+
+    /**
+     * Servidores de ICE para o navegador.
+     *
+     * Sem STUN o navegador anuncia só o endereço da rede local dele:
+     * dentro da empresa a chamada fecha, de fora o áudio some num lado
+     * só. O TURN entra quando a rede do usuário bloqueia UDP direto.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function ice(): array
+    {
+        $lista = [];
+
+        $stun = trim((string) Ambiente::get('SOFTPHONE_STUN', 'stun:stun.l.google.com:19302'));
+        if ($stun !== '') {
+            $lista[] = ['urls' => $stun];
+        }
+
+        $turn = trim((string) Ambiente::get('SOFTPHONE_TURN', ''));
+        if ($turn !== '') {
+            $lista[] = [
+                'urls'       => $turn,
+                'username'   => (string) Ambiente::get('SOFTPHONE_TURN_USUARIO', ''),
+                'credential' => (string) Ambiente::get('SOFTPHONE_TURN_SENHA', ''),
+            ];
+        }
+
+        return $lista;
     }
 
     private function publico(array $u): array

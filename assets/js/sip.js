@@ -65,6 +65,16 @@ const SipLink = {
       return;
     }
 
+    // Sem servidor de ICE o navegador anuncia só o endereço da rede
+    // local dele. Dentro da empresa a chamada fecha; de fora, o áudio
+    // some de um lado só. A lista vem do servidor para o TURN poder ser
+    // trocado sem mexer no código.
+    this.pcConfig = {
+      iceServers: Array.isArray(cfg.ice) && cfg.ice.length
+        ? cfg.ice
+        : [{ urls: 'stun:stun.l.google.com:19302' }]
+    };
+
     this.ua = new JsSIP.UA({
       sockets: [socket],
       uri: `sip:${cfg.ramal}@${cfg.dominio}`,
@@ -147,23 +157,60 @@ const SipLink = {
       pc.addEventListener('track', e => {
         if (e.track.kind === 'audio') this.audio.srcObject = e.streams[0];
       });
+
+      // ICE que não fecha é a causa clássica da "chamada conectada e
+      // muda". Sem isto o usuário ficava olhando o cronômetro correr
+      // sem ouvir nada e sem nenhuma pista do motivo.
+      pc.addEventListener('iceconnectionstatechange', () => {
+        if (pc.iceConnectionState === 'failed') {
+          this._avisar('midia', {
+            estado: 'falhou',
+            motivo: 'O áudio não conseguiu passar pela rede (ICE falhou). '
+                  + 'Em rede com firewall restritivo é preciso um servidor TURN.'
+          });
+        }
+        if (pc.iceConnectionState === 'disconnected') {
+          this._avisar('midia', { estado: 'instavel', motivo: 'Áudio instável — a rede oscilou.' });
+        }
+        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          this._avisar('midia', { estado: 'ok', motivo: '' });
+        }
+      });
     }
+  },
+
+  /** Há chamada viva agora? */
+  ocupado() {
+    return !!this.sessao && this.sessao.status !== 8 /* TERMINATED */;
   },
 
   /** @returns {boolean} false quando não dá para discar agora */
   ligar(numero) {
     if (this.estado !== 'pronto' || !numero) return false;
 
+    // Sem esta guarda, discar com uma chamada em curso trocava
+    // this.sessao pela nova e deixava a anterior viva no Asterisk, sem
+    // nenhum botão para encerrá-la: canal fantasma até o outro lado
+    // desligar.
+    if (this.ocupado()) {
+      this._avisar('encerrada', { motivo: 'Já existe uma chamada em curso.' });
+      return false;
+    }
+
     this.sessao = this.ua.call(`sip:${numero}@${this.cfg.dominio}`, {
       mediaConstraints: { audio: true, video: false },
-      rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false }
+      rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
+      pcConfig: this.pcConfig
     });
     this.ligarEventos(this.sessao);
     return true;
   },
 
   atender() {
-    this.sessao?.answer({ mediaConstraints: { audio: true, video: false } });
+    this.sessao?.answer({
+      mediaConstraints: { audio: true, video: false },
+      pcConfig: this.pcConfig
+    });
   },
 
   desligar() {
@@ -218,7 +265,6 @@ const SipLink = {
       'Authentication Error': 'Ramal ou senha SIP não conferem.',
       'Connection Error': 'Sem conexão com a central.',
       'Request Timeout': 'A central não respondeu.',
-      'Unavailable': 'Destino indisponível.',
       'WebRTC Error': 'O navegador não conseguiu abrir o microfone.',
       'User Denied Media Access': 'Você precisa permitir o microfone para ligar.'
     };

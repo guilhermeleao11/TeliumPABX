@@ -203,7 +203,8 @@ const Softphone = {
       ramal: cfg.ramal,
       senha: cfg.senha,
       dominio: cfg.dominio || location.hostname,
-      nome: cfg.nome
+      nome: cfg.nome,
+      ice: cfg.ice
     });
   },
 
@@ -240,6 +241,15 @@ const Softphone = {
     if (evento === 'encerrada') {
       if (dados.motivo) toast(dados.motivo, 'warn');
       this.limpar();
+      return;
+    }
+    // Áudio que não passa pela rede: a chamada fica de pé e muda, e sem
+    // este aviso o usuário só vê o cronômetro correr.
+    if (evento === 'midia') {
+      this.midia = dados.estado;
+      if (dados.estado === 'falhou') toast(dados.motivo, 'err');
+      if (dados.estado === 'instavel') toast(dados.motivo, 'warn');
+      this.pintar();
     }
   },
 
@@ -305,6 +315,7 @@ const Softphone = {
       });
     }
     this.estado = 'idle'; this.numero = ''; this.nome = '';
+    this.midia = '';
     this.mudo = this.espera = this.gravando = this.teclado = false;
     this.pintar();
   },
@@ -363,7 +374,12 @@ const Softphone = {
       corpo = `
         <div class="sp-peer">
           <span class="avatar avatar-sm">${(this.nome || this.numero).slice(0, 2).toUpperCase()}</span>
-          <div class="grow"><b>${this.numero}</b><small>${this.nome || (emChamada ? 'Conectado' : 'Chamando…')}</small></div>
+          <div class="grow"><b>${this.numero}</b><small>${this.nome
+            || (emChamada
+                  ? (this.midia === 'falhou'
+                      ? 'Conectado, sem áudio'
+                      : this.midia === 'instavel' ? 'Conectado, áudio instável' : 'Conectado')
+                  : 'Chamando…')}</small></div>
           ${emChamada ? `<span class="sp-timer" id="spTimer">${this.fmt(this.seg)}</span>`
                       : `<span class="badge badge-warn"><i class="dot dot-pulse"></i>Chamando</span>`}
         </div>
