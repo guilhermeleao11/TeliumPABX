@@ -143,19 +143,9 @@ DISA, Megafonia e Interfonia (o código `*80` funciona, falta a tela),
 Texto em Voz, as telas do PCU e o módulo de call center. Os menus estão
 lá e abrem a página de "não implementado".
 
-No cadastro do ramal, estes campos são gravados mas ainda não mudam o
-comportamento da central — vale saber antes de prometer para um cliente:
-
-| Campo | Situação |
-| --- | --- |
-| Descrição do DID | só anotação |
-| CID de entrada | não muda o que o ramal vê chegar |
-| Atender sozinho chamada interna | falta o cabeçalho de auto-resposta |
-| Interfonia | o código `*80` não consulta a preferência do ramal |
-| Permitir rastrear a última chamada | o `*69` vale para todos |
-| Ditado | falta ligar o app_dictate |
-| Prioridade da regra de gravação | o desempate hoje é fixo: "nunca" de
-  qualquer lado proíbe, "forçar" de qualquer lado obriga |
+O que ainda falta, com o estrago de cada coisa e como fechar, está em
+`docs/PENDENCIAS.md` — inclusive os campos do cadastro do ramal que a
+tela grava e a central ainda ignora.
 
 ## Se algo quebrar
 
