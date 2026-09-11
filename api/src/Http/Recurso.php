@@ -23,6 +23,10 @@ final class Recurso
      * @param string[]  $filtros   colunas filtráveis por igualdade (?coluna=valor)
      * @param string[]  $ocultas   colunas nunca devolvidas (senhas, segredos)
      * @param bool      $afetaAsterisk marca configuração pendente ao gravar
+     * @param array<string,array<string,mixed>> $regras validação por campo:
+     *        padrao (regex), mensagem, min, max, email, em (valores aceitos)
+     * @param string[]  $unicas    colunas com índice único, para traduzir o
+     *                             erro 1062 apontando o campo certo
      */
     public function __construct(
         private readonly string $tabela,
@@ -33,6 +37,8 @@ final class Recurso
         private readonly array $ocultas = [],
         private readonly bool $afetaAsterisk = false,
         private readonly string $modulo = '',
+        private readonly array $regras = [],
+        private readonly array $unicas = [],
     ) {
     }
 
@@ -102,6 +108,11 @@ final class Recurso
             return Resposta::erro($res, 'Nenhum campo válido enviado', 422);
         }
 
+        $problema = $this->validar($dados, true);
+        if ($problema !== null) {
+            return Resposta::erro($res, $problema['mensagem'], 422, ['campo' => $problema['campo']]);
+        }
+
         $campos = array_keys($dados);
         $sql = sprintf(
             'INSERT INTO `%s` (%s) VALUES (%s)',
@@ -134,6 +145,11 @@ final class Recurso
         $dados = $this->extrair((array) $req->getParsedBody());
         if ($dados === []) {
             return Resposta::erro($res, 'Nenhum campo válido enviado', 422);
+        }
+
+        $problema = $this->validar($dados, false);
+        if ($problema !== null) {
+            return Resposta::erro($res, $problema['mensagem'], 422, ['campo' => $problema['campo']]);
         }
 
         $sets = implode(', ', array_map(static fn (string $c): string => "`{$c}` = ?", array_keys($dados)));
@@ -174,6 +190,61 @@ final class Recurso
 
     // ------------------------------------------------------------------
     /** Mantém apenas as colunas declaradas como graváveis. */
+    /**
+     * Confere os campos enviados contra as regras declaradas na rota.
+     *
+     * Na criação, um campo obrigatório ausente é erro; na edição, campo
+     * ausente quer dizer "não mexe nele", então só se valida o que veio.
+     *
+     * @return array{campo:string, mensagem:string}|null
+     */
+    private function validar(array $dados, bool $criando): ?array
+    {
+        foreach ($this->regras as $campo => $regra) {
+            $rotulo = $regra['rotulo'] ?? $campo;
+            $presente = array_key_exists($campo, $dados);
+            $valor = $presente ? (string) ($dados[$campo] ?? '') : '';
+
+            if (!$presente) {
+                if ($criando && ($regra['obrigatorio'] ?? false)) {
+                    return ['campo' => $campo, 'mensagem' => "O campo \"{$rotulo}\" é obrigatório."];
+                }
+                continue;
+            }
+
+            // Vazio só é problema quando o campo é obrigatório: nas demais
+            // colunas, apagar o conteúdo é uma edição legítima.
+            if (trim($valor) === '') {
+                if ($regra['obrigatorio'] ?? false) {
+                    return ['campo' => $campo, 'mensagem' => "O campo \"{$rotulo}\" não pode ficar vazio."];
+                }
+                continue;
+            }
+
+            if (isset($regra['min']) && mb_strlen($valor) < (int) $regra['min']) {
+                return ['campo' => $campo, 'mensagem' => $regra['mensagem']
+                    ?? "O campo \"{$rotulo}\" precisa de pelo menos {$regra['min']} caracteres."];
+            }
+            if (isset($regra['max']) && mb_strlen($valor) > (int) $regra['max']) {
+                return ['campo' => $campo,
+                        'mensagem' => "O campo \"{$rotulo}\" passa de {$regra['max']} caracteres."];
+            }
+            if (($regra['email'] ?? false) && !filter_var($valor, FILTER_VALIDATE_EMAIL)) {
+                return ['campo' => $campo, 'mensagem' => 'E-mail em formato inválido.'];
+            }
+            if (isset($regra['em']) && !in_array($valor, (array) $regra['em'], true)) {
+                return ['campo' => $campo,
+                        'mensagem' => $regra['mensagem'] ?? "Valor não aceito em \"{$rotulo}\"."];
+            }
+            if (isset($regra['padrao']) && preg_match($regra['padrao'], $valor) !== 1) {
+                return ['campo' => $campo,
+                        'mensagem' => $regra['mensagem'] ?? "O campo \"{$rotulo}\" está em formato inválido."];
+            }
+        }
+
+        return null;
+    }
+
     private function extrair(array $corpo): array
     {
         $dados = [];
@@ -291,8 +362,29 @@ final class Recurso
                 ['campo' => $m[1]]);
         }
 
+        if ($codigo === 1062) {
+            // O índice único costuma se chamar como a coluna, mas nem sempre;
+            // a rota declara quais colunas são únicas para a mensagem servir.
+            $campo = null;
+            foreach ($this->unicas as $coluna) {
+                if (str_contains($texto, $coluna)) {
+                    $campo = $coluna;
+                    break;
+                }
+            }
+            $campo ??= $this->unicas[0] ?? null;
+
+            return Resposta::erro(
+                $res,
+                $campo === null
+                    ? 'Já existe um registro com esse identificador'
+                    : "Já existe outro registro com esse valor em \"{$campo}\".",
+                409,
+                $campo === null ? [] : ['campo' => $campo]
+            );
+        }
+
         return match ($codigo) {
-            1062 => Resposta::erro($res, 'Já existe um registro com esse identificador', 409),
             1452 => Resposta::erro($res,
                 'Um dos vínculos aponta para um cadastro que não existe. '
                 . 'Cadastre-o antes (por exemplo, o tronco de uma rota de saída).', 422),

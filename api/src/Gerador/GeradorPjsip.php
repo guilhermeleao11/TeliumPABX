@@ -56,7 +56,10 @@ final class GeradorPjsip
               ->crua("set_var = TELIUM_RAMAL={$numero}");
 
             if ((int) $r['voicemail'] === 1) {
-                $b->crua("mailbox = {$numero}@telium");
+                // "mailboxes", no plural: com "mailbox" o Asterisk não
+                // reconhece a opção e descarta o endpoint inteiro — o ramal
+                // simplesmente não existe.
+                $b->crua("mailboxes = {$numero}@telium");
             }
             if ($r['callgroup']) {
                 $b->crua("call_group = {$r['callgroup']}");

@@ -78,6 +78,32 @@ $recursos = [
             ocultas: ['senha_sip','vm_senha'],
             afetaAsterisk: true,
             modulo: 'conn.ramais',
+            regras: [
+                'numero' => ['rotulo' => 'número do ramal', 'obrigatorio' => true,
+                             'padrao' => '/^[0-9]{2,10}$/',
+                             'mensagem' => 'O número do ramal é só de dígitos, de 2 a 10.'],
+                'nome' => ['rotulo' => 'nome', 'obrigatorio' => true, 'max' => 120],
+                // Senha curta de ramal é a porta de entrada da fraude de
+                // tarifação: um scanner acha em minutos e sai ligando.
+                'senha_sip' => ['rotulo' => 'senha SIP', 'min' => 12,
+                                'mensagem' => 'A senha SIP precisa de pelo menos 12 caracteres. '
+                                            . 'É ela que protege o ramal contra fraude de tarifação.'],
+                'email' => ['rotulo' => 'e-mail', 'email' => true],
+                'vm_senha' => ['rotulo' => 'senha do correio de voz', 'padrao' => '/^[0-9]{0,10}$/',
+                               'mensagem' => 'A senha do correio de voz é só de dígitos.'],
+                // Trocar o contexto por um de saída faria o ramal pular a
+                // checagem de permissão de discagem.
+                'contexto' => ['rotulo' => 'contexto',
+                               'em' => ['interno', 'telium-bloqueado'],
+                               'mensagem' => 'O contexto do ramal é "interno", ou "telium-bloqueado" '
+                                           . 'para deixá-lo sem saída. Outros contextos pulariam a '
+                                           . 'checagem de permissão de discagem.'],
+                'transporte' => ['rotulo' => 'transporte', 'em' => ['udp', 'tcp', 'tls', 'wss']],
+                'gravar' => ['rotulo' => 'gravação', 'em' => ['nao', 'entrada', 'saida', 'ambas']],
+                'siga_me' => ['rotulo' => 'siga-me', 'padrao' => '/^[0-9*#+]{2,20}$/',
+                              'mensagem' => 'O destino do siga-me é um ramal ou um número.'],
+            ],
+            unicas: ['numero'],
         ),
     ],
     'troncos' => [
