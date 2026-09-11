@@ -128,13 +128,19 @@ final class GeradorFilas
         $confirma = (int) $f['confirmar_atendimento'] === 1;
 
         foreach ($this->agentes((int) $f['id']) as $a) {
+            // Campos do member: canal, penalidade, nome, canal de estado e
+            // se a fila pode oferecer chamada com o ramal já ocupado. O de
+            // estado precisa ser o PJSIP mesmo quando o canal é um Local
+            // de confirmação, senão a fila nunca enxerga o agente ocupado.
             $b->crua(sprintf(
-                'member => %s,%d,%s',
+                'member => %s,%d,%s,%s,%s',
                 $confirma
                     ? "Local/{$a['numero']}@telium-confirma-{$numero}/n"
                     : "PJSIP/{$a['numero']}",
                 (int) $a['penalidade'],
-                str_replace(',', ' ', (string) $a['nome'])
+                str_replace(',', ' ', (string) $a['nome']),
+                "PJSIP/{$a['numero']}",
+                (int) ($a['estado_em_fila'] ?? 1) === 1 ? 'no' : 'yes'
             ));
         }
 
@@ -156,7 +162,7 @@ final class GeradorFilas
     private function agentes(int $filaId): array
     {
         return Bd::todos(
-            'SELECT r.numero, r.nome, a.penalidade
+            'SELECT r.numero, r.nome, a.penalidade, r.estado_em_fila
                FROM fila_agentes a
                JOIN ramais r ON r.id = a.ramal_id
               WHERE a.fila_id = ? AND a.tipo = ? AND r.ativo = 1

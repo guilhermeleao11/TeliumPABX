@@ -50,7 +50,12 @@ final class Destino
         $toque = (int) ($ramal['tempo_toque'] ?: 20);
         $caixa = ((int) $ramal['voicemail'] === 1) ? "{$numero}@telium" : '';
 
-        return ["GoSub(sub-ramal,s,1({$numero},{$toque},{$caixa}))", 'Hangup()'];
+        // As opções do Dial são do ramal que recebe, e a sub-rotina roda
+        // no canal de quem liga — por isso vão como argumento, e não
+        // numa variável do endpoint.
+        $opcoes = preg_replace('/[^A-Za-z0-9]/', '', (string) ($ramal['opcoes_dial'] ?? '')) ?? '';
+
+        return ["GoSub(sub-ramal,s,1({$numero},{$toque},{$caixa},{$opcoes}))", 'Hangup()'];
     }
 
     /** Salta para um contexto escrito à mão em extensions_custom.conf. */

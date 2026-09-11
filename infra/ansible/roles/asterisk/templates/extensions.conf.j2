@@ -65,12 +65,14 @@ exten => s,1,Set(TELIUM_REGRA=${CUT(TELIUM_GRAV,|,${ARG1})})
 ; ------------------------------------------------------------------
 ; Sub-rotina: ligar para um ramal
 ;   ARG1 = número · ARG2 = tempo de toque · ARG3 = mailbox (vazio = sem correio)
+;   ARG4 = opções do Dial do ramal (vazio = tT)
 ; ------------------------------------------------------------------
 [sub-ramal]
 exten => s,1,NoOp(Chamando ramal ${ARG1})
  same => n,Set(TELIUM_R=${ARG1})
  same => n,Set(TELIUM_TOQUE=${ARG2})
  same => n,Set(TELIUM_VM=${ARG3})
+ same => n,Set(TELIUM_OPC=${IF($["${ARG4}" != ""]?${ARG4}:tT)})
  ; guarda quem ligou: é o que *69, *39 e *32 usam depois
  same => n,ExecIf($["${CALLERID(num)}" != ""]?Set(DB(ultimochamador/${ARG1})=${CALLERID(num)}))
 
@@ -93,7 +95,7 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
  same => n,Set(TELIUM_FMF_MODO=${DB(sigame-modo/${ARG1})})
  same => n,ExecIf($["${TELIUM_FMF}" != "" & "${TELIUM_FMF_MODO}" != "depois"]?Set(TELIUM_ALVO=PJSIP/${ARG1}&Local/${TELIUM_FMF}@telium-desvio))
 
- same => n,Dial(${TELIUM_ALVO},${TELIUM_TOQUE},tT)
+ same => n,Dial(${TELIUM_ALVO},${TELIUM_TOQUE},${TELIUM_OPC})
  same => n,NoOp(Resultado: ${DIALSTATUS})
 
  same => n,Set(TELIUM_CFB=${DB(cfb/${ARG1})})
@@ -109,7 +111,16 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
  same => n(sem_vm),Return()
 
  same => n(sigame),NoOp(Siga-me de ${TELIUM_R} para ${TELIUM_FMF})
- same => n,Goto(telium-desvio,${TELIUM_FMF},1)
+ ; o siga-me costuma cair num celular, que precisa de mais tempo de
+ ; toque que o ramal de mesa — e de um Dial com prazo, senão a
+ ; chamada acaba na caixa postal da operadora do celular em vez da
+ ; caixa postal da empresa
+ same => n,Set(TELIUM_TSIG=${IF($[${DB_EXISTS(sigame-toque/${TELIUM_R})}]?${DB(sigame-toque/${TELIUM_R})}:${TELIUM_TOQUE})})
+ same => n,Dial(Local/${TELIUM_FMF}@telium-desvio,${TELIUM_TSIG},${TELIUM_OPC})
+ same => n,GotoIf($["${DIALSTATUS}" = "ANSWER"]?sem_vm)
+ same => n,GotoIf($["${TELIUM_VM}" = ""]?sem_vm)
+ same => n,VoiceMail(${TELIUM_VM},u)
+ same => n,Return()
 
  same => n(desviar),NoOp(Desvio de todas: ${TELIUM_R} para ${TELIUM_CF})
  same => n,Goto(telium-desvio,${TELIUM_CF},1)
@@ -165,6 +176,25 @@ exten => s,1,GotoIf($["${TELIUM_PERM}" = ""]?permitido)
  same => n,Playback(privacy-you-are-not-permitted)
  same => n,Hangup(31)
  same => n(permitido),Return()
+
+; ------------------------------------------------------------------
+; Sub-rotina: segurar o ramal no teto de chamadas de saída
+;   O teto chega em ${TELIUM_MAXSAIDA}, gravado no endpoint. Sem teto
+;   cadastrado a sub-rotina só volta — é o caso da maioria dos ramais.
+;
+;   O GROUP fica preso ao canal, então a contagem cai sozinha quando a
+;   chamada termina, inclusive se a central for reiniciada no meio.
+; ------------------------------------------------------------------
+[sub-limite-saida]
+exten => s,1,GotoIf($["${TELIUM_MAXSAIDA}" = ""]?livre)
+ same => n,Set(GROUP(saida)=${TELIUM_RAMAL})
+ same => n,GotoIf($[${GROUP_COUNT(${TELIUM_RAMAL}@saida)} <= ${TELIUM_MAXSAIDA}]?livre)
+ same => n,NoOp(Ramal ${TELIUM_RAMAL} já está com ${TELIUM_MAXSAIDA} chamadas de saída)
+ same => n,Answer()
+ same => n,Wait(1)
+ same => n,Playback(all-circuits-busy-now)
+ same => n,Hangup(21)
+ same => n(livre),Return()
 
 ; ------------------------------------------------------------------
 ; Sub-rotina: escolher o número que a operadora vê
@@ -228,6 +258,16 @@ include => telium-conferencias
 include => telium-ura
 include => telium-saida
 include => telium-custom
+
+; Número que não casa com nada: sem isto a chamada apenas cai e quem
+; discou não sabe se errou o número ou se a central está com problema.
+exten => i,1,NoOp(Número inválido discado: ${INVALID_EXTEN})
+ same => n,Answer()
+ same => n,Wait(1)
+ same => n,Playback(ss-noservice)
+ same => n,Hangup(1)
+exten => t,1,NoOp(Sem discar a tempo)
+ same => n,Hangup()
 
 ; ------------------------------------------------------------------
 ; Chamadas vindas dos troncos

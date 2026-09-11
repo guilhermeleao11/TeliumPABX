@@ -854,7 +854,8 @@ final class GeradorDialplan
               ->same('Set(__TELIUM_DESTINO=${EXTEN})')
               ->same("Set(CDR(tronco)={$r['tronco_nome']})")
               ->same("Set(__TELIUM_CLASSE={$r['classe']})")
-              ->same("GoSub(sub-permissao,s,1({$r['classe']}))");
+              ->same("GoSub(sub-permissao,s,1({$r['classe']}))")
+              ->same('GoSub(sub-limite-saida,s,1)');
 
             if ($r['pin_set_id']) {
                 $b->same('Authenticate(/etc/asterisk/telium/pin-' . $r['pin_set_id'] . '.txt)');

@@ -91,6 +91,12 @@ final class GeradorPjsip
             $b->crua('set_var = TELIUM_CID=' . $this->limpar((string) $r['cid_pseudo']));
         }
 
+        // Teto de chamadas de saída ao mesmo tempo. É o freio contra a
+        // conta gigante quando alguém descobre a senha do ramal.
+        if ((int) ($r['max_saidas'] ?? 0) > 0) {
+            $b->crua('set_var = TELIUM_MAXSAIDA=' . (int) $r['max_saidas']);
+        }
+
         if (($r['codecs_negados'] ?? '') !== '') {
             $b->crua('disallow = ' . $this->lista((string) $r['codecs_negados']));
         }

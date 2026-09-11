@@ -136,7 +136,7 @@ final class Aplicador
     private function sincronizarSigaMe(Ami $ami): bool
     {
         $ok = true;
-        foreach (['sigame', 'sigame-modo'] as $familia) {
+        foreach (['sigame', 'sigame-modo', 'sigame-toque'] as $familia) {
             $resposta = $ami->acao(['Action' => 'DBDelTree', 'Family' => $familia]);
             if (str_contains(strtolower($resposta), 'error')
                 && !str_contains(strtolower($resposta), 'not exist')) {
@@ -145,12 +145,19 @@ final class Aplicador
         }
 
         $ligados = Bd::todos(
-            "SELECT numero, siga_me, siga_me_modo FROM ramais
+            "SELECT numero, siga_me, siga_me_modo, toque_sigame FROM ramais
               WHERE ativo = 1 AND siga_me_ativo = 1 AND siga_me IS NOT NULL AND siga_me <> ''"
         );
 
         foreach ($ligados as $r) {
-            foreach ([['sigame', $r['siga_me']], ['sigame-modo', $r['siga_me_modo']]] as [$fam, $val]) {
+            $chaves = [['sigame', $r['siga_me']], ['sigame-modo', $r['siga_me_modo']]];
+            // O celular do siga-me costuma precisar de mais tempo de toque
+            // que o ramal de mesa.
+            if ((int) ($r['toque_sigame'] ?? 0) > 0) {
+                $chaves[] = ['sigame-toque', (int) $r['toque_sigame']];
+            }
+
+            foreach ($chaves as [$fam, $val]) {
                 $resposta = $ami->acao([
                     'Action' => 'DBPut', 'Family' => $fam,
                     'Key' => (string) $r['numero'], 'Val' => (string) $val,
