@@ -240,6 +240,32 @@
     group: asterisk
     mode: "02775"        # setgid: arquivos novos nascem no grupo asterisk
 
+# O transporte TLS do pjsip.conf aponta para cá, então o par precisa
+# existir antes de o Asterisk ler a configuração. Começa com o de fábrica;
+# o console troca depois, pelo módulo de certificados.
+- name: Criar o diretório de chaves do Asterisk
+  ansible.builtin.file:
+    path: "{{ cert_asterisk_dir }}"
+    state: directory
+    owner: root
+    group: asterisk
+    mode: "0750"
+
+- name: Instalar o par de fábrica para o SIP TLS
+  ansible.builtin.copy:
+    src: "{{ item.origem }}"
+    dest: "{{ item.destino }}"
+    remote_src: true
+    force: false
+    owner: root
+    group: asterisk
+    mode: "{{ item.modo }}"
+  loop:
+    - { origem: "{{ tls_fabrica_cert }}", destino: "{{ cert_asterisk_dir }}/asterisk.crt", modo: "0644" }
+    - { origem: "{{ tls_fabrica_key }}",  destino: "{{ cert_asterisk_dir }}/asterisk.key", modo: "0640" }
+  loop_control:
+    label: "{{ item.destino }}"
+
 - name: Publicar configuração base do Asterisk
   ansible.builtin.template:
     src: "{{ item }}.j2"

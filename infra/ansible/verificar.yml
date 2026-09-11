@@ -183,6 +183,34 @@
              if (api_health.content | default('')) != ''
              else 'API não respondeu (HTTP ' ~ (api_health.status | default('sem resposta')) ~ ')' }}
 
+    # ---------------- certificados ----------------
+    - name: Certificados em uso por serviço
+      ansible.builtin.shell: |
+        mostrar() {   # mostrar <rotulo> <arquivo>
+          if [ -f "$2" ]; then
+            printf '%-22s %s\n' "$1" "$(openssl x509 -in "$2" -noout -subject -enddate 2>/dev/null \
+              | tr '\n' ' ' | sed 's/subject=//; s/notAfter=/ vence /')"
+          else
+            printf '%-22s (ausente: %s)\n' "$1" "$2"
+          fi
+        }
+        mostrar "web (nginx)"     {{ tls_cert }}
+        mostrar "SIP TLS"         {{ cert_asterisk_dir }}/asterisk.crt
+        mostrar "Janus (DTLS)"    {{ cert_janus_dir }}/janus.crt
+        mostrar "fábrica"         {{ tls_fabrica_cert }}
+        echo "cofre: $(ls -1 {{ cert_cofre_dir }}/*.crt 2>/dev/null | wc -l) certificado(s) enviados pelo console"
+        systemctl is-enabled telium-certificados.timer 2>/dev/null \
+          | sed 's/^/temporizador: /' || echo "temporizador: ausente"
+      args:
+        executable: /bin/bash
+      register: certs
+      changed_when: false
+      failed_when: false
+
+    - name: Resumo dos certificados
+      ansible.builtin.debug:
+        var: certs.stdout_lines
+
     # ---------------- arquivos gerados ----------------
     - name: Arquivos .conf gerados pela API
       ansible.builtin.shell: >-

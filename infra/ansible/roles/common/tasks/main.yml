@@ -133,23 +133,47 @@
     group: ssl-cert
     mode: "0750"
 
-- name: Gerar certificado autoassinado para o laboratório
+# O par de fábrica nunca é substituído pelo console: ele é a rede de
+# segurança para onde o sistema volta se um certificado enviado der errado.
+- name: Gerar o par de fábrica autoassinado
   ansible.builtin.command:
     cmd: >-
-      openssl req -x509 -nodes -newkey rsa:2048 -days 825
-      -keyout {{ tls_key }} -out {{ tls_cert }}
+      openssl req -x509 -nodes -newkey rsa:2048 -days 3650
+      -keyout {{ tls_fabrica_key }} -out {{ tls_fabrica_cert }}
       -subj "/C=BR/ST=SP/L=Sao Paulo/O={{ pabx_empresa }}/CN={{ pabx_hostname }}"
       -addext "subjectAltName=DNS:{{ pabx_hostname }},DNS:localhost,IP:127.0.0.1,IP:{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}"
-    creates: "{{ tls_cert }}"
+    creates: "{{ tls_fabrica_cert }}"
   when: tls_autoassinado
 
-- name: Ajustar permissões do certificado
+# O par ativo começa igual ao de fábrica. force: false para não pisar em
+# cima de um certificado já aplicado pelo console numa execução anterior.
+- name: Instalar o par ativo a partir do de fábrica
+  ansible.builtin.copy:
+    src: "{{ item.origem }}"
+    dest: "{{ item.destino }}"
+    remote_src: true
+    force: false
+    owner: root
+    group: ssl-cert
+    mode: "{{ item.modo }}"
+  loop:
+    - { origem: "{{ tls_fabrica_cert }}", destino: "{{ tls_cert }}", modo: "0644" }
+    - { origem: "{{ tls_fabrica_key }}",  destino: "{{ tls_key }}",  modo: "0640" }
+  loop_control:
+    label: "{{ item.destino }}"
+  when: tls_autoassinado
+
+- name: Ajustar permissões dos certificados
   ansible.builtin.file:
     path: "{{ item.caminho }}"
     owner: root
     group: ssl-cert
     mode: "{{ item.modo }}"
   loop:
-    - { caminho: "{{ tls_cert }}", modo: "0644" }
-    - { caminho: "{{ tls_key }}",  modo: "0640" }
+    - { caminho: "{{ tls_cert }}",         modo: "0644" }
+    - { caminho: "{{ tls_key }}",          modo: "0640" }
+    - { caminho: "{{ tls_fabrica_cert }}", modo: "0644" }
+    - { caminho: "{{ tls_fabrica_key }}",  modo: "0640" }
+  loop_control:
+    label: "{{ item.caminho }}"
   when: tls_autoassinado

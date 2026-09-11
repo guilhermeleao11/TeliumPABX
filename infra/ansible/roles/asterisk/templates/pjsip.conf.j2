@@ -33,6 +33,24 @@ bind     = 0.0.0.0:{{ sip_porta }}
 local_net = {{ rede }}
 {% endfor %}
 
+; SIP TLS na 5061. O par vem do módulo de certificados do console;
+; até alguém enviar um, é o autoassinado de fábrica — o suficiente para
+; cifrar a sinalização, mas o telefone vai pedir para confiar nele.
+[transport-tls]
+type          = transport
+protocol      = tls
+bind          = 0.0.0.0:{{ sip_tls_porta }}
+cert_file     = {{ cert_asterisk_dir }}/asterisk.crt
+priv_key_file = {{ cert_asterisk_dir }}/asterisk.key
+method        = tlsv1_2
+{% for rede in redes_locais %}
+local_net = {{ rede }}
+{% endfor %}
+{% if nat_ip_publico %}
+external_media_address     = {{ nat_ip_publico }}
+external_signaling_address = {{ nat_ip_publico }}
+{% endif %}
+
 ; ------------------------------------------------------------------
 ; WebRTC direto no Asterisk (WSS) — DESATIVADO.
 ; Nesta arquitetura quem fala WebRTC com o navegador é o Janus.

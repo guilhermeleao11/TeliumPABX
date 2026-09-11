@@ -15,6 +15,7 @@
     - "443/tcp"
     - "{{ sip_porta }}/udp"
     - "{{ sip_porta }}/tcp"
+    - "{{ sip_tls_porta }}/tcp"
     - "{{ ast_rtp_inicio }}:{{ ast_rtp_fim }}/udp"
     - "{{ janus_rtp_inicio }}:{{ janus_rtp_fim }}/udp"
   when: instalar_firewall

@@ -95,6 +95,17 @@ tls_autoassinado: true                       # true = gera certificado local par
 tls_cert: /etc/ssl/telium/pabx.crt
 tls_key: /etc/ssl/telium/pabx.key
 
+# Par de fábrica: o autoassinado gerado na instalação. Fica guardado
+# à parte porque é para onde o console volta ao remover um certificado.
+tls_fabrica_cert: /etc/ssl/telium/fabrica.crt
+tls_fabrica_key: /etc/ssl/telium/fabrica.key
+
+# Cofre onde a API guarda os certificados enviados pelo console. Quem copia
+# daqui para os serviços é /usr/local/sbin/telium-certificados, como root.
+cert_cofre_dir: /etc/telium/certificados
+cert_asterisk_dir: /etc/asterisk/keys
+cert_janus_dir: /etc/janus/certs
+
 # ---------- opções de execução ----------
 compilar_asterisk: true                      # false pula a compilação (VM já provisionada)
 compilar_janus: true

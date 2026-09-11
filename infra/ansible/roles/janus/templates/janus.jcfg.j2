@@ -16,10 +16,14 @@ general: {
         reclaim_session_timeout = 30
 }
 
-# Sem bloco 'certificates': o Janus gera sozinho o certificado
-# autoassinado que usa no DTLS. Quem termina TLS para o navegador é o
-# nginx, então não faz sentido criar aqui uma dependência de permissão
-# de leitura sobre a chave privada do servidor.
+# Certificado do DTLS. Quem termina TLS para o navegador continua sendo
+# o nginx; este par é o que o Janus apresenta na negociação DTLS-SRTP e é
+# trocável pelo módulo de certificados do console. O diretório é
+# root:janus 0750 — só o Janus lê a chave.
+certificates: {
+        cert_pem = "{{ cert_janus_dir }}/janus.crt"
+        cert_key = "{{ cert_janus_dir }}/janus.key"
+}
 
 media: {
         ipv6 = false

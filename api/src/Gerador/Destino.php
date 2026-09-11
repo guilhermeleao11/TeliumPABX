@@ -9,9 +9,14 @@ namespace Telium\Gerador;
  */
 final class Destino
 {
-    /** @param array<string,array<string,mixed>> $ramais indexado por número */
-    public function __construct(private readonly array $ramais)
-    {
+    /**
+     * @param array<string,array<string,mixed>> $ramais         indexado por número
+     * @param array<int,array<string,mixed>>    $personalizados indexado por id
+     */
+    public function __construct(
+        private readonly array $ramais,
+        private readonly array $personalizados = []
+    ) {
     }
 
     /** @return string[] aplicações a executar, na ordem */
@@ -25,6 +30,7 @@ final class Destino
             'voicemail' => ["VoiceMail({$valor}@telium,u)", 'Hangup()'],
             'anuncio'   => ["Playback({$valor})", 'Hangup()'],
             'externo'   => ["Goto(telium-saida,{$valor},1)"],
+            'personalizado' => $this->paraPersonalizado((string) $valor),
             'desligar'  => ['Hangup()'],
             default     => ['NoOp(Destino não configurado)', 'Hangup()'],
         };
@@ -43,6 +49,20 @@ final class Destino
         return ["GoSub(sub-ramal,s,1({$numero},{$toque},{$caixa}))", 'Hangup()'];
     }
 
+    /** Salta para um contexto escrito à mão em extensions_custom.conf. */
+    private function paraPersonalizado(string $id): array
+    {
+        $d = $this->personalizados[(int) $id] ?? null;
+        if ($d === null) {
+            return ["NoOp(Destino personalizado {$id} não existe ou está desativado)", 'Hangup()'];
+        }
+
+        return [
+            "NoOp(Destino personalizado: {$d['nome']})",
+            "Goto({$d['contexto']},{$d['extensao']},{$d['prioridade']})",
+        ];
+    }
+
     public function descricao(?string $tipo, ?string $valor): string
     {
         return match ($tipo) {
@@ -53,6 +73,9 @@ final class Destino
             'voicemail' => "correio de voz {$valor}",
             'anuncio'   => "anúncio {$valor}",
             'externo'   => "número externo {$valor}",
+            'personalizado' => isset($this->personalizados[(int) $valor])
+                ? "destino personalizado {$this->personalizados[(int) $valor]['nome']}"
+                : "destino personalizado {$valor} (não encontrado)",
             'desligar'  => 'desligar',
             default     => 'não configurado',
         };

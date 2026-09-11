@@ -109,6 +109,33 @@
       Sem ele o softphone WebRTC não funciona.
     success_msg: "Plugin SIP presente"
 
+# O bloco 'certificates' do janus.jcfg aponta para cá, então o par tem
+# de existir antes de o Janus subir. Começa com o de fábrica; o console
+# troca depois, pelo módulo de certificados.
+- name: Criar o diretório de chaves do Janus
+  ansible.builtin.file:
+    path: "{{ cert_janus_dir }}"
+    state: directory
+    owner: root
+    group: janus
+    mode: "0750"
+
+- name: Instalar o par de fábrica para o Janus
+  ansible.builtin.copy:
+    src: "{{ item.origem }}"
+    dest: "{{ item.destino }}"
+    remote_src: true
+    force: false
+    owner: root
+    group: janus
+    mode: "{{ item.modo }}"
+  loop:
+    - { origem: "{{ tls_fabrica_cert }}", destino: "{{ cert_janus_dir }}/janus.crt", modo: "0644" }
+    - { origem: "{{ tls_fabrica_key }}",  destino: "{{ cert_janus_dir }}/janus.key", modo: "0640" }
+  loop_control:
+    label: "{{ item.destino }}"
+  notify: reiniciar janus
+
 - name: Publicar configuração do Janus
   ansible.builtin.template:
     src: "{{ item }}.j2"

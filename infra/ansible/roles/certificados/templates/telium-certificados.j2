@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# =========================================================
+# {{ ansible_managed }}
+# Telium PABX — aplicador de certificados TLS
+#
+# Roda como root, sem argumentos. Lê em certificado_servicos quais
+# serviços estão com atribuição 'pendente' e, para cada um:
+#
+#   1. guarda o par atual como .anterior
+#   2. instala o par novo vindo do cofre da API
+#   3. valida e recarrega o serviço
+#   4. se algo falhar, devolve o par anterior e registra o motivo
+#
+# O passo 4 é o motivo de tudo isso existir: um certificado errado no
+# nginx derruba o console inteiro, e aí não há por onde consertar.
+#
+# Não receber argumentos é intencional: a regra de sudo para a API
+# fica sem curinga nenhum.
+# =========================================================
+set -uo pipefail
+
+BANCO={{ db_nome }}
+COFRE={{ cert_cofre_dir }}
+FABRICA_CRT={{ tls_fabrica_cert }}
+FABRICA_KEY={{ tls_fabrica_key }}
+
+WEB_CRT={{ tls_cert }}
+WEB_KEY={{ tls_key }}
+AST_CRT={{ cert_asterisk_dir }}/asterisk.crt
+AST_KEY={{ cert_asterisk_dir }}/asterisk.key
+JANUS_CRT={{ cert_janus_dir }}/janus.crt
+JANUS_KEY={{ cert_janus_dir }}/janus.key
+
+mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1" 2>/dev/null; }
+escapar() { printf '%s' "$1" | sed "s/'/''/g"; }
+log() { echo "[$(date '+%F %T')] $*"; }
+
+# Trava simples: o temporizador roda a cada minuto e a API dispara por
+# sudo; não queremos os dois mexendo no mesmo arquivo ao mesmo tempo.
+exec 9>/run/telium-certificados.lock
+flock -n 9 || { log "já há uma aplicação em andamento"; exit 0; }
+
+concluir() {   # concluir <servico> <estado> <saida>
+  local saida
+  saida=$(escapar "$3")
+  mysql "UPDATE certificado_servicos
+            SET estado='$2', aplicado_em=NOW(), saida='${saida}'
+          WHERE servico='$1';"
+}
+
+# guardar <crt> <key> — copia o par atual para .anterior
+guardar() {
+  [ -f "$1" ] && cp -a "$1" "$1.anterior"
+  [ -f "$2" ] && cp -a "$2" "$2.anterior"
+  return 0
+}
+
+# devolver <crt> <key> — desfaz
+devolver() {
+  [ -f "$1.anterior" ] && mv -f "$1.anterior" "$1"
+  [ -f "$2.anterior" ] && mv -f "$2.anterior" "$2"
+  return 0
+}
+
+descartar() {
+  rm -f "$1.anterior" "$2.anterior"
+}
+
+# instalar <origem_crt> <origem_key> <destino_crt> <destino_key> <grupo>
+instalar() {
+  install -o root -g "$5" -m 0644 "$1" "$3" || return 1
+  install -o root -g "$5" -m 0640 "$2" "$4" || return 1
+  return 0
+}
+
+# ---------------------------------------------------------
+aplicar_web() {
+  local crt="$1" key="$2" saida rc
+
+  guardar "$WEB_CRT" "$WEB_KEY"
+  if ! instalar "$crt" "$key" "$WEB_CRT" "$WEB_KEY" ssl-cert; then
+    devolver "$WEB_CRT" "$WEB_KEY"
+    echo "não foi possível copiar o par para $WEB_CRT"
+    return 1
+  fi
+
+  saida=$(nginx -t 2>&1); rc=$?
+  if [ $rc -ne 0 ]; then
+    devolver "$WEB_CRT" "$WEB_KEY"
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx >/dev/null 2>&1
+    echo "o nginx recusou a configuração e o certificado anterior foi devolvido: $saida"
+    return 1
+  fi
+
+  saida=$(systemctl reload nginx 2>&1); rc=$?
+  if [ $rc -ne 0 ]; then
+    devolver "$WEB_CRT" "$WEB_KEY"
+    systemctl reload nginx >/dev/null 2>&1
+    echo "o nginx não recarregou e o certificado anterior foi devolvido: $saida"
+    return 1
+  fi
+
+  descartar "$WEB_CRT" "$WEB_KEY"
+  echo "nginx recarregado com o novo certificado"
+  return 0
+}
+
+aplicar_asterisk() {
+  local crt="$1" key="$2" saida
+
+  guardar "$AST_CRT" "$AST_KEY"
+  if ! instalar "$crt" "$key" "$AST_CRT" "$AST_KEY" asterisk; then
+    devolver "$AST_CRT" "$AST_KEY"
+    echo "não foi possível copiar o par para $AST_CRT"
+    return 1
+  fi
+
+  if ! systemctl is-active --quiet asterisk; then
+    descartar "$AST_CRT" "$AST_KEY"
+    echo "arquivos instalados; o Asterisk está parado e vai lê-los ao subir"
+    return 0
+  fi
+
+  saida=$(asterisk -rx "module reload res_pjsip.so" 2>&1)
+  sleep 2
+  if ! asterisk -rx "pjsip show transport transport-tls" 2>&1 | grep -qi 'transport-tls'; then
+    devolver "$AST_CRT" "$AST_KEY"
+    asterisk -rx "module reload res_pjsip.so" >/dev/null 2>&1
+    echo "o transporte TLS não subiu com este par e o anterior foi devolvido: $saida"
+    return 1
+  fi
+
+  descartar "$AST_CRT" "$AST_KEY"
+  echo "res_pjsip recarregado; SIP TLS na porta {{ sip_tls_porta }}"
+  return 0
+}
+
+aplicar_janus() {
+  local crt="$1" key="$2" saida
+
+  guardar "$JANUS_CRT" "$JANUS_KEY"
+  if ! instalar "$crt" "$key" "$JANUS_CRT" "$JANUS_KEY" janus; then
+    devolver "$JANUS_CRT" "$JANUS_KEY"
+    echo "não foi possível copiar o par para $JANUS_CRT"
+    return 1
+  fi
+
+  # O Janus lê o certificado só na subida, então aqui é reinício mesmo.
+  saida=$(systemctl restart janus 2>&1)
+  sleep 3
+  if ! systemctl is-active --quiet janus; then
+    devolver "$JANUS_CRT" "$JANUS_KEY"
+    systemctl restart janus >/dev/null 2>&1
+    echo "o Janus não subiu com este par e o anterior foi devolvido: ${saida:-veja journalctl -u janus}"
+    return 1
+  fi
+
+  descartar "$JANUS_CRT" "$JANUS_KEY"
+  echo "Janus reiniciado com o novo certificado"
+  return 0
+}
+
+# ---------------------------------------------------------
+pendentes=$(mysql "SELECT s.servico, IFNULL(c.base,''), IFNULL(s.certificado_id,0)
+                     FROM certificado_servicos s
+                LEFT JOIN certificados c ON c.id = s.certificado_id
+                    WHERE s.estado = 'pendente';")
+
+[ -z "$pendentes" ] && { log "nada pendente"; exit 0; }
+
+while read -r servico base cert_id; do
+  [ -z "$servico" ] && continue
+
+  if [ "$cert_id" = "0" ] || [ -z "$base" ]; then
+    origem_crt="$FABRICA_CRT"
+    origem_key="$FABRICA_KEY"
+    alvo_estado="fabrica"
+    log "$servico: voltando ao certificado de fábrica"
+  else
+    origem_crt="$COFRE/$base.fullchain.crt"
+    [ -f "$origem_crt" ] || origem_crt="$COFRE/$base.crt"
+    origem_key="$COFRE/$base.key"
+    alvo_estado="aplicado"
+    log "$servico: aplicando $base"
+  fi
+
+  if [ ! -f "$origem_crt" ] || [ ! -f "$origem_key" ]; then
+    concluir "$servico" falha "O par não está no cofre do servidor ($origem_crt). Envie o certificado novamente."
+    log "$servico: FALHA — par ausente no cofre"
+    continue
+  fi
+
+  case "$servico" in
+    web)      resultado=$(aplicar_web "$origem_crt" "$origem_key"); rc=$? ;;
+    asterisk) resultado=$(aplicar_asterisk "$origem_crt" "$origem_key"); rc=$? ;;
+    janus)    resultado=$(aplicar_janus "$origem_crt" "$origem_key"); rc=$? ;;
+    *)        resultado="serviço desconhecido"; rc=1 ;;
+  esac
+
+  if [ $rc -eq 0 ]; then
+    concluir "$servico" "$alvo_estado" "$resultado"
+    log "$servico: aplicado — $resultado"
+  else
+    concluir "$servico" falha "$resultado"
+    log "$servico: FALHA — $resultado"
+  fi
+done <<< "$pendentes"
+
+exit 0

@@ -15,3 +15,6 @@ api/composer.lock
 *.swp
 .DS_Store
 api/var/cache/*
+
+# ---- harness de teste local ----
+__auto.html

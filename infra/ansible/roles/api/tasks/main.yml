@@ -50,6 +50,16 @@
     - "{{ telium_api }}/var/cache"
     - /var/lib/php/sessions
 
+# Fotos da agenda: ficam dentro da raiz web para o nginx servir direto,
+# fora de assets/ para a publicação do front-end não passar por cima.
+- name: Criar o diretório de fotos dos contatos
+  ansible.builtin.file:
+    path: "{{ telium_web }}/uploads/contatos"
+    state: directory
+    owner: "{{ telium_user }}"
+    group: "{{ telium_group }}"
+    mode: "0755"
+
 # Um processo já em execução não enxerga grupos adicionados depois.
 - name: Reiniciar o php-fpm para aplicar a nova participação em grupo
   ansible.builtin.service:

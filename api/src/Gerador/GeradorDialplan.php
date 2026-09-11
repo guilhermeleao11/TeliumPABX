@@ -16,7 +16,14 @@ final class GeradorDialplan
     {
         $lista = Bd::todos('SELECT * FROM ramais WHERE ativo = 1 ORDER BY numero');
         $this->ramais = array_column($lista, null, 'numero');
-        $this->destino = new Destino($this->ramais);
+
+        $personalizados = array_column(
+            Bd::todos('SELECT * FROM destinos_personalizados WHERE ativo = 1'),
+            null,
+            'id'
+        );
+
+        $this->destino = new Destino($this->ramais, $personalizados);
     }
 
     /** @return array<string,string> */

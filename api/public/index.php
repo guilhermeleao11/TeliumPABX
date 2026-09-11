@@ -5,6 +5,9 @@ use Slim\Factory\AppFactory;
 use Slim\Routing\RouteCollectorProxy;
 use Telium\Http\Controllers\Autenticacao as CtrlAuth;
 use Telium\Http\Controllers\Cadastros;
+use Telium\Http\Controllers\Certificados;
+use Telium\Http\Controllers\Contatos;
+use Telium\Http\Controllers\Destinos;
 use Telium\Http\Controllers\Audios;
 use Telium\Http\Controllers\Backup;
 use Telium\Http\Controllers\Cli;
@@ -167,15 +170,16 @@ $recursos = [
             modulo: 'admin.usuarios',
         ),
     ],
-    'contatos' => [
-        'modulo' => 'pcu.contatos',
+    'destinos-personalizados' => [
+        'modulo' => 'admin.destinos',
         'recurso' => new Recurso(
-            tabela: 'contatos',
-            colunas: ['usuario_id','nome','numero','grupo','favorito'],
+            tabela: 'destinos_personalizados',
+            colunas: ['nome','descricao','contexto','extensao','prioridade','ativo'],
             ordem: 'nome',
-            busca: ['nome','numero'],
-            filtros: ['grupo'],
-            modulo: 'pcu.contatos',
+            busca: ['nome','contexto','descricao'],
+            filtros: ['ativo'],
+            afetaAsterisk: true,
+            modulo: 'admin.destinos',
         ),
     ],
     'dispositivos' => [
@@ -326,6 +330,46 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('admin.gravacoes', 'editar'));
     $g->delete('/audios/{id}', [Audios::class, 'remover'])
       ->add(new Permissao('admin.gravacoes', 'excluir'));
+
+    // ---- certificados TLS ----
+    $g->get('/certificados', [Certificados::class, 'listar'])->add(new Permissao('admin.certificados'));
+    $g->post('/certificados', [Certificados::class, 'enviar'])
+      ->add(new Permissao('admin.certificados', 'criar'));
+    $g->post('/certificados/autoassinado', [Certificados::class, 'autoassinado'])
+      ->add(new Permissao('admin.certificados', 'criar'));
+    $g->post('/certificados/csr', [Certificados::class, 'csr'])
+      ->add(new Permissao('admin.certificados', 'criar'));
+    $g->post('/certificados/aplicar', [Certificados::class, 'aplicar'])
+      ->add(new Permissao('admin.certificados', 'reiniciar'));
+    $g->get('/certificados/{id}/pem', [Certificados::class, 'pem'])
+      ->add(new Permissao('admin.certificados'));
+    $g->post('/certificados/{id}/assinar', [Certificados::class, 'assinar'])
+      ->add(new Permissao('admin.certificados', 'editar'));
+    $g->put('/certificados/{id}', [Certificados::class, 'atualizar'])
+      ->add(new Permissao('admin.certificados', 'editar'));
+    $g->delete('/certificados/{id}', [Certificados::class, 'remover'])
+      ->add(new Permissao('admin.certificados', 'excluir'));
+
+    // ---- agenda de contatos ----
+    // Não entra no CRUD genérico: quem só tem a agenda pessoal enxerga os
+    // contatos corporativos mas mexe apenas nos próprios, e isso é decidido
+    // por linha, dentro do controller.
+    $g->get('/contatos', [Contatos::class, 'listar'])->add(new Permissao('pcu.contatos'));
+    $g->get('/contatos/{id}', [Contatos::class, 'obter'])->add(new Permissao('pcu.contatos'));
+    $g->post('/contatos', [Contatos::class, 'criar'])
+      ->add(new Permissao('pcu.contatos', 'criar'));
+    $g->put('/contatos/{id}', [Contatos::class, 'atualizar'])
+      ->add(new Permissao('pcu.contatos', 'editar'));
+    $g->delete('/contatos/{id}', [Contatos::class, 'remover'])
+      ->add(new Permissao('pcu.contatos', 'excluir'));
+    $g->post('/contatos/{id}/foto', [Contatos::class, 'foto'])
+      ->add(new Permissao('pcu.contatos', 'editar'));
+    $g->delete('/contatos/{id}/foto', [Contatos::class, 'removerFoto'])
+      ->add(new Permissao('pcu.contatos', 'editar'));
+
+    // ---- destinos personalizados ----
+    $g->get('/destinos/contextos', [Destinos::class, 'contextos'])
+      ->add(new Permissao('admin.destinos'));
 
     // ---- console do Asterisk ----
     $g->get('/cli/sugestoes', [Cli::class, 'sugestoes'])->add(new Permissao('admin.cli'));

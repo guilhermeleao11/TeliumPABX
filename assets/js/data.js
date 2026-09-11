@@ -24,12 +24,10 @@ const MENU = [
       { id: 'admin.listanegra',      label: 'Lista Negra',              icon: 'phoneOff' },
       { id: 'admin.allowlist',       label: 'Allowlist',                icon: 'checkCirc' },
       { id: 'admin.cli',             label: 'CLI Asterisk',             icon: 'terminal' },
-      { id: 'admin.configedit',      label: 'Config Edit',              icon: 'file' },
       { id: 'admin.contatos',        label: 'Gerenciador de Contatos',  icon: 'book' },
       { id: 'admin.destinos',        label: 'Destinos Personalizados',  icon: 'branch' },
       { id: 'admin.codigos',         label: 'Códigos de Recurso',       icon: 'grid' },
-      { id: 'admin.gravacoes',       label: 'Gravações do Sistema',     icon: 'mic' },
-      { id: 'admin.updates',         label: 'Atualizações',             icon: 'refresh', pill: '3' }
+      { id: 'admin.gravacoes',       label: 'Gravações do Sistema',     icon: 'mic' }
     ]
   },
   {

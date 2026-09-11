@@ -326,3 +326,37 @@ kbd.k { font: 600 10.5px var(--font); background: var(--surface); border: 1px so
 .forca.f3 i:nth-child(-n+3) { background: var(--info); }
 .forca.f4 i { background: var(--ok); }
 .forca-txt { font-size: 12px; color: var(--text-muted); margin-top: 5px; }
+
+/* ---------- Agenda de contatos ---------- */
+.agenda-grid {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.contato-card { padding: 14px 16px; display: flex; flex-direction: column; gap: 11px; }
+.contato-topo { display: flex; align-items: flex-start; gap: 11px; }
+.contato-topo .fav { color: var(--warn); fill: currentColor; vertical-align: -2px; }
+.contato-dados { display: flex; flex-direction: column; gap: 5px; color: var(--text-2); }
+.contato-dados .ico { color: var(--text-muted); flex: none; }
+.contato-acoes { display: flex; align-items: center; gap: 6px; padding-top: 9px;
+                 border-top: 1px solid var(--border); }
+.contato-card .row-actions { opacity: 1; }
+
+.foto-contato {
+  width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex: none;
+  background: var(--surface-3);
+}
+.foto-contato.grande { width: 64px; height: 64px; }
+
+.elipse { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; }
+
+/* ficha do contato, na gaveta */
+.ficha-topo { display: flex; align-items: center; gap: 14px; padding-bottom: 16px;
+              border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.ficha-bloco { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.ficha-bloco:last-child { border-bottom: 0; }
+.ficha-bloco .label { margin-bottom: 7px; }
+.ficha-linha { padding: 5px 0; color: var(--text-2); font-size: 13px; }
+.ficha-linha + .ficha-linha { border-top: 1px dashed var(--border); }
+
+.foto-editor { display: flex; align-items: center; gap: 14px; padding-bottom: 16px;
+               border-bottom: 1px solid var(--border); margin-bottom: 14px; }

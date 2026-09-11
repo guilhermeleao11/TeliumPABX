@@ -64,8 +64,13 @@ SELECT p.id, a.acao FROM perfis p JOIN (
   SELECT 'criar' AS acao UNION ALL SELECT 'editar' UNION ALL SELECT 'exportar'
 ) a WHERE p.chave = 'supervisor';
 
+-- O operador só alcança dash.visaogeral, pcu.* e os recursos pessoais.
+-- Dentro disso ele precisa poder criar e apagar — a agenda pessoal e o
+-- siga-me são dele. O que limita o alcance é a lista de módulos, não a ação.
 INSERT IGNORE INTO perfil_acoes (perfil_id, acao)
-SELECT p.id, 'editar' FROM perfis p WHERE p.chave = 'operador';
+SELECT p.id, a.acao FROM perfis p JOIN (
+  SELECT 'criar' AS acao UNION ALL SELECT 'editar' UNION ALL SELECT 'excluir'
+) a WHERE p.chave = 'operador';
 
 INSERT IGNORE INTO perfil_acoes (perfil_id, acao)
 SELECT p.id, 'exportar' FROM perfis p WHERE p.chave = 'auditor';

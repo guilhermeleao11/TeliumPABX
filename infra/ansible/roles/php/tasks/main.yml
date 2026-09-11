@@ -32,6 +32,7 @@
       - php8.4-curl
       - php8.4-intl
       - php8.4-bcmath
+      - php8.4-gd
       - php8.4-zip
       - php8.4-opcache
       - php8.4-readline

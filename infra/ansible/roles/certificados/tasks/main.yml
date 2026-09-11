@@ -1,0 +1,90 @@
+---
+# ------------------------------------------------------------------
+# Cofre: onde a API deposita o que o usuário envia pelo console.
+# Pertence à API, não ao root — ela precisa escrever ali.
+# ------------------------------------------------------------------
+- name: Criar o cofre de certificados
+  ansible.builtin.file:
+    path: "{{ cert_cofre_dir }}"
+    state: directory
+    owner: "{{ telium_user }}"
+    group: "{{ telium_user }}"
+    mode: "0700"
+
+# ------------------------------------------------------------------
+# Aplicador. Mesmo desenho do backup: roda como root, sem argumento
+# nenhum, e descobre o que fazer lendo o banco.
+# ------------------------------------------------------------------
+- name: Instalar o aplicador de certificados
+  ansible.builtin.template:
+    src: telium-certificados.j2
+    dest: /usr/local/sbin/telium-certificados
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Permitir que a API dispare o aplicador
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/telium-certificados
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+    content: |
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão.
+      {{ telium_user }} ALL=(root) NOPASSWD: /usr/local/sbin/telium-certificados
+
+- name: Instalar a unidade do aplicador
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/telium-certificados.service
+    mode: "0644"
+    content: |
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão.
+      [Unit]
+      Description=Telium PABX — aplica certificados TLS nos serviços
+      After=mariadb.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/telium-certificados
+  notify: recarregar systemd
+
+# Rede de segurança: se o disparo por sudo falhar, o temporizador pega
+# a atribuição pendente no minuto seguinte.
+- name: Instalar o temporizador do aplicador
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/telium-certificados.timer
+    mode: "0644"
+    content: |
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão.
+      [Unit]
+      Description=Verifica certificados pendentes a cada minuto
+
+      [Timer]
+      OnCalendar=*:0/1
+      AccuracySec=30s
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+  notify: recarregar systemd
+
+- name: Aplicar mudanças de unidade antes de habilitar
+  ansible.builtin.meta: flush_handlers
+
+- name: Habilitar o temporizador de certificados
+  ansible.builtin.systemd_service:
+    name: telium-certificados.timer
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Aplicar atribuições pendentes agora
+  ansible.builtin.command: /usr/local/sbin/telium-certificados
+  register: cert_aplicar
+  changed_when: "'aplicado' in cert_aplicar.stdout"
+  failed_when: false
+
+- name: Resultado da aplicação de certificados
+  ansible.builtin.debug:
+    msg: "{{ cert_aplicar.stdout_lines | default(['nada pendente']) }}"

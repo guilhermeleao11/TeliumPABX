@@ -108,7 +108,7 @@ A permissão de discagem viaja no próprio endpoint PJSIP:
 
 ## Banco de dados
 
-30 tabelas. Os três grupos:
+39 tabelas. Os três grupos:
 
 - **Aplicação** — `empresa`, `perfis`, `perfil_modulos`, `perfil_acoes`, `usuarios`,
   `sessoes`, `auditoria`, `config_aplicacoes`, `sistema`
@@ -117,6 +117,9 @@ A permissão de discagem viaja no próprio endpoint PJSIP:
   `grupos_horario`, `grupo_horario_faixas`, `pin_sets`, `dispositivos`, `tarifas`
 - **Operação** — `cdr`, `cel` (escritas pelo próprio Asterisk via ODBC),
   `gravacoes`, `contatos`, `integracoes`, `eventos`
+- **Módulos** — `backup_rotinas`, `backups`, `audios`, `codigos_recurso`,
+  `lista_negra`, `lista_permitida`, `certificados`, `certificado_servicos`,
+  `destinos_personalizados`
 
 Scripts em `infra/sql/`, aplicados pelo Ansible. DDL idempotente.
 
@@ -156,11 +159,54 @@ GET  /api/auditoria
 ```
 /api/ramais          /api/troncos        /api/filas
 /api/rotas-entrada   /api/rotas-saida    /api/ura      /api/ura-opcoes
-/api/grupos-toque    /api/usuarios       /api/contatos
-/api/dispositivos    /api/tarifas        /api/integracoes
+/api/grupos-toque    /api/usuarios       /api/dispositivos
+/api/tarifas         /api/integracoes    /api/codigos-recurso
+/api/lista-negra     /api/lista-permitida
+/api/destinos-personalizados
 ```
 Cada um aceita `GET` (lista com `?q=`, filtros e paginação), `GET /{id}`,
 `POST`, `PUT /{id}` e `DELETE /{id}`, sempre com verificação de módulo e de ação.
+
+**Agenda de contatos** — fora do CRUD genérico: a regra é por linha
+```
+GET    /api/contatos[?escopo=corporativo|pessoal|todos&q=&grupo=]
+GET    /api/contatos/{id}
+POST   /api/contatos                 escopo corporativo exige admin.contatos
+PUT    /api/contatos/{id}            contato da empresa: só quem administra
+DELETE /api/contatos/{id}
+POST   /api/contatos/{id}/foto       multipart; reduzida para 512 px
+DELETE /api/contatos/{id}/foto
+```
+A agenda corporativa é `usuario_id IS NULL` e todo mundo enxerga. A pessoal
+pertence a um usuário e só ele (ou quem tem `admin.contatos`) alcança.
+
+**Certificados TLS**
+```
+GET    /api/certificados             cofre, serviços e dias para vencer
+POST   /api/certificados             envio de cert + chave (+ cadeia), multipart ou colado
+POST   /api/certificados/autoassinado
+POST   /api/certificados/csr         gera chave + pedido para a autoridade
+GET    /api/certificados/{id}/pem    parte pública ou o CSR — a chave nunca sai
+POST   /api/certificados/{id}/assinar  conclui um pedido com o certificado emitido
+POST   /api/certificados/aplicar     atribui aos serviços e dispara o aplicador
+PUT    /api/certificados/{id}        nome e descrição
+DELETE /api/certificados/{id}        recusado se algum serviço ainda usa
+```
+A API valida com openssl (chave confere com o certificado, cadeia cobre o
+emissor, validade) e grava no cofre `/etc/telium/certificados`, que pertence a
+ela. Quem copia para `/etc/ssl/telium`, `/etc/asterisk/keys` e `/etc/janus/certs`
+e recarrega os serviços é `/usr/local/sbin/telium-certificados`, root, sem
+argumento nenhum — mesmo desenho do backup. Ele guarda o par anterior antes de
+trocar e o devolve se o `nginx -t` falhar, se o transporte TLS do pjsip não
+subir ou se o Janus não voltar.
+
+**Destinos personalizados**
+```
+GET  /api/destinos/contextos         quais contextos existem mesmo no dialplan
+```
+O CRUD é o genérico. O destino aponta para um contexto escrito à mão em
+`extensions_custom.conf`; o gerador emite `Goto(contexto,extensao,prioridade)`,
+e um destino apagado vira `NoOp(...não existe) + Hangup()` em vez de sumir.
 
 **Especiais**
 ```
