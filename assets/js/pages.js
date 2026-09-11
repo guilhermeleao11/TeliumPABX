@@ -544,6 +544,7 @@ function paginaCrud(cfg) {
         rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
                  <button class="btn btn-primary" data-salvar>${novo ? 'Criar' : 'Salvar alterações'}</button>`,
         aoAbrir: dw => {
+          ligarRequisitos(dw);
           dw.querySelectorAll('[data-aba]').forEach(t => t.onclick = () => {
             dw.querySelectorAll('[data-aba]').forEach(x => x.classList.remove('on'));
             t.classList.add('on');
@@ -553,23 +554,20 @@ function paginaCrud(cfg) {
 
           dw.querySelector('[data-salvar]').onclick = async ev => {
             const botao = ev.currentTarget;
-            const dados = {};
-            let invalido = null;
 
+            if (!validarCampos(dw, campos)) {
+              dw.querySelector('.field.erro [name]')?.focus();
+              return;
+            }
+
+            const dados = {};
             campos.forEach(c => {
               const el = dw.querySelector(`[name="${c.campo}"]`);
               if (!el) return;
               let v = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
-              if (c.obrigatorio && (v === '' || v === null)) invalido ??= c;
               if (v === '' && c.tipo === 'number') v = null;
               dados[c.campo] = v;
             });
-
-            if (invalido) {
-              toast(`Preencha o campo "${invalido.label}".`, 'warn');
-              dw.querySelector(`[name="${invalido.campo}"]`)?.focus();
-              return;
-            }
 
             botao.disabled = true;
             botao.textContent = 'Salvando…';
@@ -582,6 +580,11 @@ function paginaCrud(cfg) {
             } catch (e) {
               botao.disabled = false;
               botao.textContent = novo ? 'Criar' : 'Salvar alterações';
+              if (e.detalhe?.campo) {
+                limparErros(dw);
+                marcarErro(dw, e.detalhe.campo, e.message);
+                dw.querySelector(`[name="${e.detalhe.campo}"]`)?.focus();
+              }
               toast(e.message, 'err');
             }
           };
@@ -591,6 +594,149 @@ function paginaCrud(cfg) {
   };
 }
 
+/* ========================================================================
+   Validação de formulário
+   Marca cada campo com problema, em vez de só avisar num toast que
+   some. O servidor continua validando tudo de novo.
+   ======================================================================== */
+
+/** Política de senha — o mesmo que Senha::validar() aplica no servidor. */
+const POLITICA_SENHA = [
+  { chave: 'tamanho', rotulo: 'Pelo menos 8 caracteres',
+    testa: v => v.length >= 8 },
+  { chave: 'numero',  rotulo: 'Pelo menos um número',
+    testa: v => /\d/.test(v) },
+  { chave: 'simbolo', rotulo: 'Pelo menos um símbolo — @ # ! _ - e afins',
+    testa: v => /[^\p{L}\p{N}]/u.test(v) }
+];
+
+function senhaAtende(v) {
+  return POLITICA_SENHA.every(r => r.testa(v || ''));
+}
+
+/** Campo de senha com a lista de exigências que se acende ao digitar. */
+function campoSenha(nome, label, ajuda = '') {
+  return `<div class="field full" data-campo="${nome}">
+    <label class="label">${esc(label)} *</label>
+    <input class="input" type="password" name="${nome}" autocomplete="new-password"
+           data-senha-politica>
+    ${ajuda ? `<span class="hint">${esc(ajuda)}</span>` : ''}
+    <div class="requisitos" data-requisitos>
+      <span class="titulo">Para a senha ser aceita</span>
+      ${POLITICA_SENHA.map(r => `
+        <div class="requisito" data-req="${r.chave}">
+          <span class="marca">${icon('check','ico')}</span>${esc(r.rotulo)}
+        </div>`).join('')}
+      <div class="forca"><i></i><i></i><i></i><i></i></div>
+      <div class="forca-txt" data-forca-txt>Digite para verificar</div>
+    </div>
+  </div>`;
+}
+
+/** Liga o checklist ao que está sendo digitado. */
+function ligarRequisitos(escopo) {
+  escopo.querySelectorAll('[data-senha-politica]').forEach(entrada => {
+    const painel = entrada.closest('.field')?.querySelector('[data-requisitos]');
+    if (!painel) return;
+
+    const atualizar = () => {
+      const v = entrada.value;
+      let atendidos = 0;
+
+      POLITICA_SENHA.forEach(r => {
+        const ok = r.testa(v);
+        if (ok) atendidos++;
+        painel.querySelector(`[data-req="${r.chave}"]`)?.classList.toggle('ok', ok);
+      });
+
+      // A quarta barra premia comprimento acima do mínimo.
+      const nivel = atendidos + (atendidos === POLITICA_SENHA.length && v.length >= 12 ? 1 : 0);
+      const barra = painel.querySelector('.forca');
+      barra.className = `forca f${v ? nivel : 0}`;
+
+      const texto = painel.querySelector('[data-forca-txt]');
+      texto.textContent = !v ? 'Digite para verificar'
+        : atendidos < POLITICA_SENHA.length ? 'Ainda falta atender os itens acima'
+        : v.length >= 12 ? 'Senha forte'
+        : 'Senha aceita — passando de 12 caracteres fica mais forte';
+    };
+
+    entrada.addEventListener('input', atualizar);
+    atualizar();
+  });
+}
+
+/** Tira as marcas de erro de um formulário. */
+function limparErros(escopo) {
+  escopo.querySelectorAll('.field.erro').forEach(f => f.classList.remove('erro'));
+  escopo.querySelectorAll('.campo-erro, .aviso-form').forEach(e => e.remove());
+}
+
+/** Marca um campo com problema e escreve o motivo embaixo dele. */
+function marcarErro(escopo, nome, mensagem) {
+  const el = escopo.querySelector(`[name="${nome}"]`);
+  const campo = el?.closest('.field');
+  if (!campo) return;
+
+  campo.classList.add('erro');
+  if (!campo.querySelector('.campo-erro')) {
+    campo.insertAdjacentHTML('beforeend',
+      `<span class="campo-erro">${icon('alert','ico')}${esc(mensagem)}</span>`);
+  }
+}
+
+/** Resumo no topo, para o problema não passar batido num formulário longo. */
+function avisoFormulario(escopo, problemas) {
+  const alvo = escopo.querySelector('.drawer-body') || escopo;
+  alvo.insertAdjacentHTML('afterbegin', `
+    <div class="aviso-form">${icon('alert','ico')}
+      <div><b>${problemas.length === 1 ? 'Falta uma informação' : `Faltam ${problemas.length} informações`}</b>
+        <ul>${problemas.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>
+    </div>`);
+  alvo.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/**
+ * Valida os campos declarados e marca TODOS os problemas de uma vez.
+ * Devolve true quando está tudo certo.
+ */
+function validarCampos(escopo, campos) {
+  limparErros(escopo);
+  const problemas = [];
+
+  campos.forEach(c => {
+    const el = escopo.querySelector(`[name="${c.campo}"]`);
+    if (!el || el.disabled || el.type === 'checkbox') return;
+
+    const valor = (el.value || '').trim();
+
+    if (c.obrigatorio && valor === '') {
+      marcarErro(escopo, c.campo, 'Este campo é obrigatório.');
+      problemas.push(c.label);
+      return;
+    }
+    if (valor === '') return;
+
+    if (c.tipo === 'number' && Number.isNaN(Number(valor))) {
+      marcarErro(escopo, c.campo, 'Informe um número.');
+      problemas.push(`${c.label}: precisa ser um número`);
+      return;
+    }
+    if (c.tipo === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(valor)) {
+      marcarErro(escopo, c.campo, 'E-mail em formato inválido.');
+      problemas.push(`${c.label}: e-mail inválido`);
+      return;
+    }
+    if (c.padraoValido && !c.padraoValido.test(valor)) {
+      marcarErro(escopo, c.campo, c.mensagemPadrao || 'Formato inválido.');
+      problemas.push(`${c.label}: ${c.mensagemPadrao || 'formato inválido'}`);
+    }
+  });
+
+  if (problemas.length) avisoFormulario(escopo, problemas);
+  return problemas.length === 0;
+}
+
 /** Um campo do formulário da gaveta. */
 function campoHtml(c, item) {
   const v = item[c.campo] ?? c.padrao ?? '';
@@ -598,7 +744,7 @@ function campoHtml(c, item) {
   const desabilitado = c.somenteLeitura ? 'disabled' : '';
 
   if (c.tipo === 'switch') {
-    return `<div class="field${largura}">
+    return `<div class="field${largura}" data-campo="${c.campo}">
       <label class="label">${esc(c.label)}</label>
       <label class="switch"><input type="checkbox" name="${c.campo}" ${Number(v) ? 'checked' : ''} ${desabilitado}>
         <span class="track"></span></label>
@@ -607,7 +753,7 @@ function campoHtml(c, item) {
   }
 
   if (c.tipo === 'select') {
-    return `<div class="field${largura}">
+    return `<div class="field${largura}" data-campo="${c.campo}">
       <label class="label">${esc(c.label)}</label>
       <select class="select" name="${c.campo}" ${desabilitado}>
         ${(c.opcoes || []).map(o => {
@@ -621,14 +767,14 @@ function campoHtml(c, item) {
   }
 
   if (c.tipo === 'textarea') {
-    return `<div class="field${largura}">
+    return `<div class="field${largura}" data-campo="${c.campo}">
       <label class="label">${esc(c.label)}</label>
       <textarea class="textarea" name="${c.campo}" placeholder="${esc(c.placeholder || '')}" ${desabilitado}>${esc(v)}</textarea>
       ${c.ajuda ? `<span class="hint">${esc(c.ajuda)}</span>` : ''}
     </div>`;
   }
 
-  return `<div class="field${largura}">
+  return `<div class="field${largura}" data-campo="${c.campo}">
     <label class="label">${esc(c.label)}${c.obrigatorio ? ' *' : ''}</label>
     <input class="input${c.mono ? ' mono' : ''}" type="${c.tipo || 'text'}" name="${c.campo}"
            value="${esc(v)}" placeholder="${esc(c.placeholder || '')}" ${desabilitado}>
@@ -970,88 +1116,140 @@ PAGES['admin.usuarios'] = {
   mount(ctx) {
     const form = (u) => {
       const novo = !u;
+      const campos = [
+        { campo: 'nome', label: 'Nome completo', obrigatorio: true,
+          placeholder: 'Como a pessoa aparece no console' },
+        { campo: 'usuario', label: 'Usuário de login', obrigatorio: true, mono: true,
+          somenteLeitura: !novo, placeholder: 'ex.: mduarte',
+          padraoValido: /^[a-zA-Z0-9._-]{3,64}$/,
+          mensagemPadrao: 'use de 3 a 64 letras, números, ponto, hífen ou sublinhado',
+          ajuda: novo ? 'Não muda depois de criado.' : '' },
+        { campo: 'email', label: 'E-mail', tipo: 'email', placeholder: 'pessoa@empresa.com.br' },
+        { campo: 'ramal', label: 'Ramal vinculado', mono: true,
+          ajuda: 'Liga a conta ao ramal no PCU e no softphone.' },
+        { campo: 'setor', label: 'Setor' },
+        { campo: 'perfil_id', label: 'Perfil de acesso', obrigatorio: true, tipo: 'select',
+          opcoes: this._perfis.map(p => ({ valor: p.id, rotulo: p.nome })),
+          ajuda: 'Define o que a pessoa enxerga e pode fazer.' },
+        { campo: 'status', label: 'Estado', tipo: 'select',
+          opcoes: [{valor:'ativo',rotulo:'Ativo'},{valor:'inativo',rotulo:'Inativo'},
+                   {valor:'bloqueado',rotulo:'Bloqueado'}] }
+      ];
+
       Drawer.open({
         titulo: novo ? 'Novo usuário' : `Editar ${u.nome}`,
         sub: novo ? 'Defina a senha agora: a conta só entra depois disso.' : '',
         corpo: `<div class="form-grid">
-          ${campoHtml({ campo:'nome', label:'Nome completo', obrigatorio:true }, u || {})}
-          ${campoHtml({ campo:'usuario', label:'Usuário de login', obrigatorio:true, mono:true,
-                        somenteLeitura: !novo }, u || {})}
-          ${campoHtml({ campo:'email', label:'E-mail', tipo:'email' }, u || {})}
-          ${campoHtml({ campo:'ramal', label:'Ramal vinculado', mono:true }, u || {})}
-          ${campoHtml({ campo:'setor', label:'Setor' }, u || {})}
-          ${campoHtml({ campo:'perfil_id', label:'Perfil de acesso', tipo:'select',
-                        opcoes: this._perfis.map(p => ({ valor:p.id, rotulo:p.nome })) }, u || {})}
-          ${campoHtml({ campo:'status', label:'Estado', tipo:'select',
-                        opcoes:[{valor:'ativo',rotulo:'Ativo'},{valor:'inativo',rotulo:'Inativo'},
-                                {valor:'bloqueado',rotulo:'Bloqueado'}] }, u || {})}
-          ${novo ? `
-            <div class="field full"><label class="label">Senha de acesso *</label>
-              <input class="input" type="password" name="senha" autocomplete="new-password"
-                     placeholder="mínimo 10 caracteres">
-              <span class="hint">A conta só consegue entrar depois que uma senha for definida.</span></div>
-            <div class="field full"><label class="label">Repetir a senha *</label>
-              <input class="input" type="password" name="senha2" autocomplete="new-password"></div>` : ''}
+          ${campos.map(c => campoHtml(c, u || {})).join('')}
+          ${novo ? campoSenha('senha', 'Senha de acesso') +
+                   campoHtml({ campo: 'senha2', label: 'Repetir a senha', tipo: 'password',
+                               obrigatorio: true, largura: 'full' }, {}) : ''}
         </div>`,
         rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
                  <button class="btn btn-primary" data-salvar>${novo ? 'Criar usuário' : 'Salvar'}</button>`,
-        aoAbrir: dw => dw.querySelector('[data-salvar]').onclick = async ev => {
-          const botao = ev.currentTarget;
-          const dados = {};
-          ['nome','usuario','email','ramal','setor','perfil_id','status'].forEach(c => {
-            const el = dw.querySelector(`[name="${c}"]`);
-            if (el && !el.disabled) dados[c] = el.value;
-          });
+        aoAbrir: dw => {
+          ligarRequisitos(dw);
 
-          if (!dados.nome || (novo && !dados.usuario)) {
-            toast('Nome e usuário são obrigatórios.', 'warn'); return;
-          }
+          dw.querySelector('[data-salvar]').onclick = async ev => {
+            const botao = ev.currentTarget;
+            const rotulo = novo ? 'Criar usuário' : 'Salvar';
 
-          if (novo) {
-            const s1 = dw.querySelector('[name="senha"]').value;
-            const s2 = dw.querySelector('[name="senha2"]').value;
-            if (s1.length < 10) { toast('A senha precisa de pelo menos 10 caracteres.', 'warn'); return; }
-            if (s1 !== s2) { toast('As senhas não conferem.', 'warn'); return; }
-            dados.senha = s1;
-          }
+            if (!validarCampos(dw, campos)) {
+              dw.querySelector('.field.erro [name]')?.focus();
+              return;
+            }
 
-          botao.disabled = true;
-          botao.textContent = 'Salvando…';
-          try {
-            if (novo) await Api.post('/usuarios', dados);
-            else await Api.put(`/usuarios/${u.id}`, dados);
-            Drawer.close();
-            toast(novo ? 'Usuário criado.' : 'Usuário atualizado.', 'ok');
-            App.route();
-          } catch (e) {
-            botao.disabled = false;
-            botao.textContent = novo ? 'Criar usuário' : 'Salvar';
-            toast(e.message, 'err');
-          }
+            const dados = {};
+            campos.forEach(c => {
+              const el = dw.querySelector(`[name="${c.campo}"]`);
+              if (el && !el.disabled) dados[c.campo] = el.value;
+            });
+
+            if (novo) {
+              const s1 = dw.querySelector('[name="senha"]').value;
+              const s2 = dw.querySelector('[name="senha2"]').value;
+              const faltando = POLITICA_SENHA.filter(r => !r.testa(s1)).map(r => r.rotulo.toLowerCase());
+
+              if (faltando.length) {
+                limparErros(dw);
+                marcarErro(dw, 'senha', 'Ainda falta: ' + faltando.join('; ') + '.');
+                avisoFormulario(dw, ['Senha de acesso: ' + faltando.join('; ')]);
+                dw.querySelector('[name="senha"]').focus();
+                return;
+              }
+              if (s1 !== s2) {
+                limparErros(dw);
+                marcarErro(dw, 'senha2', 'As senhas não são iguais.');
+                avisoFormulario(dw, ['A repetição da senha não confere']);
+                dw.querySelector('[name="senha2"]').focus();
+                return;
+              }
+              dados.senha = s1;
+            }
+
+            botao.disabled = true;
+            botao.textContent = 'Salvando…';
+            try {
+              if (novo) await Api.post('/usuarios', dados);
+              else await Api.put(`/usuarios/${u.id}`, dados);
+              Drawer.close();
+              toast(novo ? 'Usuário criado.' : 'Usuário atualizado.', 'ok');
+              App.route();
+            } catch (e) {
+              botao.disabled = false;
+              botao.textContent = rotulo;
+              limparErros(dw);
+              if (e.detalhe?.campo) {
+                marcarErro(dw, e.detalhe.campo, e.message);
+                dw.querySelector(`[name="${e.detalhe.campo}"]`)?.focus();
+              } else {
+                avisoFormulario(dw, [e.message]);
+              }
+            }
+          };
         }
       });
     };
 
     const senhaForm = (u) => Drawer.open({
       titulo: `Definir senha de ${u.nome}`,
-      sub: 'Mínimo de 10 caracteres. As sessões abertas desse usuário são encerradas.',
-      corpo: `<div class="grid" style="gap:16px">
-        <div class="field"><label class="label">Nova senha</label>
-          <input class="input" type="password" name="senha" autocomplete="new-password"></div>
-        <div class="field"><label class="label">Repetir a senha</label>
-          <input class="input" type="password" name="senha2" autocomplete="new-password"></div>
+      sub: 'As sessões abertas dessa pessoa são encerradas assim que a senha muda.',
+      corpo: `<div class="form-grid">
+        ${campoSenha('senha', 'Nova senha')}
+        ${campoHtml({ campo: 'senha2', label: 'Repetir a senha', tipo: 'password',
+                      obrigatorio: true, largura: 'full' }, {})}
       </div>`,
       rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
                <button class="btn btn-primary" data-ok>Definir senha</button>`,
-      aoAbrir: dw => dw.querySelector('[data-ok]').onclick = async () => {
-        const s1 = dw.querySelector('[name="senha"]').value;
-        const s2 = dw.querySelector('[name="senha2"]').value;
-        if (s1.length < 10) { toast('A senha precisa de pelo menos 10 caracteres.', 'warn'); return; }
-        if (s1 !== s2) { toast('As senhas não conferem.', 'warn'); return; }
-        try {
-          await Api.post(`/usuarios/${u.id}/senha`, { senha: s1 });
-          Drawer.close(); toast('Senha definida.', 'ok'); App.route();
-        } catch (e) { toast(e.message, 'err'); }
+      aoAbrir: dw => {
+        ligarRequisitos(dw);
+
+        dw.querySelector('[data-ok]').onclick = async ev => {
+          const s1 = dw.querySelector('[name="senha"]').value;
+          const s2 = dw.querySelector('[name="senha2"]').value;
+          const faltando = POLITICA_SENHA.filter(r => !r.testa(s1)).map(r => r.rotulo.toLowerCase());
+
+          limparErros(dw);
+          if (faltando.length) {
+            marcarErro(dw, 'senha', 'Ainda falta: ' + faltando.join('; ') + '.');
+            dw.querySelector('[name="senha"]').focus();
+            return;
+          }
+          if (s1 !== s2) {
+            marcarErro(dw, 'senha2', 'As senhas não são iguais.');
+            dw.querySelector('[name="senha2"]').focus();
+            return;
+          }
+
+          ev.currentTarget.disabled = true;
+          try {
+            await Api.post(`/usuarios/${u.id}/senha`, { senha: s1 });
+            Drawer.close(); toast('Senha definida.', 'ok'); App.route();
+          } catch (e) {
+            ev.currentTarget.disabled = false;
+            marcarErro(dw, 'senha', e.message);
+          }
+        };
       }
     });
 

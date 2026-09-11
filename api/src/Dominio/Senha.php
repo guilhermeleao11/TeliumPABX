@@ -13,6 +13,42 @@ final class Senha
     private const ALGORITMO = 'sha256';
     private const ITERACOES = 390000;
 
+    /** Política mínima de senha. O front espelha estas mesmas regras. */
+    public const MINIMO = 8;
+
+    /**
+     * Diz o que falta para a senha ser aceita.
+     *
+     * Devolve a lista de exigências não atendidas, em vez de um sim/não,
+     * para a interface poder mostrar exatamente o que corrigir.
+     *
+     * @return string[] vazio quando a senha está boa
+     */
+    public static function validar(string $senha): array
+    {
+        $faltas = [];
+
+        if (mb_strlen($senha) < self::MINIMO) {
+            $faltas[] = 'pelo menos ' . self::MINIMO . ' caracteres';
+        }
+        if (preg_match('/\d/', $senha) !== 1) {
+            $faltas[] = 'pelo menos um número';
+        }
+        if (preg_match('/[^\p{L}\p{N}]/u', $senha) !== 1) {
+            $faltas[] = 'pelo menos um símbolo (por exemplo @ # ! _ -)';
+        }
+
+        return $faltas;
+    }
+
+    /** Mensagem pronta para devolver ao cliente. */
+    public static function mensagemDeFalta(array $faltas): string
+    {
+        return count($faltas) === 1
+            ? 'A senha precisa de ' . $faltas[0] . '.'
+            : 'A senha precisa de: ' . implode('; ', $faltas) . '.';
+    }
+
     public static function criar(string $senha, int $iteracoes = self::ITERACOES): string
     {
         $salt = random_bytes(16);

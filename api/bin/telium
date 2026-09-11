@@ -149,8 +149,9 @@ function trocarSenha(string $usuario): void
         echo "\n";
     }
 
-    if (strlen($senha) < 8) {
-        throw new RuntimeException('a senha precisa de pelo menos 8 caracteres');
+    $faltas = Senha::validar($senha);
+    if ($faltas !== []) {
+        throw new RuntimeException(strtolower(Senha::mensagemDeFalta($faltas)));
     }
 
     Bd::executar('DELETE FROM sessoes WHERE usuario_id = (SELECT id FROM usuarios WHERE usuario = ?)', [$usuario]);

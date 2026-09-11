@@ -252,8 +252,12 @@ final class Cadastros
         }
 
         $senha = (string) ($corpo['senha'] ?? '');
-        if ($senha !== '' && mb_strlen($senha) < 10) {
-            return Resposta::erro($res, 'A senha precisa de pelo menos 10 caracteres', 422);
+        if ($senha !== '') {
+            $faltas = Senha::validar($senha);
+            if ($faltas !== []) {
+                return Resposta::erro($res, Senha::mensagemDeFalta($faltas), 422,
+                                      ['campo' => 'senha', 'faltas' => $faltas]);
+            }
         }
 
         // Sem senha informada, a conta nasce inacessível até alguém definir uma.
@@ -308,9 +312,11 @@ final class Cadastros
             return Resposta::erro($res, 'Usuário não encontrado', 404);
         }
 
-        $senha = (string) ((array) $req->getParsedBody())['senha'] ?? '';
-        if (mb_strlen($senha) < 10) {
-            return Resposta::erro($res, 'A senha precisa de pelo menos 10 caracteres', 422);
+        $senha = (string) (((array) $req->getParsedBody())['senha'] ?? '');
+        $faltas = Senha::validar($senha);
+        if ($faltas !== []) {
+            return Resposta::erro($res, Senha::mensagemDeFalta($faltas), 422,
+                                  ['campo' => 'senha', 'faltas' => $faltas]);
         }
 
         Bd::executar(
