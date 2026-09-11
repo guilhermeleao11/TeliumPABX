@@ -81,6 +81,20 @@ pelo AMI em 127.0.0.1.
 O gerador é idempotente: compara o conteúdo (ignorando a linha de data) e só
 reescreve o que mudou de fato.
 
+### Atualização: banco e código andam juntos
+
+`git pull` traz código novo que pode depender de tabela ou coluna nova. Quem
+pula a migração descobre isso do pior jeito: um SQLSTATE 42S02 no meio de uma
+tela. Por isso:
+
+- `php bin/telium migrar` aplica os scripts de `infra/sql` em ordem. Todos são
+  idempotentes, então reaplicar é seguro — é o caminho de atualização sem
+  precisar do playbook inteiro.
+- `GET /api/health` tem uma checagem `esquema` que compara o banco com o que o
+  código usa e diz o que falta.
+- Um erro de tabela ou coluna ausente no "aplicar configurações" vira a
+  mensagem que resolve, em vez do texto cru do MariaDB.
+
 ### Softphone do navegador
 
 O navegador fala SIP sobre WebSocket **direto com o Asterisk**. O Janus saiu do

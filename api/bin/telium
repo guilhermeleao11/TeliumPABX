@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 /**
  * CLI do Telium PABX.
- *   php bin/telium gerar-config     — gera os .conf a partir do banco
+ *   php bin/telium migrar           — aplica os scripts SQL que faltam
+ *   php bin/telium migrar
+  php bin/telium gerar-config     — gera os .conf a partir do banco
  *   php bin/telium aplicar-config   — gera e recarrega o Asterisk
  *   php bin/telium doctor           — diagnóstico das dependências
  *   php bin/telium senha <usuario>  — define uma nova senha
@@ -25,6 +27,7 @@ $comando = $argv[1] ?? 'ajuda';
 
 try {
     match ($comando) {
+        'migrar'         => migrar(),
         'gerar-config'   => gerarConfig(),
         'aplicar-config' => aplicarConfig(),
         'doctor'         => doctor(),
@@ -34,6 +37,55 @@ try {
 } catch (Throwable $e) {
     fwrite(STDERR, "{$vermelho}✗ {$e->getMessage()}{$zero}\n");
     exit(1);
+}
+
+/**
+ * Aplica os scripts de infra/sql na ordem.
+ *
+ * Todos são idempotentes, então reaplicar é seguro: é o caminho de
+ * atualização depois de um git pull, sem precisar do playbook inteiro.
+ */
+function migrar(): void
+{
+    global $verde, $vermelho, $amarelo, $zero;
+
+    $dir = realpath(__DIR__ . '/../../infra/sql');
+    if ($dir === false) {
+        throw new RuntimeException('Não encontrei o diretório infra/sql ao lado da API.');
+    }
+
+    $arquivos = glob("{$dir}/*.sql") ?: [];
+    sort($arquivos);
+
+    if ($arquivos === []) {
+        throw new RuntimeException("Nenhum script .sql em {$dir}.");
+    }
+
+    $pdo = Bd::conexao();
+    $falhas = 0;
+
+    foreach ($arquivos as $caminho) {
+        $nome = basename($caminho);
+        $sql = (string) file_get_contents($caminho);
+
+        try {
+            // Os scripts trazem DELIMITER nenhum e várias instruções por
+            // arquivo; o PDO do MySQL aceita isso num exec só.
+            $pdo->exec($sql);
+            printf("  %s✓ %s%s\n", $verde, $nome, $zero);
+        } catch (Throwable $e) {
+            $falhas++;
+            printf("  %s✗ %s — %s%s\n", $vermelho, $nome, $e->getMessage(), $zero);
+        }
+    }
+
+    echo $falhas === 0
+        ? "{$verde}✓ banco atualizado{$zero}\n"
+        : "{$amarelo}• {$falhas} script(s) com erro — veja acima{$zero}\n";
+
+    if ($falhas > 0) {
+        exit(1);
+    }
 }
 
 function gerarConfig(): void
@@ -172,6 +224,7 @@ function ajuda(): void
     echo <<<TXT
     Telium PABX — utilitário de linha de comando
 
+      php bin/telium migrar            aplica os scripts SQL que faltam
       php bin/telium gerar-config      gera os .conf a partir do banco
       php bin/telium aplicar-config    gera e recarrega o Asterisk
       php bin/telium doctor            testa banco, AMI, Janus e permissões

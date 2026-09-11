@@ -9,6 +9,7 @@ use Telium\Gerador\Gerador;
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Ami;
 use Telium\Suporte\Bd;
+use Telium\Suporte\Esquema;
 use Telium\Suporte\Resposta;
 
 /** GET /api/health — diagnóstico de dependências, sem exigir sessão. */
@@ -19,8 +20,8 @@ final class Saude
         $checagens = [
             'php'      => ['ok' => true, 'detalhe' => PHP_VERSION],
             'banco'    => $this->banco(),
+            'esquema'  => $this->esquema(),
             'asterisk' => $this->asterisk(),
-            'janus'    => $this->janus(),
         ];
 
         $tudoOk = array_reduce(
@@ -37,6 +38,19 @@ final class Saude
             'saudavel'  => $tudoOk,
             'checagens' => $checagens,
         ], $tudoOk ? 200 : 503);
+    }
+
+    /**
+     * O banco tem o que esta versão do código precisa?
+     *
+     * Sem esta checagem, um "git pull" sem migração só dá sinal quando
+     * alguém clica em aplicar e leva um erro de SQL na cara.
+     */
+    private function esquema(): array
+    {
+        $r = Esquema::conferir();
+
+        return ['ok' => $r['ok'], 'detalhe' => $r['mensagem']];
     }
 
     private function banco(): array
@@ -70,21 +84,4 @@ final class Saude
         }
     }
 
-    private function janus(): array
-    {
-        $ctx = stream_context_create(['http' => ['timeout' => 3, 'ignore_errors' => true]]);
-        $json = @file_get_contents('http://127.0.0.1:8088/janus/info', false, $ctx);
-
-        if ($json === false) {
-            return ['ok' => false, 'detalhe' => 'Janus não respondeu em 127.0.0.1:8088'];
-        }
-
-        $dados = json_decode($json, true);
-
-        return [
-            'ok' => isset($dados['version_string']),
-            'detalhe' => 'Janus ' . ($dados['version_string'] ?? '?'),
-            'plugin_sip' => isset($dados['plugins']['janus.plugin.sip']),
-        ];
-    }
 }

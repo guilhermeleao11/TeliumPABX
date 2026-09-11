@@ -9,6 +9,7 @@ use Telium\Dominio\Auditoria;
 use Telium\Gerador\Aplicador;
 use Telium\Gerador\Gerador;
 use Telium\Suporte\Bd;
+use Telium\Suporte\Esquema;
 use Telium\Suporte\Resposta;
 
 /** Geração e aplicação dos .conf do Asterisk. */
@@ -48,7 +49,7 @@ final class Configuracao
         try {
             $arquivos = (new Gerador())->gerar();
         } catch (\Throwable $e) {
-            return Resposta::erro($res, $e->getMessage(), 500);
+            return Resposta::erro($res, Esquema::explicarErro($e) ?? $e->getMessage(), 500);
         }
 
         Auditoria::registrar(
@@ -70,7 +71,7 @@ final class Configuracao
         try {
             $arquivos = (new Gerador())->gerar();
         } catch (\Throwable $e) {
-            return Resposta::erro($res, $e->getMessage(), 500);
+            return Resposta::erro($res, Esquema::explicarErro($e) ?? $e->getMessage(), 500);
         }
 
         $resultado = (new Aplicador())->aplicar(
