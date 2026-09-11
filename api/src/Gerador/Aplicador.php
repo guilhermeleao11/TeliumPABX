@@ -5,6 +5,7 @@ namespace Telium\Gerador;
 
 use Telium\Suporte\Ami;
 use Telium\Suporte\Bd;
+use Telium\Suporte\Trava;
 
 /**
  * "Aplicar configurações": recarrega os módulos do Asterisk pelo AMI.
@@ -25,6 +26,19 @@ final class Aplicador
         $etapas = [];
         $saida = '';
         $sucesso = true;
+
+        // Duas aplicações ao mesmo tempo se atropelam: cada uma limpa a
+        // família inteira na base do Asterisk antes de regravá-la, e a
+        // limpeza de uma apagava o que a outra tinha acabado de escrever.
+        $trava = Trava::tentar('telium_aplicar', 20);
+        if ($trava === null) {
+            return [
+                'sucesso' => false,
+                'etapas'  => ['aplicação em curso' => 'falhou'],
+                'saida'   => 'Outra aplicação de configuração está em andamento. '
+                           . 'Espere ela terminar e tente de novo.',
+            ];
+        }
 
         try {
             $ami = Ami::compartilhada();

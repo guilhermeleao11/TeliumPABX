@@ -5,6 +5,7 @@ namespace Telium\Gerador;
 
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Bd;
+use Telium\Suporte\Trava;
 
 /**
  * Orquestra a geração dos .conf a partir do banco.
@@ -65,6 +66,17 @@ final class Gerador
     public function gerar(): array
     {
         $this->conferirDestino();
+
+        // Cada arquivo já é escrito de forma atômica, mas dois geradores
+        // ao mesmo tempo podem deixar metade dos arquivos de uma versão
+        // e metade de outra. A trava é a mesma da aplicação, porque
+        // aplicar é gerar e recarregar.
+        $trava = Trava::tentar('telium_aplicar', 20);
+        if ($trava === null) {
+            throw new \RuntimeException(
+                'Outra geração de configuração está em andamento. Tente de novo em instantes.'
+            );
+        }
 
         $arquivos = $this->arquivos();
 
