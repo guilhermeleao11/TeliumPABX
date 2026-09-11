@@ -46,6 +46,26 @@ sudo asterisk -rx "parking show"
 - O caminho inteiro de uma chamada entrante está ligado ponta a ponta:
   rota de entrada → condição horária → URA → fila → pesquisa de satisfação.
 
+### Chamada de verdade, num Asterisk 22 rodando
+
+Estes foram conferidos com telefones registrados e uma operadora
+simulada, olhando o que sai no SIP e o arquivo que nasce no disco:
+
+- Registro de ramal com autenticação digest, inclusive o WebRTC pelo
+  WebSocket (`REGISTER` → `401` → `200 OK`).
+- Ramal chamando ramal, com a gravação nascendo pela regra combinada dos
+  dois lados e uma única vez.
+- Chamada entrando pelo DID, caindo na fila e sendo atendida por um
+  agente, com o `queue show` marcando a chamada completada.
+- Rota de saída: o `From` que chega na operadora leva o número do ramal
+  quando ele tem um próprio, e o do tronco quando não tem; o prefixo a
+  remover sai do número; o tronco reserva só é tentado depois de falha
+  de verdade, nunca depois de uma chamada atendida.
+- Ramal sem permissão de celular é barrado antes de qualquer INVITE.
+- Ramal com teto de chamadas de saída tem a segunda barrada.
+- Número interno inexistente recebe aviso em vez de silêncio.
+- `core reload` não escreve nenhum ERROR nem WARNING.
+
 ## WebRTC: o que já foi provado e o que falta
 
 Provado com nginx e Asterisk de verdade:
@@ -104,6 +124,20 @@ algo der errado.
 DISA, Megafonia e Interfonia (o código `*80` funciona, falta a tela),
 Texto em Voz, as telas do PCU e o módulo de call center. Os menus estão
 lá e abrem a página de "não implementado".
+
+No cadastro do ramal, estes campos são gravados mas ainda não mudam o
+comportamento da central — vale saber antes de prometer para um cliente:
+
+| Campo | Situação |
+| --- | --- |
+| Descrição do DID | só anotação |
+| CID de entrada | não muda o que o ramal vê chegar |
+| Atender sozinho chamada interna | falta o cabeçalho de auto-resposta |
+| Interfonia | o código `*80` não consulta a preferência do ramal |
+| Permitir rastrear a última chamada | o `*69` vale para todos |
+| Ditado | falta ligar o app_dictate |
+| Prioridade da regra de gravação | o desempate hoje é fixo: "nunca" de
+  qualquer lado proíbe, "forçar" de qualquer lado obriga |
 
 ## Se algo quebrar
 
