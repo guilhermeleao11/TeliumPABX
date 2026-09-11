@@ -8,6 +8,14 @@
   changed_when: true
   failed_when: false
 
+# "when convenient" espera a central ficar sem chamada nenhuma para
+# reiniciar, então ninguém tem a ligação cortada. Numa central que nunca
+# fica vazia o reinício fica pendurado — o resumo do playbook avisa.
+- name: reiniciar asterisk quando der
+  ansible.builtin.command: asterisk -rx "core restart when convenient"
+  changed_when: true
+  failed_when: false
+
 # O manager faz parte do núcleo; recarregá-lo explicitamente garante que
 # uma troca de senha do AMI passe a valer sem reiniciar o Asterisk.
 - name: recarregar manager

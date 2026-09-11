@@ -15,6 +15,24 @@ O playbook publica os scripts de banco, aplica todos eles, manda o código
 novo, reescreve os `.conf` e recarrega o Asterisk. Se só o banco estiver
 atrasado, `php bin/telium migrar` no `/opt/telium/api` resolve.
 
+O playbook pode ser rodado quantas vezes quiser: ele só mexe no que
+mudou. Nada de reinstalar, nada de apagar configuração.
+
+Duas coisas o Asterisk só lê ao subir — o `asterisk.conf` e a lista de
+módulos. Quando elas mudam, o playbook agenda um reinício para quando a
+central estiver sem chamada nenhuma e avisa no final. Para conferir se
+já aconteceu:
+
+```sh
+sudo asterisk -rx "core show uptime"
+```
+
+Se preferir não esperar (derruba as chamadas em curso):
+
+```sh
+sudo systemctl restart asterisk
+```
+
 Confirme a versão em três lugares: a tela de entrada, o rodapé do menu e
 `curl -sk https://SEU-IP/api/health | grep versao`.
 

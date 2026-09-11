@@ -269,7 +269,11 @@
   loop_control:
     label: "{{ item.destino }}"
 
-- name: Publicar configuração base do Asterisk
+# Estes dois o Asterisk só lê ao subir: o [options] do asterisk.conf e a
+# lista de módulos do modules.conf. Um "core reload" aceita o arquivo
+# novo sem aplicar nada — por isso eles vão à parte, avisando o handler
+# que reinicia quando a central estiver sem chamada.
+- name: Publicar o que só vale com o Asterisk subindo de novo
   ansible.builtin.template:
     src: "{{ item }}.j2"
     dest: "/etc/asterisk/{{ item }}"
@@ -279,6 +283,17 @@
   loop:
     - asterisk.conf
     - modules.conf
+  register: base_precisa_reiniciar
+  notify: reiniciar asterisk quando der
+
+- name: Publicar configuração base do Asterisk
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/asterisk/{{ item }}"
+    owner: asterisk
+    group: asterisk
+    mode: "0640"
+  loop:
     - logger.conf
     - rtp.conf
     - http.conf
@@ -693,3 +708,21 @@
   ansible.builtin.debug:
     msg: "AMI respondendo e autenticando como {{ ami_usuario }}"
   when: ami_teste.rc | default(1) == 0
+
+# O reinício só acontece quando a central fica sem chamada nenhuma. Numa
+# central movimentada isso pode demorar, e quem rodou o playbook precisa
+# saber que uma parte da configuração ainda não está valendo.
+- name: Avisar que falta reiniciar o Asterisk
+  ansible.builtin.debug:
+    msg:
+      - "════════════════════════════════════════════════════════"
+      - "asterisk.conf ou modules.conf mudaram. Essas duas coisas"
+      - "só valem com o Asterisk subindo de novo, e o reinício foi"
+      - "agendado para quando não houver chamada em curso."
+      - ""
+      - "Para conferir se já aconteceu:"
+      - "  asterisk -rx 'core show uptime'"
+      - "Para forçar agora, derrubando as chamadas em curso:"
+      - "  systemctl restart asterisk"
+      - "════════════════════════════════════════════════════════"
+  when: base_precisa_reiniciar.changed | default(false)
