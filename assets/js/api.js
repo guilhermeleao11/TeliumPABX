@@ -55,6 +55,61 @@ const Api = {
     return dados;
   },
 
+  /**
+   * Baixa um arquivo da API.
+   *
+   * Não dá para usar <a href> nem <audio src>: o navegador não manda o
+   * cabeçalho Authorization neles. Então buscamos o conteúdo aqui e
+   * devolvemos um blob, que vira uma URL local.
+   *
+   * @returns {Promise<{blob: Blob, nome: string|null}>}
+   */
+  async baixar(caminho, { metodo = 'GET', corpo = null } = {}) {
+    const cabecalhos = { 'Accept': '*/*' };
+    if (corpo !== null) cabecalhos['Content-Type'] = 'application/json';
+    if (this.token) cabecalhos['Authorization'] = `Bearer ${this.token}`;
+
+    let resposta;
+    try {
+      resposta = await fetch(this.base + caminho, {
+        method: metodo, headers: cabecalhos, credentials: 'same-origin',
+        body: corpo === null ? undefined : JSON.stringify(corpo)
+      });
+    } catch (e) {
+      throw new ErroApi('Não foi possível falar com o servidor. Verifique a conexão.', 0, e);
+    }
+
+    if (!resposta.ok) {
+      // O erro vem em JSON mesmo quando a resposta boa seria binária.
+      let dados = null;
+      try { dados = JSON.parse(await resposta.text()); } catch { /* não era JSON */ }
+      if (resposta.status === 401) {
+        Api.token = null;
+        location.replace('index.html?expirada=1');
+      }
+      throw new ErroApi(dados?.erro || `Erro ${resposta.status} ao baixar`, resposta.status, dados);
+    }
+
+    const disp = resposta.headers.get('Content-Disposition') || '';
+    const nome = /filename="([^"]+)"/.exec(disp)?.[1] ?? null;
+
+    return { blob: await resposta.blob(), nome };
+  },
+
+  /** Entrega o arquivo ao usuário com o nome certo. */
+  async salvarArquivo(caminho, opcoes = {}) {
+    const { blob, nome } = await this.baixar(caminho, opcoes);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = opcoes.nome || nome || 'arquivo';
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    return blob;
+  },
+
   /** Envio de arquivo (multipart). Não define Content-Type: o navegador cuida do boundary. */
   async upload(caminho, formData) {
     const cabecalhos = { 'Accept': 'application/json' };

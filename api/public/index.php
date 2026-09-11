@@ -10,6 +10,7 @@ use Telium\Http\Controllers\Conferencias;
 use Telium\Http\Controllers\Contatos;
 use Telium\Http\Controllers\Destinos;
 use Telium\Http\Controllers\Filas;
+use Telium\Http\Controllers\Gravacoes;
 use Telium\Http\Controllers\Ura;
 use Telium\Http\Controllers\Audios;
 use Telium\Http\Controllers\Backup;
@@ -328,7 +329,13 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/relatorios/filas', [Relatorios::class, 'filas'])->add(new Permissao('rel.filas'));
     $g->get('/relatorios/agentes', [Relatorios::class, 'agentes'])->add(new Permissao('rel.agentes'));
     $g->get('/relatorios/tarifacao', [Relatorios::class, 'tarifacao'])->add(new Permissao('telium.tarifacao'));
-    $g->get('/gravacoes', [Relatorios::class, 'gravacoes'])->add(new Permissao('rel.gravacoes'));
+    // ---- arquivo de gravações ----
+    // Não há rota de exclusão, de propósito: gravação é prova de
+    // atendimento. Quem limpa o disco é a retenção do backup.
+    $g->get('/gravacoes', [Gravacoes::class, 'listar'])->add(new Permissao('apps.gravacao'));
+    $g->get('/gravacoes/arquivo', [Gravacoes::class, 'arquivo'])->add(new Permissao('apps.gravacao'));
+    $g->post('/gravacoes/pacote', [Gravacoes::class, 'pacote'])
+      ->add(new Permissao('apps.gravacao', 'exportar'));
     $g->get('/auditoria', [Relatorios::class, 'auditoria'])->add(new Permissao('rel.logs'));
 
     // ---- cadastros especiais ----

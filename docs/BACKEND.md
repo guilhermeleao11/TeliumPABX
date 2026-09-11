@@ -129,6 +129,24 @@ nome do arquivo com a data — e registra a gravação em `gravacoes` por
 `func_odbc`, já que a conferência é uma ponte e não uma chamada, e não teria
 CDR para ser achada depois.
 
+### Gravações de chamada
+
+`GET /api/gravacoes` mostra as duas origens como uma coisa só: o CDR, que guarda
+o arquivo de cada chamada, e a tabela `gravacoes`, onde entram as que não têm
+CDR próprio — hoje, as conferências.
+
+**Não existe rota de exclusão**, de propósito: gravação é prova de atendimento,
+e apagar uma pela web não deveria ser um clique. Quem limpa o disco é a retenção
+do backup, com prazo definido.
+
+Ouvir e baixar passam por `GET /api/gravacoes/arquivo?caminho=…`, e vários de
+uma vez por `POST /api/gravacoes/pacote`, que devolve um zip. O caminho pedido é
+resolvido com `realpath` e comparado com a raiz das gravações antes de qualquer
+leitura — sem isso, `../../etc/passwd` seria servido. Baixar fica na auditoria.
+
+No navegador, `<a href>` e `<audio src>` não mandam o cabeçalho `Authorization`,
+então o cliente busca o conteúdo como blob e cria uma URL local.
+
 ### Códigos de recurso
 
 64 códigos em 19 categorias, no desenho do FreePBX: a **chave** é a identidade

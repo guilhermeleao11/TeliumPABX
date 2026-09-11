@@ -49,7 +49,7 @@ SELECT p.id, m.modulo FROM perfis p JOIN (
 INSERT IGNORE INTO perfil_modulos (perfil_id, modulo)
 SELECT p.id, m.modulo FROM perfis p JOIN (
   SELECT 'dash.visaogeral' AS modulo UNION ALL SELECT 'rel.*'
-  UNION ALL SELECT 'admin.gravacoes' UNION ALL SELECT 'pcu.chamadas'
+  UNION ALL SELECT 'apps.gravacao' UNION ALL SELECT 'pcu.chamadas'
 ) m WHERE p.chave = 'auditor';
 
 -- ---------- ações por perfil ----------

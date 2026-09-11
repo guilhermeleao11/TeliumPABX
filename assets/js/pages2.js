@@ -502,37 +502,203 @@ PAGES['apps.grupostoque'] = paginaCrud({
 });
 
 /* ------------------------- Relatórios · Gravações ------------------------- */
-PAGES['rel.gravacoes'] = {
+PAGES['apps.gravacao'] = {
+  _f: { de: '', ate: '', direcao: '', q: '', pagina: 1 },
+
   async render(ctx) {
     let r;
-    try { r = await Api.get('/gravacoes'); }
-    catch (e) { return pageHead('Gravações', '') + blocoErro(e); }
+    try { r = await Api.get('/gravacoes', this._f); }
+    catch (e) { return pageHead('Gravação de Chamadas', '') + blocoErro(e); }
+    this._d = r;
 
-    const cabecalho = pageHead('Gravações',
-      'Busque e ouça gravações. Cada acesso fica registrado na auditoria.',
-      ctx.can('exportar') ? `<button class="btn btn-outline btn-sm">${icon('download','ico ico-sm')} Exportar seleção</button>` : '');
+    const cabecalho = pageHead('Gravação de Chamadas',
+      `Todas as gravações do sistema. Ouça, baixe uma ou leve várias num pacote.
+       Nada é apagado por aqui — quem limpa o disco é a retenção do backup.`,
+      `<span class="badge ${r.disco.pct_uso > 85 ? 'badge-danger' : ''}">
+         ${r.disco.livre_gb} GB livres de ${r.disco.total_gb} GB</span>
+       ${ctx.can('exportar') ? `<button class="btn btn-primary btn-sm" id="baixarSel" disabled>
+         ${icon('download','ico ico-sm')} Baixar selecionadas</button>` : ''}`);
+
+    const filtros = `
+      <div class="card" style="padding:12px 14px;margin-bottom:16px">
+        <div class="toolbar" style="padding:0;border:0">
+          <input class="input" type="date" id="fDe" value="${esc(this._f.de)}" style="width:160px">
+          <input class="input" type="date" id="fAte" value="${esc(this._f.ate)}" style="width:160px">
+          <select class="select" id="fDirecao" style="width:150px">
+            <option value="">Todos os sentidos</option>
+            <option value="entrada" ${this._f.direcao === 'entrada' ? 'selected' : ''}>Entrada</option>
+            <option value="saida" ${this._f.direcao === 'saida' ? 'selected' : ''}>Saída</option>
+            <option value="interna" ${this._f.direcao === 'interna' ? 'selected' : ''}>Interna</option>
+          </select>
+          <div class="input-icon search-mini">${icon('search','ico ico-sm')}
+            <input class="input" id="fQ" value="${esc(this._f.q)}" placeholder="Origem ou destino…">
+          </div>
+          <button class="btn btn-outline btn-sm" id="fAplicar">Filtrar</button>
+          <button class="btn btn-ghost btn-sm" id="fLimpar">Limpar</button>
+          <span class="grow"></span>
+          <span class="small muted">${num(r.total)} gravaç${r.total === 1 ? 'ão' : 'ões'}</span>
+        </div>
+      </div>`;
 
     if (!r.dados.length) {
-      return cabecalho + `<div class="card">${vazio('mic', 'Nenhuma gravação disponível',
-        'As gravações aparecem aqui conforme as chamadas forem gravadas. Ative a gravação no ramal ou na fila.')}</div>`;
+      return cabecalho + filtros + `<div class="card">${vazio('mic',
+        'Nenhuma gravação neste filtro',
+        `As gravações aparecem conforme as chamadas são gravadas. Ligue a gravação no ramal,
+         na fila ou na rota de entrada, e aplique as configurações.`)}</div>`;
     }
 
-    return cabecalho + `<div class="card"><div class="card-body grid" style="gap:12px">
-      ${r.dados.map(g => `
-        <div class="card" style="padding:14px">
-          <div class="row-between" style="margin-bottom:10px">
-            <div class="row gap-10"><span class="avatar avatar-sm">${initials(g.agente || g.ramal)}</span>
-              <div><b>${esc(g.origem)} → ${esc(g.destino)}</b>
-                <div class="tiny muted">${dataHora(g.inicio)} · ${esc(g.agente || '—')} · ${duracao(g.duracao)}</div></div></div>
-            ${g.fila ? `<span class="badge badge-info">Fila ${esc(g.fila)}</span>` : ''}
-          </div>
-          ${playerHTML(g.id, duracao(g.duracao))}
-        </div>`).join('')}
-    </div></div>`;
+    const linhas = r.dados.map(g => {
+      const cam = String(g.arquivo);
+      const sentido = {
+        entrada: '<span class="badge badge-info">Entrada</span>',
+        saida:   '<span class="badge badge-brand">Saída</span>',
+        interna: '<span class="badge">Interna</span>'
+      }[g.direcao] || (g.tags === 'conferencia'
+        ? '<span class="badge badge-warn">Conferência</span>' : '<span class="muted">—</span>');
+
+      return `<tr data-arquivo="${esc(cam)}">
+        <td><label class="check"><input type="checkbox" data-sel ${g.existe ? '' : 'disabled'}></label></td>
+        <td class="small">${dataHora(g.data)}</td>
+        <td><b class="mono">${esc(g.origem || '—')}</b></td>
+        <td><b class="mono">${esc(g.destino || '—')}</b></td>
+        <td>${sentido}${g.fila ? ` <span class="badge">fila ${esc(g.fila)}</span>` : ''}</td>
+        <td class="num">${duracao(g.duracao)}</td>
+        <td class="num small dim">${g.existe ? tamanho(g.tamanho) : '—'}</td>
+        <td class="col-actions"><span class="row-actions">
+          ${g.existe ? `
+            <button class="btn btn-ghost btn-sm btn-icon" data-tip="Ouvir" data-ouvir>
+              ${icon('play','ico ico-sm')}</button>
+            ${ctx.can('exportar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Baixar" data-baixar>
+              ${icon('download','ico ico-sm')}</button>` : ''}`
+            : '<span class="badge badge-warn" data-tip="O registro existe, o arquivo não está mais no disco">sem arquivo</span>'}
+        </span></td>
+      </tr>`;
+    }).join('');
+
+    const paginacao = r.paginas > 1 ? `
+      <div class="row-between" style="padding:12px 16px;border-top:1px solid var(--border)">
+        <span class="small muted">Página ${r.pagina} de ${r.paginas}</span>
+        <div class="row gap-6">
+          <button class="btn btn-outline btn-sm" data-pagina="${r.pagina - 1}"
+                  ${r.pagina <= 1 ? 'disabled' : ''}>Anterior</button>
+          <button class="btn btn-outline btn-sm" data-pagina="${r.pagina + 1}"
+                  ${r.pagina >= r.paginas ? 'disabled' : ''}>Próxima</button>
+        </div>
+      </div>` : '';
+
+    return cabecalho + filtros + `
+      <div class="card">
+        <div class="table-wrap"><table class="table">
+          <thead><tr>
+            <th style="width:40px"><label class="check"><input type="checkbox" id="selTodas"></label></th>
+            <th>Data</th><th>Origem</th><th>Destino</th><th>Sentido</th>
+            <th>Duração</th><th>Tamanho</th><th></th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table></div>
+        ${paginacao}
+      </div>`;
+  },
+
+  mount(ctx) {
+    const pagina = this;
+
+    const recarregar = () => { pagina._f.pagina = 1; App.route(); };
+    document.getElementById('fAplicar')?.addEventListener('click', () => {
+      pagina._f.de = document.getElementById('fDe').value;
+      pagina._f.ate = document.getElementById('fAte').value;
+      pagina._f.direcao = document.getElementById('fDirecao').value;
+      pagina._f.q = document.getElementById('fQ').value.trim();
+      recarregar();
+    });
+    document.getElementById('fLimpar')?.addEventListener('click', () => {
+      pagina._f = { de: '', ate: '', direcao: '', q: '', pagina: 1 };
+      App.route();
+    });
+    document.getElementById('fQ')?.addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('fAplicar').click();
+    });
+    document.querySelectorAll('[data-pagina]').forEach(b => b.onclick = () => {
+      pagina._f.pagina = Number(b.dataset.pagina);
+      App.route();
+    });
+
+    // ---------- seleção ----------
+    const marcados = () => [...document.querySelectorAll('[data-sel]:checked')]
+      .map(c => c.closest('tr').dataset.arquivo);
+    const botaoBaixar = document.getElementById('baixarSel');
+    const revisar = () => {
+      if (!botaoBaixar) return;
+      const n = marcados().length;
+      botaoBaixar.disabled = n === 0;
+      botaoBaixar.innerHTML = n === 0
+        ? `${icon('download','ico ico-sm')} Baixar selecionadas`
+        : `${icon('download','ico ico-sm')} Baixar ${n} gravaç${n === 1 ? 'ão' : 'ões'}`;
+    };
+    document.querySelectorAll('[data-sel]').forEach(c => c.addEventListener('change', revisar));
+    document.getElementById('selTodas')?.addEventListener('change', e => {
+      document.querySelectorAll('[data-sel]:not(:disabled)').forEach(c => { c.checked = e.target.checked; });
+      revisar();
+    });
+    revisar();
+
+    botaoBaixar?.addEventListener('click', async () => {
+      const caminhos = marcados();
+      if (!caminhos.length) return;
+      botaoBaixar.disabled = true;
+      const antes = botaoBaixar.innerHTML;
+      botaoBaixar.innerHTML = '<span class="spin"></span> Montando o pacote…';
+      try {
+        await Api.salvarArquivo('/gravacoes/pacote', { metodo: 'POST', corpo: { caminhos } });
+        toast(`${caminhos.length} gravações num arquivo zip.`, 'ok');
+      } catch (e) { toast(e.message, 'err'); }
+      botaoBaixar.innerHTML = antes;
+      revisar();
+    });
+
+    // ---------- baixar uma ----------
+    document.querySelectorAll('[data-baixar]').forEach(b => b.onclick = async () => {
+      const caminho = b.closest('tr').dataset.arquivo;
+      b.disabled = true;
+      try {
+        await Api.salvarArquivo(`/gravacoes/arquivo?baixar=1&caminho=${encodeURIComponent(caminho)}`);
+      } catch (e) { toast(e.message, 'err'); }
+      b.disabled = false;
+    });
+
+    // ---------- ouvir ----------
+    document.querySelectorAll('[data-ouvir]').forEach(b => b.onclick = async () => {
+      const tr = b.closest('tr');
+      const caminho = tr.dataset.arquivo;
+
+      // Um clique no mesmo botão fecha o player, em vez de empilhar outro.
+      const aberto = tr.nextElementSibling?.hasAttribute('data-player-linha');
+      document.querySelectorAll('[data-player-linha]').forEach(l => {
+        l.querySelector('audio')?.pause();
+        l.remove();
+      });
+      if (aberto) return;
+
+      b.disabled = true;
+      b.innerHTML = '<span class="spin"></span>';
+      try {
+        const { blob } = await Api.baixar(`/gravacoes/arquivo?caminho=${encodeURIComponent(caminho)}`);
+        const url = URL.createObjectURL(blob);
+        tr.insertAdjacentHTML('afterend', `
+          <tr data-player-linha><td colspan="8" style="background:var(--surface-2)">
+            <div class="row gap-12">
+              <audio controls autoplay preload="auto" src="${url}" style="flex:1;height:38px"></audio>
+              <span class="tiny muted mono">${esc(caminho)}</span>
+            </div>
+          </td></tr>`);
+        tr.nextElementSibling.querySelector('audio')
+          .addEventListener('ended', () => setTimeout(() => URL.revokeObjectURL(url), 1000));
+      } catch (e) { toast(e.message, 'err'); }
+      b.disabled = false;
+      b.innerHTML = icon('play', 'ico ico-sm');
+    });
   }
 };
 
-/* ------------------------- Relatórios · Filas ------------------------- */
 PAGES['rel.filas'] = {
   async render(ctx) {
     let d;

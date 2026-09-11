@@ -179,33 +179,6 @@ final class Relatorios
     }
 
     /** GET /api/gravacoes */
-    public function gravacoes(Request $req, Response $res): Response
-    {
-        $p = $req->getQueryParams();
-        $where = [];
-        $args = [];
-
-        if (($p['q'] ?? '') !== '') {
-            $where[] = '(origem LIKE ? OR destino LIKE ? OR agente LIKE ?)';
-            $args = [...$args, "%{$p['q']}%", "%{$p['q']}%", "%{$p['q']}%"];
-        }
-        if (($p['fila'] ?? '') !== '') {
-            $where[] = 'fila = ?';
-            $args[] = $p['fila'];
-        }
-
-        $filtro = $where === [] ? '' : ' WHERE ' . implode(' AND ', $where);
-
-        return Resposta::json($res, [
-            'dados' => Bd::todos(
-                "SELECT * FROM gravacoes{$filtro} ORDER BY inicio DESC LIMIT 100",
-                $args
-            ),
-            'total' => (int) Bd::valor("SELECT COUNT(*) FROM gravacoes{$filtro}", $args),
-        ]);
-    }
-
-    /** GET /api/auditoria */
     public function auditoria(Request $req, Response $res): Response
     {
         return Resposta::json($res, [
