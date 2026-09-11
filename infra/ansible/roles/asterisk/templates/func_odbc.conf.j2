@@ -60,3 +60,13 @@ readsql=SELECT nome FROM contatos WHERE discagem_rapida = '${SQL_ESC(${ARG1})}' 
 [TELIUM_PESQUISA]
 dsn=telium
 writesql=INSERT INTO pesquisa_respostas (pesquisa_id, fila, agente, origem, uniqueid, nota) VALUES (${ARG1}, NULLIF('${SQL_ESC(${ARG2})}',''), NULLIF('${SQL_ESC(${ARG3})}',''), NULLIF('${SQL_ESC(${ARG4})}',''), NULLIF('${SQL_ESC(${ARG5})}',''), NULLIF('${SQL_ESC(${VAL1})}',''))
+
+; ------------------------------------------------------------------
+; Registro de gravação:
+;   Set(ODBC_TELIUM_GRAVACAO(<uniqueid>,<arquivo>,<origem>,<destino>,<tag>)=<nome>)
+; O CDR não cobre a conferência, que é uma ponte e não uma chamada; sem
+; esta linha a gravação existiria no disco e não na tela.
+; ------------------------------------------------------------------
+[TELIUM_GRAVACAO]
+dsn=telium
+writesql=INSERT INTO gravacoes (uniqueid, arquivo, origem, destino, tags, inicio) VALUES ('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}', NULLIF('${SQL_ESC(${ARG3})}',''), NULLIF('${SQL_ESC(${ARG4})}',''), NULLIF('${SQL_ESC(${ARG5})}',''), NOW())

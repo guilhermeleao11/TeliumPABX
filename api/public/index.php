@@ -6,6 +6,7 @@ use Slim\Routing\RouteCollectorProxy;
 use Telium\Http\Controllers\Autenticacao as CtrlAuth;
 use Telium\Http\Controllers\Cadastros;
 use Telium\Http\Controllers\Certificados;
+use Telium\Http\Controllers\Conferencias;
 use Telium\Http\Controllers\Contatos;
 use Telium\Http\Controllers\Destinos;
 use Telium\Http\Controllers\Filas;
@@ -105,6 +106,20 @@ $recursos = [
             filtros: ['ativo'],
             afetaAsterisk: true,
             modulo: 'apps.filas',
+        ),
+    ],
+    'conferencias' => [
+        'modulo' => 'apps.conferencias',
+        'recurso' => new Recurso(
+            tabela: 'conferencias',
+            colunas: ['numero','nome','descricao','pin','pin_admin','audio_entrada','max_usuarios',
+                      'gravar','anunciar_entrada_saida','anunciar_quantidade','musica_sozinho',
+                      'silenciar_ao_entrar','esperar_admin','ativo'],
+            ordem: 'numero',
+            busca: ['numero','nome','descricao'],
+            filtros: ['ativo'],
+            afetaAsterisk: true,
+            modulo: 'apps.conferencias',
         ),
     ],
     'pesquisas' => [
@@ -405,6 +420,10 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/ura/{id}/opcoes', [Ura::class, 'opcoes'])->add(new Permissao('apps.ura'));
     $g->put('/ura/{id}/opcoes', [Ura::class, 'salvarOpcoes'])
       ->add(new Permissao('apps.ura', 'editar'));
+
+    // ---- conferências ----
+    $g->get('/conferencias/{id}/situacao', [Conferencias::class, 'situacao'])
+      ->add(new Permissao('apps.conferencias'));
 
     // ---- console do Asterisk ----
     $g->get('/cli/sugestoes', [Cli::class, 'sugestoes'])->add(new Permissao('admin.cli'));

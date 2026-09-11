@@ -2141,6 +2141,236 @@ PAGES['admin.certificados'] = {
   }
 };
 
+/* ------------------------- Conferências ------------------------- */
+PAGES['apps.conferencias'] = {
+  async render(ctx) {
+    let r, audios;
+    try {
+      [r, audios] = await Promise.all([
+        Api.get('/conferencias', { limite: 200 }),
+        Api.get('/audios').catch(() => ({ dados: [] }))
+      ]);
+    } catch (e) { return pageHead('Conferências', '') + blocoErro(e); }
+
+    this._itens = r.dados || [];
+    this._audios = audios.dados || [];
+
+    const cabecalho = pageHead('Conferências',
+      'Salas fixas em que várias pessoas conversam ao mesmo tempo. Basta discar o número da sala.',
+      ctx.can('criar')
+        ? `<button class="btn btn-primary btn-sm" data-nova-sala>${icon('plus','ico ico-sm')} Nova sala</button>`
+        : readOnlyNote(ctx));
+
+    if (!this._itens.length) {
+      return cabecalho + `<div class="card">${vazio('users', 'Nenhuma sala de conferência',
+        `Crie uma sala com número próprio. Quem discar esse número entra na conversa —
+         com PIN, se você quiser controlar quem participa.`,
+        ctx.can('criar') ? '<button class="btn btn-primary btn-sm" data-nova-sala>Criar a primeira sala</button>' : '')}
+      </div>`;
+    }
+
+    const cartoes = this._itens.map(c => {
+      const audio = this._audios.find(a => a.arquivo === c.audio_entrada);
+      const sinais = [
+        c.pin && '<span class="badge">PIN</span>',
+        c.pin_admin && '<span class="badge badge-brand">PIN de admin</span>',
+        Number(c.gravar) && '<span class="badge badge-info">grava</span>',
+        Number(c.esperar_admin) && '<span class="badge">espera o admin</span>',
+        Number(c.silenciar_ao_entrar) && '<span class="badge">entra mudo</span>'
+      ].filter(Boolean).join(' ');
+
+      return `<div class="card" style="padding:16px" data-sala="${c.id}">
+        <div class="row-between" style="margin-bottom:10px">
+          <div class="row gap-10">
+            <span class="k-ico" style="background:var(--brand-soft);color:var(--brand)">${icon('users')}</span>
+            <div><b class="mono" style="font-size:16px">${esc(c.numero)}</b>
+              <div><b>${esc(c.nome)}</b></div>
+              ${c.descricao ? `<div class="tiny muted">${esc(c.descricao)}</div>` : ''}</div>
+          </div>
+          ${Number(c.ativo)
+            ? '<span class="badge badge-ok"><i class="dot"></i>Ativa</span>'
+            : '<span class="badge">Parada</span>'}
+        </div>
+
+        <div class="contato-dados" style="margin-bottom:10px">
+          <div class="row gap-6 small">${icon('users','ico ico-sm')}
+            <span>${Number(c.max_usuarios) > 0
+              ? `até ${c.max_usuarios} pessoas` : 'sem limite de pessoas'}</span></div>
+          ${audio || c.audio_entrada ? `<div class="row gap-6 small">${icon('speaker','ico ico-sm')}
+            <span>${esc(audio ? audio.nome : c.audio_entrada)}</span></div>` : ''}
+        </div>
+
+        ${sinais ? `<div class="row gap-4 wrap" style="margin-bottom:10px">${sinais}</div>` : ''}
+
+        <div class="contato-acoes">
+          <button class="btn btn-outline btn-sm" data-quem="${c.id}">
+            ${icon('activity','ico ico-sm')} Quem está na sala</button>
+          <span class="grow"></span>
+          ${ctx.can('editar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar"
+            data-editar-sala="${c.id}">${icon('edit','ico ico-sm')}</button>` : ''}
+          ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir"
+            data-excluir-sala="${c.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    return cabecalho + `<div class="agenda-grid">${cartoes}</div>`;
+  },
+
+  mount(ctx) {
+    const pagina = this;
+    const itens = this._itens || [];
+
+    const audiosSelect = () => [{ valor: '', rotulo: '— nenhum —' },
+      ...(pagina._audios || []).filter(a => ['anuncio', 'ura', 'sistema'].includes(a.categoria))
+        .map(a => ({ valor: a.arquivo, rotulo: `${a.nome} (${a.arquivo})` }))];
+
+    const formulario = item => {
+      const novo = !item;
+      const c = item || { max_usuarios: 0, anunciar_entrada_saida: 1, anunciar_quantidade: 1,
+                          musica_sozinho: 1, ativo: 1 };
+      const campos = [
+        { aba: 'Sala', campo: 'numero', label: 'Número da sala', obrigatorio: true, mono: true,
+          placeholder: '5000', padraoValido: /^[0-9*#]{2,20}$/,
+          mensagemPadrao: 'use dígitos, * ou #',
+          ajuda: 'É o que se disca para entrar na conferência.' },
+        { aba: 'Sala', campo: 'nome', label: 'Nome da sala', obrigatorio: true,
+          placeholder: 'Reunião de Diretoria' },
+        { aba: 'Sala', campo: 'descricao', label: 'Descrição', largura: 'full' },
+        { aba: 'Sala', campo: 'max_usuarios', label: 'Limite de usuários', tipo: 'number', padrao: 0,
+          ajuda: '0 deixa sem limite. Chegando ao limite, quem discar ouve que a sala está cheia.' },
+        { aba: 'Sala', campo: 'gravar', label: 'Gravar a conferência', tipo: 'switch',
+          ajuda: 'O áudio da sala inteira vira um arquivo, que aparece em Gravação de Chamadas.' },
+        { aba: 'Sala', campo: 'ativo', label: 'Sala ativa', tipo: 'switch', padrao: 1 },
+
+        { aba: 'Entrada', campo: 'pin', label: 'PIN para entrar', mono: true,
+          padraoValido: /^[0-9]{0,16}$/, mensagemPadrao: 'só dígitos',
+          ajuda: 'Em branco, qualquer um que disque o número entra.' },
+        { aba: 'Entrada', campo: 'pin_admin', label: 'PIN de administrador', mono: true,
+          padraoValido: /^[0-9]{0,16}$/, mensagemPadrao: 'só dígitos',
+          ajuda: 'Quem entra com este PIN pode trancar a sala (tecla 2) e tirar o último que entrou (tecla 3).' },
+        { aba: 'Entrada', campo: 'audio_entrada', label: 'Mensagem de anúncio de entrada',
+          tipo: 'select', opcoes: audiosSelect(), largura: 'full',
+          ajuda: 'Tocada para quem entra, antes de cair na sala. Envie a sua em Gravações do Sistema.' },
+        { aba: 'Entrada', campo: 'esperar_admin', label: 'Só começar quando o administrador entrar',
+          tipo: 'switch', largura: 'full',
+          ajuda: 'Quem chegar antes ouve música de espera. Quando o administrador sai, a sala encerra.' },
+        { aba: 'Entrada', campo: 'silenciar_ao_entrar', label: 'Entrar com o microfone mudo',
+          tipo: 'switch', ajuda: 'Cada um se libera com a tecla 1. Útil em sala grande.' },
+
+        { aba: 'Na sala', campo: 'anunciar_entrada_saida', label: 'Anunciar quem entra e quem sai',
+          tipo: 'switch', padrao: 1, largura: 'full',
+          ajuda: 'O Asterisk pede o nome de quem entra e toca para a sala na entrada e na saída.' },
+        { aba: 'Na sala', campo: 'anunciar_quantidade', label: 'Dizer quantas pessoas já estão na sala',
+          tipo: 'switch', padrao: 1 },
+        { aba: 'Na sala', campo: 'musica_sozinho', label: 'Música em espera enquanto está sozinho',
+          tipo: 'switch', padrao: 1 }
+      ];
+
+      const abas = [...new Set(campos.map(x => x.aba))];
+      const corpoAba = aba => `<div class="form-grid">${campos
+        .filter(x => x.aba === aba).map(x => campoHtml(x, c)).join('')}</div>`;
+
+      Drawer.open({
+        titulo: novo ? 'Nova sala de conferência' : `Sala ${c.numero} — ${c.nome}`,
+        sub: 'Dentro da sala: 1 silencia e libera o microfone, 0 diz quantas pessoas estão, * lê o menu.',
+        wide: true,
+        corpo: `<div class="tabs" data-abas>${abas.map((a, i) =>
+            `<button class="tab ${i === 0 ? 'on' : ''}" data-aba="${esc(a)}">${esc(a)}</button>`).join('')}</div>
+          ${abas.map((a, i) => `<div data-painel="${esc(a)}" ${i ? 'hidden' : ''}>${corpoAba(a)}</div>`).join('')}`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>${novo ? 'Criar sala' : 'Salvar'}</button>`,
+        aoAbrir: dw => {
+          dw.querySelectorAll('[data-aba]').forEach(t => t.onclick = () => {
+            dw.querySelectorAll('[data-aba]').forEach(x => x.classList.remove('on'));
+            t.classList.add('on');
+            dw.querySelectorAll('[data-painel]').forEach(p => p.hidden = p.dataset.painel !== t.dataset.aba);
+          });
+
+          dw.querySelector('[data-ok]').onclick = async ev => {
+            if (!validarCampos(dw, campos)) return;
+
+            const dados = {};
+            campos.forEach(x => {
+              const el = dw.querySelector(`[name="${x.campo}"]`);
+              if (el) dados[x.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value.trim();
+            });
+
+            // Dois PINs iguais dariam sempre o perfil de admin.
+            if (dados.pin && dados.pin === dados.pin_admin) {
+              marcarErro(dw, 'pin_admin', 'O PIN de administrador tem de ser diferente do PIN comum.');
+              avisoFormulario(dw, ['PIN de administrador igual ao PIN comum']);
+              return;
+            }
+
+            const botao = ev.currentTarget;
+            botao.disabled = true;
+            botao.innerHTML = '<span class="spin"></span> Salvando…';
+            try {
+              if (novo) await Api.post('/conferencias', dados);
+              else await Api.put(`/conferencias/${c.id}`, dados);
+              Drawer.close();
+              toast('Sala salva. Aplique as configurações para valer no Asterisk.', 'ok');
+              App.route();
+            } catch (e) {
+              botao.disabled = false;
+              botao.textContent = novo ? 'Criar sala' : 'Salvar';
+              if (e.status === 409) marcarErro(dw, 'numero', 'Já existe uma sala com este número.');
+              else if (e.detalhe?.campo) marcarErro(dw, e.detalhe.campo, e.message);
+              else toast(e.message, 'err');
+            }
+          };
+        }
+      });
+    };
+
+    document.querySelectorAll('[data-nova-sala]').forEach(b => b.onclick = () => formulario(null));
+    document.querySelectorAll('[data-editar-sala]').forEach(b => b.onclick = () =>
+      formulario(itens.find(x => String(x.id) === b.dataset.editarSala)));
+
+    document.querySelectorAll('[data-excluir-sala]').forEach(b => b.onclick = async () => {
+      const c = itens.find(x => String(x.id) === b.dataset.excluirSala);
+      const ok = await Modal.confirm({
+        titulo: `Excluir a sala ${c.numero}?`,
+        texto: 'O número deixa de atender. As gravações já feitas continuam guardadas.',
+        ok: 'Excluir'
+      });
+      if (!ok) return;
+      try { await Api.delete(`/conferencias/${c.id}`); toast('Sala excluída.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+
+    document.querySelectorAll('[data-quem]').forEach(b => b.onclick = async () => {
+      const c = itens.find(x => String(x.id) === b.dataset.quem);
+      let d;
+      try { d = await Api.get(`/conferencias/${c.id}/situacao`); }
+      catch (e) { toast(e.message, 'err'); return; }
+
+      Drawer.open({
+        titulo: `Sala ${c.numero} agora`,
+        sub: d.disponivel ? `${d.participantes.length} pessoa(s) na sala` : d.detalhe,
+        corpo: !d.disponivel
+          ? vazio('alert', 'Asterisk fora do ar', esc(d.detalhe))
+          : (d.participantes.length
+            ? `<div class="table-wrap"><table class="table">
+                <thead><tr><th>Canal</th><th>Quem</th><th>Papel</th><th>Microfone</th></tr></thead>
+                <tbody>${d.participantes.map(p => `<tr>
+                  <td class="mono small">${esc(p.canal)}</td>
+                  <td>${esc(p.nome || '—')}</td>
+                  <td>${p.admin ? '<span class="badge badge-brand">administra</span>'
+                                : '<span class="badge">participante</span>'}</td>
+                  <td>${p.mudo ? '<span class="badge badge-warn">mudo</span>'
+                               : '<span class="badge badge-ok">aberto</span>'}</td>
+                </tr>`).join('')}</tbody></table></div>`
+            : vazio('users', 'Sala vazia', 'Ninguém entrou nesta sala neste momento.'))
+          + `<details style="margin-top:16px"><summary class="small muted">Saída bruta do Asterisk</summary>
+               <pre class="mono tiny" style="white-space:pre-wrap;margin-top:8px">${esc(d.saida || '')}</pre></details>`,
+        rodape: '<button class="btn btn-outline" data-drawer-close>Fechar</button>'
+      });
+    });
+  }
+};
+
 /* ------------------------- Administrador · Destinos Personalizados ------------------------- */
 PAGES['admin.destinos'] = paginaCrud({
   recurso: 'destinos-personalizados',

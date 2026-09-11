@@ -111,6 +111,24 @@ tela monta a URA e as teclas na mesma gaveta. A tecla aceita o que o cliente
 aperta (`1`, `0`, `*`, `#`) ou um padrão de dialplan (`_2XX`). Insistir numa
 opção inválida o número de tentativas configurado leva ao destino de inválido.
 
+### Conferências
+
+Cada sala vira três seções no `confbridge.conf` gerado: a ponte (limite de
+gente), o perfil do participante e o do administrador — que é quem tranca a
+sala e tira quem entrou por último. O menu de teclas é um só para todas.
+
+Detalhe que custou uma passada no Asterisk de verdade: em `confbridge.conf` o
+`type` vai numa **linha própria**. Os parênteses depois do nome da seção são
+herança de template, então `[sala-5000](type=bridge)` faz o Asterisk procurar um
+template chamado `type=bridge`, não achar, e descartar o perfil inteiro.
+
+O PIN é conferido no dialplan, e não pelo ConfBridge, porque assim o mesmo
+número serve para os dois: quem digita o PIN de administrador entra com o perfil
+que manda na sala. A gravação também é ligada no dialplan, que é quem monta o
+nome do arquivo com a data — e registra a gravação em `gravacoes` por
+`func_odbc`, já que a conferência é uma ponte e não uma chamada, e não teria
+CDR para ser achada depois.
+
 ### Códigos de recurso
 
 64 códigos em 19 categorias, no desenho do FreePBX: a **chave** é a identidade

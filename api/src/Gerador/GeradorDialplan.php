@@ -37,6 +37,7 @@ final class GeradorDialplan
             'extensions.filas.conf'   => $this->filas(),
             'extensions.pesquisa.conf' => $this->pesquisas(),
             'extensions.confirmacao.conf' => $this->confirmacoesDeFila(),
+            'extensions.conferencias.conf' => $this->conferencias(),
             'extensions.ura.conf'     => $this->uras(),
             'extensions.saida.conf'   => $this->rotasSaida(),
             'extensions.entrada.conf' => $this->rotasEntrada(),
@@ -267,6 +268,97 @@ final class GeradorDialplan
             }
             if ($pesquisa > 0) {
                 $b->same("Goto(telium-pesquisa,{$pesquisa},1)", 'pesquisa-' . $numero);
+            }
+        }
+
+        return $b->texto();
+    }
+
+    /**
+     * Salas de conferência.
+     *
+     * O PIN é conferido aqui, e não no ConfBridge, porque assim o mesmo
+     * número serve para participante e administrador: quem digita o PIN
+     * de admin entra com o perfil que tranca a sala e expulsa gente.
+     */
+    private function conferencias(): string
+    {
+        $b = $this->cabecalho('Contexto: salas de conferência')->contexto('telium-conferencias');
+
+        $salas = Bd::todos('SELECT * FROM conferencias WHERE ativo = 1 ORDER BY numero');
+
+        if ($salas === []) {
+            return $b->comentario('nenhuma sala ativa')->texto();
+        }
+
+        foreach ($salas as $s) {
+            $n = (string) $s['numero'];
+            $pin = trim((string) ($s['pin'] ?? ''));
+            $pinAdmin = trim((string) ($s['pin_admin'] ?? ''));
+            $temPin = $pin !== '' || $pinAdmin !== '';
+
+            $b->branco()
+              ->comentario("{$n} — {$s['nome']}")
+              ->exten($n, "NoOp(Conferência {$s['nome']})")
+              ->same('Answer()')
+              ->same('Wait(1)')
+              ->same("Set(CDR(userfield)=conferencia-{$n})")
+              ->same("Set(TELIUM_PERFIL=sala-{$n}-participante)")
+              ->same("Set(TELIUM_MENU=telium-menu)");
+
+            if ($temPin) {
+                // Lê exatamente o tamanho do maior PIN: assim o participante
+                // não precisa terminar com # para o Asterisk seguir.
+                $digitos = max(strlen($pin), strlen($pinAdmin));
+
+                $b->same('Set(TELIUM_TENTATIVA=0)')
+                  ->same('Set(TELIUM_TENTATIVA=$[${TELIUM_TENTATIVA} + 1])', 'pin')
+                  ->same('GotoIf($[${TELIUM_TENTATIVA} > 3]?semsorte)')
+                  ->same("Read(TELIUM_PIN,conf-getpin,{$digitos},,1,8)");
+
+                if ($pinAdmin !== '') {
+                    $b->same('GotoIf($["${TELIUM_PIN}" = "' . $pinAdmin . '"]?admin)');
+                }
+                if ($pin !== '') {
+                    $b->same('GotoIf($["${TELIUM_PIN}" = "' . $pin . '"]?entra)');
+                } else {
+                    // Só existe PIN de admin: quem não digitou entra como participante.
+                    $b->same('GotoIf($["${TELIUM_PIN}" = ""]?entra)');
+                }
+
+                $b->same('Playback(conf-invalidpin)')
+                  ->same('Goto(pin)')
+                  ->same("Set(TELIUM_PERFIL=sala-{$n}-admin)", 'admin')
+                  ->same('Set(TELIUM_MENU=telium-menu-admin)')
+                  ->same('NoOp(PIN aceito)', 'entra');
+            }
+
+            if ((string) ($s['audio_entrada'] ?? '') !== '') {
+                $b->same('Playback(' . $s['audio_entrada'] . ')');
+            }
+            if ((int) $s['gravar'] === 1) {
+                // Mesmo formato e mesma árvore das gravações de chamada,
+                // para o módulo de gravações achar o arquivo.
+                $b->same('Set(TELIUM_CONFARQ=${STRFTIME(${EPOCH},,%Y/%m/%d)}/'
+                       . "conferencia-{$n}-\${STRFTIME(\${EPOCH},,%H%M%S)}-\${UNIQUEID}.wav)")
+                  ->same('System(mkdir -p ${TELIUM_GRAVACOES}/${STRFTIME(${EPOCH},,%Y/%m/%d)})')
+                  ->same('Set(CONFBRIDGE(bridge,record_conference)=yes)')
+                  ->same('Set(CONFBRIDGE(bridge,record_file)=${TELIUM_GRAVACOES}/${TELIUM_CONFARQ})')
+                  ->same('Set(ODBC_TELIUM_GRAVACAO(${UNIQUEID},${TELIUM_CONFARQ},${CALLERID(num)},'
+                       . "{$n},conferencia)=\${CALLERID(name)})");
+            }
+
+            $b->same(sprintf(
+                'ConfBridge(%s,sala-%s,${TELIUM_PERFIL},${TELIUM_MENU})',
+                $n,
+                $n
+            ))
+              ->same('Hangup()');
+
+            if ($temPin) {
+                $b->same('NoOp(PIN errado três vezes)', 'semsorte')
+                  ->same('Playback(conf-invalidpin)')
+                  ->same('Hangup()');
             }
         }
 
