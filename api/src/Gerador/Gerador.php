@@ -33,6 +33,7 @@ final class Gerador
             ...(new GeradorRecursos())->gerar(),
             ...(new GeradorFilas())->gerar(),
             ...(new GeradorConferencias())->gerar(),
+            ...(new GeradorEstacionamento())->gerar(),
             ...(new GeradorVoicemail())->gerar(),
         ];
 

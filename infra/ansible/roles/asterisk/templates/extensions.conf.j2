@@ -205,7 +205,12 @@ exten => s,1,Answer()
 exten => s,1,NoOp(Despertador do ramal ${CALLERID(num)})
  same => n,Answer()
  same => n,Wait(1)
- same => n,Playback(hello)
+ ; O disparador deixa aqui o anúncio escolhido para este ramal.
+ same => n,Set(TELIUM_ANUN=${DB(despertar-anuncio/${CALLERID(num)})})
+ same => n,NoOp(${DB_DELETE(despertar-anuncio/${CALLERID(num)})})
+ same => n,GotoIf($["${TELIUM_ANUN}" = ""]?hora)
+ same => n,Goto(telium-anuncios,${TELIUM_ANUN},1)
+ same => n(hora),Playback(hello)
  same => n,SayUnixTime(,${TELIUM_TZ},HM)
  same => n,Wait(1)
  same => n,Playback(goodbye)
@@ -234,6 +239,7 @@ exten => _X.,1,Answer()
 #include "telium/extensions.conferencias.conf"
 #include "telium/extensions.anuncios.conf"
 #include "telium/extensions.condicoes.conf"
+#include "telium/extensions.estacionamento.conf"
 #include "telium/extensions.ura.conf"
 #include "telium/extensions.saida.conf"
 #include "telium/extensions.entrada.conf"

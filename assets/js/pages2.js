@@ -2316,6 +2316,396 @@ PAGES['admin.certificados'] = {
   }
 };
 
+/* ------------------------- Estacionamento ------------------------- */
+PAGES['apps.estacionamento'] = {
+  async render(ctx) {
+    let r, destinos;
+    try {
+      [r, destinos] = await Promise.all([
+        Api.get('/estacionamentos', { limite: 100 }),
+        opcoesDestino()
+      ]);
+    } catch (e) { return pageHead('Estacionamento de Chamadas', '') + blocoErro(e); }
+
+    this._itens = r.dados || [];
+    this._destinos = destinos;
+
+    const cabecalho = pageHead('Estacionamento de Chamadas',
+      `Transferir a chamada para o número do lote a deixa numa vaga, e o PABX fala qual.
+       Qualquer ramal retoma discando o número da vaga.`,
+      ctx.can('criar')
+        ? `<button class="btn btn-primary btn-sm" data-novo-lote>${icon('plus','ico ico-sm')} Novo lote</button>`
+        : readOnlyNote(ctx));
+
+    if (!this._itens.length) {
+      return cabecalho + `<div class="card">${vazio('package', 'Nenhum lote de estacionamento',
+        'O lote padrão é criado na instalação. Rode o playbook do Ansible para recriá-lo.',
+        ctx.can('criar') ? '<button class="btn btn-primary btn-sm" data-novo-lote>Criar um lote</button>' : '')}
+      </div>`;
+    }
+
+    return cabecalho + `<div class="agenda-grid larga">${this._itens.map(l => `
+      <div class="card" style="padding:16px">
+        <div class="row-between" style="margin-bottom:10px">
+          <div class="row gap-10">
+            <span class="k-ico" style="background:var(--brand-soft);color:var(--brand)">${icon('package')}</span>
+            <div><b>${esc(l.nome)}</b>
+              ${Number(l.padrao) ? ' <span class="badge badge-brand">padrão</span>' : ''}
+              ${l.descricao ? `<div class="tiny muted">${esc(l.descricao)}</div>` : ''}</div>
+          </div>
+          ${Number(l.ativo)
+            ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
+            : '<span class="badge">Parado</span>'}
+        </div>
+
+        <div class="contato-dados" style="margin-bottom:10px">
+          <div class="row gap-6 small">${icon('phone','ico ico-sm')}
+            <span>Transfira para <b class="mono">${esc(l.numero_estacionar)}</b> para estacionar</span></div>
+          <div class="row gap-6 small">${icon('grid','ico ico-sm')}
+            <span>Vagas <b class="mono">${esc(l.vaga_inicio)}</b> a <b class="mono">${esc(l.vaga_fim)}</b></span></div>
+          <div class="row gap-6 small">${icon('clock','ico ico-sm')}
+            <span>Espera ${l.tempo_segundos}s e ${Number(l.volta_para_origem)
+              ? 'volta a tocar para quem estacionou'
+              : `vai para <b>${esc(descreveDestino(l.destino_tipo, l.destino_valor, this._destinos))}</b>`}</span></div>
+        </div>
+
+        <div class="contato-acoes">
+          ${Number(l.padrao) ? '<span class="tiny muted">Os códigos *85 e *86 usam este lote.</span>' : ''}
+          <span class="grow"></span>
+          ${ctx.can('editar') ? `<button class="btn btn-outline btn-sm" data-editar-lote="${l.id}">
+            ${icon('edit','ico ico-sm')} Editar</button>` : ''}
+          ${ctx.can('excluir') && !Number(l.padrao) ? `<button class="btn btn-ghost btn-sm btn-icon"
+            data-tip="Excluir" data-excluir-lote="${l.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+        </div>
+      </div>`).join('')}</div>`;
+  },
+
+  mount(ctx) {
+    const pagina = this;
+    const itens = this._itens || [];
+
+    const formulario = item => {
+      const novo = !item;
+      const l = item || { tempo_segundos: 45, tempo_volta: 30, volta_para_origem: 1,
+                          avisar_vaga: 1, primeira_vaga_livre: 1, musica_espera: 'default', ativo: 1 };
+      const campos = [
+        { campo: 'nome', label: 'Nome do lote', obrigatorio: true, mono: true,
+          somenteLeitura: !novo && Number(l.padrao) === 1,
+          padraoValido: /^[a-z0-9_-]{2,30}$/i, mensagemPadrao: 'letras, números, hífen e sublinhado',
+          ajuda: 'Vira o nome do lote no Asterisk.' },
+        { campo: 'descricao', label: 'Descrição', largura: 'full' },
+        { campo: 'numero_estacionar', label: 'Número para estacionar', obrigatorio: true, mono: true,
+          placeholder: '70',
+          ajuda: 'Transferir a chamada para este número a põe numa vaga.' },
+        { campo: 'vaga_inicio', label: 'Primeira vaga', obrigatorio: true, mono: true, placeholder: '71' },
+        { campo: 'vaga_fim', label: 'Última vaga', obrigatorio: true, mono: true, placeholder: '80',
+          ajuda: 'Quem retoma disca o número da vaga que o PABX falou.' },
+        { campo: 'tempo_segundos', label: 'Tempo máximo na vaga (s)', tipo: 'number', padrao: 45 },
+        { campo: 'musica_espera', label: 'Música na vaga', padrao: 'default' },
+        { campo: 'avisar_vaga', label: 'Falar o número da vaga a quem estacionou', tipo: 'switch',
+          padrao: 1, largura: 'full' },
+        { campo: 'primeira_vaga_livre', label: 'Usar sempre a primeira vaga livre', tipo: 'switch',
+          padrao: 1, largura: 'full',
+          ajuda: 'Desligado, o PABX segue para a vaga seguinte a cada chamada, o que evita repetir número logo depois de alguém retomar.' },
+        { campo: 'volta_para_origem', label: 'Estourado o tempo, voltar para quem estacionou',
+          tipo: 'switch', padrao: 1, largura: 'full' },
+        { campo: 'tempo_volta', label: 'Tempo de toque na volta (s)', tipo: 'number', padrao: 30 },
+        { campo: 'ativo', label: 'Lote ativo', tipo: 'switch', padrao: 1 }
+      ];
+
+      Drawer.open({
+        titulo: novo ? 'Novo lote de estacionamento' : `Lote ${l.nome}`,
+        sub: 'Estacionar é deixar a chamada esperando numa vaga para outra pessoa assumir.',
+        wide: true,
+        corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, l)).join('')}</div>
+          <div class="secao-form" data-destino-bloco>
+            <b>Se ninguém retomar a chamada</b>
+            <div class="form-grid" style="margin-top:10px">
+              ${destinoSelect('destino', l, pagina._destinos,
+                  { label: 'Para onde ela vai', largura: 'full',
+                    rotuloVazio: '— desligar —',
+                    ajuda: 'Só vale quando a chamada não volta para quem estacionou.' })}
+            </div>
+          </div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>${novo ? 'Criar lote' : 'Salvar'}</button>`,
+        aoAbrir: dw => {
+          // O destino só importa quando a chamada não volta para a origem.
+          const volta = dw.querySelector('[name="volta_para_origem"]');
+          const bloco = dw.querySelector('[data-destino-bloco]');
+          const revisar = () => { bloco.style.opacity = volta.checked ? '.45' : ''; };
+          volta.addEventListener('change', revisar);
+          revisar();
+
+          dw.querySelector('[data-ok]').onclick = async ev => {
+            if (!validarCampos(dw, campos)) return;
+
+            const dados = {};
+            campos.forEach(c => {
+              const el = dw.querySelector(`[name="${c.campo}"]`);
+              if (el && !el.disabled) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value.trim();
+            });
+            const { tipo, valor } = lerDestino(dw.querySelector('[name="destino"]'));
+            dados.destino_tipo = tipo;
+            dados.destino_valor = valor;
+
+            const botao = ev.currentTarget;
+            botao.disabled = true;
+            botao.innerHTML = '<span class="spin"></span> Salvando…';
+            try {
+              if (novo) await Api.post('/estacionamentos', dados);
+              else await Api.put(`/estacionamentos/${l.id}`, dados);
+              Drawer.close();
+              toast('Lote salvo. Aplique as configurações.', 'ok');
+              App.route();
+            } catch (e) {
+              botao.disabled = false;
+              botao.textContent = novo ? 'Criar lote' : 'Salvar';
+              if (e.status === 409) marcarErro(dw, 'nome', 'Já existe um lote com este nome.');
+              else if (e.detalhe?.campo) marcarErro(dw, e.detalhe.campo, e.message);
+              else toast(e.message, 'err');
+            }
+          };
+        }
+      });
+    };
+
+    document.querySelectorAll('[data-novo-lote]').forEach(b => b.onclick = () => formulario(null));
+    document.querySelectorAll('[data-editar-lote]').forEach(b => b.onclick = () =>
+      formulario(itens.find(x => String(x.id) === b.dataset.editarLote)));
+    document.querySelectorAll('[data-excluir-lote]').forEach(b => b.onclick = async () => {
+      const l = itens.find(x => String(x.id) === b.dataset.excluirLote);
+      const ok = await Modal.confirm({
+        titulo: `Excluir o lote ${l.nome}?`,
+        texto: 'O número de estacionar deixa de atender.',
+        ok: 'Excluir'
+      });
+      if (!ok) return;
+      try { await Api.delete(`/estacionamentos/${l.id}`); toast('Lote excluído.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+  }
+};
+
+/* ------------------------- Chamadas de Despertar ------------------------- */
+PAGES['apps.despertar'] = {
+  async render(ctx) {
+    let r, ramais, anuncios;
+    try {
+      [r, ramais, anuncios] = await Promise.all([
+        Api.get('/despertadores', { limite: 300 }),
+        Api.get('/ramais', { limite: 500 }).catch(() => ({ dados: [] })),
+        Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] }))
+      ]);
+    } catch (e) { return pageHead('Chamadas de Despertar', '') + blocoErro(e); }
+
+    this._itens = r.dados || [];
+    this._ramais = (ramais.dados || []).filter(x => Number(x.ativo));
+    this._anuncios = anuncios.dados || [];
+
+    const cabecalho = pageHead('Chamadas de Despertar',
+      `O PABX liga para o ramal na hora marcada e toca um anúncio. Serve de despertador,
+       de lembrete de reunião e de alarme. O usuário também marca o dele pelo telefone, com <span class="mono">*68</span>.`,
+      ctx.can('criar')
+        ? `<button class="btn btn-primary btn-sm" data-nova-chamada>${icon('plus','ico ico-sm')} Nova chamada</button>`
+        : readOnlyNote(ctx));
+
+    if (!this._ramais.length) {
+      return cabecalho + `<div class="card">${vazio('phone', 'Nenhum ramal ativo',
+        'Cadastre um ramal em Conectividade › Ramais para poder ligar para ele.')}</div>`;
+    }
+
+    if (!this._itens.length) {
+      return cabecalho + `<div class="card">${vazio('clock', 'Nenhuma chamada programada',
+        'Programe uma para daqui a pouco, todo dia no mesmo horário, ou em dias escolhidos da semana.',
+        ctx.can('criar') ? '<button class="btn btn-primary btn-sm" data-nova-chamada>Programar a primeira</button>' : '')}
+      </div>`;
+    }
+
+    const quando = d => {
+      const dias = ['dom','seg','ter','qua','qui','sex','sáb'];
+      if (d.repeticao === 'uma_vez') {
+        return d.quando ? `uma vez, em ${dataHora(d.quando)}` : 'uma vez, sem data';
+      }
+      const h = String(d.hora || '').slice(0, 5);
+      if (d.repeticao === 'diario') return `todo dia às ${h}`;
+      const lista = String(d.dias_semana || '').split(',').filter(x => x !== '')
+        .map(x => dias[Number(x)]).join(', ');
+      return lista ? `${lista} às ${h}` : `às ${h}, sem dia escolhido`;
+    };
+
+    const linhas = this._itens.map(d => {
+      const r2 = this._ramais.find(x => x.numero === d.ramal);
+      const a = this._anuncios.find(x => String(x.id) === String(d.anuncio_id));
+      return `<tr data-id="${d.id}" data-busca="${esc(`${d.nome} ${d.ramal}`.toLowerCase())}">
+        <td><b>${esc(d.nome)}</b></td>
+        <td><b class="mono">${esc(d.ramal)}</b>
+          ${r2 ? `<div class="tiny muted">${esc(r2.nome)}</div>`
+               : '<div class="tiny"><span class="badge badge-warn">ramal não existe</span></div>'}</td>
+        <td>${esc(quando(d))}</td>
+        <td>${a ? esc(a.nome) : '<span class="tiny muted">hora falada pelo PABX</span>'}</td>
+        <td class="small dim">${d.ultimo_em ? dataHora(d.ultimo_em) : '—'}</td>
+        <td>${Number(d.ativo)
+          ? '<span class="badge badge-ok"><i class="dot"></i>Ativa</span>'
+          : '<span class="badge">Parada</span>'}</td>
+        <td class="col-actions"><span class="row-actions">
+          ${ctx.can('editar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar"
+            data-editar-desp="${d.id}">${icon('edit','ico ico-sm')}</button>` : ''}
+          ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir"
+            data-excluir-desp="${d.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+        </span></td>
+      </tr>`;
+    }).join('');
+
+    return cabecalho + `
+      <div class="card">
+        <div class="toolbar">
+          <div class="input-icon search-mini">${icon('search','ico ico-sm')}
+            <input class="input" data-filtro placeholder="Buscar por nome ou ramal…">
+          </div>
+          <span class="grow"></span>
+          <span class="small muted" data-contador></span>
+        </div>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Chamada</th><th>Ramal</th><th>Quando</th><th>Toca</th>
+                     <th>Última vez</th><th>Estado</th><th></th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table></div>
+      </div>`;
+  },
+
+  mount(ctx) {
+    const pagina = this;
+    const itens = this._itens || [];
+
+    const filtro = document.querySelector('[data-filtro]');
+    const contador = document.querySelector('[data-contador]');
+    const linhas = [...document.querySelectorAll('tr[data-id]')];
+    const aplicar = () => {
+      const t = (filtro?.value || '').trim().toLowerCase();
+      let n = 0;
+      linhas.forEach(l => { const ok = !t || l.dataset.busca.includes(t); l.hidden = !ok; if (ok) n++; });
+      if (contador) contador.textContent = `${n} de ${linhas.length} chamadas`;
+    };
+    filtro?.addEventListener('input', aplicar);
+    aplicar();
+
+    const formulario = item => {
+      const novo = !item;
+      const d = item || { repeticao: 'uma_vez', tentativas: 3, intervalo: 120, ativo: 1 };
+      const campos = [
+        { campo: 'nome', label: 'Nome', obrigatorio: true, largura: 'full',
+          placeholder: 'Acordar o plantão' },
+        { campo: 'ramal', label: 'Ligar para o ramal', obrigatorio: true, tipo: 'select', largura: 'full',
+          opcoes: [{ valor: '', rotulo: '— escolha o ramal —' },
+                   ...pagina._ramais.map(r => ({ valor: r.numero, rotulo: `${r.numero} — ${r.nome}` }))] },
+        { campo: 'anuncio_id', label: 'Anúncio a tocar', tipo: 'select', largura: 'full',
+          opcoes: opcoesAnuncio(pagina._anuncios, '— só falar a hora —'),
+          ajuda: 'Sem anúncio, o PABX diz a hora e desliga.' },
+        { campo: 'repeticao', label: 'Repetição', tipo: 'select', largura: 'full',
+          opcoes: [{ valor: 'uma_vez', rotulo: 'Uma vez, em data e hora' },
+                   { valor: 'diario', rotulo: 'Todo dia, no mesmo horário' },
+                   { valor: 'dias_semana', rotulo: 'Em dias escolhidos da semana' }] },
+        { campo: 'quando', label: 'Data e hora', tipo: 'datetime-local', largura: 'full' },
+        { campo: 'hora', label: 'Horário', tipo: 'time' },
+        { campo: 'ativo', label: 'Chamada ativa', tipo: 'switch', padrao: 1 }
+      ];
+
+      const dias = [['0','domingo'],['1','segunda'],['2','terça'],['3','quarta'],
+                    ['4','quinta'],['5','sexta'],['6','sábado']];
+      const marcados = String(d.dias_semana || '').split(',');
+
+      Drawer.open({
+        titulo: novo ? 'Nova chamada de despertar' : `Editar ${d.nome}`,
+        sub: 'Uma chamada de uma vez só se desliga sozinha depois de tocar.',
+        corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, {
+            ...d,
+            quando: d.quando ? String(d.quando).replace(' ', 'T').slice(0, 16) : '',
+            hora: d.hora ? String(d.hora).slice(0, 5) : ''
+          })).join('')}</div>
+          <div class="field full" data-campo="dias_semana" id="blocoDias">
+            <label class="label">Dias da semana</label>
+            <div class="row wrap gap-12">
+              ${dias.map(([v, r]) => `<label class="check">
+                <input type="checkbox" name="dia" value="${v}" ${marcados.includes(v) ? 'checked' : ''}>
+                ${r}</label>`).join('')}
+            </div>
+          </div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>${novo ? 'Programar' : 'Salvar'}</button>`,
+        aoAbrir: dw => {
+          // Cada repetição pede campos diferentes; mostrar todos confunde.
+          const rep = dw.querySelector('[name="repeticao"]');
+          const campoQuando = dw.querySelector('[data-campo="quando"]');
+          const campoHora = dw.querySelector('[data-campo="hora"]');
+          const blocoDias = dw.querySelector('#blocoDias');
+          const revisar = () => {
+            const v = rep.value;
+            campoQuando.hidden = v !== 'uma_vez';
+            campoHora.hidden = v === 'uma_vez';
+            blocoDias.hidden = v !== 'dias_semana';
+          };
+          rep.addEventListener('change', revisar);
+          revisar();
+
+          dw.querySelector('[data-ok]').onclick = async ev => {
+            const usados = campos.filter(c =>
+              !(c.campo === 'quando' && rep.value !== 'uma_vez')
+              && !(c.campo === 'hora' && rep.value === 'uma_vez'));
+            if (!validarCampos(dw, usados)) return;
+
+            const dados = {};
+            campos.forEach(c => {
+              const el = dw.querySelector(`[name="${c.campo}"]`);
+              if (el) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value.trim();
+            });
+            dados.quando = rep.value === 'uma_vez' ? dados.quando.replace('T', ' ') : '';
+            dados.hora = rep.value === 'uma_vez' ? '' : dados.hora;
+            dados.dias_semana = rep.value === 'dias_semana'
+              ? [...dw.querySelectorAll('[name="dia"]:checked')].map(x => x.value).join(',')
+              : '';
+
+            const faltam = [];
+            if (rep.value === 'uma_vez' && !dados.quando) faltam.push('Data e hora');
+            if (rep.value !== 'uma_vez' && !dados.hora) faltam.push('Horário');
+            if (rep.value === 'dias_semana' && !dados.dias_semana) faltam.push('Ao menos um dia da semana');
+            if (faltam.length) { avisoFormulario(dw, faltam); return; }
+
+            const botao = ev.currentTarget;
+            botao.disabled = true;
+            botao.innerHTML = '<span class="spin"></span> Salvando…';
+            try {
+              if (novo) await Api.post('/despertadores', dados);
+              else await Api.put(`/despertadores/${d.id}`, dados);
+              Drawer.close();
+              toast('Chamada programada.', 'ok');
+              App.route();
+            } catch (e) {
+              botao.disabled = false;
+              botao.textContent = novo ? 'Programar' : 'Salvar';
+              if (e.detalhe?.campo) marcarErro(dw, e.detalhe.campo, e.message);
+              else toast(e.message, 'err');
+            }
+          };
+        }
+      });
+    };
+
+    document.querySelectorAll('[data-nova-chamada]').forEach(b => b.onclick = () => formulario(null));
+    document.querySelectorAll('[data-editar-desp]').forEach(b => b.onclick = () =>
+      formulario(itens.find(x => String(x.id) === b.dataset.editarDesp)));
+    document.querySelectorAll('[data-excluir-desp]').forEach(b => b.onclick = async () => {
+      const d = itens.find(x => String(x.id) === b.dataset.excluirDesp);
+      const ok = await Modal.confirm({
+        titulo: `Excluir ${d.nome}?`, texto: 'O PABX deixa de ligar.', ok: 'Excluir'
+      });
+      if (!ok) return;
+      try { await Api.delete(`/despertadores/${d.id}`); toast('Excluída.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+  }
+};
+
 /* ------------------------- Siga-me ------------------------- */
 
 /**

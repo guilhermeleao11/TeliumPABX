@@ -81,6 +81,23 @@ pelo AMI em 127.0.0.1.
 O gerador é idempotente: compara o conteúdo (ignorando a linha de data) e só
 reescreve o que mudou de fato.
 
+### Estacionamento e chamadas de despertar
+
+O estacionamento emite `res_parking.conf`, um lote por linha da tabela. O lote
+marcado como padrão sai com o nome `default`, porque é nele que `Park()` cai sem
+argumento — é o que os códigos `*85` e `*86` usam. Quando o lote não devolve a
+chamada a quem estacionou, o gerador escreve também o contexto de `comebackcontext`.
+
+Detalhe que o Asterisk de verdade apontou: `res_parking.conf` **não** tem a opção
+`type`. Escrita, ela derruba o lote inteiro com um erro no log e o Asterisk segue
+com o lote embutido, como se nada tivesse sido configurado.
+
+O despertador tem duas fontes e um disparador só: a base do Asterisk, onde o
+código `*68` grava o que o usuário marcou pelo telefone, e a tabela
+`despertadores`, que o console cadastra — uma vez, todo dia ou em dias escolhidos
+da semana. O disparador roda a cada minuto, origina a chamada e marca `ultimo_em`,
+que é o que impede tocar duas vezes no mesmo minuto.
+
 ### Grupos de horário e condições horárias
 
 O grupo guarda as faixas: hora, dia da semana, dia do mês e mês, cada dimensão

@@ -1,36 +1,85 @@
 #!/usr/bin/env bash
 # =========================================================
 # {{ ansible_managed }}
-# Telium PABX — disparador do despertador
+# Telium PABX — disparador de chamadas de despertar
 #
-# Roda a cada minuto. A hora marcada por cada ramal está na base do
-# próprio Asterisk (família despertar), gravada pelo código *68 do
-# dialplan; aqui só comparamos com o relógio e originamos a chamada.
+# Roda a cada minuto e tem duas fontes:
 #
-# Guardar na base do Asterisk, e não no MariaDB, é de propósito: quem
-# escreve é o dialplan, e assim não existe um segundo lugar para o
-# mesmo dado ficar desatualizado.
+#   · a base do Asterisk (família despertar), onde o código *68 grava a
+#     hora que o próprio usuário marcou pelo telefone;
+#   · a tabela despertadores, que é o que o console cadastra — uma vez,
+#     todo dia, ou em dias escolhidos da semana.
+#
+# Em ambos os casos o PABX liga para o ramal e cai no contexto
+# telium-despertador, que toca o anúncio.
 # =========================================================
 set -uo pipefail
 
-agora=$(date '+%H%M')
+BANCO={{ db_nome }}
+agora_hm=$(date '+%H%M')
+agora_dia=$(date '+%w')          # 0 = domingo
+agora_iso=$(date '+%F %H:%M')
+
 log() { echo "[$(date '+%F %T')] $*"; }
+mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1" 2>/dev/null; }
 
-asterisk -rx "core show version" >/dev/null 2>&1 || { log "Asterisk fora; nada a fazer"; exit 0; }
+asterisk -rx "core show version" >/dev/null 2>&1 || { log "Asterisk fora — nada a fazer"; exit 0; }
 
-# "/despertar/1001                     : 0730"
+# ligar <ramal> <id do anúncio ou vazio> <rótulo para o log>
+ligar() {
+  local ramal="$1" anuncio="${2:-}" rotulo="$3"
+  log "despertando ${ramal} (${rotulo})"
+  asterisk -rx "channel originate PJSIP/${ramal} extension s@telium-despertador" >/dev/null 2>&1
+  # O anúncio vai numa variável global do canal originado: o contexto a lê.
+  [ -n "$anuncio" ] && asterisk -rx "database put despertar-anuncio ${ramal} ${anuncio}" >/dev/null 2>&1
+  return 0
+}
+
+# ---------------------------------------------------------
+# 1. O que o usuário marcou pelo telefone, com *68
+# ---------------------------------------------------------
 asterisk -rx "database show despertar" 2>/dev/null \
   | sed -n 's#^/despertar/\([^ ]*\) *: *\([0-9]\{4\}\).*#\1 \2#p' \
   | while read -r ramal hora; do
       [ -z "$ramal" ] && continue
-      [ "$hora" != "$agora" ] && continue
+      [ "$hora" != "$agora_hm" ] && continue
 
-      log "despertando o ramal ${ramal}"
-      asterisk -rx "channel originate PJSIP/${ramal} extension s@telium-despertador" >/dev/null 2>&1
-
-      # Um despertador vale uma vez: some depois de tocar, para não
-      # ficar ligando de novo nos 59 segundos seguintes.
+      ligar "$ramal" "" "marcado pelo telefone"
+      # Um despertador marcado pelo telefone vale uma vez.
       asterisk -rx "database del despertar ${ramal}" >/dev/null 2>&1
     done
+
+# ---------------------------------------------------------
+# 2. O que o console cadastrou
+# ---------------------------------------------------------
+pendentes=$(mysql "
+  SELECT id, ramal, IFNULL(anuncio_id, ''), nome
+    FROM despertadores
+   WHERE ativo = 1
+     AND (
+       (repeticao = 'uma_vez'
+         AND quando IS NOT NULL
+         AND DATE_FORMAT(quando, '%Y-%m-%d %H:%i') = '${agora_iso}')
+       OR (repeticao = 'diario'
+         AND hora IS NOT NULL
+         AND DATE_FORMAT(hora, '%H%i') = '${agora_hm}')
+       OR (repeticao = 'dias_semana'
+         AND hora IS NOT NULL
+         AND DATE_FORMAT(hora, '%H%i') = '${agora_hm}'
+         AND FIND_IN_SET('${agora_dia}', dias_semana) > 0)
+     )
+     AND (ultimo_em IS NULL OR DATE_FORMAT(ultimo_em, '%Y-%m-%d %H:%i') <> '${agora_iso}');")
+
+[ -z "$pendentes" ] && exit 0
+
+echo "$pendentes" | while IFS=$'\t' read -r id ramal anuncio nome; do
+  [ -z "$id" ] && continue
+
+  ligar "$ramal" "$anuncio" "$nome"
+  mysql "UPDATE despertadores SET ultimo_em = NOW() WHERE id = ${id};"
+
+  # Um despertador de uma vez só se desliga sozinho depois de tocar.
+  mysql "UPDATE despertadores SET ativo = 0 WHERE id = ${id} AND repeticao = 'uma_vez';"
+done
 
 exit 0

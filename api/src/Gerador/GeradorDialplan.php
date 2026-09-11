@@ -50,6 +50,7 @@ final class GeradorDialplan
             'extensions.conferencias.conf' => $this->conferencias(),
             'extensions.anuncios.conf' => $this->anuncios(),
             'extensions.condicoes.conf' => $this->condicoesHorarias(),
+            'extensions.estacionamento.conf' => $this->estacionamento(),
             'extensions.ura.conf'     => $this->uras(),
             'extensions.saida.conf'   => $this->rotasSaida(),
             'extensions.entrada.conf' => $this->rotasEntrada(),
@@ -297,6 +298,41 @@ final class GeradorDialplan
             if ($pesquisa > 0) {
                 $b->same("Goto(telium-pesquisa,{$pesquisa},1)", 'pesquisa-' . $numero);
             }
+        }
+
+        return $b->texto();
+    }
+
+    /**
+     * Estacionamento: para onde vai a chamada que ninguém retomou.
+     *
+     * Só os lotes que não voltam para quem estacionou precisam disto —
+     * nos outros, o próprio Asterisk toca de volta na origem.
+     */
+    private function estacionamento(): string
+    {
+        $b = $this->cabecalho('Contextos: chamadas estacionadas que estouraram o tempo');
+
+        $lotes = Bd::todos(
+            'SELECT * FROM estacionamentos WHERE ativo = 1 AND volta_para_origem = 0 ORDER BY nome'
+        );
+
+        if ($lotes === []) {
+            return $b->comentario('todos os lotes devolvem a chamada para quem estacionou')->texto();
+        }
+
+        foreach ($lotes as $l) {
+            $nome = (int) $l['padrao'] === 1 ? 'default' : (string) $l['nome'];
+            $linhas = $this->destino->linhas($l['destino_tipo'], $l['destino_valor']);
+
+            // O Asterisk tenta a extensão com o número da vaga e cai em 's'
+            // quando ela não existe; as duas levam ao mesmo destino.
+            $b->branco()
+              ->comentario("Lote {$l['nome']}")
+              ->contexto("telium-volta-{$nome}")
+              ->exten('s', "NoOp(Chamada estacionada sem ninguém retomar — lote {$l['nome']})")
+              ->apps($linhas)
+              ->exten('_X.', 'Goto(s,1)');
         }
 
         return $b->texto();

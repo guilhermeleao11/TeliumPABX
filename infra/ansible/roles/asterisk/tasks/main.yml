@@ -290,6 +290,7 @@
     - extensions.conf
     - queues.conf
     - confbridge.conf
+    - res_parking.conf
     - voicemail.conf
     - musiconhold.conf
     - features.conf

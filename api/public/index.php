@@ -113,6 +113,32 @@ $recursos = [
             modulo: 'apps.filas',
         ),
     ],
+    'estacionamentos' => [
+        'modulo' => 'apps.estacionamento',
+        'recurso' => new Recurso(
+            tabela: 'estacionamentos',
+            colunas: ['nome','descricao','padrao','numero_estacionar','vaga_inicio','vaga_fim',
+                      'tempo_segundos','musica_espera','volta_para_origem','tempo_volta',
+                      'destino_tipo','destino_valor','avisar_vaga','primeira_vaga_livre','ativo'],
+            ordem: 'nome',
+            busca: ['nome','descricao'],
+            filtros: ['ativo'],
+            afetaAsterisk: true,
+            modulo: 'apps.estacionamento',
+        ),
+    ],
+    'despertadores' => [
+        'modulo' => 'apps.despertar',
+        'recurso' => new Recurso(
+            tabela: 'despertadores',
+            colunas: ['nome','ramal','anuncio_id','repeticao','quando','hora','dias_semana',
+                      'tentativas','intervalo','ativo'],
+            ordem: 'nome',
+            busca: ['nome','ramal'],
+            filtros: ['ativo','ramal','repeticao'],
+            modulo: 'apps.despertar',
+        ),
+    ],
     'grupos-horario' => [
         'modulo' => 'apps.grupohorario',
         'recurso' => new Recurso(
