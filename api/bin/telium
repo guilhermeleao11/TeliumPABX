@@ -49,10 +49,35 @@ function migrar(): void
 {
     global $verde, $vermelho, $amarelo, $zero;
 
-    $dir = realpath(__DIR__ . '/../../infra/sql');
-    if ($dir === false) {
-        throw new RuntimeException('Não encontrei o diretório infra/sql ao lado da API.');
+    // Na VM só o api/ é publicado, então os scripts vão junto em
+    // {telium_base}/sql; num clone do repositório eles estão em
+    // infra/sql. O SQL_DIR do .env tem a última palavra.
+    $candidatos = array_filter([
+        Ambiente::get('SQL_DIR'),
+        __DIR__ . '/../sql',
+        __DIR__ . '/../../sql',
+        __DIR__ . '/../../infra/sql',
+        '/opt/telium/sql',
+    ]);
+
+    $dir = false;
+    foreach ($candidatos as $tentativa) {
+        $caminho = realpath((string) $tentativa);
+        if ($caminho !== false && is_dir($caminho) && glob("{$caminho}/*.sql")) {
+            $dir = $caminho;
+            break;
+        }
     }
+
+    if ($dir === false) {
+        throw new RuntimeException(
+            "Não encontrei os scripts .sql. Procurei em:\n    "
+            . implode("\n    ", array_map('strval', $candidatos))
+            . "\n  Defina SQL_DIR no .env ou rode o playbook do Ansible, que publica os scripts."
+        );
+    }
+
+    echo "  scripts em {$dir}\n";
 
     $arquivos = glob("{$dir}/*.sql") ?: [];
     sort($arquivos);

@@ -11,6 +11,16 @@
     - app.html
     - assets
 
+# Os scripts de banco vão para a VM junto com o código: é o que deixa
+# "php bin/telium migrar" funcionar num servidor que só tem o deploy.
+- name: Publicar os scripts de banco
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../sql/"
+    dest: "{{ telium_base }}/sql/"
+    owner: "{{ telium_user }}"
+    group: "{{ telium_group }}"
+    mode: "0640"
+
 - name: Publicar o código da API
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../api/"
