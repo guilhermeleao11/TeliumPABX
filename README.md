@@ -1,7 +1,12 @@
-# Telium PABX — Interface Web
+# Telium PABX 1.0.1
 
-Protótipo de front-end (HTML + CSS + JavaScript puro, sem dependências e sem build)
-para o console de administração do PABX.
+Central telefônica completa: Asterisk 22 com PJSIP, console web em HTML, CSS e
+JavaScript puro (sem build), API em PHP 8.4 e provisionamento por Ansible em
+Debian 13. Toda a configuração do Asterisk é **gerada a partir do banco** —
+ninguém edita `.conf` à mão.
+
+**Está em teste.** O que mudou e como conferir cada coisa:
+[docs/TESTE-1.0.1.md](docs/TESTE-1.0.1.md).
 
 ## Como abrir
 
@@ -104,8 +109,9 @@ A pilha de produção está em `infra/` e `api/`:
 | Componente | Versão |
 |---|---|
 | Debian | 13 (trixie) |
+| Telium PABX | 1.0.1 |
 | Asterisk | 22.11.0 — PJSIP, compilado do fonte |
-| Janus | 1.4.1 — gateway WebRTC (plugin SIP) |
+| Janus | 1.4.1 — opcional, fora do caminho da chamada |
 | MariaDB | 12.3.3 |
 | nginx | mainline 1.31.x |
 | PHP | 8.4 + Slim 4 |

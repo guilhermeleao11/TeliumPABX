@@ -50,7 +50,7 @@
 
     <div class="brand-foot">
       <span>© 2026 Telium Networks · AllWaysON</span><i class="sep"></i>
-      <span>v3.4.1</span><i class="sep"></i>
+      <span id="loginVersao">Telium PABX</span><i class="sep"></i>
       <span>Asterisk 20 LTS</span>
     </div>
 
@@ -124,6 +124,17 @@ document.querySelectorAll('[data-ico]').forEach(el => {
 
 document.getElementById('markLogo').innerHTML = TELIUM_MARK;
 document.getElementById('markLogoMob').innerHTML = TELIUM_MARK;
+
+/* ---------- Versão ---------- */
+/* Vem do /health, que é público: assim a tela de entrada já diz qual
+   versão está instalada, antes mesmo de alguém conseguir entrar. */
+fetch('/api/health', { headers: { Accept: 'application/json' } })
+  .then(r => r.json())
+  .then(d => {
+    const el = document.getElementById('loginVersao');
+    if (el && d?.versao) el.textContent = 'Telium PABX ' + d.versao;
+  })
+  .catch(() => { /* API fora: fica o nome sem a versão */ });
 
 /* ---------- Tema ---------- */
 Theme.init();

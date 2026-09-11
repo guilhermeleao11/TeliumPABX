@@ -27,6 +27,7 @@ const App = {
 
     this.renderSidebar();
     this.renderUser();
+    this.pintarVersao();
     this.bindHeader();
 
     Softphone.montar();
@@ -146,6 +147,12 @@ const App = {
     };
     document.getElementById('ddTema').onclick = () => Theme.toggle();
     document.getElementById('ddAtalhos').onclick = () => this.atalhos();
+  },
+
+  /** A versão vem da API: é ela que sabe qual código está rodando. */
+  pintarVersao() {
+    const el = document.getElementById('sbVersao');
+    if (el) el.textContent = 'Console ' + (Auth.sessao?.versao || '—');
   },
 
   /** Avisos reais: configuração pendente e saúde dos serviços. */

@@ -55,7 +55,8 @@ const Auth = {
       allow: dados.permissoes.allow,
       caps: dados.permissoes.caps,
       empresa: dados.empresa,
-      softphone: dados.softphone
+      softphone: dados.softphone,
+      versao: dados.versao
     };
     return this.sessao;
   },

@@ -11,6 +11,7 @@ use Telium\Dominio\Senha;
 use Telium\Dominio\Sessao;
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Bd;
+use Telium\Suporte\Versao;
 use Telium\Suporte\Resposta;
 
 final class Autenticacao
@@ -130,6 +131,7 @@ final class Autenticacao
             'usuario'    => $this->publico($usuario),
             'permissoes' => ['allow' => $allow, 'caps' => $caps],
             'empresa'    => Bd::um('SELECT nome, plano, ramais_contratados FROM empresa WHERE id = 1'),
+            'versao'     => Versao::NUMERO,
             'softphone'  => $this->softphone($usuario),
         ]);
     }

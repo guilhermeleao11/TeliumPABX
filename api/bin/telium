@@ -246,8 +246,11 @@ function trocarSenha(string $usuario): void
 
 function ajuda(): void
 {
+    // Heredoc não chama método estático: a versão vem numa variável.
+    $versao = Telium\Suporte\Versao::completa();
+
     echo <<<TXT
-    Telium PABX — utilitário de linha de comando
+    {$versao} — utilitário de linha de comando
 
       php bin/telium migrar            aplica os scripts SQL que faltam
       php bin/telium gerar-config      gera os .conf a partir do banco

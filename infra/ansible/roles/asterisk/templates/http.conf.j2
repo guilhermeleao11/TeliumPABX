@@ -1,14 +1,17 @@
 ; {{ ansible_managed }}
 ; HTTP interno do Asterisk. Serve a ARI e o WebSocket do softphone, que
 ; entra pelo nginx em /ws — por isso escuta só em 127.0.0.1.
+;
+; Não existe opção "websocket_enabled": o /asterisk/ws vem do módulo
+; res_http_websocket e aparece assim que o servidor sobe. E o limite de
+; sessões é "sessionlimit", sem sublinhado — com o nome errado o
+; Asterisk avisa e ignora.
 [general]
 enabled      = yes
 bindaddr     = 127.0.0.1
 bindport     = {{ ast_http_porta }}
 prefix       = asterisk
 enablestatic = no
-; O upgrade para WebSocket é o que o transport-wss do PJSIP usa.
-websocket_enabled = yes
-session_limit = 200
+sessionlimit = 200
 session_inactivity = 30000
 session_keep_alive = 15000

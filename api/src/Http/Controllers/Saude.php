@@ -10,6 +10,7 @@ use Telium\Suporte\Ambiente;
 use Telium\Suporte\Ami;
 use Telium\Suporte\Bd;
 use Telium\Suporte\Esquema;
+use Telium\Suporte\Versao;
 use Telium\Suporte\Resposta;
 
 /** GET /api/health — diagnóstico de dependências, sem exigir sessão. */
@@ -31,8 +32,8 @@ final class Saude
         );
 
         return Resposta::json($res, [
-            'servico'   => 'Telium PABX API',
-            'versao'    => '1.0.0',
+            'servico'   => Versao::NOME . ' — API',
+            'versao'    => Versao::NUMERO,
             'ambiente'  => Ambiente::get('APP_ENV', 'desconhecido'),
             'horario'   => date('c'),
             'saudavel'  => $tudoOk,

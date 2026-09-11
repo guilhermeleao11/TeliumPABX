@@ -8,6 +8,7 @@
     - name: Resumo do que será instalado
       ansible.builtin.debug:
         msg:
+          - "Telium PABX 1.0.1"
           - "Alvo ...... {{ inventory_hostname }} ({{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }})"
           - "Asterisk .. {{ asterisk_versao }} (compilado do fonte)"
           - "Janus ..... {{ janus_versao }} (compilado do fonte)"
@@ -64,7 +65,7 @@
         group: root
         mode: "0600"
         content: |
-          Telium PABX — instalado em {{ ansible_date_time.iso8601 | default('') }}
+          Telium PABX 1.0.1 — instalado em {{ ansible_date_time.iso8601 | default('') }}
           host: {{ inventory_hostname }} ({{ ansible_facts.default_ipv4.address | default('127.0.0.1') }})
 
           Console ...... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/
