@@ -8,6 +8,7 @@ use Telium\Http\Controllers\Cadastros;
 use Telium\Http\Controllers\Certificados;
 use Telium\Http\Controllers\Contatos;
 use Telium\Http\Controllers\Destinos;
+use Telium\Http\Controllers\Filas;
 use Telium\Http\Controllers\Audios;
 use Telium\Http\Controllers\Backup;
 use Telium\Http\Controllers\Cli;
@@ -90,11 +91,29 @@ $recursos = [
         'modulo' => 'apps.filas',
         'recurso' => new Recurso(
             tabela: 'filas',
-            colunas: ['numero','nome','estrategia','timeout_agente','retry','wrapuptime','musica_espera',
-                      'anuncio_posicao','sla_segundos','max_espera','destino_estouro_tipo',
-                      'destino_estouro_valor','gravar','ativo'],
+            colunas: ['numero','nome','descricao','callcenter','estrategia','timeout_agente','retry',
+                      'wrapuptime','musica_espera','audio_entrada','audio_agente','audio_periodico',
+                      'periodico_segundos','anuncio_posicao','anuncio_espera','anuncio_frequencia',
+                      'sla_segundos','max_espera','peso','max_chamadas','entrar_vazia','sair_vazia',
+                      'tocar_ocupado','pausa_automatica','atraso_atendimento','confirmar_atendimento',
+                      'destino_estouro_tipo','destino_estouro_valor','destino_vazia_tipo',
+                      'destino_vazia_valor','destino_cheia_tipo','destino_cheia_valor',
+                      'pesquisa_id','gravar','ativo'],
             ordem: 'numero',
             busca: ['numero','nome'],
+            filtros: ['ativo'],
+            afetaAsterisk: true,
+            modulo: 'apps.filas',
+        ),
+    ],
+    'pesquisas' => [
+        'modulo' => 'apps.filas',
+        'recurso' => new Recurso(
+            tabela: 'pesquisas',
+            colunas: ['nome','descricao','audio_pergunta','audio_obrigado','nota_min','nota_max',
+                      'tentativas','segundos','ativo'],
+            ordem: 'nome',
+            busca: ['nome','descricao'],
             filtros: ['ativo'],
             afetaAsterisk: true,
             modulo: 'apps.filas',
@@ -373,6 +392,13 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     // ---- destinos personalizados ----
     $g->get('/destinos/contextos', [Destinos::class, 'contextos'])
       ->add(new Permissao('admin.destinos'));
+
+    // ---- filas: agentes e situação ----
+    $g->get('/filas/{id}/agentes', [Filas::class, 'agentes'])->add(new Permissao('apps.filas'));
+    $g->put('/filas/{id}/agentes', [Filas::class, 'salvarAgentes'])
+      ->add(new Permissao('apps.filas', 'editar'));
+    $g->get('/filas/{id}/situacao', [Filas::class, 'situacao'])->add(new Permissao('apps.filas'));
+    $g->get('/pesquisas/resultados', [Filas::class, 'resultados'])->add(new Permissao('apps.filas'));
 
     // ---- console do Asterisk ----
     $g->get('/cli/sugestoes', [Cli::class, 'sugestoes'])->add(new Permissao('admin.cli'));

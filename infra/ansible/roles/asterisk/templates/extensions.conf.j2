@@ -170,6 +170,26 @@ include => telium-custom
 include => telium-entrada
 
 ; ------------------------------------------------------------------
+; Sub-rotina: confirmação de atendimento numa fila
+;
+; Roda no canal de quem vai atender, antes de juntar as pontas (opção U
+; do Dial). Se o agente não apertar 1, GOSUB_RESULT=ABORT desfaz a
+; ligação e a fila procura outro — é o que evita a chamada morrer na
+; caixa postal do celular de um agente remoto.
+;
+; O áudio vem em ${TELIUM_AUDIO}, herdado do contexto da fila.
+; ------------------------------------------------------------------
+[sub-confirmar-atendimento]
+exten => s,1,Answer()
+ same => n,Read(TELIUM_OK,${IF($["${TELIUM_AUDIO}" != ""]?${TELIUM_AUDIO}:beep)},1,,1,6)
+ same => n,GotoIf($["${TELIUM_OK}" = "1"]?aceita)
+ same => n,NoOp(Agente não confirmou o atendimento — a fila procura outro)
+ same => n,Set(GOSUB_RESULT=ABORT)
+ same => n,Return()
+ same => n(aceita),NoOp(Atendimento confirmado)
+ same => n,Return()
+
+; ------------------------------------------------------------------
 ; Despertador: o disparador liga para o ramal e cai aqui.
 ; A hora marcada fica na base do Asterisk (família despertar), gravada
 ; pelo código *68.
@@ -202,6 +222,8 @@ exten => _X.,1,Answer()
 #include "telium/extensions.ramais.conf"
 #include "telium/extensions.grupos.conf"
 #include "telium/extensions.filas.conf"
+#include "telium/extensions.pesquisa.conf"
+#include "telium/extensions.confirmacao.conf"
 #include "telium/extensions.ura.conf"
 #include "telium/extensions.saida.conf"
 #include "telium/extensions.entrada.conf"

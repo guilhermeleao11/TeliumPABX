@@ -50,3 +50,13 @@ readsql=SELECT COALESCE(NULLIF(numero,''), NULLIF(celular,''), NULLIF(telefone,'
 [TELIUM_CONTATO_NOME]
 dsn=telium
 readsql=SELECT nome FROM contatos WHERE discagem_rapida = '${SQL_ESC(${ARG1})}' AND ativo = 1 LIMIT 1
+
+; ------------------------------------------------------------------
+; Pesquisa de satisfação:
+;   Set(ODBC_TELIUM_PESQUISA(<id>,<fila>,<agente>,<origem>,<uniqueid>)=<nota>)
+; Nota vazia é gravada como NULL de propósito: "ouviu e não respondeu"
+; é resultado, e some se a gente não registrar.
+; ------------------------------------------------------------------
+[TELIUM_PESQUISA]
+dsn=telium
+writesql=INSERT INTO pesquisa_respostas (pesquisa_id, fila, agente, origem, uniqueid, nota) VALUES (${ARG1}, NULLIF('${SQL_ESC(${ARG2})}',''), NULLIF('${SQL_ESC(${ARG3})}',''), NULLIF('${SQL_ESC(${ARG4})}',''), NULLIF('${SQL_ESC(${ARG5})}',''), NULLIF('${SQL_ESC(${VAL1})}',''))

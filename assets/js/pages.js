@@ -931,47 +931,521 @@ PAGES['conn.troncos'] = paginaCrud({
 });
 
 /* ------------------------- Aplicações · Filas ------------------------- */
-PAGES['apps.filas'] = paginaCrud({
-  recurso: 'filas',
-  titulo: 'Filas de Atendimento',
-  sub: 'Distribuição de chamadas, agentes e metas de nível de serviço.',
-  ico: 'headset',
-  plural: 'filas',
-  rotuloNovo: 'Nova fila',
-  tituloNovo: 'Nova fila',
-  vazioTitulo: 'Nenhuma fila cadastrada',
-  vazioTexto: 'Filas distribuem as chamadas entre os atendentes e medem o nível de serviço.',
-  placeholderBusca: 'Buscar por número ou nome…',
-  textoBusca: f => `${f.numero} ${f.nome}`,
-  tituloEditar: f => `Fila ${f.numero} — ${f.nome}`,
-  tituloExcluir: f => `Excluir a fila ${f.numero}?`,
+const ESTRATEGIAS_FILA = [
+  { valor: 'ringall',     rotulo: 'Tocar em todos ao mesmo tempo' },
+  { valor: 'rrmemory',    rotulo: 'Rodízio com memória (mais justo)' },
+  { valor: 'leastrecent', rotulo: 'Quem está há mais tempo sem atender' },
+  { valor: 'fewestcalls', rotulo: 'Quem atendeu menos chamadas' },
+  { valor: 'linear',      rotulo: 'Na ordem da lista, sempre do começo' },
+  { valor: 'random',      rotulo: 'Aleatório' },
+  { valor: 'wrandom',     rotulo: 'Aleatório com peso da penalidade' }
+];
 
-  colunas: [
-    { label: 'Fila', render: f => `<b class="mono">${esc(f.numero)}</b>` },
-    { label: 'Nome', render: f => esc(f.nome) },
-    { label: 'Estratégia', render: f => `<span class="badge mono">${esc(f.estrategia)}</span>` },
-    { label: 'SLA', render: f => `<span class="num">${f.sla_segundos}s</span>` },
-    { label: 'Espera máx.', render: f => `<span class="num">${duracao(f.max_espera)}</span>` },
-    { label: 'Gravação', render: f => Number(f.gravar) ? '<span class="badge badge-brand">Ativa</span>' : '<span class="muted">—</span>' }
-  ],
+const VAZIA_FILA = [
+  { valor: 'sim',     rotulo: 'Sim — entra e espera mesmo assim' },
+  { valor: 'nao',     rotulo: 'Não — vai direto para o destino de fila vazia' },
+  { valor: 'estrito', rotulo: 'Não, e conta pausado como ausente' }
+];
 
-  campos: () => [
-    { campo: 'numero', label: 'Número da fila', obrigatorio: true, mono: true, placeholder: '600' },
-    { campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'Suporte Técnico' },
-    { campo: 'estrategia', label: 'Estratégia', tipo: 'select',
-      opcoes: ['ringall','leastrecent','fewestcalls','random','rrmemory','linear','wrandom'], padrao: 'ringall',
-      ajuda: 'ringall toca em todos; rrmemory faz rodízio com memória.' },
-    { campo: 'timeout_agente', label: 'Toque por agente (s)', tipo: 'number', padrao: 20 },
-    { campo: 'retry', label: 'Intervalo entre tentativas (s)', tipo: 'number', padrao: 5 },
-    { campo: 'wrapuptime', label: 'Pausa pós-atendimento (s)', tipo: 'number', padrao: 10 },
-    { campo: 'sla_segundos', label: 'Meta de SLA (s)', tipo: 'number', padrao: 20 },
-    { campo: 'max_espera', label: 'Espera máxima (s)', tipo: 'number', padrao: 300 },
-    { campo: 'musica_espera', label: 'Música em espera', padrao: 'default' },
-    { campo: 'anuncio_posicao', label: 'Anunciar posição na fila', tipo: 'switch', padrao: 1 },
-    { campo: 'gravar', label: 'Gravar chamadas', tipo: 'switch', padrao: 1 },
-    { campo: 'ativo', label: 'Fila ativa', tipo: 'switch', padrao: 1 }
-  ]
-});
+PAGES['apps.filas'] = {
+  async render(ctx) {
+    let r, audios, pesquisas;
+    try {
+      [r, audios, pesquisas] = await Promise.all([
+        Api.get('/filas', { limite: 200 }),
+        Api.get('/audios').catch(() => ({ dados: [] })),
+        Api.get('/pesquisas', { limite: 100 }).catch(() => ({ dados: [] }))
+      ]);
+    } catch (e) { return pageHead('Filas de Atendimento', '') + blocoErro(e); }
+
+    this._itens = r.dados || [];
+    this._audios = audios.dados || [];
+    this._pesquisas = pesquisas.dados || [];
+
+    const cabecalho = pageHead('Filas de Atendimento',
+      'Distribuição das chamadas, agentes, anúncios e metas de nível de serviço.',
+      `${ctx.can('criar')
+        ? `<button class="btn btn-outline btn-sm" id="verPesquisas">
+             ${icon('star','ico ico-sm')} Pesquisas</button>
+           <button class="btn btn-primary btn-sm" data-nova-fila>
+             ${icon('plus','ico ico-sm')} Nova fila</button>`
+        : readOnlyNote(ctx)}`);
+
+    if (!this._itens.length) {
+      return cabecalho + `<div class="card">${vazio('headset', 'Nenhuma fila cadastrada',
+        `A fila distribui as chamadas entre os atendentes, toca música de espera, anuncia a
+         posição e mede o nível de serviço.`,
+        ctx.can('criar') ? '<button class="btn btn-primary btn-sm" data-nova-fila>Criar a primeira</button>' : '')}
+      </div>`;
+    }
+
+    const linhas = this._itens.map(f => {
+      const sinais = [
+        Number(f.callcenter) && '<span class="badge badge-brand">call center</span>',
+        Number(f.gravar) && '<span class="badge">grava</span>',
+        f.pesquisa_id && '<span class="badge badge-info">pesquisa</span>',
+        Number(f.confirmar_atendimento) && '<span class="badge">confirma</span>'
+      ].filter(Boolean).join(' ');
+
+      return `<tr data-id="${f.id}" data-busca="${esc(`${f.numero} ${f.nome} ${f.descricao || ''}`.toLowerCase())}">
+        <td><b class="mono" style="font-size:15px">${esc(f.numero)}</b></td>
+        <td><b>${esc(f.nome)}</b>
+          ${f.descricao ? `<div class="tiny muted">${esc(f.descricao)}</div>` : ''}
+          ${sinais ? `<div class="row gap-4 wrap" style="margin-top:4px">${sinais}</div>` : ''}</td>
+        <td><span class="badge">${esc(ESTRATEGIAS_FILA.find(e => e.valor === f.estrategia)?.rotulo || f.estrategia)}</span></td>
+        <td class="num">${f.sla_segundos}s</td>
+        <td class="num">${duracao(f.max_espera)}</td>
+        <td>${Number(f.ativo)
+          ? '<span class="badge badge-ok"><i class="dot"></i>Ativa</span>'
+          : '<span class="badge">Parada</span>'}</td>
+        <td class="col-actions"><span class="row-actions">
+          <button class="btn btn-ghost btn-sm btn-icon" data-tip="Situação agora" data-situacao="${f.id}">
+            ${icon('activity','ico ico-sm')}</button>
+          ${ctx.can('editar') ? `<button class="btn btn-outline btn-sm" data-agentes="${f.id}">
+            ${icon('users','ico ico-sm')} Agentes</button>` : ''}
+          ${ctx.can('editar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" data-editar="${f.id}">
+            ${icon('edit','ico ico-sm')}</button>` : ''}
+          ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-excluir="${f.id}">
+            ${icon('trash','ico ico-sm')}</button>` : ''}
+        </span></td>
+      </tr>`;
+    }).join('');
+
+    return cabecalho + `
+      <div class="card">
+        <div class="toolbar">
+          <div class="input-icon search-mini">${icon('search','ico ico-sm')}
+            <input class="input" data-filtro placeholder="Buscar por número ou nome…">
+          </div>
+          <span class="grow"></span>
+          <span class="small muted" data-contador></span>
+        </div>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Fila</th><th>Nome</th><th>Estratégia</th><th>SLA</th>
+                     <th>Espera máx.</th><th>Estado</th><th></th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table></div>
+      </div>`;
+  },
+
+  /** Os campos da fila, em abas. */
+  campos(f = {}) {
+    const audios = cat => [{ valor: '', rotulo: '— nenhum —' },
+      ...this._audios.filter(a => !cat || a.categoria === cat)
+                     .map(a => ({ valor: a.arquivo, rotulo: `${a.nome} (${a.arquivo})` }))];
+
+    return [
+      { aba: 'Geral', campo: 'numero', label: 'Número da fila', obrigatorio: true, mono: true,
+        placeholder: '3000', ajuda: 'É o que se disca para cair na fila.' },
+      { aba: 'Geral', campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'Suporte Técnico' },
+      { aba: 'Geral', campo: 'descricao', label: 'Descrição', largura: 'full' },
+      { aba: 'Geral', campo: 'estrategia', label: 'Estratégia de toque', tipo: 'select',
+        opcoes: ESTRATEGIAS_FILA, padrao: 'rrmemory', largura: 'full' },
+      { aba: 'Geral', campo: 'timeout_agente', label: 'Toque por agente (s)', tipo: 'number', padrao: 20,
+        ajuda: 'Quanto tempo o telefone de cada agente toca antes de passar para o próximo.' },
+      { aba: 'Geral', campo: 'retry', label: 'Intervalo entre tentativas (s)', tipo: 'number', padrao: 5 },
+      { aba: 'Geral', campo: 'wrapuptime', label: 'Pausa pós-atendimento (s)', tipo: 'number', padrao: 10,
+        ajuda: 'Tempo que o agente fica livre de chamadas depois de desligar, para anotar o atendimento.' },
+      { aba: 'Geral', campo: 'sla_segundos', label: 'Meta de SLA (s)', tipo: 'number', padrao: 20,
+        ajuda: 'Atender dentro disso conta como dentro da meta nos relatórios.' },
+      { aba: 'Geral', campo: 'gravar', label: 'Gravar as chamadas', tipo: 'switch', padrao: 1 },
+      { aba: 'Geral', campo: 'ativo', label: 'Fila ativa', tipo: 'switch', padrao: 1 },
+      { aba: 'Geral', campo: 'callcenter', label: 'Fila de call center', tipo: 'switch',
+        ajuda: 'Marcando isto, os agentes não são montados aqui: quem atribui é o módulo de call center, na criação do agente.' },
+
+      { aba: 'Áudios', campo: 'musica_espera', label: 'Música em espera', tipo: 'select',
+        opcoes: [{ valor: 'default', rotulo: 'Padrão do sistema' },
+                 ...this._audios.filter(a => a.categoria === 'espera')
+                                .map(a => ({ valor: a.arquivo, rotulo: a.nome }))],
+        padrao: 'default', largura: 'full' },
+      { aba: 'Áudios', campo: 'audio_entrada', label: 'Anúncio de entrada, para o cliente',
+        tipo: 'select', opcoes: audios(''), largura: 'full',
+        ajuda: 'Toca uma vez, assim que a chamada entra na fila. Ex.: "Você ligou para o suporte, aguarde."' },
+      { aba: 'Áudios', campo: 'audio_agente', label: 'Sussurro, para quem vai atender',
+        tipo: 'select', opcoes: audios(''), largura: 'full',
+        ajuda: 'Só o agente ouve, antes de a conversa começar. É como ele sabe de qual fila veio a chamada.' },
+      { aba: 'Áudios', campo: 'audio_periodico', label: 'Anúncio periódico, para quem espera',
+        tipo: 'select', opcoes: audios(''), largura: 'full' },
+      { aba: 'Áudios', campo: 'periodico_segundos', label: 'A cada quantos segundos', tipo: 'number',
+        padrao: 60 },
+
+      { aba: 'Espera', campo: 'anuncio_posicao', label: 'Anunciar a posição na fila', tipo: 'switch', padrao: 1 },
+      { aba: 'Espera', campo: 'anuncio_espera', label: 'Anunciar o tempo estimado', tipo: 'switch',
+        ajuda: 'O Asterisk calcula pela média das últimas chamadas.' },
+      { aba: 'Espera', campo: 'anuncio_frequencia', label: 'Repetir os anúncios a cada (s)',
+        tipo: 'number', padrao: 30 },
+      { aba: 'Espera', campo: 'max_espera', label: 'Espera máxima (s)', tipo: 'number', padrao: 300,
+        ajuda: 'Passando disso, a chamada sai para o destino de tempo esgotado.' },
+      { aba: 'Espera', campo: 'max_chamadas', label: 'Máximo de chamadas na fila', tipo: 'number', padrao: 0,
+        ajuda: '0 = sem limite. Ao encher, a chamada vai para o destino de fila cheia.' },
+
+      { aba: 'Comportamento', campo: 'entrar_vazia', label: 'Entrar quando não há agente logado',
+        tipo: 'select', opcoes: VAZIA_FILA, padrao: 'sim', largura: 'full' },
+      { aba: 'Comportamento', campo: 'sair_vazia', label: 'Sair se a fila ficar sem agente',
+        tipo: 'select', opcoes: VAZIA_FILA, padrao: 'nao', largura: 'full' },
+      { aba: 'Comportamento', campo: 'peso', label: 'Peso da fila', tipo: 'number', padrao: 0,
+        ajuda: 'Entre filas que dividem os mesmos agentes, a de maior peso é servida primeiro.' },
+      { aba: 'Comportamento', campo: 'tocar_ocupado', label: 'Tocar em agente que já está em chamada',
+        tipo: 'switch',
+        ajuda: 'Deixe desligado, salvo se os agentes usam softphone com várias linhas.' },
+      { aba: 'Comportamento', campo: 'pausa_automatica', label: 'Pausar quem não atende', tipo: 'select',
+        opcoes: [{ valor: 'nao', rotulo: 'Não pausar' },
+                 { valor: 'sim', rotulo: 'Pausar nesta fila' },
+                 { valor: 'todas', rotulo: 'Pausar em todas as filas dele' }], largura: 'full',
+        ajuda: 'Evita a chamada rodar num agente que saiu da mesa sem se pausar.' },
+      { aba: 'Comportamento', campo: 'atraso_atendimento', label: 'Atraso antes de conectar (s)',
+        tipo: 'number', padrao: 0,
+        ajuda: 'Um ou dois segundos ajudam o agente a se preparar depois do sussurro.' },
+      { aba: 'Comportamento', campo: 'confirmar_atendimento', label: 'Exigir confirmação do agente',
+        tipo: 'switch', largura: 'full',
+        ajuda: 'O agente ouve o sussurro e precisa apertar 1 para assumir. Evita a chamada morrer na caixa postal de um celular. Vale para os agentes montados nesta tela.' },
+
+      { aba: 'Failover', campo: 'destino_estouro_tipo', label: 'Tempo de espera esgotado — tipo',
+        tipo: 'select', opcoes: this._tiposDestino, largura: 'full' },
+      { aba: 'Failover', campo: 'destino_estouro_valor', label: 'Tempo esgotado — destino', mono: true,
+        ajuda: 'Ramal, fila, número da URA ou caixa postal, conforme o tipo.' },
+      { aba: 'Failover', campo: 'destino_vazia_tipo', label: 'Fila sem agente — tipo',
+        tipo: 'select', opcoes: this._tiposDestino, largura: 'full' },
+      { aba: 'Failover', campo: 'destino_vazia_valor', label: 'Sem agente — destino', mono: true },
+      { aba: 'Failover', campo: 'destino_cheia_tipo', label: 'Fila cheia — tipo',
+        tipo: 'select', opcoes: this._tiposDestino, largura: 'full' },
+      { aba: 'Failover', campo: 'destino_cheia_valor', label: 'Fila cheia — destino', mono: true },
+
+      { aba: 'Pesquisa', campo: 'pesquisa_id', label: 'Pesquisa de satisfação', tipo: 'select',
+        opcoes: [{ valor: '', rotulo: '— não perguntar nada —' },
+                 ...this._pesquisas.filter(p => Number(p.ativo))
+                                   .map(p => ({ valor: p.id, rotulo: p.nome }))],
+        largura: 'full',
+        ajuda: 'Quando o atendente desliga, o cliente vai automaticamente para a pesquisa em vez de a chamada cair.' }
+    ];
+  },
+
+  get _tiposDestino() {
+    return [{ valor: '', rotulo: '— nada, apenas desliga —' },
+            { valor: 'ramal', rotulo: 'Ramal' }, { valor: 'fila', rotulo: 'Outra fila' },
+            { valor: 'ura', rotulo: 'URA' }, { valor: 'voicemail', rotulo: 'Correio de voz' },
+            { valor: 'anuncio', rotulo: 'Anúncio' },
+            { valor: 'personalizado', rotulo: 'Destino personalizado' },
+            { valor: 'desligar', rotulo: 'Desligar' }];
+  },
+
+  mount(ctx) {
+    const pagina = this;
+    const itens = this._itens || [];
+
+    const filtro = document.querySelector('[data-filtro]');
+    const contador = document.querySelector('[data-contador]');
+    const linhas = [...document.querySelectorAll('tr[data-id]')];
+    const aplicar = () => {
+      const t = (filtro?.value || '').trim().toLowerCase();
+      let n = 0;
+      linhas.forEach(l => { const ok = !t || l.dataset.busca.includes(t); l.hidden = !ok; if (ok) n++; });
+      if (contador) contador.textContent = `${n} de ${linhas.length} filas`;
+    };
+    filtro?.addEventListener('input', aplicar);
+    aplicar();
+
+    // ---------- cadastro ----------
+    const formulario = item => {
+      const novo = !item;
+      const f = item || {};
+      const campos = pagina.campos(f);
+      const abas = [...new Set(campos.map(c => c.aba))];
+      const corpoAba = aba => `<div class="form-grid">${campos
+        .filter(c => c.aba === aba).map(c => campoHtml(c, f)).join('')}</div>`;
+
+      Drawer.open({
+        titulo: novo ? 'Nova fila' : `Fila ${f.numero} — ${f.nome}`,
+        sub: 'Os agentes são montados no botão Agentes, na lista.',
+        wide: true,
+        corpo: `<div class="tabs" data-abas>${abas.map((a, i) =>
+            `<button class="tab ${i === 0 ? 'on' : ''}" data-aba="${esc(a)}">${esc(a)}</button>`).join('')}</div>
+          ${abas.map((a, i) => `<div data-painel="${esc(a)}" ${i ? 'hidden' : ''}>${corpoAba(a)}</div>`).join('')}`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>${novo ? 'Criar fila' : 'Salvar'}</button>`,
+        aoAbrir: dw => {
+          dw.querySelectorAll('[data-aba]').forEach(t => t.onclick = () => {
+            dw.querySelectorAll('[data-aba]').forEach(x => x.classList.remove('on'));
+            t.classList.add('on');
+            dw.querySelectorAll('[data-painel]').forEach(p => p.hidden = p.dataset.painel !== t.dataset.aba);
+          });
+
+          // Marcar call center apaga o sentido de montar agentes aqui.
+          const cc = dw.querySelector('[name="callcenter"]');
+          const confirma = dw.querySelector('[name="confirmar_atendimento"]');
+          const revisarCc = () => {
+            if (!cc || !confirma) return;
+            const campo = confirma.closest('.field');
+            campo.style.opacity = cc.checked ? '.5' : '';
+            confirma.disabled = cc.checked;
+            let nota = campo.querySelector('.nota-cc');
+            if (cc.checked && !nota) {
+              campo.insertAdjacentHTML('beforeend',
+                '<span class="hint nota-cc">Numa fila de call center a confirmação é definida no agente.</span>');
+            } else if (!cc.checked && nota) { nota.remove(); }
+          };
+          cc?.addEventListener('change', revisarCc);
+          revisarCc();
+
+          dw.querySelector('[data-ok]').onclick = async ev => {
+            if (!validarCampos(dw, campos)) return;
+
+            const dados = {};
+            campos.forEach(c => {
+              const el = dw.querySelector(`[name="${c.campo}"]`);
+              if (!el) return;
+              dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value.trim();
+            });
+
+            const botao = ev.currentTarget;
+            botao.disabled = true;
+            botao.innerHTML = '<span class="spin"></span> Salvando…';
+            try {
+              if (novo) await Api.post('/filas', dados);
+              else await Api.put(`/filas/${f.id}`, dados);
+              Drawer.close();
+              toast('Fila salva. Aplique as configurações para valer no Asterisk.', 'ok');
+              App.route();
+            } catch (e) {
+              botao.disabled = false;
+              botao.textContent = novo ? 'Criar fila' : 'Salvar';
+              if (e.detalhe?.campo) {
+                const alvo = campos.find(c => c.campo === e.detalhe.campo);
+                if (alvo) dw.querySelector(`[data-aba="${alvo.aba}"]`)?.click();
+                marcarErro(dw, e.detalhe.campo, e.message);
+                avisoFormulario(dw, [`${alvo?.label || e.detalhe.campo}: ${e.message}`]);
+              } else if (e.status === 409) {
+                marcarErro(dw, 'numero', 'Já existe uma fila com este número.');
+              } else { toast(e.message, 'err'); }
+            }
+          };
+        }
+      });
+    };
+
+    document.querySelectorAll('[data-nova-fila]').forEach(b => b.onclick = () => formulario(null));
+    document.querySelectorAll('[data-editar]').forEach(b => b.onclick = () =>
+      formulario(itens.find(x => String(x.id) === b.dataset.editar)));
+
+    document.querySelectorAll('[data-excluir]').forEach(b => b.onclick = async () => {
+      const f = itens.find(x => String(x.id) === b.dataset.excluir);
+      const ok = await Modal.confirm({
+        titulo: `Excluir a fila ${f.numero}?`,
+        texto: 'Os agentes são desvinculados e as rotas que apontavam para ela ficam sem destino.',
+        ok: 'Excluir'
+      });
+      if (!ok) return;
+      try { await Api.delete(`/filas/${f.id}`); toast('Fila excluída.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+
+    // ---------- agentes ----------
+    document.querySelectorAll('[data-agentes]').forEach(b => b.onclick = async () => {
+      let d;
+      try { d = await Api.get(`/filas/${b.dataset.agentes}/agentes`); }
+      catch (e) { toast(e.message, 'err'); return; }
+
+      const linha = a => `<tr data-ramal="${a.ramal_id}">
+        <td><b class="mono">${esc(a.numero)}</b> ${esc(a.nome)}
+          ${a.origem === 'callcenter' ? '<span class="badge badge-brand">call center</span>' : ''}
+          ${a.setor ? `<div class="tiny muted">${esc(a.setor)}</div>` : ''}</td>
+        <td><input class="input mono" type="number" min="0" max="255" style="width:80px"
+                   value="${a.penalidade ?? 0}" data-pen></td>
+        <td><select class="select" data-tipo style="width:130px">
+          <option value="estatico" ${a.tipo === 'estatico' ? 'selected' : ''}>Fixo</option>
+          <option value="dinamico" ${a.tipo === 'dinamico' ? 'selected' : ''}>Entra por código</option>
+        </select></td>
+        <td class="col-actions">
+          <button class="btn btn-ghost btn-sm btn-icon" data-tip="Tirar da fila" data-tirar>
+            ${icon('x','ico ico-sm')}</button></td>
+      </tr>`;
+
+      Drawer.open({
+        titulo: `Agentes da fila ${d.fila.numero}`,
+        sub: d.fila.callcenter
+          ? 'Esta é uma fila de call center: a lista vem do módulo de call center e não é editada aqui.'
+          : 'Penalidade menor atende primeiro. "Entra por código" não vai para o arquivo: o agente entra e sai com *45.',
+        wide: true,
+        corpo: `
+          ${d.fila.callcenter ? `<div class="aviso-form">${icon('info','ico')}
+            <div><b>Fila de call center</b><div class="tiny">Os agentes são atribuídos quando o
+              agente é criado no módulo de call center. Para montar a lista aqui, desmarque
+              "fila de call center" no cadastro.</div></div></div>` : ''}
+
+          <div class="row gap-8" style="margin-bottom:12px">
+            <select class="select grow" id="novoAgente" ${d.fila.callcenter ? 'disabled' : ''}>
+              <option value="">Escolha um ramal para adicionar…</option>
+              ${d.disponiveis.map(r => `<option value="${r.id}">${esc(r.numero)} — ${esc(r.nome)}</option>`).join('')}
+            </select>
+            <button class="btn btn-outline" id="addAgente" ${d.fila.callcenter ? 'disabled' : ''}>
+              ${icon('plus','ico ico-sm')} Adicionar</button>
+          </div>
+
+          <div class="table-wrap"><table class="table" id="tabelaAgentes">
+            <thead><tr><th>Agente</th><th>Penalidade</th><th>Como entra</th><th></th></tr></thead>
+            <tbody>${d.agentes.map(linha).join('')}</tbody>
+          </table></div>
+          ${d.agentes.length ? '' : '<p class="hint" style="margin-top:12px">Nenhum agente nesta fila ainda.</p>'}`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Fechar</button>
+                 ${d.fila.callcenter ? '' : '<button class="btn btn-primary" data-ok>Salvar agentes</button>'}`,
+        aoAbrir: dw => {
+          const corpo = dw.querySelector('#tabelaAgentes tbody');
+
+          const ligarRemocao = () => dw.querySelectorAll('[data-tirar]').forEach(x =>
+            x.onclick = () => x.closest('tr').remove());
+          ligarRemocao();
+
+          dw.querySelector('#addAgente')?.addEventListener('click', () => {
+            const sel = dw.querySelector('#novoAgente');
+            if (!sel.value) { toast('Escolha um ramal.', 'warn'); return; }
+            const r = d.disponiveis.find(x => String(x.id) === sel.value);
+            corpo.insertAdjacentHTML('beforeend', linha({
+              ramal_id: r.id, numero: r.numero, nome: r.nome, setor: r.setor,
+              penalidade: 0, tipo: 'estatico', origem: 'manual'
+            }));
+            sel.querySelector(`option[value="${sel.value}"]`).remove();
+            sel.value = '';
+            ligarRemocao();
+          });
+
+          const ok = dw.querySelector('[data-ok]');
+          if (ok) ok.onclick = async ev => {
+            const agentes = [...corpo.querySelectorAll('tr[data-ramal]')].map(tr => ({
+              ramal_id: Number(tr.dataset.ramal),
+              penalidade: Number(tr.querySelector('[data-pen]').value || 0),
+              tipo: tr.querySelector('[data-tipo]').value
+            }));
+            const botao = ev.currentTarget;
+            botao.disabled = true;
+            botao.innerHTML = '<span class="spin"></span> Salvando…';
+            try {
+              await Api.put(`/filas/${d.fila.id}/agentes`, { agentes });
+              Drawer.close();
+              toast(`${agentes.length} agente(s) na fila. Aplique as configurações.`, 'ok');
+              App.route();
+            } catch (e) {
+              botao.disabled = false;
+              botao.textContent = 'Salvar agentes';
+              toast(e.message, 'err');
+            }
+          };
+        }
+      });
+    });
+
+    // ---------- situação ao vivo ----------
+    document.querySelectorAll('[data-situacao]').forEach(b => b.onclick = async () => {
+      const f = itens.find(x => String(x.id) === b.dataset.situacao);
+      let d;
+      try { d = await Api.get(`/filas/${f.id}/situacao`); }
+      catch (e) { toast(e.message, 'err'); return; }
+
+      Drawer.open({
+        titulo: `Fila ${f.numero} agora`,
+        sub: d.disponivel ? `${d.esperando} chamada(s) esperando` : d.detalhe,
+        corpo: !d.disponivel
+          ? vazio('alert', 'Asterisk fora do ar', esc(d.detalhe))
+          : `${d.membros.length ? `<div class="table-wrap"><table class="table">
+              <thead><tr><th>Agente</th><th>Estado</th><th>Penalidade</th><th>Atendidas</th></tr></thead>
+              <tbody>${d.membros.map(m => `<tr>
+                <td><b class="mono">${esc(m.ramal)}</b> ${esc(m.nome)}
+                  <div class="tiny muted mono">${esc(m.interface)}</div></td>
+                <td>${m.pausado
+                  ? `<span class="badge badge-warn">Pausado${m.motivo ? ` — ${esc(m.motivo)}` : ''}</span>`
+                  : `<span class="badge ${m.estado === 'Not in use' ? 'badge-ok' : 'badge-info'}">${esc(m.estado)}</span>`}</td>
+                <td class="num">${m.penalidade}</td>
+                <td class="num">${m.chamadas}</td>
+              </tr>`).join('')}</tbody></table></div>`
+            : vazio('users', 'Nenhum agente logado', 'Ninguém está atendendo esta fila neste momento.')}
+            <details style="margin-top:16px"><summary class="small muted">Saída bruta do Asterisk</summary>
+              <pre class="mono tiny" style="white-space:pre-wrap;margin-top:8px">${esc(d.saida)}</pre></details>`,
+        rodape: '<button class="btn btn-outline" data-drawer-close>Fechar</button>'
+      });
+    });
+
+    // ---------- pesquisas ----------
+    document.getElementById('verPesquisas')?.addEventListener('click', () => paginaPesquisas(ctx, pagina));
+  }
+};
+
+/** Gaveta de pesquisas de satisfação, aberta pela tela de filas. */
+async function paginaPesquisas(ctx, pagina) {
+  let r;
+  try { r = await Api.get('/pesquisas', { limite: 100 }); }
+  catch (e) { toast(e.message, 'err'); return; }
+
+  const audios = [{ valor: '', rotulo: '— sem áudio, só um bipe —' },
+    ...(pagina._audios || []).map(a => ({ valor: a.arquivo, rotulo: `${a.nome} (${a.arquivo})` }))];
+
+  const campos = p => [
+    { campo: 'nome', label: 'Nome', obrigatorio: true, largura: 'full', placeholder: 'Nota do atendimento' },
+    { campo: 'descricao', label: 'Descrição', largura: 'full' },
+    { campo: 'audio_pergunta', label: 'Áudio da pergunta', tipo: 'select', opcoes: audios, largura: 'full',
+      ajuda: 'Ex.: "De 1 a 5, que nota você dá para o atendimento?". Sem áudio, o cliente só ouve um bipe — envie o seu em Gravações do Sistema.' },
+    { campo: 'audio_obrigado', label: 'Áudio de agradecimento', tipo: 'select', opcoes: audios, largura: 'full' },
+    { campo: 'nota_min', label: 'Nota mínima', tipo: 'number', padrao: 1 },
+    { campo: 'nota_max', label: 'Nota máxima', tipo: 'number', padrao: 5,
+      ajuda: 'A resposta é um dígito só, então vai de 1 a 9.' },
+    { campo: 'tentativas', label: 'Tentativas', tipo: 'number', padrao: 2 },
+    { campo: 'segundos', label: 'Segundos para responder', tipo: 'number', padrao: 8 },
+    { campo: 'ativo', label: 'Pesquisa ativa', tipo: 'switch', padrao: 1 }
+  ];
+
+  const formulario = item => {
+    const novo = !item;
+    const p = item || {};
+    const cs = campos(p);
+    Drawer.open({
+      titulo: novo ? 'Nova pesquisa' : `Editar ${p.nome}`,
+      sub: 'O cliente cai aqui quando o atendente desliga, se a fila tiver esta pesquisa escolhida.',
+      corpo: `<div class="form-grid">${cs.map(c => campoHtml(c, p)).join('')}</div>`,
+      rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+               <button class="btn btn-primary" data-ok>Salvar</button>`,
+      aoAbrir: dw => dw.querySelector('[data-ok]').onclick = async () => {
+        if (!validarCampos(dw, cs)) return;
+        const dados = {};
+        cs.forEach(c => {
+          const el = dw.querySelector(`[name="${c.campo}"]`);
+          if (el) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value.trim();
+        });
+        try {
+          if (novo) await Api.post('/pesquisas', dados);
+          else await Api.put(`/pesquisas/${p.id}`, dados);
+          Drawer.close();
+          toast('Pesquisa salva. Aplique as configurações.', 'ok');
+          App.route();
+        } catch (e) { toast(e.message, 'err'); }
+      }
+    });
+  };
+
+  Drawer.open({
+    titulo: 'Pesquisas de satisfação',
+    sub: 'Perguntam a nota logo depois que o atendente desliga a chamada.',
+    wide: true,
+    corpo: r.dados.length ? `<div class="table-wrap"><table class="table">
+        <thead><tr><th>Pesquisa</th><th>Notas</th><th>Áudio</th><th>Estado</th><th></th></tr></thead>
+        <tbody>${r.dados.map(p => `<tr>
+          <td><b>${esc(p.nome)}</b>${p.descricao ? `<div class="tiny muted">${esc(p.descricao)}</div>` : ''}</td>
+          <td class="num">${p.nota_min} a ${p.nota_max}</td>
+          <td>${p.audio_pergunta
+            ? `<span class="mono small">${esc(p.audio_pergunta)}</span>`
+            : '<span class="badge badge-warn">só um bipe</span>'}</td>
+          <td>${Number(p.ativo) ? '<span class="badge badge-ok">Ativa</span>' : '<span class="badge">Parada</span>'}</td>
+          <td class="col-actions"><button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar"
+                data-editar-pesq="${p.id}">${icon('edit','ico ico-sm')}</button></td>
+        </tr>`).join('')}</tbody></table></div>`
+      : vazio('star', 'Nenhuma pesquisa criada',
+              'Crie uma para medir a satisfação logo depois do atendimento.'),
+    rodape: `<button class="btn btn-outline" data-drawer-close>Fechar</button>
+             ${ctx.can('criar') ? '<button class="btn btn-primary" id="novaPesquisa">Nova pesquisa</button>' : ''}`,
+    aoAbrir: dw => {
+      dw.querySelector('#novaPesquisa')?.addEventListener('click', () => formulario(null));
+      dw.querySelectorAll('[data-editar-pesq]').forEach(b => b.onclick = () =>
+        formulario(r.dados.find(x => String(x.id) === b.dataset.editarPesq)));
+    }
+  });
+}
 
 /* ------------------------- Relatórios · CDR ------------------------- */
 PAGES['rel.cdr'] = {

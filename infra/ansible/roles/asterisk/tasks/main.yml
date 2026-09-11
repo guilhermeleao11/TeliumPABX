@@ -393,6 +393,7 @@
   loop:
     - pjsip_custom.conf
     - extensions_custom.conf
+    - queues_custom.conf
 
 - name: Instalar unidade systemd
   ansible.builtin.template:

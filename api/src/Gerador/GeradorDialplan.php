@@ -35,6 +35,8 @@ final class GeradorDialplan
             'extensions.ramais.conf'  => $this->ramais(),
             'extensions.grupos.conf'  => $this->grupos(),
             'extensions.filas.conf'   => $this->filas(),
+            'extensions.pesquisa.conf' => $this->pesquisas(),
+            'extensions.confirmacao.conf' => $this->confirmacoesDeFila(),
             'extensions.ura.conf'     => $this->uras(),
             'extensions.saida.conf'   => $this->rotasSaida(),
             'extensions.entrada.conf' => $this->rotasEntrada(),
@@ -191,19 +193,178 @@ final class GeradorDialplan
     {
         $b = $this->cabecalho('Contexto: filas de atendimento')->contexto('telium-filas');
 
+        // Uma pesquisa desligada não pode virar destino: o Goto cairia
+        // numa extensão que o gerador não escreveu.
+        $ativas = array_column(Bd::todos('SELECT id FROM pesquisas WHERE ativo = 1'), 'id');
+
         foreach (Bd::todos('SELECT * FROM filas WHERE ativo = 1 ORDER BY numero') as $f) {
+            $numero = (string) $f['numero'];
+            $pesquisa = (int) ($f['pesquisa_id'] ?? 0);
+            if ($pesquisa > 0 && !in_array($pesquisa, array_map('intval', $ativas), true)) {
+                $pesquisa = 0;
+            }
+
             $b->branco()
-              ->comentario("{$f['numero']} — {$f['nome']} ({$f['estrategia']})")
-              ->exten($f['numero'], "NoOp(Fila {$f['nome']})")
-              ->same("Set(CDR(fila)={$f['numero']})")
+              ->comentario("{$numero} — {$f['nome']} ({$f['estrategia']})"
+                  . ((int) $f['callcenter'] === 1 ? ' — call center' : ''))
+              ->exten($numero, "NoOp(Fila {$f['nome']})")
+              ->same("Set(CDR(fila)={$numero})")
+              ->same("Set(__TELIUM_FILA={$numero})")
               ->same('Answer()');
 
             if ((int) $f['gravar'] === 1) {
                 $b->same('GoSub(sub-gravar,s,1(entrada))');
             }
 
-            $b->same(sprintf('Queue(%s,tT,,,%d)', $f['numero'], (int) $f['max_espera']))
-              ->apps($this->destino->linhas($f['destino_estouro_tipo'], $f['destino_estouro_valor']));
+            // Anúncio ao cliente antes de entrar na espera. Fica fora do
+            // announce da fila de propósito: aquele é o sussurro do agente.
+            if (($f['audio_entrada'] ?? '') !== '') {
+                $b->same('Playback(' . $f['audio_entrada'] . ')');
+            }
+
+            // 'c' devolve o cliente ao dialplan quando o atendente desliga;
+            // é o que leva ele para a pesquisa. Sem pesquisa não usamos a
+            // opção, e a chamada termina junto com o agente, como sempre.
+            $opcoes = 'tT' . ($pesquisa > 0 ? 'c' : '');
+
+            $b->same(sprintf(
+                'Queue(%s,%s,,,%d)',
+                $numero,
+                $opcoes,
+                (int) $f['max_espera']
+            ));
+
+            $b->same('NoOp(Saída da fila ' . $numero . ': ${QUEUESTATUS})');
+
+            if ($pesquisa > 0) {
+                // QUEUESTATUS vazio = a chamada foi atendida e o agente
+                // desligou; qualquer valor ali é motivo de não-atendimento.
+                $b->same('GotoIf($["${QUEUESTATUS}" = ""]?pesquisa-' . $numero . ')');
+            }
+
+            $temVazia = ($f['destino_vazia_tipo'] ?? '') !== '';
+            $temCheia = ($f['destino_cheia_tipo'] ?? '') !== '';
+
+            if ($temVazia) {
+                $b->same('GotoIf($["${QUEUESTATUS}" = "JOINEMPTY" | "${QUEUESTATUS}" = "LEAVEEMPTY"'
+                    . ' | "${QUEUESTATUS}" = "JOINUNAVAIL" | "${QUEUESTATUS}" = "LEAVEUNAVAIL"]'
+                    . '?vazia-' . $numero . ')');
+            }
+            if ($temCheia) {
+                $b->same('GotoIf($["${QUEUESTATUS}" = "FULL"]?cheia-' . $numero . ')');
+            }
+
+            // Saída padrão: tempo esgotado ou motivo sem destino próprio.
+            $b->apps($this->destino->linhas($f['destino_estouro_tipo'], $f['destino_estouro_valor']));
+
+            if ($temVazia) {
+                $linhas = $this->destino->linhas($f['destino_vazia_tipo'], $f['destino_vazia_valor']);
+                $b->same(array_shift($linhas), 'vazia-' . $numero)->apps($linhas);
+            }
+            if ($temCheia) {
+                $linhas = $this->destino->linhas($f['destino_cheia_tipo'], $f['destino_cheia_valor']);
+                $b->same(array_shift($linhas), 'cheia-' . $numero)->apps($linhas);
+            }
+            if ($pesquisa > 0) {
+                $b->same("Goto(telium-pesquisa,{$pesquisa},1)", 'pesquisa-' . $numero);
+            }
+        }
+
+        return $b->texto();
+    }
+
+    /**
+     * Um contexto de confirmação por fila. O membro da fila é um canal
+     * Local que entra aqui, e o U() do Dial roda a sub-rotina que pede o
+     * dígito no canal de quem vai atender.
+     */
+    private function confirmacoesDeFila(): string
+    {
+        $b = $this->cabecalho('Contextos: confirmação de atendimento nas filas');
+
+        $filas = Bd::todos(
+            'SELECT numero, nome, audio_agente FROM filas
+              WHERE ativo = 1 AND confirmar_atendimento = 1 ORDER BY numero'
+        );
+
+        if ($filas === []) {
+            return $b->comentario('nenhuma fila com confirmação de atendimento')->texto();
+        }
+
+        foreach ($filas as $f) {
+            $audio = (string) ($f['audio_agente'] ?? '');
+
+            $b->branco()
+              ->comentario("Fila {$f['numero']} — {$f['nome']}")
+              ->contexto("telium-confirma-{$f['numero']}")
+              ->exten('_X.', "NoOp(Confirmação da fila {$f['numero']} para o ramal \${EXTEN})")
+              ->same("Set(__TELIUM_AUDIO={$audio})")
+              ->same('Dial(PJSIP/${EXTEN},,U(sub-confirmar-atendimento))')
+              ->same('Hangup()');
+        }
+
+        return $b->texto();
+    }
+
+    /**
+     * Pesquisa de satisfação: o cliente chega aqui quando o atendente
+     * desliga, pela opção 'c' do Queue. A nota vai para o banco pelo
+     * func_odbc; desligar sem responder também é registrado, porque
+     * "não respondeu" é informação.
+     */
+    private function pesquisas(): string
+    {
+        $b = $this->cabecalho('Contexto: pesquisa de satisfação')->contexto('telium-pesquisa');
+
+        $pesquisas = Bd::todos('SELECT * FROM pesquisas WHERE ativo = 1 ORDER BY id');
+
+        if ($pesquisas === []) {
+            return $b->comentario('nenhuma pesquisa ativa')->texto();
+        }
+
+        foreach ($pesquisas as $p) {
+            $id = (int) $p['id'];
+            $min = (int) $p['nota_min'];
+            $max = (int) $p['nota_max'];
+            $prompt = ($p['audio_pergunta'] ?? '') !== '' ? (string) $p['audio_pergunta'] : 'beep';
+
+            $b->branco()
+              ->comentario("{$id} — {$p['nome']} (nota de {$min} a {$max})")
+              ->exten((string) $id, "NoOp(Pesquisa: {$p['nome']})")
+              ->same('Set(TELIUM_NOTA=)')
+              ->same(sprintf(
+                  'Read(TELIUM_NOTA,%s,1,,%d,%d)',
+                  $prompt,
+                  max(1, (int) $p['tentativas']),
+                  max(3, (int) $p['segundos'])
+              ))
+              ->same('GotoIf($["${TELIUM_NOTA}" = ""]?sem-' . $id . ')')
+              ->same('GotoIf($[${TELIUM_NOTA} < ' . $min . ' | ${TELIUM_NOTA} > ' . $max
+                  . ']?invalida-' . $id . ')')
+              ->same(sprintf(
+                  'Set(ODBC_TELIUM_PESQUISA(%d,${TELIUM_FILA},${MEMBERINTERFACE},'
+                  . '${CALLERID(num)},${UNIQUEID})=${TELIUM_NOTA})',
+                  $id
+              ))
+              ->same('NoOp(Nota ${TELIUM_NOTA} registrada)');
+
+            if (($p['audio_obrigado'] ?? '') !== '') {
+                $b->same('Playback(' . $p['audio_obrigado'] . ')');
+            } else {
+                $b->same('Playback(auth-thankyou)');
+            }
+
+            $b->same('Hangup()')
+              // Uma tecla fora da faixa vira nova tentativa, não descarte.
+              ->same('Playback(pbx-invalid)', 'invalida-' . $id)
+              ->same("Goto(telium-pesquisa,{$id},1)")
+              ->same(sprintf(
+                  'Set(ODBC_TELIUM_PESQUISA(%d,${TELIUM_FILA},${MEMBERINTERFACE},'
+                  . '${CALLERID(num)},${UNIQUEID})=)',
+                  $id
+              ), 'sem-' . $id)
+              ->same('NoOp(Cliente não respondeu)')
+              ->same('Hangup()');
         }
 
         return $b->texto();
