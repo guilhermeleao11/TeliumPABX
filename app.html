@@ -129,3 +129,15 @@
 </script>
 </body>
 </html>
+<script>
+(function () {
+  const sel = sessionStorage.getItem('__click');
+  if (!sel) return;
+  sessionStorage.removeItem('__click');
+  const tenta = n => setTimeout(() => {
+    const el = document.querySelector(sel);
+    if (el) el.click(); else if (n < 25) tenta(n + 1);
+  }, 300);
+  tenta(0);
+})();
+</script>

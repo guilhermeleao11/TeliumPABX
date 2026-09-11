@@ -71,7 +71,31 @@ $recursos = [
                       'vm_dizer_hora','vm_dizer_origem','gravar','dnd',
                       'siga_me','siga_me_ativo','siga_me_modo','siga_me_toque','siga_me_confirmar',
                       'tempo_toque','pin_set_id','perm_local','perm_celular','perm_ddd','perm_ddi',
-                      'no_diretorio','ativo'],
+                      'no_diretorio','ativo',
+                      // identificação
+                      'pin','accountcode','alias_sip','cid_pseudo','did','did_descricao',
+                      'cid_entrada','contexto_custom',
+                      // sinalização
+                      'dtmf_modo','trust_rpid','envia_rpid','envia_pai','send_connected',
+                      'user_eq_phone','qualify_freq','timers_sessao','timers_expira',
+                      'expira_max','expira_min','proxy_saida','contexto_mensagens',
+                      // mídia
+                      'codecs_negados','direct_media','media_address','rtp_simetrico',
+                      'reescrever_contato','forcar_rport','usar_transporte_recebido',
+                      'rtp_timeout','rtp_timeout_hold','max_audio','max_video',
+                      'srtp_oportunista','remove_existing','refer_blind_progress',
+                      // WebRTC e DTLS
+                      'avpf','ice','rtcp_mux','dtls','dtls_verificar','dtls_setup','dtls_rekey',
+                      // MWI
+                      'mwi_tipo','mwi_agregado',
+                      // discagem e atendimento
+                      'opcoes_dial','toque_sigame','max_saidas','chamada_espera','tom_espera',
+                      'rastreio_chamada','auto_resposta','interfonia','estado_em_fila',
+                      // gravação por sentido
+                      'grav_ext_entrada','grav_ext_saida','grav_int_entrada','grav_int_saida',
+                      'grav_sob_demanda','grav_prioridade',
+                      // ditado
+                      'ditado','ditado_formato','ditado_email','ditado_remetente'],
             ordem: 'numero',
             busca: ['numero','nome','setor'],
             filtros: ['setor','ativo','gravar'],
@@ -99,6 +123,21 @@ $recursos = [
                                            . 'para deixá-lo sem saída. Outros contextos pulariam a '
                                            . 'checagem de permissão de discagem.'],
                 'transporte' => ['rotulo' => 'transporte', 'em' => ['udp', 'tcp', 'tls', 'wss']],
+                'pin' => ['rotulo' => 'PIN do usuário', 'padrao' => '/^[0-9]{0,10}$/',
+                          'mensagem' => 'O PIN do usuário é só de dígitos.'],
+                'dtmf_modo' => ['rotulo' => 'DTMF',
+                                'em' => ['rfc4733', 'inband', 'info', 'auto', 'auto_info']],
+                'interfonia' => ['rotulo' => 'interfonia', 'em' => ['permitir', 'negar']],
+                'mwi_tipo' => ['rotulo' => 'MWI', 'em' => ['auto', 'solicitado', 'nao_solicitado']],
+                'timers_sessao' => ['rotulo' => 'temporizador de sessão',
+                                    'em' => ['nao', 'sim', 'obrigatorio']],
+                'dtls_verificar' => ['rotulo' => 'verificação do DTLS',
+                                     'em' => ['no', 'fingerprint', 'certificate', 'yes']],
+                'dtls_setup' => ['rotulo' => 'papel no DTLS',
+                                 'em' => ['active', 'passive', 'actpass']],
+                'ditado_formato' => ['rotulo' => 'formato do ditado', 'em' => ['wav', 'gsm', 'ogg']],
+                'grav_sob_demanda' => ['rotulo' => 'gravação sob demanda',
+                                       'em' => ['desabilitado', 'ativar', 'sobrepor']],
                 'gravar' => ['rotulo' => 'gravação', 'em' => ['nao', 'entrada', 'saida', 'ambas']],
                 'siga_me' => ['rotulo' => 'siga-me', 'padrao' => '/^[0-9*#+]{2,20}$/',
                               'mensagem' => 'O destino do siga-me é um ramal ou um número.'],

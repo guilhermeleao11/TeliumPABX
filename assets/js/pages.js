@@ -545,6 +545,10 @@ function paginaCrud(cfg) {
                  <button class="btn btn-primary" data-salvar>${novo ? 'Criar' : 'Salvar alterações'}</button>`,
         aoAbrir: dw => {
           ligarRequisitos(dw);
+          // Gancho para a página acrescentar o que é só dela — o gerador
+          // de senha do ramal, por exemplo.
+          if (cfg.aoAbrirFormulario) cfg.aoAbrirFormulario(dw, item, this);
+
           dw.querySelectorAll('[data-aba]').forEach(t => t.onclick = () => {
             dw.querySelectorAll('[data-aba]').forEach(x => x.classList.remove('on'));
             t.classList.add('on');
@@ -783,6 +787,39 @@ function campoHtml(c, item) {
 }
 
 /* ------------------------- Conectividade · Ramais ------------------------- */
+/**
+ * As cinco respostas do FreePBX para "grava esta chamada?".
+ *
+ * "Não importa" é o valor honesto quando o ramal não tem opinião: quem
+ * decide é a fila, a rota ou o padrão da central. Só "forçar" e "nunca"
+ * vencem as outras regras.
+ */
+const OPCOES_GRAVACAO = [
+  { valor: 'indiferente', rotulo: 'Não importa — quem decide é a fila ou a rota' },
+  { valor: 'sim',         rotulo: 'Sim, gravar' },
+  { valor: 'nao',         rotulo: 'Não gravar' },
+  { valor: 'forcar',      rotulo: 'Forçar — grava mesmo se outra regra disser que não' },
+  { valor: 'nunca',       rotulo: 'Nunca — não grava nem se outra regra mandar' }
+];
+
+/** Senha SIP longa e aleatória, do gerador do próprio navegador. */
+function gerarSenhaSip(tamanho = 20) {
+  // Sem caracteres que confundem quem digita num aparelho: I, l, 1, O, 0.
+  const alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const simbolos = '@#%+=_-';
+  const bytes = new Uint32Array(tamanho);
+  crypto.getRandomValues(bytes);
+
+  const corpo = [...bytes].map(b => alfabeto[b % alfabeto.length]);
+  // Dois símbolos em posições sorteadas, para não cair sempre no fim.
+  const pos = new Uint32Array(2);
+  crypto.getRandomValues(pos);
+  corpo[pos[0] % tamanho] = simbolos[pos[0] % simbolos.length];
+  corpo[pos[1] % tamanho] = simbolos[pos[1] % simbolos.length];
+
+  return corpo.join('');
+}
+
 PAGES['conn.ramais'] = paginaCrud({
   recurso: 'ramais',
   titulo: 'Ramais',
@@ -826,45 +863,232 @@ PAGES['conn.ramais'] = paginaCrud({
     : '',
 
   campos: (r) => [
-    { campo: 'numero', label: 'Número do ramal', obrigatorio: true, mono: true,
-      placeholder: '1001', somenteLeitura: !!r.id, ajuda: r.id ? 'O número não muda depois de criado.' : '' },
-    { campo: 'nome', label: 'Nome de exibição', obrigatorio: true, placeholder: 'Nome do usuário' },
+    // ---------------- Geral ----------------
+    { campo: 'numero', label: 'Ramal do usuário', obrigatorio: true, mono: true,
+      placeholder: '1001', somenteLeitura: !!r.id,
+      padraoValido: /^[0-9]{2,10}$/, mensagemPadrao: 'só dígitos, de 2 a 10',
+      ajuda: r.id ? 'O número não muda depois de criado.' : 'É o que se disca para chegar nesta pessoa.' },
+    { campo: 'nome', label: 'Nome de exibição', obrigatorio: true, placeholder: 'Nome do usuário',
+      ajuda: 'Aparece no visor de quem recebe a chamada.' },
     { campo: 'setor', label: 'Setor / centro de custo', placeholder: 'Atendimento' },
-    { campo: 'email', label: 'E-mail', tipo: 'email', placeholder: 'usuario@empresa.com.br' },
+    { campo: 'email', label: 'E-mail', tipo: 'email', placeholder: 'usuario@empresa.com.br',
+      ajuda: 'Recebe os recados do correio de voz.' },
     { campo: 'senha_sip', label: r.id ? 'Nova senha SIP' : 'Senha SIP', obrigatorio: !r.id, mono: true,
+      largura: 'full',
       placeholder: r.id ? 'deixe em branco para manter' : 'mínimo 12 caracteres',
-      ajuda: 'Use uma senha longa e aleatória: é o que protege o ramal contra fraude.' },
+      ajuda: 'É ela que protege o ramal contra fraude de tarifação. Use o botão para gerar uma longa.' },
+    { campo: 'pin', label: 'PIN do usuário', mono: true, tipo: 'password',
+      padraoValido: /^[0-9]{0,10}$/, mensagemPadrao: 'só dígitos',
+      ajuda: 'Usado onde a central pede confirmação, como nas rotas com senha.' },
+    { campo: 'accountcode', label: 'Código da conta', mono: true,
+      ajuda: 'Vai para o CDR — serve para separar custo por cliente ou projeto.' },
     { campo: 'ativo', label: 'Ramal ativo', tipo: 'switch', padrao: 1 },
 
-    { aba: 'Voz', campo: 'voicemail', label: 'Correio de voz', tipo: 'switch', padrao: 1 },
-    { aba: 'Voz', campo: 'vm_email', label: 'Enviar mensagens por e-mail', tipo: 'switch', padrao: 1 },
-    { aba: 'Voz', campo: 'gravar', label: 'Gravação de chamadas', tipo: 'select',
-      opcoes: [{valor:'nao',rotulo:'Não gravar'},{valor:'entrada',rotulo:'Só entrantes'},
-               {valor:'saida',rotulo:'Só saintes'},{valor:'ambas',rotulo:'Entrantes e saintes'}] },
-    { aba: 'Voz', campo: 'tempo_toque', label: 'Tempo de toque (s)', tipo: 'number', padrao: 20 },
-    { aba: 'Voz', campo: 'siga_me', label: 'Siga-me', placeholder: 'Celular ou outro ramal', largura: 'full' },
-    { aba: 'Voz', campo: 'dnd', label: 'Não perturbe', tipo: 'switch' },
+    // ---------------- DID e identificação ----------------
+    { aba: 'Identificação', campo: 'did', label: 'DID atribuído', mono: true,
+      placeholder: '1140041001',
+      ajuda: 'O número público que cai direto neste ramal. A rota de entrada é criada à parte.' },
+    { aba: 'Identificação', campo: 'did_descricao', label: 'Descrição do DID' },
+    { aba: 'Identificação', campo: 'cid_entrada', label: 'CID de entrada', mono: true,
+      ajuda: 'Identificação que a central mostra quando a chamada chega por este DID.' },
+    { aba: 'Identificação', campo: 'cid_pseudo', label: 'Número de saída (pseudo CID)', mono: true,
+      ajuda: 'O que a operadora recebe como origem nas ligações deste ramal.' },
+    { aba: 'Identificação', campo: 'alias_sip', label: 'Apelido SIP', mono: true,
+      ajuda: 'Um segundo nome pelo qual a central reconhece este ramal.' },
+    { aba: 'Identificação', campo: 'contexto', label: 'Contexto', tipo: 'select', padrao: 'interno',
+      opcoes: [{ valor: 'interno', rotulo: 'interno — discagem normal' },
+               { valor: 'telium-bloqueado', rotulo: 'telium-bloqueado — sem saída' }],
+      ajuda: 'Outro contexto faria o ramal pular a checagem de permissão de discagem.' },
+    { aba: 'Identificação', campo: 'contexto_custom', label: 'Contexto personalizado', mono: true,
+      ajuda: 'Só se você escreveu um contexto próprio no extensions_custom.conf. Substitui o de cima.' },
 
+    // ---------------- Voz ----------------
+    { aba: 'Voz', campo: 'voicemail', label: 'Correio de voz', tipo: 'switch', padrao: 1 },
+    { aba: 'Voz', campo: 'vm_senha', label: 'Senha do correio', tipo: 'password', mono: true,
+      padraoValido: /^[0-9]{0,10}$/, mensagemPadrao: 'só dígitos',
+      ajuda: 'Em branco, a senha é o próprio número do ramal.' },
+    { aba: 'Voz', campo: 'vm_email', label: 'Enviar recados por e-mail', tipo: 'switch', padrao: 1 },
+    { aba: 'Voz', campo: 'tempo_toque', label: 'Tempo de toque (s)', tipo: 'number', padrao: 20 },
+    { aba: 'Voz', campo: 'toque_sigame', label: 'Tempo de toque no siga-me (s)', tipo: 'number', padrao: 20 },
+    { aba: 'Voz', campo: 'siga_me', label: 'Siga-me', mono: true,
+      placeholder: 'ramal ou número externo', largura: 'full',
+      ajuda: 'Detalhes e modo ficam em Aplicações › Siga-me.' },
+    { aba: 'Voz', campo: 'dnd', label: 'Não perturbe', tipo: 'switch' },
+    { aba: 'Voz', campo: 'chamada_espera', label: 'Chamada em espera', tipo: 'switch', padrao: 1,
+      ajuda: 'Desligada, a segunda chamada ouve ocupado.' },
+    { aba: 'Voz', campo: 'tom_espera', label: 'Bipe ao chegar segunda chamada', tipo: 'switch', padrao: 1 },
+    { aba: 'Voz', campo: 'auto_resposta', label: 'Atender sozinho chamada interna', tipo: 'switch',
+      ajuda: 'O aparelho abre o viva-voz sem tocar. Útil em PA de atendimento.' },
+    { aba: 'Voz', campo: 'interfonia', label: 'Interfonia', tipo: 'select',
+      opcoes: [{ valor: 'permitir', rotulo: 'Aceita ser chamado em interfonia' },
+               { valor: 'negar', rotulo: 'Recusa interfonia' }] },
+    { aba: 'Voz', campo: 'max_saidas', label: 'Limite de chamadas simultâneas de saída',
+      tipo: 'number', padrao: 0, ajuda: '0 deixa sem limite.' },
+    { aba: 'Voz', campo: 'estado_em_fila', label: 'Contar estado do ramal nas filas',
+      tipo: 'switch', padrao: 1,
+      ajuda: 'Desligado, a fila oferece chamada mesmo com o ramal ocupado.' },
+    { aba: 'Voz', campo: 'rastreio_chamada', label: 'Permitir rastrear a última chamada',
+      tipo: 'switch', ajuda: 'Libera o código *69 neste ramal.' },
+    { aba: 'Voz', campo: 'no_diretorio', label: 'Aparece no diretório', tipo: 'switch', padrao: 1 },
+    { aba: 'Voz', campo: 'opcoes_dial', label: 'Opções do Dial', mono: true, placeholder: 'tT',
+      ajuda: 'Passadas direto ao Asterisk. Em branco, a central usa tT.' },
+
+    // ---------------- Gravação ----------------
+    { aba: 'Gravação', campo: 'grav_ext_entrada', label: 'Externa recebida', tipo: 'select',
+      opcoes: OPCOES_GRAVACAO, largura: 'full' },
+    { aba: 'Gravação', campo: 'grav_ext_saida', label: 'Externa feita', tipo: 'select',
+      opcoes: OPCOES_GRAVACAO, largura: 'full' },
+    { aba: 'Gravação', campo: 'grav_int_entrada', label: 'Interna recebida', tipo: 'select',
+      opcoes: OPCOES_GRAVACAO, largura: 'full' },
+    { aba: 'Gravação', campo: 'grav_int_saida', label: 'Interna feita', tipo: 'select',
+      opcoes: OPCOES_GRAVACAO, largura: 'full' },
+    { aba: 'Gravação', campo: 'grav_sob_demanda', label: 'Gravação sob demanda', tipo: 'select',
+      opcoes: [{ valor: 'desabilitado', rotulo: 'Não permitir' },
+               { valor: 'ativar', rotulo: 'Permitir o código *1 durante a chamada' },
+               { valor: 'sobrepor', rotulo: 'Permitir e deixar vencer as regras acima' }],
+      largura: 'full' },
+    { aba: 'Gravação', campo: 'grav_prioridade', label: 'Prioridade da regra', tipo: 'number', padrao: 10,
+      ajuda: 'Quando ramal e fila discordam, vence a regra de maior prioridade.' },
+    { aba: 'Gravação', campo: 'gravar', label: 'Regra antiga (compatibilidade)', tipo: 'select',
+      opcoes: [{ valor: 'nao', rotulo: 'Não gravar' }, { valor: 'entrada', rotulo: 'Só entrantes' },
+               { valor: 'saida', rotulo: 'Só saintes' }, { valor: 'ambas', rotulo: 'Entrantes e saintes' }],
+      ajuda: 'Mantida para instalações antigas. As quatro opções acima é que valem.' },
+
+    // ---------------- Rede ----------------
     { aba: 'Rede', campo: 'transporte', label: 'Transporte', tipo: 'select',
-      opcoes: ['udp','tcp','tls','wss'], padrao: 'udp' },
-    { aba: 'Rede', campo: 'codecs', label: 'Codecs', mono: true, padrao: 'opus,alaw,ulaw,g722' },
-    { aba: 'Rede', campo: 'max_contatos', label: 'Máximo de contatos', tipo: 'number', padrao: 2 },
-    { aba: 'Rede', campo: 'srtp', label: 'Exigir mídia criptografada (SRTP)', tipo: 'switch' },
-    { aba: 'Rede', campo: 'webrtc', label: 'Softphone do navegador (WebRTC)', tipo: 'switch',
-      largura: 'full',
-      ajuda: 'Liga tudo o que o navegador exige: transporte WSS, AVPF, ICE, rtcp-mux e DTLS. O usuário do console vinculado a este ramal passa a discar pela própria tela, sem instalar nada.' },
-    { aba: 'Rede', campo: 'contexto', label: 'Contexto', mono: true, padrao: 'interno' },
-    { aba: 'Rede', campo: 'callgroup', label: 'Grupo de chamada', mono: true },
-    { aba: 'Rede', campo: 'pickupgroup', label: 'Grupo de captura', mono: true },
+      opcoes: [{ valor: 'udp', rotulo: 'UDP' }, { valor: 'tcp', rotulo: 'TCP' },
+               { valor: 'tls', rotulo: 'TLS (SIP cifrado)' }], padrao: 'udp',
+      ajuda: 'Com WebRTC ligado, o transporte passa a ser WSS automaticamente.' },
+    { aba: 'Rede', campo: 'qualify_freq', label: 'Verificar o aparelho a cada (s)',
+      tipo: 'number', padrao: 60, ajuda: '0 desliga a verificação.' },
+    { aba: 'Rede', campo: 'max_contatos', label: 'Máximo de aparelhos', tipo: 'number', padrao: 2,
+      ajuda: 'Quantos aparelhos podem registrar com este ramal ao mesmo tempo.' },
+    { aba: 'Rede', campo: 'remove_existing', label: 'Derrubar o registro mais antigo ao encher',
+      tipo: 'switch', padrao: 1 },
+    { aba: 'Rede', campo: 'expira_min', label: 'Registro: expiração mínima (s)', tipo: 'number', padrao: 60 },
+    { aba: 'Rede', campo: 'expira_max', label: 'Registro: expiração máxima (s)', tipo: 'number', padrao: 3600 },
+    { aba: 'Rede', campo: 'forcar_rport', label: 'Forçar rport', tipo: 'switch', padrao: 1 },
+    { aba: 'Rede', campo: 'reescrever_contato', label: 'Reescrever contato', tipo: 'switch', padrao: 1 },
+    { aba: 'Rede', campo: 'rtp_simetrico', label: 'RTP simétrico', tipo: 'switch', padrao: 1 },
+    { aba: 'Rede', campo: 'usar_transporte_recebido', label: 'Usar o transporte de onde veio',
+      tipo: 'switch', ajuda: 'Necessário quando o aparelho está atrás de NAT com porta variável.' },
+    { aba: 'Rede', campo: 'proxy_saida', label: 'Proxy de saída', mono: true,
+      placeholder: 'sip:proxy.operadora.com.br', largura: 'full' },
     { aba: 'Rede', campo: 'redes_permitidas', label: 'Restringir a redes', mono: true,
-      placeholder: '10.0.0.0/24', largura: 'full' },
+      placeholder: '10.0.0.0/8, 192.168.0.0/16', largura: 'full',
+      ajuda: 'No Asterisk essa lista vale para a central inteira: as redes de todos os ramais viram uma regra só.' },
+    { aba: 'Rede', campo: 'contexto_mensagens', label: 'Contexto de mensagens (SIP MESSAGE)', mono: true },
+
+    // ---------------- Mídia ----------------
+    { aba: 'Mídia', campo: 'codecs', label: 'Codecs permitidos', mono: true,
+      padrao: 'opus,alaw,ulaw,g722', largura: 'full',
+      ajuda: 'Na ordem de preferência. alaw é o padrão no Brasil.' },
+    { aba: 'Mídia', campo: 'codecs_negados', label: 'Codecs recusados', mono: true, largura: 'full' },
+    { aba: 'Mídia', campo: 'dtmf_modo', label: 'Sinalização DTMF', tipo: 'select',
+      opcoes: [{ valor: 'rfc4733', rotulo: 'RFC 4733 (padrão)' },
+               { valor: 'inband', rotulo: 'No áudio (inband)' },
+               { valor: 'info', rotulo: 'SIP INFO' },
+               { valor: 'auto', rotulo: 'Automático' },
+               { valor: 'auto_info', rotulo: 'Automático, com INFO' }], largura: 'full' },
+    { aba: 'Mídia', campo: 'direct_media', label: 'Mídia direta entre aparelhos', tipo: 'switch',
+      ajuda: 'Tira o Asterisk do caminho do áudio. Ligue só em rede local e sem gravação.' },
+    { aba: 'Mídia', campo: 'media_address', label: 'Endereço de mídia', mono: true },
+    { aba: 'Mídia', campo: 'max_audio', label: 'Fluxos de áudio', tipo: 'number', padrao: 1 },
+    { aba: 'Mídia', campo: 'max_video', label: 'Fluxos de vídeo', tipo: 'number', padrao: 0 },
+    { aba: 'Mídia', campo: 'rtp_timeout', label: 'Desligar sem áudio por (s)', tipo: 'number', padrao: 0,
+      ajuda: '0 desliga a checagem.' },
+    { aba: 'Mídia', campo: 'rtp_timeout_hold', label: 'Idem, em espera (s)', tipo: 'number', padrao: 0 },
+    { aba: 'Mídia', campo: 'srtp', label: 'Exigir mídia criptografada (SRTP)', tipo: 'switch' },
+    { aba: 'Mídia', campo: 'srtp_oportunista', label: 'Aceitar mídia sem criptografia', tipo: 'switch',
+      ajuda: 'Tenta cifrar e aceita sem, se o outro lado não souber.' },
+    { aba: 'Mídia', campo: 'timers_sessao', label: 'Temporizador de sessão', tipo: 'select',
+      opcoes: [{ valor: 'sim', rotulo: 'Usar quando o outro lado usa' },
+               { valor: 'nao', rotulo: 'Não usar' },
+               { valor: 'obrigatorio', rotulo: 'Exigir' }] },
+    { aba: 'Mídia', campo: 'timers_expira', label: 'Renovar a sessão a cada (s)',
+      tipo: 'number', padrao: 1800 },
+
+    // ---------------- WebRTC ----------------
+    { aba: 'WebRTC', campo: 'webrtc', label: 'Softphone do navegador', tipo: 'switch', largura: 'full',
+      ajuda: 'Liga tudo o que o navegador exige — transporte WSS, AVPF, ICE, rtcp-mux e DTLS — e usa o certificado do módulo de Certificados. O usuário do console vinculado a este ramal passa a discar pela própria tela, sem instalar nada.' },
+    { aba: 'WebRTC', campo: 'avpf', label: 'AVPF', tipo: 'switch',
+      ajuda: 'Ligado junto com o WebRTC. Aqui só para um aparelho que peça AVPF sem ser navegador.' },
+    { aba: 'WebRTC', campo: 'ice', label: 'Suporte a ICE', tipo: 'switch' },
+    { aba: 'WebRTC', campo: 'rtcp_mux', label: 'rtcp-mux', tipo: 'switch' },
+    { aba: 'WebRTC', campo: 'dtls', label: 'DTLS', tipo: 'switch' },
+    { aba: 'WebRTC', campo: 'dtls_verificar', label: 'Verificação do DTLS', tipo: 'select',
+      opcoes: [{ valor: 'fingerprint', rotulo: 'Impressão digital (padrão)' },
+               { valor: 'certificate', rotulo: 'Certificado' },
+               { valor: 'yes', rotulo: 'Ambos' }, { valor: 'no', rotulo: 'Nenhuma' }] },
+    { aba: 'WebRTC', campo: 'dtls_setup', label: 'Papel no DTLS', tipo: 'select',
+      opcoes: [{ valor: 'actpass', rotulo: 'actpass (padrão)' },
+               { valor: 'active', rotulo: 'active' }, { valor: 'passive', rotulo: 'passive' }] },
+    { aba: 'WebRTC', campo: 'dtls_rekey', label: 'Trocar a chave DTLS a cada (s)',
+      tipo: 'number', padrao: 0, ajuda: '0 não troca.' },
+
+    // ---------------- Avançado ----------------
+    { aba: 'Avançado', campo: 'callgroup', label: 'Grupos de chamada', mono: true,
+      ajuda: 'Ex.: 1,3-5. Quem está no mesmo grupo pode ser capturado.' },
+    { aba: 'Avançado', campo: 'pickupgroup', label: 'Grupos de captura', mono: true },
+    { aba: 'Avançado', campo: 'trust_rpid', label: 'Confiar no RPID recebido', tipo: 'switch' },
+    { aba: 'Avançado', campo: 'envia_rpid', label: 'Enviar RPID', tipo: 'switch' },
+    { aba: 'Avançado', campo: 'envia_pai', label: 'Enviar P-Asserted-Identity', tipo: 'switch' },
+    { aba: 'Avançado', campo: 'send_connected', label: 'Enviar identificação de quem atendeu',
+      tipo: 'switch', padrao: 1 },
+    { aba: 'Avançado', campo: 'user_eq_phone', label: 'Marcar user=phone na URI', tipo: 'switch' },
+    { aba: 'Avançado', campo: 'refer_blind_progress', label: 'Avisar progresso na transferência cega',
+      tipo: 'switch', padrao: 1 },
+    { aba: 'Avançado', campo: 'mwi_tipo', label: 'Aviso de recado (MWI)', tipo: 'select',
+      opcoes: [{ valor: 'auto', rotulo: 'Automático' },
+               { valor: 'solicitado', rotulo: 'Só quando o aparelho pede' },
+               { valor: 'nao_solicitado', rotulo: 'Enviar sem pedir' }], largura: 'full' },
+    { aba: 'Avançado', campo: 'mwi_agregado', label: 'Agregar as caixas num aviso só', tipo: 'switch' },
+    { aba: 'Avançado', campo: 'ditado', label: 'Serviço de ditado', tipo: 'switch',
+      ajuda: 'Libera os códigos *34 e *35 neste ramal.' },
+    { aba: 'Avançado', campo: 'ditado_formato', label: 'Formato do ditado', tipo: 'select',
+      opcoes: [{ valor: 'wav', rotulo: 'WAV' }, { valor: 'gsm', rotulo: 'GSM' },
+               { valor: 'ogg', rotulo: 'OGG' }] },
+    { aba: 'Avançado', campo: 'ditado_email', label: 'E-mail do ditado', tipo: 'email', largura: 'full' },
+    { aba: 'Avançado', campo: 'ditado_remetente', label: 'Remetente do ditado', largura: 'full' },
 
     { aba: 'Permissões', campo: 'perm_local', label: 'Ligações locais', tipo: 'switch', padrao: 1 },
     { aba: 'Permissões', campo: 'perm_celular', label: 'Celular', tipo: 'switch', padrao: 1 },
     { aba: 'Permissões', campo: 'perm_ddd', label: 'DDD nacional', tipo: 'switch', padrao: 1 },
-    { aba: 'Permissões', campo: 'perm_ddi', label: 'Internacional', tipo: 'switch' },
-    { aba: 'Permissões', campo: 'no_diretorio', label: 'Aparece no diretório', tipo: 'switch', padrao: 1 }
+    { aba: 'Permissões', campo: 'perm_ddi', label: 'Internacional', tipo: 'switch' }
   ],
+
+  /** Acrescenta o gerador de senha ao campo de senha SIP. */
+  aoAbrirFormulario: (dw) => {
+    const campo = dw.querySelector('[name="senha_sip"]');
+    if (!campo || campo.dataset.comGerador) return;
+    campo.dataset.comGerador = '1';
+
+    const linha = document.createElement('div');
+    linha.className = 'row gap-6';
+    linha.style.marginTop = '8px';
+    linha.innerHTML = `
+      <button type="button" class="btn btn-outline btn-sm" data-gerar-senha>
+        ${icon('refresh','ico ico-sm')} Gerar senha</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-copiar-senha hidden>
+        ${icon('copy','ico ico-sm')} Copiar</button>
+      <span class="tiny muted" data-forca-senha></span>`;
+    campo.insertAdjacentElement('afterend', linha);
+
+    const aviso = linha.querySelector('[data-forca-senha]');
+    const copiar = linha.querySelector('[data-copiar-senha]');
+
+    linha.querySelector('[data-gerar-senha]').onclick = () => {
+      campo.value = gerarSenhaSip();
+      campo.type = 'text';
+      copiar.hidden = false;
+      aviso.textContent = `${campo.value.length} caracteres — guarde agora, ela não é mostrada depois.`;
+    };
+
+    copiar.onclick = async () => {
+      try { await navigator.clipboard.writeText(campo.value); toast('Senha copiada.', 'ok'); }
+      catch { campo.select(); document.execCommand('copy'); toast('Senha copiada.', 'ok'); }
+    };
+  },
 
   aoMontar: (pagina) => {
     document.querySelectorAll('[data-credencial]').forEach(b => b.onclick = async () => {
