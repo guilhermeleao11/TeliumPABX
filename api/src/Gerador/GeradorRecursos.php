@@ -244,11 +244,14 @@ final class GeradorRecursos
                 "NoOp(Siga-me para {$arg})",
                 "Set(DB(sigame/{$eu})={$arg})",
                 "Set(DB(sigame-ultimo/{$eu})={$arg})",
+                // O console mostra o que o ramal configurou pelo telefone.
+                "Set(ODBC_TELIUM_SIGAME({$eu})={$arg})",
                 'GoSub(sub-confirma,s,1(activated))',
             ]],
             'sigame_desligar' => [$codigo, [
                 'NoOp(Desativar siga-me)',
                 'NoOp(${DB_DELETE(sigame/' . $eu . ')})',
+                "Set(ODBC_TELIUM_SIGAME({$eu})=)",
                 'GoSub(sub-confirma,s,1(de-activated))',
             ]],
             'sigame_alterna' => [$codigo, [
@@ -257,10 +260,12 @@ final class GeradorRecursos
                 'Set(TELIUM_ULT=${DB(sigame-ultimo/' . $eu . ')})',
                 'GotoIf($["${TELIUM_ULT}" = ""]?sem_destino)',
                 "Set(DB(sigame/{$eu})=\${TELIUM_ULT})",
+                "Set(ODBC_TELIUM_SIGAME({$eu})=\${TELIUM_ULT})",
                 'GoSub(sub-confirma,s,1(activated))',
             ], [
                 'desliga' => [
                     'NoOp(${DB_DELETE(sigame/' . $eu . ')})',
+                    "Set(ODBC_TELIUM_SIGAME({$eu})=)",
                     'GoSub(sub-confirma,s,1(de-activated))',
                 ],
                 'sem_destino' => [

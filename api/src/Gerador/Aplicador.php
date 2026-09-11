@@ -86,6 +86,9 @@ final class Aplicador
 
         $ok = true;
 
+        // Siga-me guarda o destino, não um "1": vai à parte.
+        $ok = $this->sincronizarSigaMe($ami) && $ok;
+
         foreach ($tabelas as $familia => $sql) {
             $resposta = $ami->acao(['Action' => 'DBDelTree', 'Family' => $familia]);
             if (str_contains(strtolower($resposta), 'error')
@@ -104,6 +107,42 @@ final class Aplicador
                     'Family' => $familia,
                     'Key'    => $numero,
                     'Val'    => '1',
+                ]);
+                if (str_contains(strtolower($resposta), 'error')) {
+                    $ok = false;
+                }
+            }
+        }
+
+        return $ok;
+    }
+
+    /**
+     * A família sigame é a que o sub-ramal consulta a cada chamada. Ela
+     * é reposta a partir do banco, senão um destino trocado no console
+     * ficaria só na tela.
+     */
+    private function sincronizarSigaMe(Ami $ami): bool
+    {
+        $ok = true;
+        foreach (['sigame', 'sigame-modo'] as $familia) {
+            $resposta = $ami->acao(['Action' => 'DBDelTree', 'Family' => $familia]);
+            if (str_contains(strtolower($resposta), 'error')
+                && !str_contains(strtolower($resposta), 'not exist')) {
+                $ok = false;
+            }
+        }
+
+        $ligados = Bd::todos(
+            "SELECT numero, siga_me, siga_me_modo FROM ramais
+              WHERE ativo = 1 AND siga_me_ativo = 1 AND siga_me IS NOT NULL AND siga_me <> ''"
+        );
+
+        foreach ($ligados as $r) {
+            foreach ([['sigame', $r['siga_me']], ['sigame-modo', $r['siga_me_modo']]] as [$fam, $val]) {
+                $resposta = $ami->acao([
+                    'Action' => 'DBPut', 'Family' => $fam,
+                    'Key' => (string) $r['numero'], 'Val' => (string) $val,
                 ]);
                 if (str_contains(strtolower($resposta), 'error')) {
                     $ok = false;

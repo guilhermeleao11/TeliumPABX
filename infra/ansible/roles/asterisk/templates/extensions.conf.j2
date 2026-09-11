@@ -47,16 +47,19 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
  same => n,Set(TELIUM_EST=${DEVICE_STATE(PJSIP/${ARG1})})
  same => n,GotoIf($["${TELIUM_EST}" = "INUSE" | "${TELIUM_EST}" = "BUSY" | "${TELIUM_EST}" = "RINGINUSE"]?ocupado)
 
- ; siga-me: toca o ramal e o destino ao mesmo tempo
+ ; siga-me: "junto" toca o ramal e o destino ao mesmo tempo; "depois"
+ ; só procura o destino quando o ramal não atende.
  same => n(monta),Set(TELIUM_ALVO=PJSIP/${ARG1})
  same => n,Set(TELIUM_FMF=${DB(sigame/${ARG1})})
- same => n,ExecIf($["${TELIUM_FMF}" != ""]?Set(TELIUM_ALVO=PJSIP/${ARG1}&Local/${TELIUM_FMF}@telium-desvio))
+ same => n,Set(TELIUM_FMF_MODO=${DB(sigame-modo/${ARG1})})
+ same => n,ExecIf($["${TELIUM_FMF}" != "" & "${TELIUM_FMF_MODO}" != "depois"]?Set(TELIUM_ALVO=PJSIP/${ARG1}&Local/${TELIUM_FMF}@telium-desvio))
 
  same => n,Dial(${TELIUM_ALVO},${TELIUM_TOQUE},tT)
  same => n,NoOp(Resultado: ${DIALSTATUS})
 
  same => n,Set(TELIUM_CFB=${DB(cfb/${ARG1})})
  same => n,Set(TELIUM_CFU=${DB(cfu/${ARG1})})
+ same => n,GotoIf($["${DIALSTATUS}" != "ANSWER" & "${TELIUM_FMF}" != "" & "${TELIUM_FMF_MODO}" = "depois"]?sigame)
  same => n,GotoIf($["${DIALSTATUS}" = "BUSY" & "${TELIUM_CFB}" != ""]?desviar_ocupado)
  same => n,GotoIf($["${DIALSTATUS}" != "ANSWER" & "${TELIUM_CFU}" != ""]?desviar_naoatende)
  same => n,GoSub(sub-perdida,s,1(${ARG1}))
@@ -65,6 +68,9 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
  same => n,ExecIf($["${DIALSTATUS}" = "NOANSWER"]?VoiceMail(${TELIUM_VM},u))
  same => n,ExecIf($["${DIALSTATUS}" = "CHANUNAVAIL"]?VoiceMail(${TELIUM_VM},u))
  same => n(sem_vm),Return()
+
+ same => n(sigame),NoOp(Siga-me de ${TELIUM_R} para ${TELIUM_FMF})
+ same => n,Goto(telium-desvio,${TELIUM_FMF},1)
 
  same => n(desviar),NoOp(Desvio de todas: ${TELIUM_R} para ${TELIUM_CF})
  same => n,Goto(telium-desvio,${TELIUM_CF},1)

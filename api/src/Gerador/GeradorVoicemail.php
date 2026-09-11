@@ -15,6 +15,8 @@ final class GeradorVoicemail
             ->comentario('Gerado pelo Telium PABX — NÃO EDITE À MÃO')
             ->comentario('Gerado em ' . date('d/m/Y H:i:s'))
             ->branco()
+            ->comentario('O [general] fica no voicemail.conf estático, que inclui este arquivo')
+            ->branco()
             ->crua('[telium]');
 
         $ramais = Bd::todos(
@@ -25,6 +27,10 @@ final class GeradorVoicemail
             $opcoes = [
                 'attach=' . ((int) $r['vm_email'] === 1 ? 'yes' : 'no'),
                 'delete=' . ((int) $r['vm_apagar'] === 1 ? 'yes' : 'no'),
+                'saycid=' . ((int) ($r['vm_dizer_origem'] ?? 1) === 1 ? 'yes' : 'no'),
+                'envelope=' . ((int) ($r['vm_dizer_hora'] ?? 1) === 1 ? 'yes' : 'no'),
+                'maxmsg=' . max(1, (int) ($r['vm_max_mensagens'] ?? 100)),
+                'maxsecs=' . max(10, (int) ($r['vm_max_segundos'] ?? 180)),
                 'tz=brasil',
             ];
 

@@ -70,3 +70,13 @@ writesql=INSERT INTO pesquisa_respostas (pesquisa_id, fila, agente, origem, uniq
 [TELIUM_GRAVACAO]
 dsn=telium
 writesql=INSERT INTO gravacoes (uniqueid, arquivo, origem, destino, tags, inicio) VALUES ('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}', NULLIF('${SQL_ESC(${ARG3})}',''), NULLIF('${SQL_ESC(${ARG4})}',''), NULLIF('${SQL_ESC(${ARG5})}',''), NOW())
+
+; ------------------------------------------------------------------
+; Siga-me pelo telefone:
+;   Set(ODBC_TELIUM_SIGAME(<ramal>)=<destino>)   — vazio desliga
+; A base do Asterisk é o que vale em tempo de chamada; isto aqui é para
+; o console mostrar a mesma coisa que o ramal configurou pelo telefone.
+; ------------------------------------------------------------------
+[TELIUM_SIGAME]
+dsn=telium
+writesql=UPDATE ramais SET siga_me = NULLIF('${SQL_ESC(${VAL1})}',''), siga_me_ativo = IF('${SQL_ESC(${VAL1})}' = '', 0, 1) WHERE numero = '${SQL_ESC(${ARG1})}'

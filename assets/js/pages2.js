@@ -2316,6 +2316,226 @@ PAGES['admin.certificados'] = {
   }
 };
 
+/* ------------------------- Siga-me ------------------------- */
+
+/**
+ * Siga-me e correio de voz são a mesma coisa por dentro: uma lista de
+ * ramais em que se edita um punhado de colunas. O que muda é quais.
+ */
+function paginaServicoDoRamal(cfg) {
+  return {
+    async render(ctx) {
+      let r;
+      try { r = await Api.get('/ramais', { limite: 500 }); }
+      catch (e) { return pageHead(cfg.titulo, cfg.sub) + blocoErro(e); }
+      this._itens = (r.dados || []).filter(x => Number(x.ativo));
+
+      const cabecalho = pageHead(cfg.titulo, cfg.sub,
+        `<span class="badge">${cfg.contar(this._itens)}</span>${readOnlyNote(ctx)}`);
+
+      if (!this._itens.length) {
+        return cabecalho + `<div class="card">${vazio('phone', 'Nenhum ramal ativo',
+          'Cadastre os ramais em Conectividade › Ramais e eles aparecem aqui.')}</div>`;
+      }
+
+      const linhas = this._itens.map(x => `
+        <tr data-id="${x.id}" data-busca="${esc(`${x.numero} ${x.nome} ${x.setor || ''}`.toLowerCase())}"
+            data-estado="${cfg.ligado(x) ? '1' : '0'}">
+          <td><span class="row gap-10"><span class="avatar avatar-sm">${initials(x.nome)}</span>
+            <span><b class="mono">${esc(x.numero)}</b> ${esc(x.nome)}
+              ${x.setor ? `<div class="tiny muted">${esc(x.setor)}</div>` : ''}</span></span></td>
+          ${cfg.colunas(x).map(c => `<td>${c}</td>`).join('')}
+          <td class="col-actions"><span class="row-actions">
+            ${ctx.can('editar') ? `<button class="btn btn-outline btn-sm" data-editar="${x.id}">
+              ${icon('edit','ico ico-sm')} Configurar</button>` : ''}
+          </span></td>
+        </tr>`).join('');
+
+      return cabecalho + `
+        <div class="card">
+          <div class="toolbar">
+            <div class="input-icon search-mini">${icon('search','ico ico-sm')}
+              <input class="input" data-filtro placeholder="Buscar por ramal, nome ou setor…">
+            </div>
+            <select class="select" data-estado-filtro style="width:200px">
+              <option value="">Todos os ramais</option>
+              <option value="1">${esc(cfg.rotuloLigado)}</option>
+              <option value="0">${esc(cfg.rotuloDesligado)}</option>
+            </select>
+            <span class="grow"></span>
+            <span class="small muted" data-contador></span>
+          </div>
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Ramal</th>${cfg.cabecalhos.map(h => `<th>${h}</th>`).join('')}<th></th></tr></thead>
+            <tbody>${linhas}</tbody>
+          </table></div>
+        </div>`;
+    },
+
+    mount(ctx) {
+      const pagina = this;
+      const itens = this._itens || [];
+
+      const filtro = document.querySelector('[data-filtro]');
+      const estado = document.querySelector('[data-estado-filtro]');
+      const contador = document.querySelector('[data-contador]');
+      const linhas = [...document.querySelectorAll('tr[data-id]')];
+      const aplicar = () => {
+        const t = (filtro?.value || '').trim().toLowerCase();
+        let n = 0;
+        linhas.forEach(l => {
+          const ok = (!t || l.dataset.busca.includes(t))
+                  && (!estado?.value || l.dataset.estado === estado.value);
+          l.hidden = !ok;
+          if (ok) n++;
+        });
+        if (contador) contador.textContent = `${n} de ${linhas.length} ramais`;
+      };
+      filtro?.addEventListener('input', aplicar);
+      estado?.addEventListener('change', aplicar);
+      aplicar();
+
+      document.querySelectorAll('[data-editar]').forEach(b => b.onclick = () => {
+        const x = itens.find(i => String(i.id) === b.dataset.editar);
+        const campos = cfg.campos(x, pagina);
+
+        Drawer.open({
+          titulo: `${cfg.tituloForm} — ramal ${x.numero}`,
+          sub: esc(x.nome),
+          corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, x)).join('')}</div>`,
+          rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                   <button class="btn btn-primary" data-ok>Salvar</button>`,
+          aoAbrir: dw => {
+            if (cfg.aoAbrir) cfg.aoAbrir(dw, x);
+            dw.querySelector('[data-ok]').onclick = async ev => {
+              if (!validarCampos(dw, campos)) return;
+
+              const dados = {};
+              campos.forEach(c => {
+                const el = dw.querySelector(`[name="${c.campo}"]`);
+                if (el) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value.trim();
+              });
+
+              const erro = cfg.conferir ? cfg.conferir(dados) : null;
+              if (erro) {
+                marcarErro(dw, erro.campo, erro.mensagem);
+                avisoFormulario(dw, [erro.mensagem]);
+                return;
+              }
+
+              const botao = ev.currentTarget;
+              botao.disabled = true;
+              botao.innerHTML = '<span class="spin"></span> Salvando…';
+              try {
+                await Api.put(`/ramais/${x.id}`, dados);
+                Drawer.close();
+                toast('Salvo. Aplique as configurações para valer no Asterisk.', 'ok');
+                App.route();
+              } catch (e) {
+                botao.disabled = false;
+                botao.textContent = 'Salvar';
+                if (e.detalhe?.campo) marcarErro(dw, e.detalhe.campo, e.message);
+                else toast(e.message, 'err');
+              }
+            };
+          }
+        });
+      });
+    }
+  };
+}
+
+PAGES['apps.sigame'] = paginaServicoDoRamal({
+  titulo: 'Siga-me',
+  sub: `Para onde as chamadas do ramal vão além dele. O destino pode ser outro ramal ou um
+        número externo, e o próprio usuário liga e desliga pelo telefone com *21, *22 e *23.`,
+  tituloForm: 'Siga-me',
+  rotuloLigado: 'Com siga-me ligado',
+  rotuloDesligado: 'Sem siga-me',
+  cabecalhos: ['Destino', 'Como toca', 'Estado'],
+  ligado: x => Number(x.siga_me_ativo) === 1 && x.siga_me,
+  contar: itens => {
+    const n = itens.filter(x => Number(x.siga_me_ativo) === 1 && x.siga_me).length;
+    return `${n} com siga-me ligado`;
+  },
+  colunas: x => [
+    x.siga_me
+      ? `<b class="mono">${esc(x.siga_me)}</b>
+         <div class="tiny muted">${String(x.siga_me).length > 6 ? 'número externo' : 'ramal ou interno'}</div>`
+      : '<span class="muted">—</span>',
+    x.siga_me
+      ? (x.siga_me_modo === 'depois'
+          ? `<span class="badge">depois de ${x.tempo_toque}s sem atender</span>`
+          : '<span class="badge">junto com o ramal</span>')
+      : '<span class="muted">—</span>',
+    Number(x.siga_me_ativo) && x.siga_me
+      ? '<span class="badge badge-ok"><i class="dot"></i>Ligado</span>'
+      : '<span class="badge">Desligado</span>'
+  ],
+  campos: () => [
+    { campo: 'siga_me', label: 'Destino', largura: 'full', mono: true,
+      placeholder: '1002 ou 11988887777',
+      ajuda: 'Outro ramal, ou um número externo com DDD. O destino fica guardado mesmo desligado.' },
+    { campo: 'siga_me_ativo', label: 'Siga-me ligado', tipo: 'switch',
+      ajuda: 'O usuário também liga e desliga pelo telefone, com *21 e *22.' },
+    { campo: 'siga_me_modo', label: 'Como tocar', tipo: 'select', largura: 'full',
+      opcoes: [{ valor: 'junto', rotulo: 'Junto com o ramal, ao mesmo tempo' },
+               { valor: 'depois', rotulo: 'Só depois que o ramal não atender' }] },
+    { campo: 'tempo_toque', label: 'Tempo de toque do ramal (s)', tipo: 'number', padrao: 20,
+      ajuda: 'Também é o tempo que o ramal toca antes de o siga-me entrar, no modo "depois".' }
+  ],
+  conferir: d => (Number(d.siga_me_ativo) === 1 && !d.siga_me)
+    ? { campo: 'siga_me', mensagem: 'Informe o destino antes de ligar o siga-me.' }
+    : null
+});
+
+PAGES['apps.correiovoz'] = paginaServicoDoRamal({
+  titulo: 'Correio de Voz',
+  sub: `A caixa postal de cada ramal: senha, envio por e-mail e limites. Quem não atende cai
+        aqui, e o próprio usuário ouve os recados discando *97.`,
+  tituloForm: 'Caixa postal',
+  rotuloLigado: 'Com caixa postal',
+  rotuloDesligado: 'Sem caixa postal',
+  cabecalhos: ['Caixa', 'E-mail', 'Limites', 'Estado'],
+  ligado: x => Number(x.voicemail) === 1,
+  contar: itens => `${itens.filter(x => Number(x.voicemail) === 1).length} com caixa postal`,
+  colunas: x => [
+    Number(x.voicemail)
+      ? `<span class="mono">${esc(x.numero)}@telium</span>`
+      : '<span class="muted">—</span>',
+    Number(x.voicemail)
+      ? (x.email
+          ? `${esc(x.email)}${Number(x.vm_email) ? ' <span class="badge badge-ok">anexa o áudio</span>' : ''}`
+          : '<span class="badge badge-warn">sem e-mail cadastrado</span>')
+      : '<span class="muted">—</span>',
+    Number(x.voicemail)
+      ? `<span class="tiny dim">${x.vm_max_mensagens ?? 100} recados · ${x.vm_max_segundos ?? 180}s cada</span>`
+      : '<span class="muted">—</span>',
+    Number(x.voicemail)
+      ? '<span class="badge badge-ok"><i class="dot"></i>Ativa</span>'
+      : '<span class="badge">Desativada</span>'
+  ],
+  campos: () => [
+    { campo: 'voicemail', label: 'Caixa postal ativa', tipo: 'switch', padrao: 1, largura: 'full',
+      ajuda: 'Desligada, quem não for atendido ouve ocupado em vez de deixar recado.' },
+    { campo: 'vm_senha', label: 'Senha da caixa', mono: true, tipo: 'password',
+      padraoValido: /^[0-9]{0,10}$/, mensagemPadrao: 'só dígitos',
+      ajuda: 'Em branco, a senha é o próprio número do ramal. É o que se digita no *97.' },
+    { campo: 'email', label: 'E-mail para aviso', tipo: 'email', largura: 'full',
+      ajuda: 'É o mesmo e-mail do cadastro do ramal.' },
+    { campo: 'vm_email', label: 'Anexar o áudio no e-mail', tipo: 'switch', padrao: 1 },
+    { campo: 'vm_apagar', label: 'Apagar o recado depois de enviar', tipo: 'switch',
+      ajuda: 'Ligado, o recado só existe no e-mail — não fica para ouvir pelo telefone.' },
+    { campo: 'vm_max_mensagens', label: 'Máximo de recados guardados', tipo: 'number', padrao: 100 },
+    { campo: 'vm_max_segundos', label: 'Duração máxima de cada recado (s)', tipo: 'number', padrao: 180 },
+    { campo: 'vm_dizer_hora', label: 'Falar a data e a hora do recado', tipo: 'switch', padrao: 1 },
+    { campo: 'vm_dizer_origem', label: 'Falar o número de quem ligou', tipo: 'switch', padrao: 1 }
+  ],
+  conferir: d => (Number(d.voicemail) === 1 && Number(d.vm_email) === 1 && !d.email)
+    ? { campo: 'email', mensagem: 'Para enviar por e-mail, cadastre o endereço do usuário.' }
+    : null
+});
+
 /* ------------------------- Grupos de Horário ------------------------- */
 const DIAS_SEMANA = [
   { valor: '', rotulo: '—' }, { valor: 0, rotulo: 'domingo' }, { valor: 1, rotulo: 'segunda' },
