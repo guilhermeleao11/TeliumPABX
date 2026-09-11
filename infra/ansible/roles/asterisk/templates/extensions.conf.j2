@@ -17,10 +17,49 @@ TELIUM_EMPRESA   = {{ pabx_empresa }}
 ;   ${ARG1} = entrada|saida|interna
 ; ------------------------------------------------------------------
 [sub-gravar]
-exten => s,1,Set(__TELIUM_GRAV=${STRFTIME(${EPOCH},,%Y/%m/%d)}/${STRFTIME(${EPOCH},,%H%M%S)}-${ARG1}-${CALLERID(num)}-${EXTEN}-${UNIQUEID}.wav)
+; Uma chamada pode passar por ramal, fila e rota; sem esta guarda, o
+; MixMonitor entraria mais de uma vez no mesmo canal.
+exten => s,1,GotoIf($["${TELIUM_GRAVANDO}" = "1"]?ja)
+ same => n,Set(__TELIUM_GRAVANDO=1)
+ ; o destino vem do contexto que chamou: dentro da sub-rotina ${EXTEN}
+ ; é sempre "s", e o nome do arquivo saía sem o número discado
+ same => n,Set(TELIUM_DEST=${IF($["${TELIUM_DESTINO}" != ""]?${TELIUM_DESTINO}:${EXTEN})})
+ same => n,Set(__TELIUM_GRAV=${STRFTIME(${EPOCH},,%Y/%m/%d)}/${STRFTIME(${EPOCH},,%H%M%S)}-${ARG1}-${CALLERID(num)}-${TELIUM_DEST}-${UNIQUEID}.wav)
  same => n,System(mkdir -p ${TELIUM_GRAVACOES}/${STRFTIME(${EPOCH},,%Y/%m/%d)})
  same => n,MixMonitor(${TELIUM_GRAVACOES}/${TELIUM_GRAV},b)
  same => n,Set(CDR(gravacao)=${TELIUM_GRAV})
+ same => n,Return()
+ same => n(ja),NoOp(Esta chamada já está sendo gravada)
+ same => n,Return()
+
+; ------------------------------------------------------------------
+; Sub-rotina: decidir se esta chamada é gravada
+;   ARG1 = qual das quatro regras do ramal vale nesta chamada
+;          1 externa recebida · 2 externa feita
+;          3 interna recebida · 4 interna feita
+;   ARG2 = o que o outro lado pede: "sim"/"nao" da fila ou da rota, ou a
+;          própria regra do ramal que recebe (forcar/sim/indiferente/
+;          nao/nunca) numa chamada interna
+;   ARG3 = sentido, só para o nome do arquivo
+;
+; As regras vêm do próprio endpoint, em ${TELIUM_GRAV}, separadas por
+; barra vertical. A ordem de desempate é a mesma dos dois lados: "nunca"
+; proíbe, "forçar" obriga, e só depois vale a preferência de cada um.
+; ------------------------------------------------------------------
+[sub-decidir-gravacao]
+exten => s,1,Set(TELIUM_REGRA=${CUT(TELIUM_GRAV,|,${ARG1})})
+ same => n,NoOp(Regra de gravação ${ARG1}: ${TELIUM_REGRA} — outro lado: ${ARG2})
+ ; uma proibição de qualquer um dos lados encerra o assunto
+ same => n,GotoIf($["${TELIUM_REGRA}" = "nunca" | "${ARG2}" = "nunca"]?nao)
+ ; e um "forçar" de qualquer um dos lados também
+ same => n,GotoIf($["${TELIUM_REGRA}" = "forcar" | "${ARG2}" = "forcar"]?sim)
+ same => n,GotoIf($["${TELIUM_REGRA}" = "nao"]?nao)
+ same => n,GotoIf($["${TELIUM_REGRA}" = "sim"]?sim)
+ ; "não importa": vale o que a fila, a rota ou o outro ramal pediu
+ same => n,GotoIf($["${ARG2}" = "sim"]?sim)
+ same => n(nao),NoOp(Chamada não será gravada)
+ same => n,Return()
+ same => n(sim),GoSub(sub-gravar,s,1(${ARG3}))
  same => n,Return()
 
 ; ------------------------------------------------------------------
@@ -126,6 +165,26 @@ exten => s,1,GotoIf($["${TELIUM_PERM}" = ""]?permitido)
  same => n,Playback(privacy-you-are-not-permitted)
  same => n,Hangup(31)
  same => n(permitido),Return()
+
+; ------------------------------------------------------------------
+; Sub-rotina: escolher o número que a operadora vê
+;   ARG1 = CID do tronco, quando cadastrado
+;   ${TELIUM_CID} = número de saída próprio do ramal, quando cadastrado
+;
+;   O "callerid" do endpoint do tronco não serve para isto: o Asterisk usa
+;   o CALLERID do canal quando ele existe, e o canal chega aqui com o
+;   número interno do ramal — era isso que ia para a operadora. Sem
+;   nenhum dos dois cadastrados a chamada sai como Anonymous e a
+;   operadora recusa, então quem discou fica sabendo.
+; ------------------------------------------------------------------
+[sub-cid-saida]
+exten => s,1,Set(TELIUM_CIDSAI=${IF($["${TELIUM_CID}" != ""]?${TELIUM_CID}:${ARG1})})
+ same => n,GotoIf($["${TELIUM_CIDSAI}" = ""]?semcid)
+ same => n,Set(CALLERID(num)=${TELIUM_CIDSAI})
+ same => n,Set(CALLERID(name)=${TELIUM_CIDSAI})
+ same => n,Return()
+ same => n(semcid),NoOp(Sem CID de saída no ramal nem no tronco)
+ same => n,Return()
 
 ; ------------------------------------------------------------------
 ; Sub-rotina: barrar entrante que esteja na lista negra

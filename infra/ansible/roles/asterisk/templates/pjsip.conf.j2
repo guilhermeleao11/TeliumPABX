@@ -32,6 +32,10 @@ bind     = 0.0.0.0:{{ sip_porta }}
 {% for rede in redes_locais %}
 local_net = {{ rede }}
 {% endfor %}
+{% if nat_ip_publico %}
+external_media_address     = {{ nat_ip_publico }}
+external_signaling_address = {{ nat_ip_publico }}
+{% endif %}
 
 ; SIP TLS na 5061. O par vem do módulo de certificados do console;
 ; até alguém enviar um, é o autoassinado de fábrica — o suficiente para
@@ -67,6 +71,16 @@ external_signaling_address = {{ nat_ip_publico }}
 type     = transport
 protocol = wss
 bind     = 127.0.0.1:{{ ast_http_porta }}
+{% for rede in redes_locais %}
+local_net = {{ rede }}
+{% endfor %}
+{% if nat_ip_publico %}
+; A sinalização chega pelo nginx, mas a mídia sai daqui direto para o
+; navegador: sem o endereço público no SDP, o áudio some quando o
+; servidor está atrás de NAT.
+external_media_address     = {{ nat_ip_publico }}
+external_signaling_address = {{ nat_ip_publico }}
+{% endif %}
 
 #include "telium/pjsip.acl.conf"
 #include "telium/pjsip.trunks.conf"

@@ -1,0 +1,7 @@
+; {{ ansible_managed }}
+;
+; Call Completion Supplementary Services (retorno automático quando o
+; ramal ocupado liberar). O Telium não expõe o recurso, mas o núcleo lê
+; este arquivo em toda partida.
+[general]
+cc_max_requests = 20

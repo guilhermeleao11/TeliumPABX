@@ -24,7 +24,10 @@ final class Destino
     {
         return match ($tipo) {
             'ramal'     => $this->paraRamal((string) $valor),
-            'fila'      => ["Queue({$valor},tT,,,300)", 'Hangup()'],
+            // A fila tem contexto próprio, com anúncio de entrada, pesquisa
+            // de satisfação e os destinos de estouro, fila vazia e fila
+            // cheia. Chamar o Queue() direto daqui pulava tudo isso.
+            'fila'      => ["Goto(telium-filas,{$valor},1)"],
             'ura'       => ["Goto(telium-ura-{$valor},s,1)"],
             'grupo'     => ["Goto(telium-grupos,{$valor},1)"],
             'voicemail' => ["VoiceMail({$valor}@telium,u)", 'Hangup()'],

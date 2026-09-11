@@ -221,6 +221,9 @@
     - /var/spool/asterisk
     - /var/run/asterisk
     - /var/spool/asterisk/monitor
+    # Sem o diretório, a classe [default] de música em espera some sem
+    # avisar e as filas tocam silêncio.
+    - /var/lib/asterisk/moh
 
 # /etc/asterisk é 0750 asterisk:asterisk. Sem estar no grupo, a conta da
 # API nem atravessa o diretório pai — e um is_dir() falha como se o
@@ -300,6 +303,15 @@
     - voicemail.conf
     - musiconhold.conf
     - features.conf
+    # Os de baixo não mudam nada no funcionamento: existem porque o
+    # módulo que os lê registra erro a cada reload quando faltam, e o
+    # console precisa mostrar só problema de verdade.
+    - acl.conf
+    - ccss.conf
+    - codecs.conf
+    - amd.conf
+    - websocket_client.conf
+    - pjsip_notify.conf
   notify: recarregar asterisk
 
 # O código *68 grava a hora; sem alguém para ler e ligar de volta, ele

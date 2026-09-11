@@ -64,3 +64,25 @@ noload => res_pjsip_phoneprov_provider.so
 noload => res_adsi.so
 noload => app_adsiprog.so
 noload => app_getcpeid.so
+
+; ---------- recursos que o Telium resolve de outro jeito ----------
+; Fila com agente dinâmico do chan_agent: usamos membros do app_queue.
+noload => app_agent_pool.so
+; Siga-me: está no dialplan gerado, com confirmação e toque próprios.
+noload => app_followme.so
+; CDR duplicado — quem grava é o cdr_adaptive_odbc.
+noload => cdr_odbc.so
+
+; ---------- nunca usados, e cada um pede um .conf que não existe ----------
+noload => pbx_dundi.so
+noload => res_calendar.so
+noload => res_calendar_caldav.so
+noload => res_calendar_ews.so
+noload => res_calendar_exchange.so
+noload => res_calendar_icalendar.so
+noload => res_prometheus.so
+noload => res_http_media_cache.so
+noload => res_stun_monitor.so
+noload => chan_console.so
+; Receptor de alarme de central de segurança — não é telefonia.
+noload => app_alarmreceiver.so

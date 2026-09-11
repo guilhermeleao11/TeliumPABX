@@ -130,7 +130,8 @@ PAGES['conn.rotasentrada'] = paginaCrud({
 
   campos: (r, ctx, pagina) => [
     { campo: 'did', label: 'DID / Número', obrigatorio: true, mono: true, placeholder: '1133255800',
-      ajuda: 'Aceita padrão do dialplan, por exemplo _X. para qualquer número.' },
+      ajuda: 'Aceita padrão do dialplan, por exemplo _X. para qualquer número. '
+           + 'Um asterisco sozinho vale como "qualquer DID" e é sempre avaliado por último.' },
     { campo: 'descricao', label: 'Descrição', placeholder: 'Comercial 0800' },
     ...seletorDestino('destino', r, pagina._destinos || { ramais: [], filas: [], uras: [] }),
     { campo: 'ordem', label: 'Ordem de avaliação', tipo: 'number', padrao: 10 },

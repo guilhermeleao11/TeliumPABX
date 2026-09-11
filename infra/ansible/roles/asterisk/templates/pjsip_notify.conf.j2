@@ -1,0 +1,25 @@
+; {{ ansible_managed }}
+;
+; Comandos NOTIFY prontos para os telefones. Uso:
+;   pjsip send notify reboot-yealink endpoint 1001
+[reboot-yealink]
+Event => check-sync;reboot=true
+
+[reboot-grandstream]
+Event => check-sync;reboot=true
+
+[reboot-snom]
+Event => check-sync;reboot=true
+
+[reboot-polycom]
+Event => check-sync
+Content-type => application/x-com-polycom-spipx
+
+[reboot-intelbras]
+Event => check-sync;reboot=true
+
+[reboot-fanvil]
+Event => check-sync;reboot=true
+
+[reconfigurar]
+Event => resync

@@ -117,3 +117,9 @@ instalar_janus: false
 compilar_janus: true
 instalar_firewall: true
 sons_pt_br: true
+
+# Limites do Asterisk. maxcalls conta canais simultâneos (cada chamada
+# usa dois); maxload é a carga do sistema acima da qual ele recusa
+# chamada nova — por isso acompanha o número de núcleos da máquina.
+asterisk_max_chamadas: 480
+asterisk_max_carga: "{{ (ansible_facts.processor_vcpus | default(2) | int * 1.5) | round(1) }}"

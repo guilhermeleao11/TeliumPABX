@@ -1,0 +1,10 @@
+; {{ ansible_managed }}
+;
+; Listas de acesso nomeadas. O Telium restringe os ramais pelo objeto
+; [telium-ramais] do PJSIP (telium/pjsip.acl.conf), então aqui só fica o
+; arquivo em si — sem ele o named_acl reclama a cada reload.
+;
+; Para criar uma lista nomeada:
+;   [escritorio]
+;   permit = 192.168.10.0/24
+;   deny   = 0.0.0.0/0

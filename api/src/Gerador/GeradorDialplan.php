@@ -164,35 +164,41 @@ final class GeradorDialplan
             $b->branco()
               ->comentario("{$numero} — {$r['nome']}")
               ->exten($numero, "NoOp(Ramal {$numero} — {$r['nome']})")
-              ->same('Set(CDR(direcao)=interna)');
+              ->same('Set(CDR(direcao)=interna)')
+              ->same("Set(__TELIUM_DESTINO={$numero})");
 
-            if (in_array($r['gravar'], ['ambas', 'entrada'], true)) {
-                $b->same('GoSub(sub-gravar,s,1(interna))');
-            }
-            if ((int) $r['dnd'] === 1) {
-                $b->same('NoOp(Ramal em não perturbe)')
-                  ->same((int) $r['voicemail'] === 1
-                      ? "VoiceMail({$numero}@telium,b)"
-                      : 'Busy(5)')
-                  ->same('Hangup()');
-                continue;
-            }
-            if ($r['siga_me']) {
-                $b->same(sprintf(
-                    'Dial(PJSIP/%s&PJSIP/%s@%s,%d,tT)',
-                    $numero,
-                    $r['siga_me'],
-                    'SIP-Vivo-Principal',
-                    (int) $r['tempo_toque']
-                ));
-                $b->same('Hangup()');
-                continue;
-            }
+            // Quem disca está fazendo uma chamada interna, então vale a
+            // regra 4 do ramal de origem — ela chega no canal, no
+            // TELIUM_GRAV do endpoint. A regra de quem recebe é escrita
+            // aqui como literal, porque o destino já é conhecido.
+            $b->same(sprintf(
+                'GoSub(sub-decidir-gravacao,s,1(4,%s,interna))',
+                $this->regraDeQuemRecebe($r)
+            ));
 
+            // Não perturbe, siga-me e desvios ficam todos no sub-ramal:
+            // ele lê a base do Asterisk, que é onde o código de recurso
+            // discado no telefone também escreve. Decidir aqui faria o
+            // console e o telefone discordarem.
             $b->apps($this->destino->linhas('ramal', $numero));
         }
 
         return $b->texto();
+    }
+
+    /**
+     * A regra de gravação do ramal que recebe uma chamada interna. A
+     * coluna antiga "gravar" continua valendo para quem nunca mexeu nas
+     * quatro novas.
+     */
+    private function regraDeQuemRecebe(array $r): string
+    {
+        $regra = (string) ($r['grav_int_entrada'] ?? 'indiferente');
+        if ($regra !== 'indiferente') {
+            return $regra;
+        }
+
+        return in_array($r['gravar'], ['ambas', 'entrada'], true) ? 'sim' : 'nao';
     }
 
     // ---------------------------------------------------------------
@@ -239,11 +245,14 @@ final class GeradorDialplan
               ->exten($numero, "NoOp(Fila {$f['nome']})")
               ->same("Set(CDR(fila)={$numero})")
               ->same("Set(__TELIUM_FILA={$numero})")
+              ->same("Set(__TELIUM_DESTINO={$numero})")
               ->same('Answer()');
 
-            if ((int) $f['gravar'] === 1) {
-                $b->same('GoSub(sub-gravar,s,1(entrada))');
-            }
+            // Na fila quem manda é a fila, mas "nunca" no ramal ainda vence.
+            // Regra 1 quando a chamada veio da rua, regra 4 quando foi um
+            // ramal que discou a fila — o canal diz qual dos dois é.
+            $b->same('GoSub(sub-decidir-gravacao,s,1(${IF($["${TELIUM_RAMAL}" != ""]?4:1)},'
+                . ((int) $f['gravar'] === 1 ? 'sim' : 'nao') . ',entrada))');
 
             // Anúncio ao cliente antes de entrar na espera. Fica fora do
             // announce da fila de propósito: aquele é o sussurro do agente.
@@ -807,7 +816,8 @@ final class GeradorDialplan
                   ->contexto('telium-saida');
 
         $rotas = Bd::todos(
-            'SELECT r.*, t.nome AS tronco_nome, tf.nome AS tronco_falha_nome
+            'SELECT r.*, t.nome AS tronco_nome, t.cid_saida AS tronco_cid,
+                    tf.nome AS tronco_falha_nome, tf.cid_saida AS tronco_falha_cid
                FROM rotas_saida r
                JOIN troncos t  ON t.id = r.tronco_id
           LEFT JOIN troncos tf ON tf.id = r.tronco_falha_id
@@ -815,35 +825,84 @@ final class GeradorDialplan
            ORDER BY r.ordem, r.id'
         );
 
+        if ($rotas === []) {
+            return $b->comentario('nenhuma rota de saída ativa')->texto();
+        }
+
         foreach ($rotas as $r) {
             $tronco = $this->identificador((string) $r['tronco_nome']);
-            $numero = $r['prefixo_remover']
-                ? '${EXTEN:' . strlen((string) $r['prefixo_remover']) . '}'
+            // O rótulo sai do id porque dois padrões diferentes podem
+            // virar o mesmo texto depois de tirar os símbolos (_00X. e
+            // _00X viram "00X") e os labels colidiriam dentro do contexto.
+            $rotulo = 'r' . $r['id'];
+
+            // Atenção ao prefixo "0": com um teste de verdadeiro simples o
+            // PHP o trata como vazio e o dígito seguia para a operadora.
+            $remover = (string) ($r['prefixo_remover'] ?? '');
+            $numero = $remover !== ''
+                ? '${EXTEN:' . strlen($remover) . '}'
                 : '${EXTEN}';
-            if ($r['prefixo_adicionar']) {
-                $numero = $r['prefixo_adicionar'] . $numero;
+            $adicionar = (string) ($r['prefixo_adicionar'] ?? '');
+            if ($adicionar !== '') {
+                $numero = $adicionar . $numero;
             }
 
             $b->branco()
               ->comentario("Ordem {$r['ordem']} — {$r['nome']} ({$r['classe']}) via {$r['tronco_nome']}")
               ->exten($r['padrao'], "NoOp(Rota de saída: {$r['nome']})")
               ->same('Set(CDR(direcao)=saida)')
+              ->same('Set(__TELIUM_DESTINO=${EXTEN})')
               ->same("Set(CDR(tronco)={$r['tronco_nome']})")
+              ->same("Set(__TELIUM_CLASSE={$r['classe']})")
               ->same("GoSub(sub-permissao,s,1({$r['classe']}))");
 
             if ($r['pin_set_id']) {
                 $b->same('Authenticate(/etc/asterisk/telium/pin-' . $r['pin_set_id'] . '.txt)');
             }
 
-            $b->same("Dial(PJSIP/{$numero}@{$tronco},60,T)");
+            // A gravação do sainte é decidida pelo ramal que discou.
+            // Chamada externa feita: regra 2 do ramal que discou. A rota
+            // não tem opinião própria, então o pedido é "não".
+            $b->same('GoSub(sub-decidir-gravacao,s,1(2,nao,saida))');
+
+            // Sem isto o canal sai com o número interno do ramal no From
+            // e a operadora recusa. O CID do ramal manda; o do tronco é
+            // o padrão da casa.
+            $b->same('GoSub(sub-cid-saida,s,1('
+                   . $this->soNumero((string) ($r['tronco_cid'] ?? '')) . '))');
+
+            $b->same("Dial(PJSIP/{$numero}@{$tronco},60,tT)")
+              ->same('NoOp(Tronco principal: ${DIALSTATUS})');
 
             if ($r['tronco_falha_nome']) {
+                // Só cai no reserva quando o principal não completou. Sem
+                // esta checagem, uma chamada atendida e encerrada seguia
+                // para a próxima prioridade e discava de novo.
                 $falha = $this->identificador((string) $r['tronco_falha_nome']);
-                $b->same("NoOp(Tentando tronco reserva {$r['tronco_falha_nome']})")
-                  ->same("Dial(PJSIP/{$numero}@{$falha},60,T)");
+                $b->same('GotoIf($["${DIALSTATUS}" = "ANSWER" | "${DIALSTATUS}" = "BUSY"'
+                       . ' | "${DIALSTATUS}" = "CANCEL"]?fim-' . $rotulo . ')')
+                  ->same("NoOp(Tentando o tronco reserva {$r['tronco_falha_nome']})")
+                  ->same("Set(CDR(tronco)={$r['tronco_falha_nome']})")
+                  // O reserva costuma ser de outra operadora, com outro
+                  // número contratado.
+                  ->same('GoSub(sub-cid-saida,s,1('
+                       . $this->soNumero((string) ($r['tronco_falha_cid'] ?? '')) . '))')
+                  ->same("Dial(PJSIP/{$numero}@{$falha},60,tT)")
+                  ->same('NoOp(Tronco reserva: ${DIALSTATUS})');
             }
 
-            $b->same('Hangup()');
+            // Tradução do motivo para quem está no telefone: sem isto, a
+            // chamada apenas cai e ninguém sabe se foi bloqueio ou falha.
+            $b->same('NoOp(Encerrando a chamada)', 'fim-' . $rotulo)
+              ->same('GotoIf($["${DIALSTATUS}" = "BUSY"]?ocupado-' . $rotulo . ')')
+              ->same('GotoIf($["${DIALSTATUS}" = "CHANUNAVAIL" | "${DIALSTATUS}" = "CONGESTION"]'
+                   . '?semlinha-' . $rotulo . ')')
+              ->same('Hangup()')
+              ->same('Busy(10)', 'ocupado-' . $rotulo)
+              ->same('Hangup()')
+              ->same('NoOp(Nenhum tronco atendeu)', 'semlinha-' . $rotulo)
+              ->same('Congestion(10)')
+              ->same('Hangup()');
         }
 
         return $b->texto();
@@ -857,28 +916,73 @@ final class GeradorDialplan
 
         $rotas = Bd::todos('SELECT * FROM rotas_entrada WHERE ativo = 1 ORDER BY ordem, id');
 
+        // A rota coringa atende qualquer DID, então precisa ser a última:
+        // o Asterisk escolhe o padrão mais específico, mas a leitura do
+        // arquivo fica muito mais clara com ela no fim.
+        usort($rotas, fn ($a, $z) => $this->ehCoringa($a['did']) <=> $this->ehCoringa($z['did']));
+
+        // Um DID escrito como padrão (_X.) já pega o que não tem rota
+        // própria; nesse caso a rede de segurança abaixo seria ruído.
+        $temCoringa = false;
+
         foreach ($rotas as $r) {
+            $coringa = $this->ehCoringa($r['did']);
+            $temCoringa = $temCoringa || $coringa || str_starts_with(trim((string) $r['did']), '_');
+            // "_X." e não "_.": o próprio Asterisk desaconselha o
+            // segundo, que casa até com o que não é número.
+            $padrao = $coringa ? '_X.' : $r['did'];
+            $titulo = $coringa ? 'qualquer DID' : (string) $r['did'];
+
             $b->branco()
-              ->comentario("{$r['did']} — {$r['descricao']} → "
+              ->comentario("{$titulo} — {$r['descricao']} → "
                   . $this->destino->descricao($r['destino_tipo'], $r['destino_valor']))
-              ->exten($r['did'], "NoOp(Rota de entrada: {$r['descricao']})")
+              ->exten($padrao, "NoOp(Rota de entrada: {$r['descricao']})")
               ->same('Set(CDR(direcao)=entrada)')
+              ->same('Set(__TELIUM_DESTINO=${EXTEN})')
               ->same('Set(CDR(tronco)=${TELIUM_TRONCO})')
               ->same('GoSub(sub-listanegra,s,1)');
 
             if ((int) $r['gravar'] === 1) {
                 $b->same('Answer()')
-                  ->same('GoSub(sub-gravar,s,1(entrada))');
+                  ->same('GoSub(sub-decidir-gravacao,s,1(1,sim,entrada))');
             }
 
             $b->apps($this->destino->linhas($r['destino_tipo'], $r['destino_valor']));
         }
 
+        // Sem isto uma chamada com DID fora da lista morre em silêncio e o
+        // console só diz "invalid extension" — ninguém descobre que a
+        // operadora mudou o formato do número entregue.
+        if (!$temCoringa) {
+            $b->branco()
+              ->comentario('DID sem rota cadastrada — evita a chamada morrer calada')
+              ->exten('_X.', 'NoOp(DID ${EXTEN} chegou pelo tronco ${TELIUM_TRONCO} e não tem rota de entrada)')
+              ->same('Answer()')
+              ->same('Wait(1)')
+              ->same('Playback(ss-noservice)')
+              ->same('Hangup(1)');
+        }
+
         return $b->texto();
+    }
+
+    /** DID em branco, "*" ou "qualquer" quer dizer: vale para todos. */
+    private function ehCoringa(?string $did): bool
+    {
+        return in_array(trim((string) $did), ['', '*', 's', 'qualquer'], true);
     }
 
     private function identificador(string $nome): string
     {
         return preg_replace('/[^A-Za-z0-9_-]/', '-', $nome) ?? $nome;
+    }
+
+    /**
+     * CID vira argumento de GoSub: vírgula, parêntese ou ponto e vírgula
+     * ali dentro quebram a linha inteira do dialplan.
+     */
+    private function soNumero(string $texto): string
+    {
+        return preg_replace('/[^0-9+]/', '', $texto) ?? '';
     }
 }

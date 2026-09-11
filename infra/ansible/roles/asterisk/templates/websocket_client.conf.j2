@@ -1,0 +1,6 @@
+; {{ ansible_managed }}
+;
+; Clientes WebSocket de saída (o Asterisk conectando em alguém).
+; O Telium não usa nenhum: o softphone é quem conecta no Asterisk, pelo
+; /ws do nginx. O arquivo existe só para o res_websocket_client não
+; registrar erro a cada reload — o ARI depende desse módulo.

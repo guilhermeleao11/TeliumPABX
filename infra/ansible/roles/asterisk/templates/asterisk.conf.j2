@@ -18,8 +18,11 @@ rungroup       = asterisk
 documentation_language = pt_BR
 verbose        = 3
 debug          = 0
-maxcalls       = 240
-maxload        = 0.9
+maxcalls       = {{ asterisk_max_chamadas }}
+; maxload é a carga do sistema inteira, não por núcleo: num servidor de 4
+; CPUs a carga 1.3 é saúde normal e com 0.9 o Asterisk passava a recusar
+; chamada nova. O padrão acompanha o número de núcleos.
+maxload        = {{ asterisk_max_carga }}
 transmit_silence = yes
 languageprefix = yes
 live_dangerously = no

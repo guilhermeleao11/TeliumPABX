@@ -11,6 +11,13 @@ final class GeradorPjsip
     /** Onde o papel do Asterisk deixa o par TLS trocável pelo console. */
     private const CERT_DIR = '/etc/asterisk/keys';
 
+    /** O par de certificado do Asterisk está legível? */
+    private function parDeCertificado(): bool
+    {
+        return is_readable(self::CERT_DIR . '/asterisk.crt')
+            && is_readable(self::CERT_DIR . '/asterisk.key');
+    }
+
     /** @return array<string,string> nome do arquivo => conteúdo */
     public function gerar(): array
     {
@@ -66,7 +73,23 @@ final class GeradorPjsip
           ->crua("aors = {$n}")
           ->crua(sprintf('callerid = "%s" <%s>', $this->limpar((string) $r['nome']), $n))
           ->crua("set_var = TELIUM_PERM={$this->permissoes($r)}")
-          ->crua("set_var = TELIUM_RAMAL={$n}");
+          ->crua("set_var = TELIUM_RAMAL={$n}")
+          // As quatro regras de gravação viajam com o canal, na ordem em
+          // que sub-decidir-gravacao as lê: externa recebida, externa
+          // feita, interna recebida, interna feita, e a sob demanda.
+          ->crua('set_var = TELIUM_GRAV=' . implode('|', [
+              $r['grav_ext_entrada'] ?? 'indiferente',
+              $r['grav_ext_saida'] ?? 'indiferente',
+              $r['grav_int_entrada'] ?? 'indiferente',
+              $r['grav_int_saida'] ?? 'indiferente',
+              $r['grav_sob_demanda'] ?? 'ativar',
+          ]));
+
+        // O número que a operadora vê nas chamadas deste ramal. Sem ele a
+        // rota usa o CID do tronco.
+        if (($r['cid_pseudo'] ?? '') !== '') {
+            $b->crua('set_var = TELIUM_CID=' . $this->limpar((string) $r['cid_pseudo']));
+        }
 
         if (($r['codecs_negados'] ?? '') !== '') {
             $b->crua('disallow = ' . $this->lista((string) $r['codecs_negados']));
@@ -128,12 +151,20 @@ final class GeradorPjsip
         }
 
         if ($dtls) {
-            // O par é o mesmo do SIP TLS, trocável pelo módulo de certificados.
-            $b->crua('media_encryption = dtls')
-              ->crua('dtls_auto_generate_cert = no')
-              ->crua('dtls_cert_file = ' . self::CERT_DIR . '/asterisk.crt')
-              ->crua('dtls_private_key = ' . self::CERT_DIR . '/asterisk.key')
-              ->crua("dtls_verify = {$r['dtls_verificar']}")
+            $b->crua('media_encryption = dtls');
+            // Sem certificado no disco o Asterisk recusa o endpoint inteiro
+            // e o ramal WebRTC simplesmente some. Nesse caso o próprio
+            // Asterisk gera um par efêmero — o DTLS não precisa de CA, a
+            // impressão digital viaja no SDP.
+            if ($this->parDeCertificado()) {
+                // O par é o mesmo do SIP TLS, trocável pelo módulo de certificados.
+                $b->crua('dtls_auto_generate_cert = no')
+                  ->crua('dtls_cert_file = ' . self::CERT_DIR . '/asterisk.crt')
+                  ->crua('dtls_private_key = ' . self::CERT_DIR . '/asterisk.key');
+            } else {
+                $b->crua('dtls_auto_generate_cert = yes');
+            }
+            $b->crua("dtls_verify = {$r['dtls_verificar']}")
               ->crua("dtls_setup = {$r['dtls_setup']}");
         } elseif ((int) $r['srtp'] === 1) {
             $b->crua('media_encryption = sdes');

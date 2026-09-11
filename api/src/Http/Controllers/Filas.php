@@ -76,11 +76,23 @@ final class Filas
             Bd::executar("DELETE FROM fila_agentes WHERE fila_id = ? AND origem = 'manual'",
                          [$fila['id']]);
 
+            $gravados = 0;
             foreach ($lista as $a) {
+                // Aceita o id do ramal ou o número dele: quem chama pela
+                // API costuma ter o número na mão, e antes a entrada sem
+                // ramal_id era descartada calada — a fila ficava sem
+                // agente e a resposta dizia que tinha salvo.
                 $ramalId = (int) ($a['ramal_id'] ?? 0);
-                if ($ramalId === 0) {
-                    continue;
+                if ($ramalId === 0 && ($a['ramal'] ?? '') !== '') {
+                    $ramalId = (int) (Bd::um('SELECT id FROM ramais WHERE numero = ?',
+                                             [$a['ramal']])['id'] ?? 0);
                 }
+                if ($ramalId === 0) {
+                    throw new \RuntimeException(
+                        'Agente sem ramal reconhecido: ' . json_encode($a, JSON_UNESCAPED_UNICODE)
+                    );
+                }
+                $gravados++;
 
                 Bd::executar(
                     'INSERT INTO fila_agentes (fila_id, ramal_id, penalidade, tipo, origem)
@@ -106,9 +118,9 @@ final class Filas
              ON DUPLICATE KEY UPDATE valor = '1'"
         );
         Auditoria::registrar($req->getAttribute('usuario'), 'editar', 'apps.filas',
-                             (string) $fila['numero'], ['agentes' => count($lista)]);
+                             (string) $fila['numero'], ['agentes' => $gravados]);
 
-        return Resposta::json($res, ['ok' => true, 'agentes' => count($lista)]);
+        return Resposta::json($res, ['ok' => true, 'agentes' => $gravados]);
     }
 
     /** GET /api/filas/{id}/situacao — o que o AMI diz agora */

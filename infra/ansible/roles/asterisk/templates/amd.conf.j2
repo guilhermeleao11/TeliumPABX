@@ -1,0 +1,12 @@
+; {{ ansible_managed }}
+;
+; Detecção de secretária eletrônica, usada por discagem ativa.
+[general]
+initial_silence    = 2500     ; silêncio inicial que já indica gravação
+greeting           = 1500     ; saudação mais longa que isto é gravação
+after_greeting_silence = 800
+total_analysis_time    = 5000
+min_word_length    = 100
+between_words_silence = 50
+maximum_number_of_words = 3
+silence_threshold  = 256

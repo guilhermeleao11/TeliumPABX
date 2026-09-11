@@ -92,6 +92,14 @@ final class Aplicador
         // Siga-me guarda o destino, não um "1": vai à parte.
         $ok = $this->sincronizarSigaMe($ami) && $ok;
 
+        // Não perturbe: o console e o código *76 escrevem no mesmo lugar,
+        // senão o ramal aparece livre numa tela e ocupado na outra.
+        $tabelas['dnd'] = 'SELECT numero FROM ramais WHERE ativo = 1 AND dnd = 1';
+
+        // Chamada em espera. Sem a chave, o sub-ramal dá ocupado na
+        // segunda chamada — é a opção do cadastro que decide.
+        $tabelas['cw'] = 'SELECT numero FROM ramais WHERE ativo = 1 AND chamada_espera = 1';
+
         foreach ($tabelas as $familia => $sql) {
             $resposta = $ami->acao(['Action' => 'DBDelTree', 'Family' => $familia]);
             if (str_contains(strtolower($resposta), 'error')
