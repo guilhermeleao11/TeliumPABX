@@ -30,6 +30,7 @@ final class Gerador
         $arquivos = [
             ...(new GeradorPjsip())->gerar(),
             ...(new GeradorDialplan())->gerar(),
+            ...(new GeradorRecursos())->gerar(),
             ...(new GeradorFilas())->gerar(),
             ...(new GeradorVoicemail())->gerar(),
         ];

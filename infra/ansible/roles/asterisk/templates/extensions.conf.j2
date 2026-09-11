@@ -29,14 +29,82 @@ exten => s,1,Set(__TELIUM_GRAV=${STRFTIME(${EPOCH},,%Y/%m/%d)}/${STRFTIME(${EPOC
 ; ------------------------------------------------------------------
 [sub-ramal]
 exten => s,1,NoOp(Chamando ramal ${ARG1})
+ same => n,Set(TELIUM_R=${ARG1})
+ same => n,Set(TELIUM_TOQUE=${ARG2})
  same => n,Set(TELIUM_VM=${ARG3})
- same => n,Dial(PJSIP/${ARG1},${ARG2},tT)
+ ; guarda quem ligou: é o que *69, *39 e *32 usam depois
+ same => n,ExecIf($["${CALLERID(num)}" != ""]?Set(DB(ultimochamador/${ARG1})=${CALLERID(num)}))
+
+ ; desvio de todas as chamadas vence tudo, inclusive o não perturbe
+ same => n,Set(TELIUM_CF=${DB(cf/${ARG1})})
+ same => n,GotoIf($["${TELIUM_CF}" != ""]?desviar)
+
+ ; não perturbe
+ same => n,GotoIf($[${DB_EXISTS(dnd/${ARG1})}]?ocupado)
+
+ ; sem chamada em espera, ramal já em uso responde ocupado
+ same => n,GotoIf($[${DB_EXISTS(cw/${ARG1})}]?monta)
+ same => n,Set(TELIUM_EST=${DEVICE_STATE(PJSIP/${ARG1})})
+ same => n,GotoIf($["${TELIUM_EST}" = "INUSE" | "${TELIUM_EST}" = "BUSY" | "${TELIUM_EST}" = "RINGINUSE"]?ocupado)
+
+ ; siga-me: toca o ramal e o destino ao mesmo tempo
+ same => n(monta),Set(TELIUM_ALVO=PJSIP/${ARG1})
+ same => n,Set(TELIUM_FMF=${DB(sigame/${ARG1})})
+ same => n,ExecIf($["${TELIUM_FMF}" != ""]?Set(TELIUM_ALVO=PJSIP/${ARG1}&Local/${TELIUM_FMF}@telium-desvio))
+
+ same => n,Dial(${TELIUM_ALVO},${TELIUM_TOQUE},tT)
  same => n,NoOp(Resultado: ${DIALSTATUS})
+
+ same => n,Set(TELIUM_CFB=${DB(cfb/${ARG1})})
+ same => n,Set(TELIUM_CFU=${DB(cfu/${ARG1})})
+ same => n,GotoIf($["${DIALSTATUS}" = "BUSY" & "${TELIUM_CFB}" != ""]?desviar_ocupado)
+ same => n,GotoIf($["${DIALSTATUS}" != "ANSWER" & "${TELIUM_CFU}" != ""]?desviar_naoatende)
+ same => n,GoSub(sub-perdida,s,1(${ARG1}))
  same => n,GotoIf($["${TELIUM_VM}" = ""]?sem_vm)
  same => n,ExecIf($["${DIALSTATUS}" = "BUSY"]?VoiceMail(${TELIUM_VM},b))
  same => n,ExecIf($["${DIALSTATUS}" = "NOANSWER"]?VoiceMail(${TELIUM_VM},u))
  same => n,ExecIf($["${DIALSTATUS}" = "CHANUNAVAIL"]?VoiceMail(${TELIUM_VM},u))
  same => n(sem_vm),Return()
+
+ same => n(desviar),NoOp(Desvio de todas: ${TELIUM_R} para ${TELIUM_CF})
+ same => n,Goto(telium-desvio,${TELIUM_CF},1)
+ same => n(desviar_ocupado),NoOp(Desvio por ocupado: ${TELIUM_R} para ${TELIUM_CFB})
+ same => n,Goto(telium-desvio,${TELIUM_CFB},1)
+ same => n(desviar_naoatende),NoOp(Desvio por não atender: ${TELIUM_R} para ${TELIUM_CFU})
+ same => n,Goto(telium-desvio,${TELIUM_CFU},1)
+
+ same => n(ocupado),NoOp(Ramal ${TELIUM_R} indisponível)
+ same => n,GoSub(sub-perdida,s,1(${ARG1}))
+ same => n,Set(TELIUM_CFB=${DB(cfb/${ARG1})})
+ same => n,GotoIf($["${TELIUM_CFB}" != ""]?desviar_ocupado)
+ same => n,GotoIf($["${TELIUM_VM}" = ""]?so_ocupado)
+ same => n,VoiceMail(${TELIUM_VM},b)
+ same => n,Return()
+ same => n(so_ocupado),Busy(5)
+ same => n,Return()
+
+; ------------------------------------------------------------------
+; Sub-rotina: destino de desvio e de siga-me
+; Entra pelo contexto interno, então vale ramal, fila, URA ou externo.
+; ------------------------------------------------------------------
+[telium-desvio]
+exten => _X.,1,NoOp(Destino de desvio: ${EXTEN})
+ same => n,Goto(interno,${EXTEN},1)
+exten => _*X.,1,NoOp(Destino de desvio: ${EXTEN})
+ same => n,Goto(interno,${EXTEN},1)
+
+; ------------------------------------------------------------------
+; Sub-rotina: registrar chamada perdida
+;   ARG1 = ramal que não atendeu
+; Só registra quando o ramal pediu o aviso (código *58). A gravação vai
+; para a tabela de eventos, que é o que o console mostra.
+; ------------------------------------------------------------------
+[sub-perdida]
+exten => s,1,GotoIf($[${DB_EXISTS(perdidas/${ARG1})}]?registra)
+ same => n,Return()
+ same => n(registra),NoOp(Chamada perdida no ramal ${ARG1}, de ${CALLERID(num)})
+ same => n,Set(ODBC_TELIUM_PERDIDA(${ARG1},${CALLERID(num)})=${CALLERID(name)})
+ same => n,Return()
 
 ; ------------------------------------------------------------------
 ; Sub-rotina: checar permissão de discagem do ramal
@@ -60,16 +128,29 @@ exten => s,1,GotoIf($["${TELIUM_PERM}" = ""]?permitido)
 ; ------------------------------------------------------------------
 [sub-listanegra]
 exten => s,1,GotoIf($["${CALLERID(num)}" = ""]?segue)
+ ; allowlist: primeiro a base do Asterisk (o que entrou por código de
+ ; recurso, vale na hora), depois o contexto gerado (padrões do console)
+ same => n,GotoIf($[${DB_EXISTS(allowlist-pausada/geral)}]?sem_allowlist)
+ same => n,GotoIf($[${DB_EXISTS(allowlist/${CALLERID(num)})}]?segue)
  same => n,GotoIf($[${DIALPLAN_EXISTS(telium-allowlist,${CALLERID(num)},1)}]?segue)
+ same => n(sem_allowlist),GotoIf($[${DB_EXISTS(listanegra/${CALLERID(num)})}]?bloqueia)
  same => n,GotoIf($[${DIALPLAN_EXISTS(telium-listanegra,${CALLERID(num)},1)}]?bloqueia)
  same => n(segue),Return()
  same => n(bloqueia),NoOp(Chamada de ${CALLERID(num)} barrada pela lista negra)
- same => n,Goto(telium-listanegra,${CALLERID(num)},1)
+ same => n,GotoIf($[${DIALPLAN_EXISTS(telium-listanegra,${CALLERID(num)},1)}]?trata)
+ same => n,Hangup(21)
+ same => n(trata),Goto(telium-listanegra,${CALLERID(num)},1)
 
 ; ------------------------------------------------------------------
-; Recursos internos que não são configuráveis por código
+; Sub-rotina: confirmar um código de recurso
+;   ARG1 = arquivo de áudio a tocar (activated, de-activated, …)
 ; ------------------------------------------------------------------
-; ------------------------------------------------------------------
+[sub-confirma]
+exten => s,1,Answer()
+ same => n,Wait(1)
+ same => n,Playback(${ARG1})
+ same => n,Hangup()
+
 ; ------------------------------------------------------------------
 ; Contexto dos ramais
 ; ------------------------------------------------------------------
@@ -87,6 +168,26 @@ include => telium-custom
 ; ------------------------------------------------------------------
 [de-tronco]
 include => telium-entrada
+
+; ------------------------------------------------------------------
+; Despertador: o disparador liga para o ramal e cai aqui.
+; A hora marcada fica na base do Asterisk (família despertar), gravada
+; pelo código *68.
+; ------------------------------------------------------------------
+[telium-despertador]
+exten => s,1,NoOp(Despertador do ramal ${CALLERID(num)})
+ same => n,Answer()
+ same => n,Wait(1)
+ same => n,Playback(hello)
+ same => n,SayUnixTime(,${TELIUM_TZ},HM)
+ same => n,Wait(1)
+ same => n,Playback(goodbye)
+ same => n,Hangup()
+
+; Contexto para personalizações. Fica aqui vazio só para o include do
+; contexto interno não reclamar numa instalação recém-feita; o conteúdo
+; de verdade vai em telium/extensions_custom.conf, que não é sobrescrito.
+[telium-custom]
 
 ; Contexto de bloqueio: usado por ramais sem permissão de saída
 [telium-bloqueado]

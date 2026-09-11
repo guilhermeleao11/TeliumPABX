@@ -1111,50 +1111,226 @@ PAGES['admin.gravacoes'] = {
 };
 
 /* ------------------------- Administrador · Códigos de Recurso ------------------------- */
-PAGES['admin.codigos'] = paginaCrud({
-  recurso: 'codigos-recurso',
-  titulo: 'Códigos de Recurso',
-  sub: 'O que o usuário disca para usar cada facilidade. Pode trocar qualquer código.',
-  ico: 'grid',
-  plural: 'códigos',
-  somenteLeitura: false,
-  rotuloNovo: 'Novo código',
-  vazioTitulo: 'Nenhum código de recurso',
-  vazioTexto: 'Os códigos padrão são criados na instalação.',
-  placeholderBusca: 'Buscar por nome ou código…',
-  textoBusca: c => `${c.codigo} ${c.nome} ${c.descricao || ''}`,
-  tituloEditar: c => `${c.codigo} — ${c.nome}`,
-  tituloExcluir: c => `Excluir o código ${c.codigo}?`,
-  textoExcluir: () => 'A facilidade deixa de atender nesse número depois de aplicar as configurações.',
+const CATEGORIAS_CODIGO = [
+  { chave: 'core',           rotulo: 'Núcleo',                    ico: 'grid' },
+  { chave: 'informacoes',    rotulo: 'Serviços de Informação',    ico: 'info' },
+  { chave: 'correio',        rotulo: 'Correio de Voz',            ico: 'voicemail' },
+  { chave: 'desvio',         rotulo: 'Encaminhamento de Chamadas',ico: 'shuffle' },
+  { chave: 'sigame',         rotulo: 'Siga-me',                   ico: 'route' },
+  { chave: 'naoperturbe',    rotulo: 'Não Perturbe',              ico: 'phoneOff' },
+  { chave: 'chamadaespera',  rotulo: 'Chamada em Espera',         ico: 'clock' },
+  { chave: 'filas',          rotulo: 'Filas',                     ico: 'users' },
+  { chave: 'estacionamento', rotulo: 'Estacionamento',            ico: 'package' },
+  { chave: 'interfonia',     rotulo: 'Interfonia e Megafonia',    ico: 'speaker' },
+  { chave: 'conferencia',    rotulo: 'Conferências',              ico: 'users' },
+  { chave: 'agenda',         rotulo: 'Agenda de Contatos',        ico: 'book' },
+  { chave: 'listanegra',     rotulo: 'Lista Negra',               ico: 'phoneOff' },
+  { chave: 'allowlist',      rotulo: 'Allowlist',                 ico: 'checkCirc' },
+  { chave: 'perdidas',       rotulo: 'Chamadas Perdidas',         ico: 'phoneIn' },
+  { chave: 'despertar',      rotulo: 'Despertador',               ico: 'bell' },
+  { chave: 'condicoes',      rotulo: 'Condições Horárias',        ico: 'calendar' },
+  { chave: 'ditado',         rotulo: 'Ditado',                    ico: 'mic' },
+  { chave: 'fax',            rotulo: 'Fax',                       ico: 'file' }
+];
 
-  colunas: [
-    { label: 'Código', render: c => `<b class="mono" style="font-size:15px">${esc(c.codigo)}</b>` },
-    { label: 'Facilidade', render: c => `<b>${esc(c.nome)}</b>${c.descricao ? `<div class="tiny muted">${esc(c.descricao)}</div>` : ''}` },
-    { label: 'Categoria', render: c => `<span class="badge">${esc(c.categoria)}</span>` },
-    { label: 'Chave', render: c => `<span class="mono tiny muted">${esc(c.chave)}</span>` },
-    { label: 'Estado', render: c => Number(c.ativo)
-        ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
-        : '<span class="badge"><i class="dot"></i>Desligado</span>' }
-  ],
+PAGES['admin.codigos'] = {
+  async render(ctx) {
+    let r;
+    try { r = await Api.get('/codigos-recurso', { limite: 300 }); }
+    catch (e) { return pageHead('Códigos de Recurso', '') + blocoErro(e); }
+    this._itens = r.dados || [];
 
-  filtrosExtra: itens => {
-    const cats = [...new Set(itens.map(i => i.categoria))].sort();
-    return `<select class="select" data-filtro-campo="categoria" style="width:170px">
-      <option value="">Todas as categorias</option>
-      ${cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}
-    </select>`;
+    const cabecalho = pageHead('Códigos de Recurso',
+      `O que o usuário disca para usar cada facilidade. Todo código pode ser trocado;
+       o que ele faz é fixo e já está no dialplan.`,
+      `${ctx.can('criar') ? `<button class="btn btn-outline btn-sm" id="novoCodigo">
+         ${icon('plus','ico ico-sm')} Código próprio</button>` : readOnlyNote(ctx)}`);
+
+    if (!this._itens.length) {
+      return cabecalho + `<div class="card">${vazio('grid', 'Nenhum código de recurso',
+        'O catálogo é criado na instalação. Rode o playbook do Ansible para recriá-lo.')}</div>`;
+    }
+
+    const ativos = this._itens.filter(c => Number(c.ativo)).length;
+    const emChamada = this._itens.filter(c => c.tipo === 'featuremap').length;
+
+    // Categorias conhecidas na ordem desenhada; o que sobrar vai ao final.
+    const conhecidas = CATEGORIAS_CODIGO.map(c => c.chave);
+    const extras = [...new Set(this._itens.map(c => c.categoria))].filter(c => !conhecidas.includes(c));
+    const ordem = [...CATEGORIAS_CODIGO, ...extras.map(c => ({ chave: c, rotulo: c, ico: 'grid' }))];
+
+    const blocos = ordem.map(cat => {
+      const itens = this._itens
+        .filter(c => c.categoria === cat.chave)
+        .sort((a, b) => (a.ordem - b.ordem) || a.codigo.localeCompare(b.codigo));
+      if (!itens.length) return '';
+
+      return `<div class="card" style="margin-bottom:16px" data-categoria="${esc(cat.chave)}">
+        <div class="card-head">
+          <div class="row gap-8">
+            <span class="k-ico" style="background:var(--brand-soft);color:var(--brand)">${icon(cat.ico)}</span>
+            <div><div class="card-title">${esc(cat.rotulo)}</div>
+              <div class="card-sub">${itens.length} ${itens.length === 1 ? 'código' : 'códigos'}</div></div>
+          </div>
+        </div>
+        <div class="card-body tight">
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Descrição</th><th style="width:150px">Código</th>
+                       <th style="width:120px">Onde vale</th><th style="width:190px">Ações</th></tr></thead>
+            <tbody>${itens.map(c => `
+              <tr data-id="${c.id}"
+                  data-busca="${esc(`${c.codigo} ${c.nome} ${c.descricao || ''} ${c.chave}`.toLowerCase())}">
+                <td><b>${esc(c.nome)}</b>
+                  ${c.descricao ? `<div class="tiny muted">${esc(c.descricao)}</div>` : ''}</td>
+                <td><b class="mono" style="font-size:15px">${esc(c.codigo)}</b>
+                  ${c.argumento ? `<span class="tiny muted"> + ${esc(c.argumento)}</span>` : ''}</td>
+                <td>${c.tipo === 'featuremap'
+                  ? '<span class="badge badge-info" data-tip="Apertado durante a conversa">durante a chamada</span>'
+                  : '<span class="badge">ao discar</span>'}</td>
+                <td class="col-actions">
+                  <span class="row gap-8">
+                    ${ctx.can('editar') ? `<button class="btn btn-outline btn-sm" data-editar="${c.id}">
+                      Personalizar</button>` : ''}
+                    <label class="switch" data-tip="${Number(c.ativo) ? 'Habilitado' : 'Desabilitado'}">
+                      <input type="checkbox" ${Number(c.ativo) ? 'checked' : ''}
+                             ${ctx.can('editar') ? '' : 'disabled'} data-liga="${c.id}">
+                      <span class="track"></span></label>
+                  </span>
+                </td>
+              </tr>`).join('')}
+            </tbody></table></div>
+        </div>
+      </div>`;
+    }).join('');
+
+    return cabecalho + `
+      <div class="card" style="padding:12px 14px;margin-bottom:16px">
+        <div class="toolbar" style="padding:0;border:0">
+          <div class="input-icon search-mini">${icon('search','ico ico-sm')}
+            <input class="input" id="buscaCodigo" placeholder="Buscar por nome, código ou facilidade…">
+          </div>
+          <span class="grow"></span>
+          <span class="small muted">${ativos} de ${this._itens.length} habilitados ·
+            ${emChamada} valem durante a chamada</span>
+        </div>
+      </div>
+      ${blocos}
+      <div id="semCodigo" hidden>${vazio('search', 'Nenhum código com esse termo',
+        'Procure pelo que a facilidade faz — "desvio", "gravar", "fila".')}</div>`;
   },
 
-  campos: (c) => [
-    { campo: 'codigo', label: 'Código discado', obrigatorio: true, mono: true, placeholder: '*8',
-      ajuda: 'Comece com * ou # para não colidir com número de ramal.' },
-    { campo: 'nome', label: 'Nome da facilidade', obrigatorio: true },
-    { campo: 'categoria', label: 'Categoria', tipo: 'select',
-      opcoes: ['atendimento','correio','desvio','diagnostico','gravacao','geral'] },
-    { campo: 'ativo', label: 'Código ativo', tipo: 'switch', padrao: 1 },
-    { campo: 'descricao', label: 'Descrição', tipo: 'textarea', largura: 'full' }
-  ]
-});
+  mount(ctx) {
+    const itens = this._itens || [];
+    const busca = document.getElementById('buscaCodigo');
+    const linhas = [...document.querySelectorAll('tr[data-id]')];
+    const cartoes = [...document.querySelectorAll('[data-categoria]')];
+    const semCodigo = document.getElementById('semCodigo');
+
+    const aplicar = () => {
+      const t = (busca?.value || '').trim().toLowerCase();
+      let achou = 0;
+      linhas.forEach(l => {
+        const ok = !t || l.dataset.busca.includes(t);
+        l.hidden = !ok;
+        if (ok) achou++;
+      });
+      // Categoria sem nenhuma linha visível some junto, senão fica um card vazio.
+      cartoes.forEach(c => {
+        c.hidden = ![...c.querySelectorAll('tr[data-id]')].some(l => !l.hidden);
+      });
+      if (semCodigo) semCodigo.hidden = achou > 0;
+    };
+    busca?.addEventListener('input', aplicar);
+
+    document.querySelectorAll('[data-liga]').forEach(sw => sw.onchange = async () => {
+      const c = itens.find(x => String(x.id) === sw.dataset.liga);
+      try {
+        await Api.put(`/codigos-recurso/${c.id}`, { ativo: sw.checked ? 1 : 0 });
+        c.ativo = sw.checked ? 1 : 0;
+        toast(sw.checked
+          ? `${c.codigo} habilitado. Aplique as configurações para valer no Asterisk.`
+          : `${c.codigo} desabilitado. Aplique as configurações para valer no Asterisk.`, 'ok');
+      } catch (e) {
+        sw.checked = !sw.checked;
+        toast(e.message, 'err');
+      }
+    });
+
+    const formulario = item => {
+      const novo = !item;
+      const c = item || { tipo: 'dialplan', ativo: 1, categoria: 'core', ordem: 100 };
+      const campos = [
+        { campo: 'codigo', label: 'Código discado', obrigatorio: true, mono: true, placeholder: '*8',
+          padraoValido: /^[*#0-9]{1,12}$/,
+          mensagemPadrao: 'use só dígitos, * e #',
+          ajuda: 'Comece com * ou # para não colidir com número de ramal.' },
+        { campo: 'nome', label: 'Facilidade', obrigatorio: true, largura: 'full',
+          somenteLeitura: !novo },
+        ...(novo ? [
+          { campo: 'chave', label: 'Chave interna', obrigatorio: true, mono: true,
+            padraoValido: /^[a-z0-9_]+$/, mensagemPadrao: 'letras minúsculas, números e sublinhado',
+            ajuda: 'O gerador só sabe montar o dialplan das chaves que ele conhece. Uma chave nova entra no catálogo, mas o contexto dela você escreve em extensions_custom.conf.' },
+          { campo: 'categoria', label: 'Categoria', tipo: 'select',
+            opcoes: CATEGORIAS_CODIGO.map(x => ({ valor: x.chave, rotulo: x.rotulo })) },
+          { campo: 'tipo', label: 'Onde vale', tipo: 'select',
+            opcoes: [{ valor: 'dialplan', rotulo: 'Ao discar' },
+                     { valor: 'featuremap', rotulo: 'Apertado durante a chamada' }] }
+        ] : []),
+        { campo: 'argumento', label: 'O que se disca depois', placeholder: 'ramal, destino, fila…',
+          somenteLeitura: !novo,
+          ajuda: 'Em branco quando o código é discado sozinho.' },
+        { campo: 'descricao', label: 'O que ele faz', tipo: 'textarea', largura: 'full',
+          somenteLeitura: !novo },
+        { campo: 'ativo', label: 'Habilitado', tipo: 'switch', padrao: 1 }
+      ];
+
+      Drawer.open({
+        titulo: novo ? 'Novo código de recurso' : `${c.codigo} — ${c.nome}`,
+        sub: novo
+          ? 'Para uma facilidade escrita por você no extensions_custom.conf.'
+          : `Só o código discado e o estado mudam aqui — o que a facilidade faz é fixo
+             (chave <span class="mono">${esc(c.chave)}</span>).`,
+        corpo: `<div class="form-grid">${campos.map(x => campoHtml(x, c)).join('')}</div>
+          ${novo ? '' : `<p class="hint" style="margin-top:14px">
+            Depois de salvar, use Aplicar configurações para o Asterisk assumir o código novo.</p>`}`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>Salvar</button>`,
+        aoAbrir: dw => dw.querySelector('[data-ok]').onclick = async ev => {
+          if (!validarCampos(dw, campos)) return;
+
+          const dados = {};
+          campos.forEach(x => {
+            const el = dw.querySelector(`[name="${x.campo}"]`);
+            if (!el || (x.somenteLeitura && !novo)) return;
+            dados[x.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value.trim();
+          });
+
+          const botao = ev.currentTarget;
+          botao.disabled = true;
+          botao.innerHTML = '<span class="spin"></span> Salvando…';
+          try {
+            if (novo) await Api.post('/codigos-recurso', dados);
+            else await Api.put(`/codigos-recurso/${c.id}`, dados);
+            Drawer.close();
+            toast('Salvo. Aplique as configurações para valer no Asterisk.', 'ok');
+            App.route();
+          } catch (e) {
+            botao.disabled = false;
+            botao.textContent = 'Salvar';
+            if (e.status === 409) marcarErro(dw, 'codigo',
+              'Já existe outro código igual a este. Escolha um diferente.');
+            else if (e.detalhe?.campo) marcarErro(dw, e.detalhe.campo, e.message);
+            else toast(e.message, 'err');
+          }
+        }
+      });
+    };
+
+    document.getElementById('novoCodigo')?.addEventListener('click', () => formulario(null));
+    document.querySelectorAll('[data-editar]').forEach(b => b.onclick = () =>
+      formulario(itens.find(x => String(x.id) === b.dataset.editar)));
+  }
+};
 
 /* ------------------------- Administrador · Lista Negra ------------------------- */
 PAGES['admin.listanegra'] = paginaCrud({
@@ -1852,6 +2028,9 @@ function camposContato(administra) {
     { aba: 'Telefones e e-mail', campo: 'telefone', label: 'Telefone fixo', mono: true },
     { aba: 'Telefones e e-mail', campo: 'ramal_interno', label: 'Ramal interno', mono: true,
       ajuda: 'Se esta pessoa também tem ramal neste PABX.' },
+    { aba: 'Telefones e e-mail', campo: 'discagem_rapida', label: 'Discagem rápida', mono: true,
+      placeholder: '21',
+      ajuda: 'Código curto para ligar deste contato pelo telefone, discando *0 e este número.' },
     { aba: 'Telefones e e-mail', campo: 'email', label: 'E-mail', tipo: 'email', largura: 'full' },
     { aba: 'Telefones e e-mail', campo: 'email_alt', label: 'E-mail alternativo', tipo: 'email', largura: 'full' },
 
@@ -2076,6 +2255,10 @@ function paginaAgenda(cfg) {
                   <span class="tiny muted">${esc(t.rotulo.toLowerCase())}</span></span>
                 <button class="btn btn-outline btn-sm" data-ficha-ligar="${esc(t.valor)}">
                   ${icon('phone','ico ico-sm')} Ligar</button></div>`).join(''))}
+
+            ${bloco('Discagem rápida', c.discagem_rapida
+              ? `<div class="ficha-linha">Disque <b class="mono">*0${esc(c.discagem_rapida)}</b>
+                   de qualquer ramal para ligar para este contato.</div>` : '')}
 
             ${bloco('E-mail', [c.email, c.email_alt].filter(Boolean).map(e =>
               `<div class="ficha-linha"><a href="mailto:${esc(e)}">${esc(e)}</a></div>`).join(''))}

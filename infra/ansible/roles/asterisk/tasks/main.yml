@@ -281,6 +281,7 @@
     - http.conf
     - ari.conf
     - res_odbc.conf
+    - func_odbc.conf
     - cdr.conf
     - cdr_adaptive_odbc.conf
     - cel.conf
@@ -292,6 +293,58 @@
     - musiconhold.conf
     - features.conf
   notify: recarregar asterisk
+
+# O código *68 grava a hora; sem alguém para ler e ligar de volta, ele
+# não seria um despertador de verdade.
+- name: Instalar o disparador do despertador
+  ansible.builtin.template:
+    src: telium-despertador.j2
+    dest: /usr/local/sbin/telium-despertador
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Instalar a unidade do despertador
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/telium-despertador.{{ item.tipo }}"
+    mode: "0644"
+    content: "{{ item.conteudo }}"
+  loop:
+    - tipo: service
+      conteudo: |
+        # Gerado pelo Ansible — Telium PABX. Não edite à mão.
+        [Unit]
+        Description=Telium PABX — despertador
+        After=asterisk.service
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/telium-despertador
+    - tipo: timer
+      conteudo: |
+        # Gerado pelo Ansible — Telium PABX. Não edite à mão.
+        [Unit]
+        Description=Verifica despertadores a cada minuto
+
+        [Timer]
+        OnCalendar=*:0/1
+        AccuracySec=10s
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "telium-despertador.{{ item.tipo }}"
+  notify: recarregar systemd do despertador
+
+- name: Aplicar a unidade do despertador
+  ansible.builtin.meta: flush_handlers
+
+- name: Habilitar o temporizador do despertador
+  ansible.builtin.systemd_service:
+    name: telium-despertador.timer
+    state: started
+    enabled: true
+    daemon_reload: true
 
 - name: Publicar manager.conf
   ansible.builtin.template:

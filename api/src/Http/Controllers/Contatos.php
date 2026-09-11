@@ -29,7 +29,7 @@ final class Contatos
 
     private const CAMPOS = [
         'nome', 'empresa', 'cargo', 'departamento', 'numero', 'celular', 'telefone',
-        'ramal_interno', 'email', 'email_alt', 'site', 'links', 'endereco', 'complemento',
+        'ramal_interno', 'discagem_rapida', 'email', 'email_alt', 'site', 'links', 'endereco', 'complemento',
         'bairro', 'cidade', 'uf', 'cep', 'pais', 'aniversario', 'notas', 'grupo',
     ];
 
@@ -371,6 +371,22 @@ final class Contatos
             $v = trim((string) ($corpo[$campo] ?? ''));
             if ($v !== '' && !filter_var($v, FILTER_VALIDATE_EMAIL)) {
                 return ['campo' => $campo, 'mensagem' => 'E-mail em formato inválido.'];
+            }
+        }
+
+        $rapida = trim((string) ($corpo['discagem_rapida'] ?? ''));
+        if ($rapida !== '') {
+            if (preg_match('/^[0-9]{1,8}$/', $rapida) !== 1) {
+                return ['campo' => 'discagem_rapida',
+                        'mensagem' => 'A discagem rápida é só de dígitos, até oito.'];
+            }
+            $dono = Bd::um(
+                'SELECT id, nome FROM contatos WHERE discagem_rapida = ? AND id <> ?',
+                [$rapida, (int) ($atual['id'] ?? 0)]
+            );
+            if ($dono !== null) {
+                return ['campo' => 'discagem_rapida',
+                        'mensagem' => "O código {$rapida} já é de {$dono['nome']}. Escolha outro."];
             }
         }
 

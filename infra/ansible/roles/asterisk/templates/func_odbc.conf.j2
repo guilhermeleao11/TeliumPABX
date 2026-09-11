@@ -1,0 +1,52 @@
+; {{ ansible_managed }}
+;
+; Funções de banco usadas pelos códigos de recurso. São as únicas coisas
+; que o dialplan grava direto no MariaDB — o resto passa pela API.
+;
+; O usuário do DSN tem SELECT, INSERT e UPDATE, e não DELETE: por isso
+; "remover da lista" é ativo = 0, o que também deixa o histórico visível
+; no console em vez de sumir com ele.
+
+; ------------------------------------------------------------------
+; Chamada perdida: Set(ODBC_TELIUM_PERDIDA(<ramal>,<origem>)=<nome>)
+; ------------------------------------------------------------------
+[TELIUM_PERDIDA]
+dsn=telium
+writesql=INSERT INTO eventos (tipo, payload) VALUES ('chamada_perdida', CONCAT('{"ramal":"', '${SQL_ESC(${ARG1})}', '","origem":"', '${SQL_ESC(${ARG2})}', '","nome":"', '${SQL_ESC(${VAL1})}', '"}'))
+
+; ------------------------------------------------------------------
+; Lista negra: Set(ODBC_TELIUM_LN_ADD(<numero>)=<ramal que pediu>)
+; ------------------------------------------------------------------
+[TELIUM_LN_ADD]
+dsn=telium
+writesql=INSERT INTO lista_negra (numero, descricao, tratamento, ativo) VALUES ('${SQL_ESC(${ARG1})}', CONCAT('Bloqueado pelo ramal ', '${SQL_ESC(${VAL1})}'), 'desligar', 1) ON DUPLICATE KEY UPDATE ativo = 1
+
+[TELIUM_LN_DEL]
+dsn=telium
+writesql=UPDATE lista_negra SET ativo = 0 WHERE numero = '${SQL_ESC(${ARG1})}'
+
+; ------------------------------------------------------------------
+; Allowlist
+; ------------------------------------------------------------------
+[TELIUM_AL_ADD]
+dsn=telium
+writesql=INSERT INTO lista_permitida (numero, descricao, ativo) VALUES ('${SQL_ESC(${ARG1})}', CONCAT('Liberado pelo ramal ', '${SQL_ESC(${VAL1})}'), 1) ON DUPLICATE KEY UPDATE ativo = 1
+
+[TELIUM_AL_DEL]
+dsn=telium
+writesql=UPDATE lista_permitida SET ativo = 0 WHERE numero = '${SQL_ESC(${ARG1})}'
+
+; ------------------------------------------------------------------
+; Discagem rápida da agenda: ${ODBC_TELIUM_CONTATO(<código curto>)}
+; Devolve o primeiro telefone preenchido do contato.
+; ------------------------------------------------------------------
+[TELIUM_CONTATO]
+dsn=telium
+readsql=SELECT COALESCE(NULLIF(numero,''), NULLIF(celular,''), NULLIF(telefone,''), NULLIF(ramal_interno,'')) FROM contatos WHERE discagem_rapida = '${SQL_ESC(${ARG1})}' AND ativo = 1 LIMIT 1
+
+; ------------------------------------------------------------------
+; Nome do contato, para anunciar antes de ligar
+; ------------------------------------------------------------------
+[TELIUM_CONTATO_NOME]
+dsn=telium
+readsql=SELECT nome FROM contatos WHERE discagem_rapida = '${SQL_ESC(${ARG1})}' AND ativo = 1 LIMIT 1

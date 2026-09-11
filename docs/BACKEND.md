@@ -81,6 +81,36 @@ pelo AMI em 127.0.0.1.
 O gerador é idempotente: compara o conteúdo (ignorando a linha de data) e só
 reescreve o que mudou de fato.
 
+### Códigos de recurso
+
+64 códigos em 19 categorias, no desenho do FreePBX: a **chave** é a identidade
+(o gerador sabe o que ela faz), o **código discado** é trocável pelo console e a
+unicidade é por `(codigo, tipo)` — o mesmo `**` pode ser captura direcionada ao
+discar e outra coisa durante a chamada, que são namespaces diferentes.
+
+- `tipo = dialplan` → vira extensão em `telium-recursos`. Quem precisa de um
+  argumento (ramal, destino, fila) sai como padrão `_<codigo>X.` e lê o resto
+  com `${EXTEN:n}`; os demais são extensões exatas.
+- `tipo = featuremap` → vira linha do `[featuremap]` em `telium/features.conf`,
+  incluído pelo `features.conf`.
+
+O estado por ramal (não perturbe, os três desvios, siga-me, chamada em espera,
+aviso de perdida, recusa de interfonia, despertador) mora na base interna do
+Asterisk, que é o que as sub-rotinas do `extensions.conf` consultam em tempo de
+chamada. O que precisa chegar ao banco — lista negra, allowlist, agenda e
+chamadas perdidas — passa por `func_odbc.conf`. "Remover da lista" é `ativo = 0`,
+porque o usuário do DSN não tem DELETE e porque assim o histórico continua
+visível no console.
+
+Número exato de lista negra e allowlist vale pela base do Asterisk; **padrão**
+(`_1199X.`) continua no dialplan gerado, que a sub-rotina consulta logo depois.
+"Aplicar configurações" repõe as duas famílias a partir do banco, senão console
+e telefone divergiriam.
+
+O despertador tem disparador próprio: `*68` grava a hora na base do Asterisk e
+`/usr/local/sbin/telium-despertador`, num temporizador de um minuto, origina a
+chamada e apaga a marcação.
+
 ### Contextos do dialplan
 
 ```

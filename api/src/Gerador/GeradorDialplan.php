@@ -30,7 +30,6 @@ final class GeradorDialplan
     public function gerar(): array
     {
         return [
-            'extensions.recursos.conf'   => $this->codigosRecurso(),
             'extensions.listanegra.conf' => $this->listaNegra(),
             'extensions.allowlist.conf'  => $this->listaPermitida(),
             'extensions.ramais.conf'  => $this->ramais(),
@@ -57,76 +56,6 @@ final class GeradorDialplan
      * Códigos de recurso (*8, *43, *97…). Os números vêm do banco para
      * poderem ser trocados pelo console sem mexer em arquivo.
      */
-    private function codigosRecurso(): string
-    {
-        $b = $this->cabecalho('Contexto: códigos de recurso')->contexto('telium-recursos');
-
-        $codigos = Bd::todos('SELECT * FROM codigos_recurso WHERE ativo = 1 ORDER BY categoria, codigo');
-        $porChave = array_column($codigos, null, 'chave');
-
-        // Cada chave sabe o que faz; o código discado é configurável.
-        $acoes = [
-            'eco' => ['Answer()', 'Wait(1)', 'Playback(demo-echotest)', 'Echo()', 'Hangup()'],
-            'hora' => ['Answer()', 'Wait(1)', 'SayUnixTime(,${TELIUM_TZ},HM)', 'Hangup()'],
-            'meu_ramal' => ['Answer()', 'Wait(1)', 'SayDigits(${CALLERID(num)})', 'Hangup()'],
-            'vm_proprio' => ['Answer()', 'VoiceMailMain(${CALLERID(num)}@telium)', 'Hangup()'],
-            'vm_outro' => ['Answer()', 'VoiceMailMain(@telium)', 'Hangup()'],
-            'captura' => ['Pickup()', 'Hangup()'],
-            'diretorio' => ['Answer()', 'Directory(telium,interno,f)', 'Hangup()'],
-            'estacionar' => ['Park()', 'Hangup()'],
-            'dnd_ligar' => [
-                'Answer()',
-                'Set(DB(dnd/${CALLERID(num)})=1)',
-                'Playback(activated)',
-                'Hangup()',
-            ],
-            'dnd_desligar' => [
-                'Answer()',
-                'Noop(${DB_DELETE(dnd/${CALLERID(num)})})',
-                'Playback(de-activated)',
-                'Hangup()',
-            ],
-            'sigame_desligar' => [
-                'Answer()',
-                'Noop(${DB_DELETE(sigame/${CALLERID(num)})})',
-                'Playback(de-activated)',
-                'Hangup()',
-            ],
-            'gravar_alterna' => ['Noop(Alternar gravação)', 'Return()'],
-        ];
-
-        foreach ($codigos as $c) {
-            $chave = (string) $c['chave'];
-            $codigo = (string) $c['codigo'];
-
-            $b->branco()->comentario("{$codigo} — {$c['nome']}");
-
-            // Códigos que recebem um argumento discado depois do prefixo
-            if ($chave === 'captura_dir') {
-                $b->exten("_{$codigo}X.", 'NoOp(Captura direta)')
-                  ->same('Pickup(${EXTEN:' . strlen($codigo) . '}@PICKUPMARK)')
-                  ->same('Hangup()');
-                continue;
-            }
-            if ($chave === 'sigame_ligar') {
-                $b->exten("_{$codigo}X.", 'Answer()')
-                  ->same('Set(DB(sigame/${CALLERID(num)})=${EXTEN:' . strlen($codigo) . '})')
-                  ->same('Playback(activated)')
-                  ->same('Hangup()');
-                continue;
-            }
-
-            $passos = $acoes[$chave] ?? ['NoOp(Código sem ação definida: ' . $chave . ')', 'Hangup()'];
-            $b->exten($codigo, "NoOp({$c['nome']})")->apps($passos);
-        }
-
-        if ($codigos === []) {
-            $b->comentario('nenhum código de recurso ativo');
-        }
-
-        return $b->texto();
-    }
-
     /**
      * Lista negra. Em vez de varrer uma tabela em tempo de chamada, cada
      * número vira uma extensão neste contexto e o dialplan pergunta ao

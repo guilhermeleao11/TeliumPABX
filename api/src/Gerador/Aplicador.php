@@ -29,6 +29,12 @@ final class Aplicador
         try {
             $ami = Ami::compartilhada();
 
+            // A base interna do Asterisk é o que vale em tempo de chamada
+            // para número exato, porque é lá que os códigos *30 e *38
+            // escrevem. Aqui ela é reposta a partir do banco, que é o que
+            // o console edita — do contrário as duas fontes divergiriam.
+            $etapas['listas na base do Asterisk'] = $this->sincronizarListas($ami) ? 'ok' : 'falhou';
+
             foreach (self::RECARGAS as $comando => $descricao) {
                 $resposta = $ami->comando($comando);
                 $ok = !str_contains(strtolower($resposta), 'no such command')
@@ -62,5 +68,49 @@ final class Aplicador
         }
 
         return ['sucesso' => $sucesso, 'etapas' => $etapas, 'saida' => $saida];
+    }
+
+    /**
+     * Repõe as famílias listanegra/ e allowlist/ na base do Asterisk.
+     *
+     * Só números exatos: padrões (_1199X.) não cabem numa chave de banco
+     * e continuam morando no dialplan gerado, que a sub-rotina consulta
+     * logo depois.
+     */
+    private function sincronizarListas(Ami $ami): bool
+    {
+        $tabelas = [
+            'listanegra' => 'SELECT numero FROM lista_negra WHERE ativo = 1',
+            'allowlist'  => 'SELECT numero FROM lista_permitida WHERE ativo = 1',
+        ];
+
+        $ok = true;
+
+        foreach ($tabelas as $familia => $sql) {
+            $resposta = $ami->acao(['Action' => 'DBDelTree', 'Family' => $familia]);
+            if (str_contains(strtolower($resposta), 'error')
+                && !str_contains(strtolower($resposta), 'not exist')) {
+                $ok = false;
+            }
+
+            foreach (Bd::todos($sql) as $linha) {
+                $numero = (string) $linha['numero'];
+                if ($numero === '' || preg_match('/[_.\[\]XZN!]/', $numero) === 1) {
+                    continue;   // é padrão de dialplan, não número
+                }
+
+                $resposta = $ami->acao([
+                    'Action' => 'DBPut',
+                    'Family' => $familia,
+                    'Key'    => $numero,
+                    'Val'    => '1',
+                ]);
+                if (str_contains(strtolower($resposta), 'error')) {
+                    $ok = false;
+                }
+            }
+        }
+
+        return $ok;
     }
 }

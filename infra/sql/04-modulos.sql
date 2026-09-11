@@ -105,24 +105,9 @@ CREATE TABLE IF NOT EXISTS lista_permitida (
 ) ENGINE=InnoDB;
 
 -- ---------------------------------------------------------
--- Códigos padrão. São os mesmos que o dialplan já usava fixos;
--- a diferença é que agora podem ser trocados pelo console.
+-- O catálogo de códigos de recurso vive em 07-codigos-recurso.sql,
+-- que é quem sabe todas as chaves e o que cada uma faz.
 -- ---------------------------------------------------------
-INSERT IGNORE INTO codigos_recurso (chave, nome, codigo, descricao, categoria) VALUES
- ('eco',          'Teste de eco',             '*43', 'Devolve o próprio áudio, para testar o aparelho.', 'diagnostico'),
- ('hora',         'Hora certa',               '*60', 'Fala a hora do servidor.', 'diagnostico'),
- ('meu_ramal',    'Informar meu ramal',       '*65', 'Fala o número do ramal que ligou.', 'diagnostico'),
- ('vm_proprio',   'Meu correio de voz',       '*97', 'Entra na caixa postal do próprio ramal.', 'correio'),
- ('vm_outro',     'Correio de voz de outro',  '*98', 'Pede o número da caixa postal.', 'correio'),
- ('captura',      'Capturar chamada do grupo','*8',  'Atende uma chamada que toca em outro ramal do grupo.', 'atendimento'),
- ('captura_dir',  'Capturar ramal específico','**',  'Seguido do ramal: atende a chamada dele.', 'atendimento'),
- ('diretorio',    'Diretório por nome',       '*411','Procura um ramal soletrando o nome.', 'atendimento'),
- ('dnd_ligar',    'Ativar não perturbe',      '*78', 'Manda as chamadas direto ao correio.', 'desvio'),
- ('dnd_desligar', 'Desativar não perturbe',   '*79', 'Volta a receber chamadas.', 'desvio'),
- ('sigame_ligar', 'Ativar siga-me',           '*21', 'Seguido do destino: desvia as chamadas.', 'desvio'),
- ('sigame_desligar','Desativar siga-me',      '*22', 'Cancela o desvio.', 'desvio'),
- ('gravar_alterna','Gravar esta chamada',     '*1',  'Liga ou desliga a gravação durante a chamada.', 'gravacao'),
- ('estacionar',   'Estacionar chamada',       '*70', 'Coloca a chamada em uma vaga de espera.', 'atendimento');
 
 -- rotina de backup padrão, desligada até alguém decidir
 INSERT IGNORE INTO backup_rotinas (id, nome, periodicidade, hora, inclui_banco, inclui_config,

@@ -2,8 +2,14 @@
 [general]
 parkeddynamic = no
 
+; Os códigos apertados durante a chamada vêm do módulo Códigos de
+; Recurso do console; o arquivo abaixo é gerado pela API. Os valores
+; deste [featuremap] ficam só como rede de segurança para o caso de o
+; arquivo gerado ainda não existir.
 [featuremap]
-blindxfer  => #1
+blindxfer  => ##
 atxfer     => *2
 disconnect => *0
-automixmon => *3
+automixmon => *1
+
+#include "telium/features.conf"

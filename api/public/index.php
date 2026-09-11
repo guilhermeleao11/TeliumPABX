@@ -207,8 +207,11 @@ $recursos = [
         'modulo' => 'admin.codigos',
         'recurso' => new Recurso(
             tabela: 'codigos_recurso',
-            colunas: ['nome', 'codigo', 'descricao', 'categoria', 'ativo'],
-            ordem: 'categoria, codigo',
+            // 'chave' é gravável só para quem cadastra um código próprio;
+            // nos do catálogo ela é a identidade que o gerador consulta.
+            colunas: ['chave', 'nome', 'codigo', 'tipo', 'argumento', 'descricao',
+                      'categoria', 'ordem', 'ativo'],
+            ordem: 'categoria, ordem, codigo',
             busca: ['nome', 'codigo', 'descricao'],
             filtros: ['categoria', 'ativo'],
             afetaAsterisk: true,
