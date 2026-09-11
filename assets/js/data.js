@@ -17,7 +17,6 @@ const MENU = [
   {
     id: 'admin', label: 'Administrador', icon: 'shield',
     items: [
-      { id: 'admin.administradores', label: 'Administradores',          icon: 'users' },
       { id: 'admin.usuarios',        label: 'Gerenciador de Usuários',  icon: 'user' },
       { id: 'admin.permissoes',      label: 'Perfis e Permissões',      icon: 'key' },
       { id: 'admin.backup',          label: 'Backup & Restauração',     icon: 'database' },
