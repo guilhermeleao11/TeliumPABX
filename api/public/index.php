@@ -9,6 +9,7 @@ use Telium\Http\Controllers\Certificados;
 use Telium\Http\Controllers\Contatos;
 use Telium\Http\Controllers\Destinos;
 use Telium\Http\Controllers\Filas;
+use Telium\Http\Controllers\Ura;
 use Telium\Http\Controllers\Audios;
 use Telium\Http\Controllers\Backup;
 use Telium\Http\Controllers\Cli;
@@ -399,6 +400,11 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('apps.filas', 'editar'));
     $g->get('/filas/{id}/situacao', [Filas::class, 'situacao'])->add(new Permissao('apps.filas'));
     $g->get('/pesquisas/resultados', [Filas::class, 'resultados'])->add(new Permissao('apps.filas'));
+
+    // ---- URA: entradas do menu ----
+    $g->get('/ura/{id}/opcoes', [Ura::class, 'opcoes'])->add(new Permissao('apps.ura'));
+    $g->put('/ura/{id}/opcoes', [Ura::class, 'salvarOpcoes'])
+      ->add(new Permissao('apps.ura', 'editar'));
 
     // ---- console do Asterisk ----
     $g->get('/cli/sugestoes', [Cli::class, 'sugestoes'])->add(new Permissao('admin.cli'));

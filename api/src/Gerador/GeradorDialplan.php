@@ -393,6 +393,7 @@ final class GeradorDialplan
               ->same('Answer()')
               ->same('Wait(1)')
               ->same('Set(TENTATIVA=0)')
+              ->same('Set(INVALIDAS=0)')
               ->same('Set(TENTATIVA=$[${TENTATIVA} + 1])', 'menu')
               ->same("GotoIf(\$[\${TENTATIVA} > {$tentativas}]?falha)")
               ->same("Background({$u['audio']})")
@@ -427,9 +428,20 @@ final class GeradorDialplan
                   ->exten('_XXX',  'Goto(telium-ramais,${EXTEN},1)');
             }
 
+            // Tecla que não existe no menu: avisa e repete. Depois de
+            // insistir o mesmo número de vezes, vai para o destino de
+            // inválido — ou para o de tempo esgotado, se não houver um.
+            $invalido = ($u['destino_invalido_tipo'] ?? '') !== ''
+                ? $this->destino->linhas($u['destino_invalido_tipo'], $u['destino_invalido_valor'])
+                : $this->destino->linhas($u['destino_timeout_tipo'], $u['destino_timeout_valor']);
+
             $b->comentario('opção inválida e tempo esgotado')
-              ->exten('i', 'Playback(invalid)')
+              ->exten('i', 'Set(INVALIDAS=$[${INVALIDAS} + 1])')
+              ->same("GotoIf(\$[\${INVALIDAS} >= {$tentativas}]?desiste)")
+              ->same('Playback(invalid)')
               ->same('Goto(s,menu)')
+              ->same('NoOp(Cliente insistiu em opção inválida)', 'desiste')
+              ->apps($invalido)
               ->exten('t', 'Goto(s,menu)')
               ->branco();
         }

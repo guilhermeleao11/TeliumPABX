@@ -360,3 +360,13 @@ kbd.k { font: 600 10.5px var(--font); background: var(--surface); border: 1px so
 
 .foto-editor { display: flex; align-items: center; gap: 14px; padding-bottom: 16px;
                border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+
+/* ---------- Seções dentro de um formulário longo ---------- */
+.secao-form {
+  margin-top: 22px; padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.secao-form .table td { padding: 8px 10px; vertical-align: middle; }
+.secao-form .input.erro, .secao-form .select.erro {
+  border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft);
+}

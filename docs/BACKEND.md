@@ -81,6 +81,36 @@ pelo AMI em 127.0.0.1.
 O gerador é idempotente: compara o conteúdo (ignorando a linha de data) e só
 reescreve o que mudou de fato.
 
+### Filas e URA
+
+A fila emite `queues.conf` com o que o `app_queue` entrega de verdade — sussurro
+para o agente (`announce`), anúncio periódico, posição e tempo estimado, peso,
+`maxlen`, `joinempty`/`leavewhenempty`, `autopause` e `memberdelay`. Não emite
+`monitor-type`: o Asterisk 22 tirou a gravação do `app_queue`, e ela já acontece
+em `sub-gravar`, no dialplan.
+
+Failover é por motivo: tempo esgotado, fila sem agente e fila cheia têm destinos
+próprios, escolhidos por `QUEUESTATUS`.
+
+**Confirmação de atendimento** troca o membro `PJSIP/<ramal>` por
+`Local/<ramal>@telium-confirma-<fila>/n`. O `U()` do `Dial` roda
+`sub-confirmar-atendimento` no canal de quem vai atender; sem o dígito 1,
+`GOSUB_RESULT=ABORT` desfaz e a fila procura outro.
+
+**Pesquisa de satisfação** usa a opção `c` do `Queue`, que devolve o cliente ao
+dialplan quando o atendente desliga. `QUEUESTATUS` vazio é justamente isso, e é
+o que leva ao contexto `telium-pesquisa`. A nota vai para `pesquisa_respostas`
+por `func_odbc`; quem ouviu e não respondeu entra com `nota = NULL`.
+
+**Fila de call center** é uma marcação: `PUT /api/filas/{id}/agentes` recusa a
+edição e explica que quem atribui os agentes é o módulo de call center.
+
+Na URA, as entradas do menu não são gravadas uma a uma:
+`PUT /api/ura/{id}/opcoes` recebe a lista inteira e a substitui, que é como a
+tela monta a URA e as teclas na mesma gaveta. A tecla aceita o que o cliente
+aperta (`1`, `0`, `*`, `#`) ou um padrão de dialplan (`_2XX`). Insistir numa
+opção inválida o número de tentativas configurado leva ao destino de inválido.
+
 ### Códigos de recurso
 
 64 códigos em 19 categorias, no desenho do FreePBX: a **chave** é a identidade

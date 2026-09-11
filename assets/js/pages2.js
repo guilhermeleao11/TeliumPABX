@@ -5,16 +5,69 @@
 
 /* Opções de destino usadas por rotas e URA — carregadas do banco. */
 async function opcoesDestino() {
-  const [ramais, filas, uras, custom] = await Promise.all([
+  const [ramais, filas, uras, custom, grupos, audios] = await Promise.all([
     Api.get('/ramais', { limite: 500 }).catch(() => ({ dados: [] })),
     Api.get('/filas', { limite: 200 }).catch(() => ({ dados: [] })),
     Api.get('/ura', { limite: 100 }).catch(() => ({ dados: [] })),
-    Api.get('/destinos-personalizados', { limite: 200 }).catch(() => ({ dados: [] }))
+    Api.get('/destinos-personalizados', { limite: 200 }).catch(() => ({ dados: [] })),
+    Api.get('/grupos-toque', { limite: 200 }).catch(() => ({ dados: [] })),
+    Api.get('/audios').catch(() => ({ dados: [] }))
   ]);
   return {
     ramais: ramais.dados, filas: filas.dados, uras: uras.dados,
+    grupos: grupos.dados, audios: audios.dados,
     personalizados: custom.dados.filter(d => Number(d.ativo))
   };
+}
+
+/**
+ * Um seletor só para o destino, no lugar de "tipo" mais "valor".
+ *
+ * O valor do <option> é "tipo|valor" porque o banco guarda os dois
+ * separados — quem lê de volta é lerDestino().
+ */
+function destinoSelect(prefixo, item, destinos, extras = {}) {
+  const d = destinos || {};
+  const atual = `${item?.[`${prefixo}_tipo`] || ''}|${item?.[`${prefixo}_valor`] ?? ''}`;
+
+  const grupo = (rotulo, itens) => itens.length
+    ? `<optgroup label="${esc(rotulo)}">${itens.map(o =>
+        `<option value="${esc(o.v)}" ${o.v === atual ? 'selected' : ''}>${esc(o.r)}</option>`).join('')}</optgroup>`
+    : '';
+
+  const corpo = [
+    grupo('Ramais', (d.ramais || []).map(r => ({ v: `ramal|${r.numero}`, r: `${r.numero} — ${r.nome}` }))),
+    grupo('Filas', (d.filas || []).map(f => ({ v: `fila|${f.numero}`, r: `${f.numero} — ${f.nome}` }))),
+    grupo('URAs', (d.uras || []).map(u => ({ v: `ura|${u.id}`, r: u.nome }))),
+    grupo('Grupos de toque', (d.grupos || []).map(g => ({ v: `grupo|${g.numero}`, r: `${g.numero} — ${g.nome}` }))),
+    grupo('Correio de voz', (d.ramais || []).map(r => ({ v: `voicemail|${r.numero}`, r: `Caixa de ${r.numero} — ${r.nome}` }))),
+    grupo('Anúncios', (d.audios || []).filter(a => ['anuncio', 'ura', 'sistema'].includes(a.categoria))
+        .map(a => ({ v: `anuncio|${a.arquivo}`, r: a.nome }))),
+    grupo('Destinos personalizados', (d.personalizados || []).map(x =>
+        ({ v: `personalizado|${x.id}`, r: `${x.nome} (${x.contexto},${x.extensao})` }))),
+    grupo('Encerrar', [{ v: 'desligar|', r: 'Desligar a chamada' }])
+  ].join('');
+
+  const semEscolha = extras.rotuloVazio ?? '— escolha um destino —';
+  const select = `<select class="select" name="${prefixo}" data-destino>
+      <option value="|" ${atual === '|' || atual.startsWith('undefined') ? 'selected' : ''}>${esc(semEscolha)}</option>
+      ${corpo}
+    </select>`;
+
+  // Dentro de uma tabela não cabe rótulo nem ajuda; só o seletor.
+  if (extras.nu) return select;
+
+  return `<div class="field${extras.largura === 'full' ? ' full' : ''}" data-campo="${prefixo}">
+    <label class="label">${esc(extras.label || 'Destino')}${extras.obrigatorio ? ' *' : ''}</label>
+    ${select}
+    ${extras.ajuda ? `<span class="hint">${esc(extras.ajuda)}</span>` : ''}
+  </div>`;
+}
+
+/** Lê um destinoSelect de volta para {tipo, valor}. */
+function lerDestino(el) {
+  const [tipo, ...resto] = String(el?.value ?? '|').split('|');
+  return { tipo, valor: resto.join('|') };
 }
 
 function seletorDestino(prefixo, item, destinos) {
@@ -130,133 +183,293 @@ PAGES['conn.rotassaida'] = paginaCrud({
 /* ------------------------- URA ------------------------- */
 PAGES['apps.ura'] = {
   async render(ctx) {
-    let uras, destinos;
+    let uras, destinos, audios;
     try {
-      uras = (await Api.get('/ura')).dados;
-      destinos = await opcoesDestino();
+      [uras, destinos, audios] = await Promise.all([
+        Api.get('/ura', { limite: 100 }),
+        opcoesDestino(),
+        Api.get('/audios').catch(() => ({ dados: [] }))
+      ]);
     } catch (e) { return pageHead('URA — Atendimento Digital', '') + blocoErro(e); }
 
-    this._uras = uras;
+    this._uras = uras.dados;
     this._destinos = destinos;
+    this._audios = audios.dados;
 
     const cabecalho = pageHead('URA — Atendimento Digital',
-      'Árvore de opções que o cliente ouve ao ligar.',
-      ctx.can('criar') ? `<button class="btn btn-primary btn-sm" data-nova-ura>${icon('plus','ico ico-sm')} Nova URA</button>` : readOnlyNote(ctx));
+      'A URA atende, toca a saudação e manda a chamada para onde o cliente escolher.',
+      ctx.can('criar')
+        ? `<button class="btn btn-primary btn-sm" data-nova-ura>${icon('plus','ico ico-sm')} Nova URA</button>`
+        : readOnlyNote(ctx));
 
-    if (!uras.length) {
+    if (!this._uras.length) {
       return cabecalho + `<div class="card">${vazio('branch', 'Nenhuma URA cadastrada',
-        'A URA atende a chamada e oferece um menu de opções ao cliente.',
-        ctx.can('criar') ? '<button class="btn btn-primary btn-sm" data-nova-ura>Criar a primeira URA</button>' : '')}</div>`;
+        `A URA é o "digite 1 para vendas, 2 para suporte". Grave a saudação em
+         Gravações do Sistema e monte as opções aqui.`,
+        ctx.can('criar') ? '<button class="btn btn-primary btn-sm" data-nova-ura>Criar a primeira URA</button>' : '')}
+      </div>`;
     }
 
     const opcoesPorUra = {};
-    await Promise.all(uras.map(async u => {
-      opcoesPorUra[u.id] = (await Api.get('/ura-opcoes', { ura_id: u.id }).catch(() => ({ dados: [] }))).dados;
+    await Promise.all(this._uras.map(async u => {
+      opcoesPorUra[u.id] = (await Api.get(`/ura/${u.id}/opcoes`).catch(() => ({ opcoes: [] }))).opcoes || [];
     }));
     this._opcoes = opcoesPorUra;
 
-    return cabecalho + uras.map(u => `
-      <div class="card" style="margin-bottom:16px">
+    return cabecalho + this._uras.map(u => {
+      const opcoes = opcoesPorUra[u.id] || [];
+      const audio = this._audios.find(a => a.arquivo === u.audio);
+
+      return `<div class="card" style="margin-bottom:16px">
         <div class="card-head">
-          <div><div class="card-title">${esc(u.nome)}</div>
-               <div class="card-sub">Áudio ${esc(u.audio)} · espera ${u.timeout_digito}s · ${u.tentativas} tentativas</div></div>
+          <div class="row gap-8">
+            <span class="k-ico" style="background:var(--brand-soft);color:var(--brand)">${icon('branch')}</span>
+            <div><div class="card-title">${esc(u.nome)}
+              ${Number(u.ativo) ? '' : '<span class="badge">parada</span>'}</div>
+              <div class="card-sub">
+                Toca ${audio ? esc(audio.nome) : `<span class="mono">${esc(u.audio)}</span>`}
+                · espera ${u.timeout_digito}s pelo dígito · ${u.tentativas} tentativas
+                ${Number(u.discagem_direta) ? '· aceita discagem direta de ramal' : ''}</div></div>
+          </div>
           <div class="row gap-6">
-            ${ctx.can('criar') ? `<button class="btn btn-outline btn-sm" data-nova-opcao="${u.id}">${icon('plus','ico ico-sm')} Opção</button>` : ''}
-            ${ctx.can('editar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar URA" data-editar-ura="${u.id}">${icon('edit','ico ico-sm')}</button>` : ''}
+            ${ctx.can('editar') ? `<button class="btn btn-outline btn-sm" data-editar-ura="${u.id}">
+              ${icon('edit','ico ico-sm')} Editar</button>` : ''}
+            ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir"
+              data-excluir-ura="${u.id}">${icon('trash','ico ico-sm')}</button>` : ''}
           </div>
         </div>
         <div class="card-body">
           <div class="ura-root">${icon('speaker','ico ico-lg')}
-            <div class="grow"><b>${esc(u.nome)}</b><small>Toca ${esc(u.audio)} e aguarda o dígito</small></div>
+            <div class="grow"><b>${esc(u.nome)}</b>
+              <small>Atende, toca a saudação e espera o cliente digitar</small></div>
           </div>
-          ${(opcoesPorUra[u.id] || []).length ? `<div class="ura-tree">
-            ${opcoesPorUra[u.id].map(o => `
+          ${opcoes.length ? `<div class="ura-tree">
+            ${opcoes.map(o => `
               <div class="ura-node">
                 <span class="ura-key">${esc(o.tecla)}</span>
-                <div class="grow"><b>${esc(o.rotulo)}</b><div class="tiny muted">tecla ${esc(o.tecla)}</div></div>
+                <div class="grow"><b>${esc(o.rotulo)}</b>
+                  <div class="tiny muted">quem digita ${esc(o.tecla)}</div></div>
                 ${icon('chevronR','ico arrow')}
-                <span class="ura-dest">${icon('branch','ico ico-sm')}${esc(o.destino_tipo)} ${esc(o.destino_valor)}</span>
-                ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Remover" data-excluir-opcao="${o.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+                <span class="ura-dest">${icon('branch','ico ico-sm')}${esc(descreveDestino(o.destino_tipo, o.destino_valor, this._destinos))}</span>
               </div>`).join('')}
           </div>` : `<p class="small muted center" style="padding:20px">
-              Nenhuma opção configurada. A URA vai direto para o destino de tempo esgotado.</p>`}
+              Nenhuma entrada configurada. Todo mundo cai no destino de tempo esgotado.</p>`}
+
+          <div class="row gap-12 wrap" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+            <span class="tiny muted">Tempo esgotado →
+              <b>${esc(descreveDestino(u.destino_timeout_tipo, u.destino_timeout_valor, this._destinos))}</b></span>
+            <span class="tiny muted">Opção inválida →
+              <b>${esc(descreveDestino(u.destino_invalido_tipo, u.destino_invalido_valor, this._destinos))}</b></span>
+          </div>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   },
 
   mount(ctx) {
-    const camposUra = (u = {}) => [
-      { campo: 'nome', label: 'Nome da URA', obrigatorio: true, placeholder: 'URA Principal' },
-      { campo: 'audio', label: 'Áudio de saudação', obrigatorio: true, mono: true, placeholder: 'ura-principal',
-        ajuda: 'Nome do arquivo em /var/lib/asterisk/sounds, sem extensão.' },
-      { campo: 'timeout_digito', label: 'Espera por dígito (s)', tipo: 'number', padrao: 8 },
-      { campo: 'tentativas', label: 'Tentativas', tipo: 'number', padrao: 3 },
-      { campo: 'discagem_direta', label: 'Permitir discagem direta de ramal', tipo: 'switch', padrao: 1 },
-      ...seletorDestino('destino_timeout', u, this._destinos),
-      { campo: 'ativo', label: 'URA ativa', tipo: 'switch', padrao: 1 }
-    ];
+    const pagina = this;
 
-    const salvar = async (caminho, dados, metodo = 'post') => {
-      try {
-        await Api[metodo](caminho, dados);
-        Drawer.close(); toast('URA atualizada.', 'ok'); App.route();
-      } catch (e) { toast(e.message, 'err'); }
-    };
+    const audiosSelect = () => [{ valor: '', rotulo: '— escolha a saudação —' },
+      ...(pagina._audios || [])
+        .filter(a => ['ura', 'anuncio', 'sistema'].includes(a.categoria))
+        .map(a => ({ valor: a.arquivo, rotulo: `${a.nome} (${a.arquivo})` }))];
 
-    const formUra = (u) => {
-      const campos = camposUra(u || {});
-      Drawer.open({
-        titulo: u ? `Editar ${u.nome}` : 'Nova URA',
-        corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, u || {})).join('')}</div>`,
-        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
-                 <button class="btn btn-primary" data-ok>${u ? 'Salvar' : 'Criar URA'}</button>`,
-        aoAbrir: dw => dw.querySelector('[data-ok]').onclick = () => {
-          const dados = {};
-          campos.forEach(c => {
-            const el = dw.querySelector(`[name="${c.campo}"]`);
-            if (el) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
-          });
-          salvar(u ? `/ura/${u.id}` : '/ura', dados, u ? 'put' : 'post');
-        }
-      });
-    };
+    const linhaEntrada = (o = {}) => `
+      <tr data-entrada>
+        <td><input class="input mono" name="tecla" style="width:110px"
+                   value="${esc(o.tecla || '')}" placeholder="dígitos"></td>
+        <td><input class="input" name="rotulo" value="${esc(o.rotulo || '')}"
+                   placeholder="para que serve"></td>
+        <td>${destinoSelect('destino', o, pagina._destinos, { nu: true })}</td>
+        <td class="col-actions">
+          <button class="btn btn-ghost btn-sm btn-icon" data-tip="Tirar" data-tirar-entrada>
+            ${icon('x','ico ico-sm')}</button></td>
+      </tr>`;
 
-    const formOpcao = (uraId) => {
+    const formUra = item => {
+      const novo = !item;
+      const u = item || { timeout_digito: 8, tentativas: 3, discagem_direta: 1, ativo: 1 };
+      const entradas = novo ? [] : (pagina._opcoes[u.id] || []);
+
       const campos = [
-        { campo: 'tecla', label: 'Tecla', obrigatorio: true, mono: true, placeholder: '1' },
-        { campo: 'rotulo', label: 'Rótulo', obrigatorio: true, placeholder: 'Suporte Técnico' },
-        ...seletorDestino('destino', {}, this._destinos),
-        { campo: 'ordem', label: 'Ordem', tipo: 'number', padrao: 10 }
+        { campo: 'nome', label: 'Nome da URA', obrigatorio: true, largura: 'full',
+          placeholder: 'URA Principal', ajuda: 'Só para você reconhecer nas rotas e nos destinos.' },
+        { campo: 'audio', label: 'Áudio de saudação', obrigatorio: true, tipo: 'select',
+          opcoes: audiosSelect(), largura: 'full',
+          ajuda: 'É a gravação que o cliente ouve. Envie a sua em Gravações do Sistema.' },
+        { campo: 'timeout_digito', label: 'Espera pelo dígito (s)', tipo: 'number', padrao: 8,
+          ajuda: 'Quanto tempo a URA aguarda depois da saudação antes de considerar que ninguém digitou.' },
+        { campo: 'tentativas', label: 'Tentativas', tipo: 'number', padrao: 3,
+          ajuda: 'Quantas vezes a saudação se repete antes de mandar a chamada para o tempo esgotado.' },
+        { campo: 'discagem_direta', label: 'Permitir discar o ramal direto', tipo: 'switch', padrao: 1,
+          ajuda: 'Quem já sabe o número do ramal digita e vai direto, sem passar pelo menu.' },
+        { campo: 'ativo', label: 'URA ativa', tipo: 'switch', padrao: 1 }
       ];
+
       Drawer.open({
-        titulo: 'Nova opção da URA',
-        corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, {})).join('')}</div>`,
+        titulo: novo ? 'Nova URA' : `Editar ${u.nome}`,
+        sub: 'A saudação, o tempo de espera e para onde vai cada tecla.',
+        wide: true,
+        corpo: `
+          <div class="form-grid">${campos.map(c => campoHtml(c, u)).join('')}</div>
+
+          <div class="secao-form">
+            <div class="row-between">
+              <div><b>Entradas da URA</b>
+                <div class="tiny muted">O que o cliente digita e para onde a chamada vai.</div></div>
+              <button class="btn btn-outline btn-sm" id="addEntrada">
+                ${icon('plus','ico ico-sm')} Adicionar entrada</button>
+            </div>
+            <div class="table-wrap" style="margin-top:10px"><table class="table" id="tabelaEntradas">
+              <thead><tr><th style="width:130px">Dígitos</th><th>Descrição</th>
+                         <th style="width:38%">Destino</th><th></th></tr></thead>
+              <tbody>${entradas.map(linhaEntrada).join('')}</tbody>
+            </table></div>
+            <p class="hint" style="margin-top:8px">
+              Aceita o que o cliente aperta (1, 0, *, #) ou um padrão do dialplan começando com _,
+              como <span class="mono">_2XX</span> para qualquer ramal da faixa 200.</p>
+          </div>
+
+          <div class="secao-form">
+            <b>Se ninguém escolher nada</b>
+            <div class="form-grid" style="margin-top:10px">
+              ${destinoSelect('destino_timeout', u, pagina._destinos,
+                  { label: 'Tempo esgotado', largura: 'full',
+                    ajuda: 'Depois de repetir a saudação o número de tentativas acima.' })}
+              ${destinoSelect('destino_invalido', u, pagina._destinos,
+                  { label: 'Opção inválida', largura: 'full',
+                    ajuda: 'Quando o cliente insiste numa tecla que não existe no menu.' })}
+            </div>
+          </div>`,
         rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
-                 <button class="btn btn-primary" data-ok>Adicionar</button>`,
-        aoAbrir: dw => dw.querySelector('[data-ok]').onclick = () => {
-          const dados = { ura_id: uraId };
-          campos.forEach(c => {
-            const el = dw.querySelector(`[name="${c.campo}"]`);
-            if (el) dados[c.campo] = el.value;
-          });
-          salvar('/ura-opcoes', dados);
+                 <button class="btn btn-primary" data-ok>${novo ? 'Criar URA' : 'Salvar'}</button>`,
+        aoAbrir: dw => {
+          const corpo = dw.querySelector('#tabelaEntradas tbody');
+          const ligarRemocao = () => dw.querySelectorAll('[data-tirar-entrada]').forEach(b =>
+            b.onclick = () => b.closest('tr').remove());
+          ligarRemocao();
+
+          dw.querySelector('#addEntrada').onclick = () => {
+            corpo.insertAdjacentHTML('beforeend', linhaEntrada());
+            ligarRemocao();
+            corpo.lastElementChild.querySelector('[name="tecla"]').focus();
+          };
+
+          if (!entradas.length) dw.querySelector('#addEntrada').click();
+
+          dw.querySelector('[data-ok]').onclick = async ev => {
+            if (!validarCampos(dw, campos)) return;
+
+            const dados = {};
+            campos.forEach(c => {
+              const el = dw.querySelector(`[name="${c.campo}"]`);
+              if (el) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value.trim();
+            });
+            ['destino_timeout', 'destino_invalido'].forEach(p => {
+              const { tipo, valor } = lerDestino(dw.querySelector(`[name="${p}"]`));
+              dados[`${p}_tipo`] = tipo;
+              dados[`${p}_valor`] = valor;
+            });
+
+            const opcoes = [...corpo.querySelectorAll('tr[data-entrada]')].map((tr, i) => {
+              const { tipo, valor } = lerDestino(tr.querySelector('[name="destino"]'));
+              return {
+                tecla: tr.querySelector('[name="tecla"]').value.trim(),
+                rotulo: tr.querySelector('[name="rotulo"]').value.trim(),
+                destino_tipo: tipo, destino_valor: valor, ordem: (i + 1) * 10
+              };
+            }).filter(o => o.tecla !== '' || o.destino_tipo !== '');
+
+            // Erro de entrada é apontado na própria linha, não num toast solto.
+            limparErros(dw);
+            const problemas = [];
+            opcoes.forEach((o, i) => {
+              const tr = corpo.querySelectorAll('tr[data-entrada]')[i];
+              if (o.tecla === '') {
+                tr.querySelector('[name="tecla"]').classList.add('erro');
+                problemas.push(`Entrada ${i + 1}: falta o dígito`);
+              }
+              if (o.destino_tipo === '') {
+                tr.querySelector('[name="destino"]').classList.add('erro');
+                problemas.push(`Entrada ${o.tecla || i + 1}: falta o destino`);
+              }
+            });
+            if (problemas.length) { avisoFormulario(dw, problemas); return; }
+
+            const botao = ev.currentTarget;
+            botao.disabled = true;
+            botao.innerHTML = '<span class="spin"></span> Salvando…';
+            try {
+              const r = novo ? await Api.post('/ura', dados) : await Api.put(`/ura/${u.id}`, dados);
+              const id = novo ? r.id : u.id;
+              await Api.put(`/ura/${id}/opcoes`, { opcoes });
+              Drawer.close();
+              toast('URA salva. Aplique as configurações para valer no Asterisk.', 'ok');
+              App.route();
+            } catch (e) {
+              botao.disabled = false;
+              botao.textContent = novo ? 'Criar URA' : 'Salvar';
+              if (e.detalhe?.campo) marcarErro(dw, e.detalhe.campo, e.message);
+              else toast(e.message, 'err');
+            }
+          };
         }
       });
     };
 
     document.querySelectorAll('[data-nova-ura]').forEach(b => b.onclick = () => formUra(null));
-    document.querySelectorAll('[data-editar-ura]').forEach(b =>
-      b.onclick = () => formUra(this._uras.find(u => String(u.id) === b.dataset.editarUra)));
-    document.querySelectorAll('[data-nova-opcao]').forEach(b =>
-      b.onclick = () => formOpcao(Number(b.dataset.novaOpcao)));
-    document.querySelectorAll('[data-excluir-opcao]').forEach(b => b.onclick = async () => {
-      const ok = await Modal.confirm({ titulo: 'Remover esta opção?', texto: 'A tecla deixa de existir na URA.', ok: 'Remover' });
+    document.querySelectorAll('[data-editar-ura]').forEach(b => b.onclick = () =>
+      formUra(pagina._uras.find(u => String(u.id) === b.dataset.editarUra)));
+
+    document.querySelectorAll('[data-excluir-ura]').forEach(b => b.onclick = async () => {
+      const u = pagina._uras.find(x => String(x.id) === b.dataset.excluirUra);
+      const ok = await Modal.confirm({
+        titulo: `Excluir a URA ${u.nome}?`,
+        texto: 'As entradas somem junto, e as rotas que apontavam para ela ficam sem destino.',
+        ok: 'Excluir'
+      });
       if (!ok) return;
-      try { await Api.delete(`/ura-opcoes/${b.dataset.excluirOpcao}`); toast('Opção removida.', 'ok'); App.route(); }
+      try { await Api.delete(`/ura/${u.id}`); toast('URA excluída.', 'ok'); App.route(); }
       catch (e) { toast(e.message, 'err'); }
     });
   }
 };
+
+/** "ramal 1001 — Recepção", para mostrar um destino em texto. */
+function descreveDestino(tipo, valor, destinos) {
+  const d = destinos || {};
+  if (!tipo) return 'não configurado';
+
+  const achar = (lista, campo) => (lista || []).find(x => String(x[campo]) === String(valor));
+
+  switch (tipo) {
+    case 'ramal': {
+      const r = achar(d.ramais, 'numero');
+      return r ? `ramal ${r.numero} — ${r.nome}` : `ramal ${valor}`;
+    }
+    case 'fila': {
+      const f = achar(d.filas, 'numero');
+      return f ? `fila ${f.numero} — ${f.nome}` : `fila ${valor}`;
+    }
+    case 'ura': {
+      const u = achar(d.uras, 'id');
+      return u ? `URA ${u.nome}` : `URA ${valor}`;
+    }
+    case 'grupo': {
+      const g = achar(d.grupos, 'numero');
+      return g ? `grupo ${g.numero} — ${g.nome}` : `grupo de toque ${valor}`;
+    }
+    case 'personalizado': {
+      const p = achar(d.personalizados, 'id');
+      return p ? `destino ${p.nome}` : `destino personalizado ${valor}`;
+    }
+    case 'voicemail': return `correio de voz de ${valor}`;
+    case 'anuncio':   return `anúncio ${valor}`;
+    case 'externo':   return `número externo ${valor}`;
+    case 'desligar':  return 'desligar';
+    default:          return `${tipo} ${valor}`;
+  }
+}
 
 /* ------------------------- Grupos de toque ------------------------- */
 PAGES['apps.grupostoque'] = paginaCrud({
