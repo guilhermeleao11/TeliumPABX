@@ -4905,3 +4905,266 @@ PAGES['cfg.notificacoes'] = {
     });
   }
 };
+
+/* ---------- Telas de diagnóstico: leem o Asterisk, não mexem nele ---------- */
+
+/** Bloco de saída de comando, com aviso quando a central não responde. */
+function blocoCli(titulo, bloco) {
+  if (!bloco?.disponivel) {
+    return `<div class="card" style="padding:18px">
+      <b>${esc(titulo)}</b>
+      <p class="small muted" style="margin-top:6px">
+        A central não respondeu. Isso costuma ser o Asterisk parado ou o AMI sem autenticar.</p>
+    </div>`;
+  }
+  return `<div class="card">
+    <div class="card-head"><b>${esc(titulo)}</b></div>
+    <pre class="saida-cli">${esc(bloco.texto || '(vazio)')}</pre>
+  </div>`;
+}
+
+/* ------------------------- Conectividade · DIDs ------------------------- */
+PAGES['conn.did'] = {
+  async render() {
+    let d;
+    try { d = await Api.get('/diagnostico/dids'); }
+    catch (e) { return pageHead('DIDs / Numeração', '') + blocoErro(e); }
+
+    const linhas = (d.dados || []).map(x => `<tr class="${x.conflito ? 'linha-alerta' : ''}">
+      <td><b class="mono">${esc(x.did)}</b></td>
+      <td>${esc(x.descricao || '—')}</td>
+      <td><span class="ura-dest">${icon('branch','ico ico-sm')}${esc(x.destino)}</span></td>
+      <td>${x.origem === 'rota'
+        ? '<span class="badge">rota de entrada</span>'
+        : '<span class="badge badge-info">DID do ramal</span>'}</td>
+      <td>${x.conflito
+        ? '<span class="badge badge-warn" data-tip="A rota de entrada vence; este DID do ramal não tem efeito">duplicado</span>'
+        : (Number(x.ativo) ? '<span class="badge badge-ok">Ativo</span>' : '<span class="badge">Desativado</span>')}</td>
+    </tr>`).join('');
+
+    const duplicados = (d.dados || []).filter(x => x.conflito).length;
+
+    return pageHead('DIDs / Numeração',
+      'Todos os números que chegam à central, venham de rota de entrada ou do cadastro do ramal.') + `
+      ${duplicados ? `<div class="aviso erro" style="margin-bottom:14px">
+        ${icon('alert','ico ico-sm')}
+        <div>${duplicados} número${duplicados > 1 ? 's aparecem' : ' aparece'} nos dois lugares.
+          A rota de entrada é quem vale; o DID no cadastro do ramal fica sem efeito.</div>
+      </div>` : ''}
+      <div class="card">
+        ${linhas ? `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Número</th><th>Descrição</th><th>Vai para</th>
+            <th>Cadastrado em</th><th>Estado</th></tr></thead>
+          <tbody>${linhas}</tbody></table></div>`
+        : vazio('phoneIn', 'Nenhum DID cadastrado',
+            'Crie uma rota de entrada, ou preencha o DID no cadastro de um ramal para o número '
+          + 'cair direto nele.')}
+      </div>`;
+  }
+};
+
+/* ------------------------- Conectividade · Rede ------------------------- */
+PAGES['conn.rede'] = {
+  async render() {
+    let d;
+    try { d = await Api.get('/diagnostico/rede'); }
+    catch (e) { return pageHead('Configurações de Rede', '') + blocoErro(e); }
+
+    const trans = (d.transportes || []).map(t => `<tr>
+      <td class="mono">${esc(t.id)}</td>
+      <td><span class="badge">${esc(t.tipo)}</span></td>
+      <td class="mono">${esc(t.endereco)}</td>
+    </tr>`).join('');
+
+    return pageHead('Configurações de Rede',
+      'Onde a central escuta e por onde a voz trafega. Lido do Asterisk, não do cadastro.') + `
+      <div class="grid g-2">
+        <div class="card">
+          <div class="card-head"><b>Transportes SIP</b></div>
+          ${trans ? `<div class="table-wrap"><table class="table">
+            <thead><tr><th>Transporte</th><th>Tipo</th><th>Escuta em</th></tr></thead>
+            <tbody>${trans}</tbody></table></div>`
+          : `<div style="padding:18px" class="small muted">
+              A central não respondeu ou não tem transporte carregado.</div>`}
+          <div style="padding:14px 16px;border-top:1px solid var(--border)" class="small muted">
+            O <span class="mono">transport-wss</span> fica preso em 127.0.0.1 de propósito:
+            quem atende o navegador é o nginx, que já termina TLS com o certificado do console.
+          </div>
+        </div>
+        ${blocoCli('Faixa de portas de voz (RTP)', d.rtp)}
+      </div>
+      <div style="margin-top:16px">${blocoCli('Servidor HTTP do Asterisk', d.http)}</div>`;
+  }
+};
+
+/* ------------------------- Conectividade · WebRTC ------------------------- */
+PAGES['conn.webrtc'] = {
+  async render() {
+    let d;
+    try { d = await Api.get('/diagnostico/webrtc'); }
+    catch (e) { return pageHead('WebRTC / Softphone', '') + blocoErro(e); }
+
+    const item = (ok, titulo, texto) => `
+      <div class="row gap-12" style="align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--border)">
+        <span style="color:var(--${ok ? 'ok' : 'danger'});flex:none">
+          ${icon(ok ? 'checkCirc' : 'alert','ico')}</span>
+        <div><b>${esc(titulo)}</b><div class="small muted">${texto}</div></div>
+      </div>`;
+
+    const ramais = (d.ramais || []).map(r => `<tr>
+      <td><b class="mono">${esc(r.numero)}</b> <span class="dim">${esc(r.nome || '')}</span></td>
+      <td>${r.registrado
+        ? '<span class="badge badge-ok"><i class="dot dot-pulse"></i>registrado</span>'
+        : '<span class="badge">não registrado</span>'}</td>
+      <td>${Number(r.dtls) ? '<span class="badge badge-ok">sim</span>' : '<span class="badge badge-danger">não</span>'}</td>
+      <td>${Number(r.ice) ? '<span class="badge badge-ok">sim</span>' : '<span class="badge badge-danger">não</span>'}</td>
+      <td>${Number(r.avpf) ? '<span class="badge badge-ok">sim</span>' : '<span class="badge badge-danger">não</span>'}</td>
+      <td>${Number(r.rtcp_mux) ? '<span class="badge badge-ok">sim</span>' : '<span class="badge badge-danger">não</span>'}</td>
+    </tr>`).join('');
+
+    return pageHead('WebRTC / Softphone',
+      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + `
+      <div class="grid g-2">
+        <div class="card" style="padding:18px">
+          <b>Caminho da chamada</b>
+          <div style="margin-top:8px">
+            ${item(d.transporte_wss, 'Transporte WSS carregado',
+              'O Asterisk aceita SIP sobre WebSocket.')}
+            ${item(d.http_ligado && d.websocket, 'WebSocket publicado',
+              'O Asterisk responde em <span class="mono">/asterisk/ws</span>, '
+              + 'que o nginx expõe como <span class="mono">/ws</span>.')}
+            ${item(!!d.stun || d.turn.length, 'Servidor de ICE configurado',
+              d.stun ? `STUN: <span class="mono">${esc(d.stun)}</span>`
+                     : 'Sem STUN. Fora da rede local, o áudio some de um lado só.')}
+            ${item(d.turn.length > 0, 'TURN disponível',
+              d.turn.length
+                ? (d.turn_proprio
+                    ? 'TURN próprio, com credencial que vence — o certo.'
+                    : 'TURN de terceiros, com credencial fixa.')
+                : 'Sem TURN. Em rede que bloqueia UDP a chamada conecta e fica muda.')}
+          </div>
+        </div>
+
+        <div class="card" style="padding:18px">
+          <b>Como o navegador se conecta</b>
+          <ul class="small muted lista-ajuda" style="margin-top:10px">
+            <li>O endereço sai da própria página: quem entra pelo IP usa o IP, quem entra pelo
+                nome usa o nome — e o certificado é o mesmo que o navegador já aceitou.</li>
+            <li>Para o ramal aparecer no discador, ele precisa estar marcado como WebRTC
+                <b>e</b> vinculado ao usuário em Gerenciador de Usuários.</li>
+            <li>O navegador só libera o microfone em página segura (HTTPS) ou em
+                <span class="mono">localhost</span>.</li>
+            <li>Se a chamada conecta e não tem áudio, é ICE: o console avisa na tela da
+                chamada, e o caminho é ligar o TURN.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-head row-between">
+          <b>Ramais com WebRTC</b>
+          <span class="small muted">${(d.ramais || []).length} de ${d.ramais_total} ramais</span>
+        </div>
+        ${ramais ? `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Ramal</th><th>Agora</th><th>DTLS</th><th>ICE</th>
+            <th>AVPF</th><th>rtcp-mux</th></tr></thead>
+          <tbody>${ramais}</tbody></table></div>
+          <div style="padding:12px 16px;border-top:1px solid var(--border)" class="small muted">
+            As quatro colunas da direita precisam estar todas em "sim". Faltando qualquer uma,
+            a chamada conecta e fica muda — o navegador exige as quatro.
+          </div>`
+        : `<div style="padding:20px">${vazio('headset', 'Nenhum ramal com WebRTC',
+            'Marque "Softphone do navegador (WebRTC)" no cadastro de um ramal para usar o discador.')}</div>`}
+      </div>`;
+  }
+};
+
+/* ------------------------- Conectividade · Firewall e segurança ------------------------- */
+PAGES['conn.firewall'] = {
+  async render() {
+    let d;
+    try { d = await Api.get('/diagnostico/seguranca'); }
+    catch (e) { return pageHead('Firewall e Segurança', '') + blocoErro(e); }
+
+    const origens = (d.origens || []).map(o => `<tr>
+      <td class="mono"><b>${esc(o.ip)}</b></td>
+      <td class="num">${Number(o.tentativas) > 20
+        ? `<span class="badge badge-danger">${num(o.tentativas)}</span>`
+        : num(o.tentativas)}</td>
+      <td class="small dim">${esc(o.ultima)}</td>
+    </tr>`).join('');
+
+    const web = (d.login_web || []).map(o => `<tr>
+      <td class="mono"><b>${esc(o.ip || '—')}</b></td>
+      <td class="num">${num(o.tentativas)}</td>
+      <td class="small dim">${dataHora(o.ultima)}</td>
+    </tr>`).join('');
+
+    const eventos = (d.eventos || []).slice(0, 60).map(e => `<tr>
+      <td class="small">${esc(e.quando)}</td>
+      <td><span class="badge badge-warn">${esc(e.tipo)}</span></td>
+      <td class="mono">${esc(e.conta || '—')}</td>
+      <td class="mono">${esc(e.ip || '—')}</td>
+    </tr>`).join('');
+
+    return pageHead('Firewall e Segurança',
+      'Quem está tentando entrar na central. É aqui que uma varredura aparece, '
+      + 'dias antes de virar conta de telefone.') + `
+      ${d.disponivel ? '' : `<div class="aviso" style="margin-bottom:14px">
+        ${icon('info','ico ico-sm')}
+        <div>O console não consegue ler <span class="mono">${esc(d.arquivo)}</span>.
+          O registro de segurança do Asterisk precisa estar ligado no
+          <span class="mono">logger.conf</span> e legível para o usuário da API.</div>
+      </div>`}
+
+      <div class="grid g-2">
+        <div class="card">
+          <div class="card-head"><b>Origens com falha de autenticação SIP</b></div>
+          ${origens ? `<div class="table-wrap"><table class="table">
+            <thead><tr><th>Origem</th><th class="num">Tentativas</th><th>Última</th></tr></thead>
+            <tbody>${origens}</tbody></table></div>`
+          : `<div style="padding:20px" class="small muted">
+              Nenhuma falha registrada. É o que se espera numa central que ainda não foi achada
+              por varredura — e o motivo de valer a pena olhar aqui de vez em quando.</div>`}
+        </div>
+
+        <div class="card">
+          <div class="card-head"><b>Falhas de entrada no console (7 dias)</b></div>
+          ${web ? `<div class="table-wrap"><table class="table">
+            <thead><tr><th>Origem</th><th class="num">Tentativas</th><th>Última</th></tr></thead>
+            <tbody>${web}</tbody></table></div>`
+          : `<div style="padding:20px" class="small muted">Nenhuma tentativa falha no período.</div>`}
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-head"><b>O que a central bloqueou</b></div>
+        ${eventos ? `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Quando</th><th>Evento</th><th>Conta tentada</th><th>Origem</th></tr></thead>
+          <tbody>${eventos}</tbody></table></div>`
+        : `<div style="padding:20px" class="small muted">Nada registrado.</div>`}
+      </div>
+
+      <div style="margin-top:16px">${blocoCli('Restrição de rede dos ramais', d.acl)}</div>`;
+  }
+};
+
+/* ------------------------- Configurações · SIP / PJSIP ------------------------- */
+PAGES['cfg.sip'] = {
+  async render() {
+    let d;
+    try { d = await Api.get('/diagnostico/sip'); }
+    catch (e) { return pageHead('SIP / PJSIP', '') + blocoErro(e); }
+
+    return pageHead('SIP / PJSIP',
+      'Como o PJSIP está agora, lido da própria central. Para mudar, use os cadastros — '
+      + 'os arquivos são gerados a partir deles.') + `
+      <div class="grid g-2">
+        ${blocoCli('Transportes', d.transportes)}
+        ${blocoCli('Registros nos provedores', d.registros)}
+      </div>
+      <div style="margin-top:16px">${blocoCli('Ramais e troncos', d.endpoints)}</div>
+      <div style="margin-top:16px">${blocoCli('Ajustes globais', d.globais)}</div>
+      <div style="margin-top:16px">${blocoCli('Custo de conversão entre codecs', d.codecs)}</div>`;
+  }
+};

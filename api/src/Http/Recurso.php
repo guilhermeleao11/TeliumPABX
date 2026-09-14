@@ -39,6 +39,16 @@ final class Recurso
         private readonly string $modulo = '',
         private readonly array $regras = [],
         private readonly array $unicas = [],
+        /**
+         * Ajuste final antes de gravar: recebe os campos enviados e a
+         * linha atual, devolve os campos a gravar. Serve para o que uma
+         * opção implica em outras — marcar WebRTC num ramal liga DTLS,
+         * ICE, AVPF e rtcp-mux, e o cadastro precisa mostrar isso, não
+         * só o arquivo gerado.
+         *
+         * @var (callable(array<string,mixed>, array<string,mixed>): array<string,mixed>)|null
+         */
+        private $normalizar = null,
     ) {
     }
 
@@ -113,6 +123,10 @@ final class Recurso
             return Resposta::erro($res, $problema['mensagem'], 422, ['campo' => $problema['campo']]);
         }
 
+        if ($this->normalizar !== null) {
+            $dados = ($this->normalizar)($dados, []);
+        }
+
         $campos = array_keys($dados);
         $sql = sprintf(
             'INSERT INTO `%s` (%s) VALUES (%s)',
@@ -150,6 +164,10 @@ final class Recurso
         $problema = $this->validar($dados, false);
         if ($problema !== null) {
             return Resposta::erro($res, $problema['mensagem'], 422, ['campo' => $problema['campo']]);
+        }
+
+        if ($this->normalizar !== null) {
+            $dados = ($this->normalizar)($dados, $atual);
         }
 
         $sets = implode(', ', array_map(static fn (string $c): string => "`{$c}` = ?", array_keys($dados)));

@@ -9,6 +9,7 @@ use Telium\Http\Controllers\Certificados;
 use Telium\Http\Controllers\Conferencias;
 use Telium\Http\Controllers\Contatos;
 use Telium\Http\Controllers\Destinos;
+use Telium\Http\Controllers\Diagnostico;
 use Telium\Http\Controllers\Email;
 use Telium\Http\Controllers\Filas;
 use Telium\Http\Controllers\Gravacoes;
@@ -145,6 +146,22 @@ $recursos = [
                               'mensagem' => 'O destino do siga-me é um ramal ou um número.'],
             ],
             unicas: ['numero'],
+            // Marcar WebRTC liga junto o que o navegador exige. Sem isto
+            // o arquivo gerado ficava certo e o cadastro mostrava as
+            // quatro opções desligadas — a tela mentindo sobre si mesma.
+            normalizar: static function (array $dados, array $atual): array {
+                $webrtc = (int) ($dados['webrtc'] ?? $atual['webrtc'] ?? 0);
+                if ($webrtc !== 1) {
+                    return $dados;
+                }
+
+                foreach (['dtls' => 1, 'avpf' => 1, 'ice' => 1, 'rtcp_mux' => 1,
+                          'transporte' => 'wss', 'srtp' => 1] as $campo => $valor) {
+                    $dados[$campo] = $valor;
+                }
+
+                return $dados;
+            },
         ),
     ],
     'troncos' => [
@@ -569,6 +586,14 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('admin.permissoes', 'permissoes'));
     $g->put('/perfis/{id}/permissoes', [Cadastros::class, 'salvarPermissoes'])
       ->add(new Permissao('admin.permissoes', 'permissoes'));
+    // ---- diagnóstico: só leitura, do estado real do Asterisk ----
+    $g->get('/diagnostico/rede', [Diagnostico::class, 'rede'])->add(new Permissao('conn.rede'));
+    $g->get('/diagnostico/webrtc', [Diagnostico::class, 'webrtc'])->add(new Permissao('conn.webrtc'));
+    $g->get('/diagnostico/seguranca', [Diagnostico::class, 'seguranca'])
+      ->add(new Permissao('conn.firewall'));
+    $g->get('/diagnostico/sip', [Diagnostico::class, 'sip'])->add(new Permissao('cfg.sip'));
+    $g->get('/diagnostico/dids', [Diagnostico::class, 'dids'])->add(new Permissao('conn.did'));
+
     // ---- envio de e-mail ----
     $g->get('/email', [Email::class, 'obter'])->add(new Permissao('cfg.notificacoes'));
     $g->put('/email', [Email::class, 'salvar'])
