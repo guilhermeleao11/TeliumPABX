@@ -743,3 +743,79 @@
       - "  systemctl restart asterisk"
       - "════════════════════════════════════════════════════════"
   when: base_precisa_reiniciar.changed | default(false)
+
+# ------------------------------------------------------------------
+# Rede de segurança: o dialplan está de pé?
+#
+# Um módulo que recusou carregar NÃO volta com "reload" — só reiniciando
+# o Asterisk. E o pbx_config recusa carregar quando falta um arquivo do
+# #include, o que deixa a central sem rotear chamada nenhuma.
+#
+# A situação se resolve sozinha aqui porque, a esta altura, todos os
+# arquivos já foram publicados: os marcadores, os templates e os
+# personalizados. Se o módulo ainda não subiu, é resto de uma execução
+# anterior interrompida — e reiniciar é seguro, porque sem dialplan não
+# existe chamada em curso para derrubar.
+# ------------------------------------------------------------------
+# As recargas pendentes precisam acontecer AGORA, e não no fim da
+# execução: o papel da API roda a bateria de testes logo adiante, e ela
+# pergunta ao Asterisk como ele está. Sem isto, os testes olhavam para
+# a configuração anterior e acusavam problema já corrigido.
+- name: Aplicar as recargas pendentes antes de conferir
+  ansible.builtin.meta: flush_handlers
+
+- name: Conferir se o módulo do dialplan está carregado
+  ansible.builtin.command: asterisk -rx "module show like pbx_config"
+  register: ast_pbx_config
+  changed_when: false
+  failed_when: false
+
+- name: Reiniciar o Asterisk quando o dialplan não subiu
+  ansible.builtin.service:
+    name: asterisk
+    state: restarted
+  when: >-
+    ast_pbx_config.rc == 0
+    and ('Not Running' in ast_pbx_config.stdout
+         or 'pbx_config.so' not in ast_pbx_config.stdout)
+  register: ast_reiniciado
+
+- name: Esperar o Asterisk voltar
+  ansible.builtin.command: asterisk -rx "core show version"
+  register: ast_voltou
+  until: ast_voltou.rc == 0
+  retries: 15
+  delay: 2
+  changed_when: false
+  when: ast_reiniciado.changed | default(false)
+
+- name: Conferir de novo o módulo do dialplan
+  ansible.builtin.command: asterisk -rx "module show like pbx_config"
+  register: ast_pbx_depois
+  changed_when: false
+  failed_when: false
+
+- name: Contar os contextos carregados
+  ansible.builtin.command: asterisk -rx "dialplan show"
+  register: ast_dialplan
+  changed_when: false
+  failed_when: false
+
+# Sem dialplan a central não atende nem disca. Parar aqui é melhor do
+# que seguir publicando a API sobre uma base que não funciona.
+#
+# A conferência é sobre o módulo estar rodando, e não sobre a saída do
+# "dialplan show" citar contextos: com o módulo fora, o comando ainda
+# responde "2 contexts" — os que vêm de outros módulos — e uma
+# verificação frouxa daria tudo certo com a central muda.
+- name: Exigir que o dialplan esteja carregado
+  ansible.builtin.assert:
+    that:
+      - "'pbx_config.so' in ast_pbx_depois.stdout"
+      - "'Not Running' not in ast_pbx_depois.stdout"
+    fail_msg: |
+      O Asterisk está sem dialplan — a central não roteia nenhuma chamada.
+      O módulo pbx_config recusou carregar, e reiniciar não resolveu.
+      Quase sempre é um arquivo do #include faltando em extensions.conf:
+        grep "does not exist" /var/log/asterisk/messages
+    success_msg: "Dialplan carregado: {{ ast_dialplan.stdout_lines | last | default('') | trim }}"
