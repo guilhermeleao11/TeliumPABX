@@ -4306,11 +4306,12 @@ PAGES['cfg.pinsets'] = paginaCrud({
   campos: () => [
     { campo: 'nome', label: 'Nome do conjunto', obrigatorio: true, placeholder: 'Diretoria',
       ajuda: 'É o nome que aparece na hora de escolher o conjunto numa rota de saída.' },
-    { campo: 'pins', label: 'PINs', tipo: 'textarea', obrigatorio: true, largura: 'full',
+    { campo: 'pins', label: 'PINs', tipo: 'textarea', largura: 'full',
       placeholder: '4721\n8890\n1234',
-      padraoValido: /^[0-9\s,;]+$/,
+      padraoValido: /^[0-9\s,;]*$/,
       mensagemPadrao: 'Só dígitos, um PIN por linha.',
-      ajuda: 'Um por linha. Só dígitos — letra ou símbolo faz a central recusar o PIN certo.' },
+      ajuda: 'Um por linha. Só dígitos — letra ou símbolo faz a central recusar o PIN certo. '
+           + 'Ao editar, em branco mantém os que já estão gravados.' },
     { campo: 'no_cdr', label: 'Não identificar quem discou', tipo: 'switch', padrao: 1,
       largura: 'full',
       ajuda: 'Desligue para o PIN digitado ir para o relatório de chamadas. '
@@ -4574,10 +4575,11 @@ PAGES['apps.disa'] = paginaCrud({
 
   campos: () => [
     { campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'Diretoria em viagem' },
-    { campo: 'senha', label: 'Senha', obrigatorio: true, mono: true, tipo: 'password',
-      padraoValido: /^[0-9]{6,20}$/, mensagemPadrao: 'De 6 a 20 dígitos.',
+    { campo: 'senha', label: 'Senha', mono: true, tipo: 'password',
+      padraoValido: /^[0-9]{0,20}$/, mensagemPadrao: 'Só dígitos.',
+      placeholder: 'mínimo 6 dígitos',
       ajuda: 'De 6 a 20 dígitos. É o que separa a sua central de quem discar o número por acaso — '
-           + 'não use 1234 nem o número do ramal.' },
+           + 'não use 1234 nem o número do ramal. Ao editar, em branco mantém a atual.' },
     { campo: 'contexto', label: 'Até onde quem entrou pode discar', tipo: 'select', largura: 'full',
       opcoes: [
         { valor: 'telium-ramais', rotulo: 'Só ramais internos — mais seguro' },

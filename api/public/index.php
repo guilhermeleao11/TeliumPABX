@@ -411,6 +411,10 @@ $recursos = [
                       'tentativas', 'responder', 'ativo'],
             ordem: 'nome',
             busca: ['nome'],
+            // A senha da DISA vale tanto quanto a senha de um ramal:
+            // com ela se disca pela conta do cliente. Não volta para a
+            // tela, e editar sem mandá-la mantém a que está.
+            ocultas: ['senha'],
             afetaAsterisk: true,
             modulo: 'apps.disa',
             regras: [
@@ -468,6 +472,9 @@ $recursos = [
             colunas: ['nome', 'pins', 'no_cdr'],
             ordem: 'nome',
             busca: ['nome'],
+            // Os PINs autorizam chamada: não voltam numa listagem, que é
+            // o que acaba em captura de tela e em log de navegador.
+            ocultas: ['pins'],
             afetaAsterisk: true,
             modulo: 'cfg.pinsets',
             regras: [
