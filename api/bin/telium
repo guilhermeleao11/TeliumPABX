@@ -5,8 +5,7 @@ declare(strict_types=1);
 /**
  * CLI do Telium PABX.
  *   php bin/telium migrar           — aplica os scripts SQL que faltam
- *   php bin/telium migrar
-  php bin/telium gerar-config     — gera os .conf a partir do banco
+ *   php bin/telium gerar-config     — gera os .conf a partir do banco
  *   php bin/telium aplicar-config   — gera e recarrega o Asterisk
  *   php bin/telium doctor           — diagnóstico das dependências
  *   php bin/telium senha <usuario>  — define uma nova senha
