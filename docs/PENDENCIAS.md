@@ -11,7 +11,7 @@ para conferir o que mudou desde a última leitura.
 
 ## 1. Decisões de produto, não de engenharia
 
-Estes quatro saíram do menu de propósito. Não estão pela metade: estão
+Estes três saíram do menu de propósito. Não estão pela metade: estão
 esperando uma escolha que não é técnica. Menu que não leva a lugar
 nenhum, num sistema revendido, é pior do que menu menor.
 
@@ -20,7 +20,6 @@ nenhum, num sistema revendido, é pior do que menu menor.
 | **Texto em Voz** | Motor offline (qualidade ruim em português) ou serviço pago com chave e custo por uso. |
 | **Licenciamento** | Como o produto é licenciado — por ramal, por instalação, por prazo. Nada disso está definido. |
 | **Painel Telium** | O que essa tela mostraria além do que o Painel de Indicadores já mostra. |
-| **Configurações Avançadas** | Ficou redundante depois que o Config Edit saiu do menu. Editar arquivo à mão é o que a personalização em `extensions_custom.conf` já resolve. |
 
 Para reativar qualquer um, basta devolver a linha em `assets/js/data.js`
 e construir a tela.
