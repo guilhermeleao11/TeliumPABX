@@ -429,10 +429,23 @@ PAGES['pcu.perfil'] = {
             <span class="small muted" id="snEstado"></span>
           </div>
         </form>
+
+        <div class="card span-2" style="padding:18px" id="cartao2fa">
+          <div class="row-between" style="margin-bottom:10px">
+            <b>Verificação em dois passos</b>${dois}
+          </div>
+          <p class="small muted" style="margin-bottom:14px">
+            Além da senha, a entrada passa a pedir um código de seis dígitos que muda a cada
+            trinta segundos no seu celular. Vale para aplicativos como Google Authenticator,
+            Microsoft Authenticator, Aegis ou 1Password.</p>
+          <div id="area2fa"></div>
+        </div>
       </div>`;
   },
 
-  mount() {
+  mount(ctx) {
+    this.pintar2fa(Number(ctx.sess?.totp_ativo) === 1);
+
     const f = document.getElementById('fSenha');
     f?.addEventListener('submit', async ev => {
       ev.preventDefault();
@@ -457,6 +470,106 @@ PAGES['pcu.perfil'] = {
         estado.textContent = '';
         toast(e.message, 'err');
       }
+    });
+  },
+
+  /**
+   * Desenha o estado da verificação em dois passos.
+   *
+   * Três momentos: desligada, ligando (com o QR na tela) e ligada. O
+   * segredo só vira exigência depois de o usuário provar um código —
+   * ligar antes disso trancaria a conta para fora.
+   */
+  pintar2fa(ligada, inicio = null) {
+    const area = document.getElementById('area2fa');
+    if (!area) return;
+
+    if (ligada) {
+      area.innerHTML = `
+        <div class="aviso ok" style="margin-bottom:14px">
+          ${icon('checkCirc','ico ico-sm')}
+          A entrada já pede o código do seu celular.</div>
+        <form id="f2faOff" class="row gap-8 wrap" style="align-items:flex-end">
+          <div class="field" style="max-width:280px;margin:0">
+            <label>Sua senha, para desligar</label>
+            <input class="input" type="password" name="senha" required
+                   autocomplete="current-password">
+          </div>
+          <button class="btn btn-outline btn-sm" type="submit">Desligar</button>
+        </form>`;
+      document.getElementById('f2faOff').addEventListener('submit', async ev => {
+        ev.preventDefault();
+        try {
+          await Api.delete2fa(lerFormulario(ev.currentTarget).senha);
+          toast('Verificação em dois passos desligada', 'ok');
+          await Auth.carregar();
+          App.route();
+        } catch (e) { toast(e.message, 'err'); }
+      });
+      return;
+    }
+
+    if (!inicio) {
+      area.innerHTML = `<button class="btn btn-primary btn-sm" id="b2faOn">
+        ${icon('lock','ico ico-sm')} Ligar verificação em dois passos</button>`;
+      document.getElementById('b2faOn').addEventListener('click', async ev => {
+        const b = ev.currentTarget;
+        b.disabled = true;
+        b.innerHTML = '<span class="spin"></span> gerando…';
+        try { this.pintar2fa(false, await Api.post('/me/2fa/iniciar')); }
+        catch (e) { toast(e.message, 'err'); App.route(); }
+      });
+      return;
+    }
+
+    area.innerHTML = `
+      <div class="grid" style="grid-template-columns:auto 1fr;gap:20px;align-items:start">
+        <div id="qr2fa" class="qr-caixa"></div>
+        <div>
+          <ol class="lista-ajuda small" style="list-style:decimal">
+            <li>Abra o aplicativo de autenticação no celular.</li>
+            <li>Leia o QR Code ao lado. Se a câmera não ajudar, digite o código abaixo.</li>
+            <li>Confirme aqui o número de seis dígitos que o aplicativo mostrar.</li>
+          </ol>
+          <div class="field" style="max-width:340px">
+            <label>Código para digitação manual</label>
+            <input class="input mono" readonly value="${esc(inicio.segredo_legivel)}"
+                   onclick="this.select()">
+          </div>
+          <form id="f2faOn" class="row gap-8" style="align-items:flex-end;margin-top:10px">
+            <div class="field" style="max-width:190px;margin:0">
+              <label>Código do aplicativo</label>
+              <input class="input mono" name="codigo" inputmode="numeric" maxlength="6"
+                     placeholder="000000" autocomplete="one-time-code" required>
+            </div>
+            <button class="btn btn-primary btn-sm" type="submit">Confirmar e ligar</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="b2faCancela">Cancelar</button>
+          </form>
+        </div>
+      </div>`;
+
+    // O QR é desenhado aqui, no navegador: a URI carrega o segredo, e
+    // mandá-la para um gerador de terceiros seria entregar de propósito
+    // a segunda barreira.
+    const alvo = document.getElementById('qr2fa');
+    if (typeof qrcode === 'undefined') {
+      alvo.innerHTML = '<span class="small muted">Use o código para digitação manual.</span>';
+    } else {
+      const q = qrcode(0, 'M');
+      q.addData(inicio.uri);
+      q.make();
+      alvo.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+    }
+
+    document.getElementById('b2faCancela').addEventListener('click', () => this.pintar2fa(false));
+    document.getElementById('f2faOn').addEventListener('submit', async ev => {
+      ev.preventDefault();
+      try {
+        await Api.post('/me/2fa/confirmar', { codigo: lerFormulario(ev.currentTarget).codigo });
+        toast('Pronto. A próxima entrada vai pedir o código.', 'ok');
+        await Auth.carregar();
+        App.route();
+      } catch (e) { toast(e.message, 'err'); }
     });
   }
 };

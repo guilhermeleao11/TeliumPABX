@@ -449,6 +449,9 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/me', [CtrlAuth::class, 'eu']);
     // Sem módulo nem ação: é a própria conta de quem está logado.
     $g->post('/me/senha', [CtrlAuth::class, 'trocarMinhaSenha']);
+    $g->post('/me/2fa/iniciar', [CtrlAuth::class, 'iniciar2fa']);
+    $g->post('/me/2fa/confirmar', [CtrlAuth::class, 'confirmar2fa']);
+    $g->delete('/me/2fa', [CtrlAuth::class, 'desligar2fa']);
 
     // ---- portal do usuário: tudo preso ao ramal da sessão ----
     $g->get('/me/ramal', [Portal::class, 'ramal'])->add(new Permissao('pcu.meuramal'));

@@ -380,3 +380,17 @@ tr:hover .row-actions { opacity: 1; }
   line-height: 1.75;
 }
 .lista-ajuda li { margin-bottom: 6px; }
+
+/* QR Code da verificação em dois passos. Fundo branco sempre: leitor de
+   celular erra em fundo escuro, e o tema do console pode estar em qualquer um. */
+.qr-caixa {
+  background: #fff;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  width: 208px;
+  height: 208px;
+  display: grid;
+  place-items: center;
+}
+.qr-caixa svg { width: 100%; height: 100%; display: block; }

@@ -232,6 +232,99 @@ final class Autenticacao
         return Resposta::json($res, ['ok' => true, 'sessoes_encerradas' => $encerradas]);
     }
 
+    /**
+     * POST /api/me/2fa/iniciar — gera o segredo e devolve o QR Code.
+     *
+     * O segredo fica gravado mas totp_ativo continua 0: só vira
+     * exigência depois de o usuário provar, em /confirmar, que o
+     * aplicativo dele está gerando o código certo. Sem esse passo,
+     * ligar a verificação trancaria a conta para fora.
+     */
+    public function iniciar2fa(Request $req, Response $res): Response
+    {
+        $eu = (array) $req->getAttribute('usuario');
+        $usuario = Bd::um('SELECT id, usuario, totp_ativo FROM usuarios WHERE id = ?', [$eu['id'] ?? 0]);
+        if ($usuario === null) {
+            return Resposta::erro($res, 'Usuário não encontrado', 404);
+        }
+        if ((int) $usuario['totp_ativo'] === 1) {
+            return Resposta::erro(
+                $res,
+                'A verificação em dois passos já está ligada. Desligue antes de gerar outro código.',
+                409
+            );
+        }
+
+        $segredo = Totp::gerarSegredo();
+        Bd::executar('UPDATE usuarios SET totp_secret = ?, totp_ultimo_passo = NULL WHERE id = ?',
+                     [$segredo, $usuario['id']]);
+
+        $empresa = (string) (Bd::valor('SELECT nome FROM empresa WHERE id = 1') ?: 'Telium PABX');
+
+        return Resposta::json($res, [
+            'segredo' => $segredo,
+            // Em grupos de quatro: ninguém digita 32 caracteres seguidos
+            // sem errar quando o celular não lê o QR Code.
+            'segredo_legivel' => trim(chunk_split($segredo, 4, ' ')),
+            'uri' => Totp::uri($segredo, (string) $usuario['usuario'], $empresa),
+        ]);
+    }
+
+    /** POST /api/me/2fa/confirmar — liga de verdade, provando o código. */
+    public function confirmar2fa(Request $req, Response $res): Response
+    {
+        $eu = (array) $req->getAttribute('usuario');
+        $usuario = Bd::um('SELECT id, usuario, totp_secret FROM usuarios WHERE id = ?', [$eu['id'] ?? 0]);
+        if ($usuario === null || ($usuario['totp_secret'] ?? '') === '') {
+            return Resposta::erro($res, 'Gere o código antes de confirmar', 409);
+        }
+
+        $codigo = trim((string) (((array) $req->getParsedBody())['codigo'] ?? ''));
+        $passo = Totp::passoUsado((string) $usuario['totp_secret'], $codigo);
+        if ($passo === null) {
+            return Resposta::erro(
+                $res,
+                'O código não confere. Confira se o relógio do celular está certo e tente o próximo.',
+                422,
+                ['campo' => 'codigo']
+            );
+        }
+
+        Bd::executar('UPDATE usuarios SET totp_ativo = 1, totp_ultimo_passo = ? WHERE id = ?',
+                     [$passo, $usuario['id']]);
+        Auditoria::registrar($eu, '2fa_ligado', 'auth', (string) $usuario['usuario'], [], $this->ip($req));
+
+        return Resposta::json($res, ['ok' => true]);
+    }
+
+    /**
+     * DELETE /api/me/2fa — desliga.
+     *
+     * Pede a senha: sem isso, um console deixado aberto viraria conta
+     * sem segunda barreira em dois cliques.
+     */
+    public function desligar2fa(Request $req, Response $res): Response
+    {
+        $eu = (array) $req->getAttribute('usuario');
+        $usuario = Bd::um('SELECT id, usuario, senha_hash FROM usuarios WHERE id = ?', [$eu['id'] ?? 0]);
+        if ($usuario === null) {
+            return Resposta::erro($res, 'Usuário não encontrado', 404);
+        }
+
+        $senha = (string) (((array) $req->getParsedBody())['senha'] ?? '');
+        if (!Senha::verificar($senha, (string) $usuario['senha_hash'])) {
+            return Resposta::erro($res, 'A senha não confere', 403, ['campo' => 'senha']);
+        }
+
+        Bd::executar(
+            'UPDATE usuarios SET totp_ativo = 0, totp_secret = NULL, totp_ultimo_passo = NULL WHERE id = ?',
+            [$usuario['id']]
+        );
+        Auditoria::registrar($eu, '2fa_desligado', 'auth', (string) $usuario['usuario'], [], $this->ip($req));
+
+        return Resposta::json($res, ['ok' => true]);
+    }
+
     /** GET /api/me — usuário, permissões e menu já resolvidos. */
     public function eu(Request $req, Response $res): Response
     {
@@ -339,6 +432,7 @@ final class Autenticacao
                 'nome'  => $u['perfil_nome'],
                 'cor'   => $u['perfil_cor'],
             ],
+            'totp_ativo' => (int) ($u['totp_ativo'] ?? 0),
         ];
     }
 

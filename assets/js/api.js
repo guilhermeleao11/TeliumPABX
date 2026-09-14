@@ -134,6 +134,12 @@ const Api = {
     return dados;
   },
 
+  /**
+   * DELETE com corpo. O fetch aceita, mas o atalho delete() não manda
+   * nada — e desligar a verificação em dois passos precisa da senha.
+   */
+  delete2fa(senha) { return this.requisicao('DELETE', '/me/2fa', { senha }); },
+
   get(caminho, params = null) {
     const qs = params ? '?' + new URLSearchParams(
       Object.fromEntries(Object.entries(params).filter(([, v]) => v !== '' && v != null))

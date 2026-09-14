@@ -19,3 +19,20 @@ docker run --rm -v "$PWD:/b" -w /b node:22-alpine sh -c '
 ```
 
 Licença MIT, do projeto JsSIP (https://jssip.net).
+
+## qrcode.min.js — QR Code Generator 1.4.4
+
+Desenha o QR Code da verificação em dois passos. O console não pode
+depender de um serviço externo para isso: a URI do `otpauth://` carrega
+o segredo do usuário, e mandá-la para o gerador de QR de terceiros seria
+entregar a segunda barreira de propósito.
+
+```sh
+curl -sO https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js
+docker run --rm -v "$PWD:/b" -w /b node:22-alpine sh -c '
+  npm install -s esbuild@0.24.0 &&
+  npx esbuild qrcode.js --minify --target=es2020 \
+      --outfile=qrcode.min.js --legal-comments=inline'
+```
+
+Licença MIT, de Kazuhiko Arase (http://www.d-project.com/).

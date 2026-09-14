@@ -51,7 +51,7 @@
     <div class="brand-foot">
       <span>© 2026 Telium Networks · AllWaysON</span><i class="sep"></i>
       <span id="loginVersao">Telium PABX</span><i class="sep"></i>
-      <span>Asterisk 20 LTS</span>
+      <span>Asterisk 22</span>
     </div>
 
     <svg class="wave" viewBox="0 0 1200 120" preserveAspectRatio="none" aria-hidden="true">
@@ -96,6 +96,20 @@
                    placeholder="••••••••" autocomplete="current-password" required>
             <button type="button" class="pw-toggle" id="pwToggle" aria-label="Mostrar senha"></button>
           </div>
+        </div>
+
+        <!-- Só aparece quando a conta tem verificação em dois passos.
+             Antes o login respondia "precisa 2FA" e não havia onde
+             digitar o código: ligar o recurso trancava o usuário. -->
+        <div class="field" id="campo2fa" hidden>
+          <label class="label" for="codigo2fa">Código de verificação</label>
+          <div class="input-icon">
+            <span data-ico="lock"></span>
+            <input class="input mono" id="codigo2fa" name="codigo" type="text"
+                   inputmode="numeric" maxlength="6" placeholder="000000"
+                   autocomplete="one-time-code">
+          </div>
+          <span class="hint">Os seis dígitos que o aplicativo do seu celular mostra agora.</span>
         </div>
 
         <div class="row-between">
@@ -167,23 +181,31 @@ if (new URLSearchParams(location.search).has('expirada')) {
   aviso('Sua sessão expirou. Entre novamente.', 'info');
 }
 
+const campo2fa = document.getElementById('campo2fa');
+const codigoEl = document.getElementById('codigo2fa');
+
 document.getElementById('loginForm').addEventListener('submit', async e => {
   e.preventDefault();
   const u = document.getElementById('usuario').value.trim();
   const p = senhaEl.value;
+  const codigo = campo2fa.hidden ? '' : codigoEl.value.trim();
   alertBox.innerHTML = '';
 
   if (!u || !p) { aviso('Preencha usuário e senha.'); return; }
+  if (!campo2fa.hidden && codigo === '') { aviso('Informe o código de verificação.'); codigoEl.focus(); return; }
 
   btn.disabled = true;
   btn.innerHTML = `<span class="spin"></span> Verificando…`;
 
-  const r = await Auth.login(u, p, document.getElementById('lembrar').checked);
+  const r = await Auth.login(u, p, document.getElementById('lembrar').checked, codigo);
 
   if (r.precisa2fa) {
     btn.disabled = false;
     btn.textContent = 'Entrar';
-    aviso('Esta conta exige código de verificação em dois fatores.', 'info');
+    campo2fa.hidden = false;
+    codigoEl.value = '';
+    codigoEl.focus();
+    aviso('Esta conta pede o código do aplicativo de autenticação.', 'info');
     return;
   }
 
@@ -191,7 +213,10 @@ document.getElementById('loginForm').addEventListener('submit', async e => {
     btn.disabled = false;
     btn.textContent = 'Entrar';
     aviso(r.erro || 'Não foi possível entrar.');
-    senhaEl.select();
+    // Código errado: apaga só ele. A senha já foi aceita, e fazer o
+    // usuário digitar tudo de novo a cada tentativa é castigo à toa.
+    if (!campo2fa.hidden) { codigoEl.value = ''; codigoEl.focus(); }
+    else senhaEl.select();
     return;
   }
 

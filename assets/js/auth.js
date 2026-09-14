@@ -31,9 +31,10 @@ const Auth = {
   /** Preenchido por carregar() a partir de GET /api/me. */
   sessao: null,
 
-  async login(usuario, senha, lembrar) {
+  async login(usuario, senha, lembrar, codigo = '') {
     try {
-      const r = await Api.post('/auth/login', { usuario, senha });
+      const r = await Api.post('/auth/login',
+        codigo ? { usuario, senha, codigo } : { usuario, senha });
 
       if (r.precisa_2fa) return { ok: false, precisa2fa: true };
 
