@@ -1,5 +1,10 @@
 ; {{ ansible_managed }}
+;
+; A classe [default] usa os sons que vêm com o Asterisk. As classes
+; próprias, uma por áudio da categoria "espera", são geradas pela API.
 [default]
 mode      = files
 directory = moh
 sort      = random
+
+#include "telium/musicaespera.conf"

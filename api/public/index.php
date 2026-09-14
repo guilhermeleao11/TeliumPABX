@@ -539,6 +539,7 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/audios', [Audios::class, 'listar'])->add(new Permissao('admin.gravacoes'));
     $g->post('/audios', [Audios::class, 'enviar'])
       ->add(new Permissao('admin.gravacoes', 'criar'));
+    $g->get('/audios/{id}/ouvir', [Audios::class, 'ouvir'])->add(new Permissao('admin.gravacoes'));
     $g->put('/audios/{id}', [Audios::class, 'atualizar'])
       ->add(new Permissao('admin.gravacoes', 'editar'));
     $g->delete('/audios/{id}', [Audios::class, 'remover'])

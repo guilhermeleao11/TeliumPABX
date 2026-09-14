@@ -4313,3 +4313,158 @@ PAGES['cfg.pinsets'] = paginaCrud({
            + 'o que torna possível saber quem ligou.' }
   ]
 });
+
+/* ------------------------- Configurações · Música em espera ------------------------- */
+PAGES['cfg.musica'] = {
+  async render(ctx) {
+    let audios, filas;
+    try {
+      [audios, filas] = await Promise.all([
+        Api.get('/audios', { categoria: 'espera', limite: 200 }),
+        Api.get('/filas', { limite: 200 }).catch(() => ({ dados: [] }))
+      ]);
+    } catch (e) { return pageHead('Música em Espera', '') + blocoErro(e); }
+
+    // Quem usa cada música: trocar uma que está no ar sem saber é o
+    // tipo de coisa que só aparece no primeiro cliente reclamando.
+    const uso = {};
+    (filas.dados || []).forEach(f => {
+      (uso[f.musica_espera || 'default'] ||= []).push(`fila ${f.numero}`);
+    });
+
+    const linhas = (audios.dados || []).map(a => `
+      <tr data-arquivo="${esc(a.arquivo)}" data-id="${a.id}">
+        <td><b>${esc(a.nome)}</b><div class="tiny muted mono">${esc(a.arquivo)}</div></td>
+        <td class="num">${a.duracao ? duracao(a.duracao) : '—'}</td>
+        <td class="small dim">${esc((a.formatos || '').split(',').join(' · ') || '—')}</td>
+        <td>${(uso[a.arquivo] || []).length
+          ? (uso[a.arquivo]).map(u => `<span class="badge badge-brand">${esc(u)}</span>`).join(' ')
+          : '<span class="muted small">nenhuma fila usa</span>'}</td>
+        <td class="col-actions"><span class="row-actions">
+          <button class="btn btn-ghost btn-sm btn-icon" data-tip="Ouvir" data-ouvir>
+            ${icon('play','ico ico-sm')}</button>
+          ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-excluir
+            data-id="${a.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+        </span></td>
+      </tr>`).join('');
+
+    return pageHead('Música em Espera',
+      `O que o cliente ouve enquanto espera na fila ou fica em espera numa chamada.`,
+      ctx.can('criar')
+        ? `<button class="btn btn-primary btn-sm" id="mohNovo">
+             ${icon('upload','ico ico-sm')} Enviar música</button>`
+        : '') + `
+      <div class="card" style="padding:14px;margin-bottom:14px">
+        <div class="row gap-12" style="align-items:flex-start">
+          ${icon('info','ico')}
+          <div class="small muted">
+            <b>A classe "Padrão do sistema"</b> usa os sons que vêm com o Asterisk e está sempre
+            disponível. Cada música enviada aqui vira uma opção na hora de montar a fila.
+            Um arquivo só já serve — a central o repete enquanto durar a espera.
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        ${linhas ? `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Música</th><th class="num">Duração</th><th>Formatos</th>
+            <th>Em uso</th><th class="col-actions"></th></tr></thead>
+          <tbody>${linhas}</tbody></table></div>`
+        : vazio('music', 'Nenhuma música enviada',
+            'As filas usam a música padrão do Asterisk. Envie um arquivo para ter a sua.',
+            ctx.can('criar')
+              ? '<button class="btn btn-primary btn-sm" id="mohNovo2">Enviar música</button>' : '')}
+      </div>`;
+  },
+
+  mount(ctx) {
+    const abrir = () => this.enviar();
+    document.getElementById('mohNovo')?.addEventListener('click', abrir);
+    document.getElementById('mohNovo2')?.addEventListener('click', abrir);
+
+    document.querySelectorAll('[data-ouvir]').forEach(b => b.addEventListener('click', async () => {
+      const tr = b.closest('tr');
+      const aberto = tr.nextElementSibling?.hasAttribute('data-player-moh');
+      document.querySelectorAll('[data-player-moh]').forEach(l => {
+        l.querySelector('audio')?.pause(); l.remove();
+      });
+      if (aberto) return;
+
+      // O arquivo não é servido direto pela web: vem pela API, que
+      // aplica a permissão do módulo. Por isso o blob.
+      b.disabled = true;
+      b.innerHTML = '<span class="spin"></span>';
+      try {
+        const { blob } = await Api.baixar(`/audios/${tr.dataset.id}/ouvir`);
+        const url = URL.createObjectURL(blob);
+        tr.insertAdjacentHTML('afterend', `
+          <tr data-player-moh><td colspan="5" style="background:var(--surface-2)">
+            <audio controls autoplay preload="auto" style="width:100%;height:38px" src="${url}"></audio>
+          </td></tr>`);
+        tr.nextElementSibling.querySelector('audio')
+          .addEventListener('ended', () => setTimeout(() => URL.revokeObjectURL(url), 1000));
+      } catch (e) { toast(e.message, 'err'); }
+      b.disabled = false;
+      b.innerHTML = icon('play', 'ico ico-sm');
+    }));
+
+    document.querySelectorAll('[data-excluir]').forEach(b => b.addEventListener('click', async () => {
+      const ok = await Modal.confirm({
+        titulo: 'Excluir esta música?',
+        texto: 'As filas que a usam voltam para a música padrão do sistema na próxima aplicação.',
+        ok: 'Excluir'
+      });
+      if (!ok) return;
+      try {
+        await Api.delete(`/audios/${b.dataset.id}`);
+        toast('Música excluída', 'ok');
+        App.route();
+      } catch (e) { toast(e.message, 'err'); }
+    }));
+  },
+
+  enviar() {
+    Drawer.open({
+      titulo: 'Enviar música em espera',
+      sub: 'WAV, MP3 ou GSM. A central converte para o formato que o Asterisk toca.',
+      corpo: `<form id="fMoh" class="form-grid">
+        ${campoHtml({ campo: 'nome', label: 'Nome', obrigatorio: true,
+          placeholder: 'Jazz da recepção', largura: 'full' }, {})}
+        <div class="field full">
+          <label class="label">Arquivo de áudio *</label>
+          <input class="input" type="file" name="arquivo" accept="audio/*" required>
+          <span class="hint">Até 20 MB. Um arquivo só basta: a central o repete.</span>
+        </div>
+      </form>`,
+      rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+               <button class="btn btn-primary" data-enviar>Enviar</button>`,
+      aoAbrir: dw => {
+        dw.querySelector('[data-enviar]').onclick = async ev => {
+          const botao = ev.currentTarget;
+          const form = dw.querySelector('#fMoh');
+          const arquivo = form.querySelector('[name=arquivo]').files[0];
+          const nome = form.querySelector('[name=nome]').value.trim();
+
+          if (!nome || !arquivo) { toast('Informe o nome e escolha o arquivo', 'err'); return; }
+
+          botao.disabled = true;
+          botao.innerHTML = '<span class="spin"></span> enviando…';
+          const fd = new FormData();
+          fd.append('arquivo', arquivo);
+          fd.append('nome', nome);
+          fd.append('categoria', 'espera');
+          try {
+            await Api.upload('/audios', fd);
+            Drawer.close();
+            toast('Música enviada. Aplique as configurações para as filas passarem a usá-la.', 'ok');
+            App.route();
+          } catch (e) {
+            botao.disabled = false;
+            botao.textContent = 'Enviar';
+            toast(e.message, 'err');
+          }
+        };
+      }
+    });
+  }
+};

@@ -175,6 +175,7 @@ if ! docker ps --format '{{.Names}}' | grep -qx v-ast; then
   docker run -d --name v-ast --network "container:v-web" \
     -v "$TRAB/ast":/etc/asterisk \
     -v "$TRAB/gravacoes":/var/spool/asterisk/monitor \
+    -v "$TRAB/audios":/audios \
     "$IMG_AST" sleep infinity >/dev/null
 
   # CDR e CEL vão para o banco por ODBC, igual ao servidor de verdade:

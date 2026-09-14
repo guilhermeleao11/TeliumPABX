@@ -193,6 +193,48 @@ final class Audios
     }
 
     // ------------------------------------------------------------------
+    /**
+     * GET /api/audios/{id}/ouvir — devolve o áudio para o navegador.
+     *
+     * Os arquivos ficam na pasta de sons do Asterisk, que não é servida
+     * pela web — e não deve ser. Passar por aqui também mantém a escuta
+     * sujeita à permissão do módulo.
+     */
+    public function ouvir(Request $req, Response $res, array $args): Response
+    {
+        $audio = Bd::um('SELECT arquivo, nome FROM audios WHERE id = ?', [$args['id']]);
+        if ($audio === null) {
+            return Resposta::erro($res, 'Áudio não encontrado', 404);
+        }
+
+        // O nome vem do banco, mas quem o gravou foi um upload: o mesmo
+        // cuidado de sempre antes de montar caminho.
+        $base = preg_replace('/[^a-z0-9_-]/i', '', (string) $audio['arquivo']) ?? '';
+        if ($base === '') {
+            return Resposta::erro($res, 'Áudio com nome inválido', 422);
+        }
+
+        foreach (['wav', 'gsm'] as $ext) {
+            $caminho = "{$this->diretorio()}/{$base}.{$ext}";
+            if (!is_file($caminho)) {
+                continue;
+            }
+
+            $corpo = $res->getBody();
+            $corpo->write((string) file_get_contents($caminho));
+
+            return $res->withBody($corpo)
+                ->withHeader('Content-Type', $ext === 'wav' ? 'audio/wav' : 'audio/gsm')
+                ->withHeader('Content-Disposition', 'inline; filename="' . $base . '.' . $ext . '"');
+        }
+
+        return Resposta::erro(
+            $res,
+            'O registro existe, mas o arquivo não está mais no disco.',
+            404
+        );
+    }
+
     private function diretorio(): string
     {
         return rtrim((string) Ambiente::get('AUDIOS_DIR', '/var/lib/asterisk/sounds/telium'), '/');
