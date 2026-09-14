@@ -87,6 +87,9 @@ GRAVACOES_DIR=/gravacoes
 SQL_DIR=/w/infra/sql
 ASTERISK_CONF_DIR=/s/ast
 ASTERISK_GERADO_DIR=/s/ast/telium
+# Na bancada o Asterisk roda como root e os dois contêineres não
+# compartilham o grupo asterisk. No servidor o padrão vale.
+ASTERISK_GRUPO=root
 SOFTPHONE_WS=
 SIP_DOMINIO=
 SOFTPHONE_STUN=stun:stun.l.google.com:19302

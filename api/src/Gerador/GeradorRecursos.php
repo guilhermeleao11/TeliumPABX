@@ -138,10 +138,17 @@ final class GeradorRecursos
             ]],
             'rastrear' => [$codigo, [
                 'NoOp(Último chamador)', 'Answer()', 'Wait(1)',
+                // O cadastro do ramal decide quem pode saber o número de
+                // quem ligou por último: em atendimento ao público isso
+                // costuma ser liberado, em ramal de uso comum, não.
+                'GotoIf($[${DB_EXISTS(rastreio-nao/' . $eu . ')}]?barrado)',
                 'Set(TELIUM_ULT=${DB(ultimochamador/' . $eu . ')})',
                 'GotoIf($["${TELIUM_ULT}" = ""]?nada)',
                 'SayDigits(${TELIUM_ULT})', 'Hangup()',
-            ], ['nada' => [
+            ], ['barrado' => [
+                'NoOp(Este ramal não tem rastreio de chamada liberado)',
+                'Playback(privacy-you-are-not-permitted)', 'Hangup()',
+            ], 'nada' => [
                 'NoOp(Nenhuma chamada registrada para este ramal)',
                 'Playback(pbx-invalid)', 'Hangup()',
             ]]],
@@ -361,14 +368,27 @@ final class GeradorRecursos
             ]],
 
             // ---------------- ditado ----------------
+            // O ditado grava num diretório por ramal: sem isso, todo
+            // mundo enxerga e sobrescreve a gravação de todo mundo, que
+            // é como o Dictate se comporta com diretório comum.
             'ditado_gravar' => [$codigo, [
-                'NoOp(Ditado)', 'Answer()', 'Wait(1)',
-                'Dictate(/var/spool/asterisk/dictate)', 'Hangup()',
-            ]],
+                'NoOp(Ditado)',
+                'GotoIf($[${DB_EXISTS(ditado/' . $eu . ')}]?pode)',
+                'Playback(privacy-you-are-not-permitted)', 'Hangup()',
+            ], ['pode' => [
+                'Answer()', 'Wait(1)',
+                "System(mkdir -p /var/spool/asterisk/dictate/{$eu})",
+                "Dictate(/var/spool/asterisk/dictate/{$eu},{$eu})",
+                'Hangup()',
+            ]]],
             'ditado_email' => [$codigo, [
-                'NoOp(Ditado para a caixa postal)', 'Answer()', 'Wait(1)',
+                'NoOp(Ditado para a caixa postal)',
+                'GotoIf($[${DB_EXISTS(ditado/' . $eu . ')}]?pode)',
+                'Playback(privacy-you-are-not-permitted)', 'Hangup()',
+            ], ['pode' => [
+                'Answer()', 'Wait(1)',
                 "VoiceMail({$eu}@telium,su)", 'Hangup()',
-            ]],
+            ]]],
 
             // ---------------- fax ----------------
             'fax_receber' => [$codigo, [

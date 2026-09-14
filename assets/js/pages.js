@@ -766,6 +766,13 @@ function campoHtml(c, item) {
   const largura = c.largura === 'full' ? ' full' : '';
   const desabilitado = c.somenteLeitura ? 'disabled' : '';
 
+  // Explicação no meio do formulário, onde a regra é fixa e não há o
+  // que configurar. Melhor do que um campo que promete uma escolha
+  // que o sistema não faz.
+  if (c.tipo === 'nota') {
+    return `<div class="field${largura}"><p class="nota-form">${esc(c.texto)}</p></div>`;
+  }
+
   if (c.tipo === 'switch') {
     return `<div class="field${largura}" data-campo="${c.campo}">
       <label class="label">${esc(c.label)}</label>
@@ -966,8 +973,11 @@ PAGES['conn.ramais'] = paginaCrud({
                { valor: 'ativar', rotulo: 'Permitir o código *1 durante a chamada' },
                { valor: 'sobrepor', rotulo: 'Permitir e deixar vencer as regras acima' }],
       largura: 'full' },
-    { aba: 'Gravação', campo: 'grav_prioridade', label: 'Prioridade da regra', tipo: 'number', padrao: 10,
-      ajuda: 'Quando ramal e fila discordam, vence a regra de maior prioridade.' },
+    { aba: 'Gravação', tipo: 'nota', largura: 'full',
+      texto: 'Quando os dois lados discordam, a ordem é sempre a mesma: '
+           + '"nunca" de qualquer lado proíbe, "forçar" de qualquer lado obriga, '
+           + 'e só então vale a preferência de cada um. Não há número de prioridade '
+           + 'a configurar — a regra é fixa, para ser possível explicá-la ao cliente.' },
     { aba: 'Gravação', campo: 'gravar', label: 'Regra antiga (compatibilidade)', tipo: 'select',
       opcoes: [{ valor: 'nao', rotulo: 'Não gravar' }, { valor: 'entrada', rotulo: 'Só entrantes' },
                { valor: 'saida', rotulo: 'Só saintes' }, { valor: 'ambas', rotulo: 'Entrantes e saintes' }],

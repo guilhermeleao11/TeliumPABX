@@ -94,7 +94,7 @@ $recursos = [
                       'rastreio_chamada','auto_resposta','interfonia','estado_em_fila',
                       // gravação por sentido
                       'grav_ext_entrada','grav_ext_saida','grav_int_entrada','grav_int_saida',
-                      'grav_sob_demanda','grav_prioridade',
+                      'grav_sob_demanda',
                       // ditado
                       'ditado','ditado_formato','ditado_email','ditado_remetente'],
             ordem: 'numero',

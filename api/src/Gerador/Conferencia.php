@@ -130,6 +130,13 @@ final class Conferencia
             }
         }
 
+        // Modo e grupo errados nos arquivos gerados: o Asterisk recarrega
+        // e segue com a configuração anterior, sem um erro sequer.
+        $permissao = (new Gerador())->problemaDePermissao();
+        if ($permissao !== null) {
+            $p[] = ['nivel' => 'erro', 'onde' => 'arquivos gerados', 'texto' => $permissao];
+        }
+
         return $p;
     }
 

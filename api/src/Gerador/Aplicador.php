@@ -114,6 +114,21 @@ final class Aplicador
         // segunda chamada — é a opção do cadastro que decide.
         $tabelas['cw'] = 'SELECT numero FROM ramais WHERE ativo = 1 AND chamada_espera = 1';
 
+        // Interfonia e rastreio guardam a NEGATIVA: a maioria dos ramais
+        // permite, e gravar só a exceção deixa a base pequena.
+        $tabelas['interfonia-nao'] =
+            "SELECT numero FROM ramais WHERE ativo = 1 AND interfonia = 'negar'";
+        $tabelas['rastreio-nao'] =
+            'SELECT numero FROM ramais WHERE ativo = 1 AND rastreio_chamada = 0';
+
+        // Atendimento automático em chamada interna. Guarda a exceção,
+        // que é quem tem o recurso ligado.
+        $tabelas['autoatende'] =
+            'SELECT numero FROM ramais WHERE ativo = 1 AND auto_resposta = 1';
+
+        // Ditado: os códigos *34 e *35 só valem para quem tem no cadastro.
+        $tabelas['ditado'] = 'SELECT numero FROM ramais WHERE ativo = 1 AND ditado = 1';
+
         foreach ($tabelas as $familia => $sql) {
             $resposta = $ami->acao(['Action' => 'DBDelTree', 'Family' => $familia]);
             if (str_contains(strtolower($resposta), 'error')

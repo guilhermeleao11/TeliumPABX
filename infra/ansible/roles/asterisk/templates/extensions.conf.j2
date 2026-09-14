@@ -95,6 +95,12 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
  same => n,Set(TELIUM_FMF_MODO=${DB(sigame-modo/${ARG1})})
  same => n,ExecIf($["${TELIUM_FMF}" != "" & "${TELIUM_FMF_MODO}" != "depois"]?Set(TELIUM_ALVO=PJSIP/${ARG1}&Local/${TELIUM_FMF}@telium-desvio))
 
+ ; Atendimento automático: o telefone do destino abre o viva-voz sem
+ ; tocar. Só para chamada interna — ninguém quer o aparelho abrindo som
+ ; sozinho com alguém de fora na linha. O "b" roda a sub-rotina no canal
+ ; de quem recebe, antes de ele ser chamado, que é o único lugar onde dá
+ ; para acrescentar cabeçalho no INVITE que vai para o aparelho.
+ same => n,ExecIf($[${DB_EXISTS(autoatende/${ARG1})} & "${TELIUM_RAMAL}" != ""]?Set(TELIUM_OPC=${TELIUM_OPC}b(sub-autoatende^s^1)))
  same => n,Dial(${TELIUM_ALVO},${TELIUM_TOQUE},${TELIUM_OPC})
  same => n,NoOp(Resultado: ${DIALSTATUS})
 
@@ -137,6 +143,20 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
  same => n,VoiceMail(${TELIUM_VM},b)
  same => n,Return()
  same => n(so_ocupado),Busy(5)
+ same => n,Return()
+
+; ------------------------------------------------------------------
+; Sub-rotina: pedir ao telefone que atenda sozinho
+;
+; Roda no canal de quem recebe, pela opção b do Dial. Cada fabricante lê
+; um cabeçalho diferente, então vão os dois mais comuns: Call-Info é o
+; da Polycom, Yealink, Grandstream e Fanvil; Alert-Info é o que
+; Intelbras e alguns modelos antigos entendem.
+; ------------------------------------------------------------------
+[sub-autoatende]
+exten => s,1,NoOp(Pedindo atendimento automático a ${EXTEN})
+ same => n,Set(PJSIP_HEADER(add,Call-Info)=<sip:${TELIUM_EMPRESA}>\;answer-after=0)
+ same => n,Set(PJSIP_HEADER(add,Alert-Info)=Auto Answer)
  same => n,Return()
 
 ; ------------------------------------------------------------------

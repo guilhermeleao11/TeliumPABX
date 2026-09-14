@@ -917,6 +917,28 @@ final class GeradorDialplan
 
         $rotas = Bd::todos('SELECT * FROM rotas_entrada WHERE ativo = 1 ORDER BY ordem, id');
 
+        // Um ramal com DID próprio vira rota sozinho. É o caminho curto
+        // para "este número cai direto neste ramal", sem obrigar quem
+        // cadastra a criar uma rota à parte — e é o que dá função aos
+        // campos DID e descrição do cadastro do ramal.
+        $jaTem = array_map(static fn (array $r): string => trim((string) $r['did']), $rotas);
+        foreach ($this->ramais as $r) {
+            $did = trim((string) ($r['did'] ?? ''));
+            if ($did === '' || in_array($did, $jaTem, true)) {
+                continue;       // rota explícita tem sempre a última palavra
+            }
+
+            $rotas[] = [
+                'did'           => $did,
+                'descricao'     => ($r['did_descricao'] ?? '') ?: "Ramal {$r['numero']}",
+                'destino_tipo'  => 'ramal',
+                'destino_valor' => $r['numero'],
+                'gravar'        => in_array($r['gravar'] ?? 'nao', ['ambas', 'entrada'], true) ? 1 : 0,
+                'cid_entrada'   => $r['cid_entrada'] ?? null,
+                'ordem'         => 500,
+            ];
+        }
+
         // A rota coringa atende qualquer DID, então precisa ser a última:
         // o Asterisk escolhe o padrão mais específico, mas a leitura do
         // arquivo fica muito mais clara com ela no fim.
@@ -942,6 +964,14 @@ final class GeradorDialplan
               ->same('Set(__TELIUM_DESTINO=${EXTEN})')
               ->same('Set(CDR(tronco)=${TELIUM_TRONCO})')
               ->same('GoSub(sub-listanegra,s,1)');
+
+            // Rótulo na frente de quem ligou, para o atendente saber por
+            // qual número a chamada entrou antes de tirar o fone do gancho.
+            $rotulo = trim((string) ($r['cid_entrada'] ?? ''));
+            if ($rotulo !== '') {
+                $b->same('Set(CALLERID(name)=' . $this->semParenteses($rotulo)
+                       . ' ${CALLERID(name)})');
+            }
 
             if ((int) $r['gravar'] === 1) {
                 $b->same('Answer()')
@@ -976,6 +1006,17 @@ final class GeradorDialplan
     private function identificador(string $nome): string
     {
         return preg_replace('/[^A-Za-z0-9_-]/', '-', $nome) ?? $nome;
+    }
+
+    /**
+     * Texto que entra dentro de uma aplicação do dialplan.
+     *
+     * Parêntese fecha a aplicação antes da hora e vírgula vira outro
+     * argumento: os dois quebram a linha de formas difíceis de ver.
+     */
+    private function semParenteses(string $texto): string
+    {
+        return trim((string) preg_replace('/[(),|\[\]]/', ' ', $texto));
     }
 
     /**

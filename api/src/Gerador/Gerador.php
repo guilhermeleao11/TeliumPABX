@@ -108,17 +108,6 @@ final class Gerador
             );
         }
 
-        // Uma conferência só, no primeiro arquivo: dono e modo são
-        // iguais para todos, e o erro que ela pega é mudo demais para
-        // ficar sem aviso.
-        $primeiro = array_key_first($resultado);
-        if ($primeiro !== null) {
-            $problema = $this->conferirLeitura("{$this->destino}/{$primeiro}");
-            if ($problema !== null) {
-                throw new \RuntimeException($problema);
-            }
-        }
-
         return $resultado;
     }
 
@@ -130,8 +119,16 @@ final class Gerador
      * consigo atravessar o diretório pai". Separar os dois casos evita
      * caçar um diretório que está lá o tempo todo.
      */
-    /** Grupo que o Asterisk usa para ler o que a API gera. */
-    private const GRUPO_ASTERISK = 'asterisk';
+    /**
+     * Grupo que o Asterisk usa para ler o que a API gera.
+     *
+     * Configurável porque nem toda instalação usa "asterisk": quem roda
+     * o Asterisk como root, ou com outro grupo, precisa dizer qual.
+     */
+    private function grupoAsterisk(): string
+    {
+        return trim((string) Ambiente::get('ASTERISK_GRUPO', 'asterisk')) ?: 'asterisk';
+    }
 
     private function conferirDestino(): void
     {
@@ -211,7 +208,7 @@ final class Gerador
         // fica ilegível para o Asterisk e a central segue com a
         // configuração antiga sem dizer nada.
         @chmod($tmp, 0640);
-        @chgrp($tmp, self::GRUPO_ASTERISK);
+        @chgrp($tmp, $this->grupoAsterisk());
 
         if (!rename($tmp, $caminho)) {
             @unlink($tmp);
@@ -228,6 +225,25 @@ final class Gerador
      *
      * @return string|null o problema, ou null quando está tudo certo
      */
+    /**
+     * O Asterisk consegue ler o que foi gerado?
+     *
+     * Confere todos: basta um arquivo com o grupo errado para a parte
+     * dele da configuração parar de valer, e não dá para adivinhar qual
+     * seria. São dois dígitos de stat por arquivo.
+     */
+    public function problemaDePermissao(): ?string
+    {
+        foreach (glob("{$this->destino}/*.conf") ?: [] as $arquivo) {
+            $problema = $this->conferirLeitura($arquivo);
+            if ($problema !== null) {
+                return $problema;
+            }
+        }
+
+        return null;
+    }
+
     private function conferirLeitura(string $caminho): ?string
     {
         if (!is_file($caminho)) {
@@ -242,7 +258,7 @@ final class Gerador
         $grupoLe = (fileperms($caminho) & 0040) !== 0;
         $outrosLeem = (fileperms($caminho) & 0004) !== 0;
 
-        if ($outrosLeem || ($grupoLe && $grupo === self::GRUPO_ASTERISK)) {
+        if ($outrosLeem || ($grupoLe && $grupo === $this->grupoAsterisk())) {
             return null;
         }
 
@@ -255,7 +271,7 @@ final class Gerador
             $dono,
             $grupo,
             $this->destino,
-            self::GRUPO_ASTERISK
+            $this->grupoAsterisk()
         );
     }
 
