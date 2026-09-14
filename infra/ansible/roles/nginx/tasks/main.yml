@@ -54,23 +54,32 @@
     state: absent
   notify: recarregar nginx
 
+# O vhost vem ANTES do nginx.conf, e a ordem importa.
+#
+# A validação do nginx.conf roda "nginx -t" sobre um arquivo temporário,
+# e esse teste puxa /etc/nginx/conf.d/*.conf — ou seja, o vhost que já
+# está no disco. Com o vhost publicado depois, um vhost ruim de uma
+# execução anterior travava o playbook para sempre: a validação falhava
+# lendo o arquivo velho, e a tarefa que o substituiria nunca chegava a
+# rodar. Publicando primeiro, o arquivo novo é o que a validação lê, e
+# o provisionamento se conserta sozinho.
+#
+# O vhost não tem validação própria: sozinho ele não faz sentido, porque
+# só existe dentro do contexto http do nginx.conf. Quem o confere é a
+# validação do nginx.conf logo abaixo, e o "nginx -t" no fim.
+- name: Publicar vhost do PABX
+  ansible.builtin.template:
+    src: telium-pabx.conf.j2
+    dest: /etc/nginx/conf.d/telium-pabx.conf
+    mode: "0644"
+  notify: recarregar nginx
+
 - name: Publicar configuração principal
   ansible.builtin.template:
     src: nginx.conf.j2
     dest: /etc/nginx/nginx.conf
     mode: "0644"
     validate: "nginx -t -c %s"
-  notify: recarregar nginx
-
-# O vhost não pode ser validado sozinho: ele só faz sentido dentro do
-# contexto http do nginx.conf. Por isso a conferência vem depois, sobre
-# a configuração inteira — e falha o playbook ali, antes de o handler
-# tentar recarregar e derrubar o console.
-- name: Publicar vhost do PABX
-  ansible.builtin.template:
-    src: telium-pabx.conf.j2
-    dest: /etc/nginx/conf.d/telium-pabx.conf
-    mode: "0644"
   notify: recarregar nginx
 
 - name: Conferir a configuração do nginx por inteiro
