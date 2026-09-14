@@ -139,6 +139,32 @@
         cmd: "mariadb --protocol=socket -uroot {{ db_nome }} < /tmp/telium-sql/03-seed.sql"
       changed_when: true
 
+# Cenário de teste: ramais, fila, URA, conferência, horários e rotas
+# prontos, para exercitar os módulos sem vinte cadastros à mão antes da
+# primeira ligação. Nunca em instalação de cliente — a base nasce vazia
+# de propósito.
+- name: Carregar o cenário de teste
+  when: cenario_teste | default(false) | bool
+  block:
+    - name: Avisar sobre o cenário de teste
+      ansible.builtin.debug:
+        msg:
+          - "Carregando o CENÁRIO DE TESTE: ramais 1001 a 1004, grupo 2000,"
+          - "fila 3000, conferência 4000, URA, horário comercial e rotas."
+          - "Senha SIP dos ramais: T3st3_R4mal_@2024"
+          - "Número que já existir fica como está."
+
+    - name: Copiar o cenário de teste
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../sql/opcional/cenario-teste.sql"
+        dest: /tmp/telium-sql/cenario-teste.sql
+        mode: "0600"
+
+    - name: Executar o cenário de teste
+      ansible.builtin.shell:
+        cmd: "mariadb --protocol=socket -uroot {{ db_nome }} < /tmp/telium-sql/cenario-teste.sql"
+      changed_when: true
+
 - name: Remover scripts temporários
   ansible.builtin.file:
     path: /tmp/telium-sql
