@@ -4,11 +4,14 @@ declare(strict_types=1);
 namespace Telium\Suporte;
 
 use Telium\Dominio\Permissoes;
+use Telium\Dominio\Rede;
 use Telium\Dominio\Senha;
+use Telium\Dominio\Stun;
 use Telium\Dominio\Totp;
 use Telium\Gerador\Aplicador;
 use Telium\Gerador\Bloco;
 use Telium\Gerador\Conferencia;
+use Telium\Gerador\GeradorPjsip;
 use Telium\Http\Controllers\Diagnostico;
 
 /**
@@ -35,6 +38,8 @@ final class Testes
         $this->grupo('Geração de dialplan', $this->dialplan(...));
         $this->grupo('Credencial do TURN', $this->turn(...));
         $this->grupo('Estado do tronco na central', $this->estadoTronco(...));
+        $this->grupo('Tronco gerado', $this->troncoGerado(...));
+        $this->grupo('Endereço público e faixas locais', $this->nat(...));
 
         if ($comBanco) {
             $this->grupo('Banco e esquema', $this->banco(...));
@@ -44,12 +49,104 @@ final class Testes
 
         if (Ami::tentarComando('core show version') !== null) {
             $this->grupo('Aplicar no Asterisk', $this->aplicar(...));
+            $this->grupo('Portas dos transportes', $this->portasDoTransporte(...));
         } else {
             echo "\n  Aplicar no Asterisk\n"
                . "    \033[33m!\033[0m sem AMI — este grupo precisa do Asterisk no ar\n";
         }
 
         return ['passou' => $this->passou, 'falhou' => $this->falhou, 'erros' => $this->erros];
+    }
+
+    // ---------------------------------------------------------------
+    /**
+     * Tronco com usuário e senha em branco não pode virar auth.
+     *
+     * O Asterisk recusa o objeto ("No plain text or digest password
+     * found") e então tudo que aponta para ele aponta para o nada: o log
+     * diz "Couldn't find auth", a registration recebe 401 e para de vez.
+     * A senha sumia sozinha — salvar o tronco com o campo em branco
+     * apagava o que estava guardado.
+     */
+    private function troncoGerado(): void
+    {
+        $base = [
+            'nome' => 'Operadora', 'host' => 'sip.op.com.br', 'porta' => 5060,
+            'transporte' => 'udp', 'contexto_entrada' => 'de-tronco',
+            'codecs' => 'alaw,ulaw', 'usuario' => '112658668', 'senha' => 'segredo',
+            'registrar' => 1, 'from_user' => '', 'from_domain' => '', 'cid_saida' => '',
+        ];
+
+        $gerar = static function (array $mudancas) use ($base): string {
+            $b = new Bloco();
+            (new GeradorPjsip())->tronco($b, [...$base, ...$mudancas]);
+            return $b->texto();
+        };
+
+        $comSenha = $gerar([]);
+        $this->ok(str_contains($comSenha, 'type = auth'), 'tronco com senha gera o auth');
+        $this->ok(str_contains($comSenha, 'outbound_auth = Operadora'), 'o endpoint aponta para o auth');
+        $this->ok(str_contains($comSenha, 'type = registration'), 'tronco com senha gera a registration');
+        $this->ok(
+            str_contains($comSenha, 'contact_user = 112658668'),
+            'o Contact do registro sai com a conta, não com "s"'
+        );
+
+        $semSenha = $gerar(['senha' => '']);
+        $this->ok(!str_contains($semSenha, 'type = auth'), 'sem senha não gera auth');
+        $this->ok(
+            !str_contains($semSenha, 'outbound_auth ='),
+            'sem senha o endpoint não aponta para um auth que não existe'
+        );
+        $this->ok(
+            !str_contains($semSenha, 'type = registration'),
+            'sem senha não gera registration que morreria no primeiro 401'
+        );
+
+        $semUsuario = $gerar(['usuario' => '', 'senha' => '']);
+        $this->ok(!str_contains($semUsuario, 'type = auth'), 'tronco por IP não gera auth');
+        $this->ok(str_contains($semUsuario, 'type = identify'), 'tronco por IP ainda é identificado pelo host');
+    }
+
+    /**
+     * Central atrás de NAT.
+     *
+     * Sem endereço público o REGISTER sai anunciando o IP interno e a
+     * operadora responde para um endereço que não existe na internet.
+     * Sem faixa local, o contrário: a central passa a anunciar o
+     * endereço de fora até para o telefone da mesa ao lado.
+     */
+    private function nat(): void
+    {
+        $this->ok(
+            Rede::faixas("10.0.0.0/8, 192.168.0.0/16\n172.16.0.0/12")
+                === ['10.0.0.0/8', '192.168.0.0/16', '172.16.0.0/12'],
+            'a lista de faixas aceita vírgula e quebra de linha'
+        );
+        $this->ok(Rede::faixas('   ') === [], 'lista em branco não vira faixa vazia');
+
+        $this->ok(Rede::faixaValida('192.168.0.0/16'), 'aceita CIDR');
+        $this->ok(Rede::faixaValida('192.168.0.0/255.255.0.0'), 'aceita máscara por extenso');
+        $this->ok(Rede::faixaValida('10.0.0.1'), 'aceita endereço solto');
+        $this->ok(!Rede::faixaValida('192.168.0.0/99'), 'recusa máscara impossível');
+        $this->ok(!Rede::faixaValida('rede-interna'), 'recusa o que não é endereço');
+
+        // Resposta STUN montada à mão: cabeçalho, cookie, transação e o
+        // XOR-MAPPED-ADDRESS de 203.0.113.9:54321.
+        $transacao = str_repeat("\x01", 12);
+        $ip = inet_pton('203.0.113.9') ^ pack('N', 0x2112A442);
+        $atributo = pack('nn', 0x0020, 8) . "\x00\x01" . pack('n', 54321 ^ 0x2112) . $ip;
+        $pacote = pack('nnN', 0x0101, strlen($atributo), 0x2112A442) . $transacao . $atributo;
+
+        $this->ok(
+            Stun::lerResposta($pacote, $transacao) === '203.0.113.9',
+            'lê o endereço público da resposta do STUN'
+        );
+        $this->ok(
+            Stun::lerResposta($pacote, str_repeat("\x02", 12)) === null,
+            'resposta de outra pergunta não é aceita'
+        );
+        $this->ok(Stun::lerResposta('curto', $transacao) === null, 'pacote truncado não derruba nada');
     }
 
     // ---------------------------------------------------------------
@@ -354,6 +451,47 @@ final class Testes
      * O envelope do protocolo e o "Output:" de cada linha não ajudam
      * quem está lendo o resultado de um teste às duas da manhã.
      */
+    /**
+     * As portas que a API gera são as que o Asterisk realmente escuta?
+     *
+     * O bind dos transportes passou a sair da API, a partir do .env que
+     * o instalador escreve. Se os dois discordarem, nada quebra na hora
+     * — o Asterisk avisa que transporte não é totalmente recarregável e
+     * mantém a porta antiga —, e a central sobe na porta errada só no
+     * próximo reinício, longe da mudança que causou.
+     */
+    private function portasDoTransporte(): void
+    {
+        // A resposta vem com o envelope do AMI, com "Output: " na
+        // frente de cada linha — sem tirá-lo, a âncora de início de
+        // linha nunca casa.
+        $saida = Diagnostico::semEnvelope((string) (Ami::tentarComando('pjsip show transports') ?? ''));
+        $esperado = [
+            'transport-udp' => Rede::portaSip(),
+            'transport-tls' => Rede::portaSipTls(),
+            'transport-wss' => Rede::portaWs(),
+        ];
+
+        foreach ($esperado as $nome => $porta) {
+            $achado = [];
+            $tem = preg_match(
+                '/^Transport:\s+' . preg_quote($nome, '/') . '\s+\S+\s+\d+\s+\d+\s+\S+:(\d+)/mi',
+                $saida,
+                $achado
+            ) === 1;
+
+            $this->ok(
+                $tem && (int) $achado[1] === $porta,
+                sprintf(
+                    '%s escuta na porta que a API gera (%d)%s',
+                    $nome,
+                    $porta,
+                    $tem ? '' : ' — transporte não encontrado na central'
+                )
+            );
+        }
+    }
+
     private function resumo(string $bruto): string
     {
         $linhas = [];

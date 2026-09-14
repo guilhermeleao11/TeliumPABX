@@ -5,6 +5,8 @@ namespace Telium\Http\Controllers;
 
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use Telium\Dominio\Rede;
+use Telium\Dominio\Stun;
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Ami;
 use Telium\Suporte\Bd;
@@ -23,6 +25,11 @@ final class Diagnostico
     public function rede(Request $req, Response $res): Response
     {
         return Resposta::json($res, [
+            'nat' => [
+                'ip_publico'    => Rede::ipPublico(),
+                'redes_locais'  => implode(', ', Rede::redesLocais()),
+                'tem_stun'      => Rede::servidoresStun() !== [],
+            ],
             'transportes' => $this->tabela('pjsip show transports', [
                 'id' => 1, 'tipo' => 2, 'endereco' => 5,
             ], '/^Transport:\s+(\S+)\s+(\S+)\s+(\d+)\s+(\d+)\s+(\S+)/'),
@@ -222,7 +229,11 @@ final class Diagnostico
      */
     public function troncos(Request $req, Response $res): Response
     {
-        $cadastrados = Bd::todos('SELECT nome, host, porta, registrar, ativo, tipo FROM troncos ORDER BY nome');
+        $cadastrados = Bd::todos(
+            "SELECT nome, host, porta, registrar, ativo, tipo,
+                    usuario <> '' AS tem_usuario, senha <> '' AS tem_senha
+               FROM troncos ORDER BY nome"
+        );
 
         $endpoints = (string) (Ami::tentarComando('pjsip show endpoints') ?? '');
         $registros = (string) (Ami::tentarComando('pjsip show registrations') ?? '');
@@ -253,6 +264,7 @@ final class Diagnostico
                 && $t['tipo'] === 'pjsip'
                 && (int) $t['ativo'] === 1
                 && $t['publicado']
+                && ((int) $t['tem_usuario'] !== 1 || (int) $t['tem_senha'] === 1)
                 && ((int) $t['registrar'] !== 1 || $t['registrado'])
                 && in_array($t['estado_contato'], ['Avail', 'NonQual'], true);
 
@@ -264,6 +276,13 @@ final class Diagnostico
                 $t['tipo'] !== 'pjsip'  => "tipo \"{$t['tipo']}\" não é publicado por esta central",
                 (int) $t['ativo'] !== 1 => 'desativado no cadastro',
                 !$t['publicado']       => 'não publicado — aplique as configurações',
+                // Sem senha o Asterisk recusa o auth e o registro nunca
+                // sai. Acontecia sozinho: até esta versão, salvar o
+                // tronco com o campo de senha em branco apagava a senha.
+                (int) $t['tem_usuario'] === 1 && (int) $t['tem_senha'] !== 1
+                    => 'usuário de autenticação sem senha — informe a senha da operadora',
+                (int) $t['registrar'] === 1 && (int) $t['tem_usuario'] !== 1
+                    => 'marcado para registrar, mas sem usuário e senha da operadora',
                 (int) $t['registrar'] === 1 && !$t['registrado'] => match ($t['estado_registro']) {
                     ''             => 'publicado, registro ainda não tentado',
                     'Rejected'     => 'operadora recusou o registro — confira usuário e senha',
@@ -288,6 +307,79 @@ final class Diagnostico
             'central'   => $central,
             'troncos'   => $cadastrados,
             'registros' => $this->blocoCli('pjsip show registrations'),
+        ]);
+    }
+
+    /**
+     * PUT /api/diagnostico/rede — endereço público e faixas locais.
+     *
+     * Só grava e marca configuração pendente. Aplicar é o mesmo botão de
+     * sempre, porque o que muda aqui é um arquivo gerado como outro
+     * qualquer — external_signaling_address e local_net recarregam sem
+     * reiniciar o Asterisk.
+     */
+    public function salvarRede(Request $req, Response $res): Response
+    {
+        $corpo = (array) $req->getParsedBody();
+        $ip = trim((string) ($corpo['ip_publico'] ?? ''));
+        $locais = trim((string) ($corpo['redes_locais'] ?? ''));
+
+        if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
+            return Resposta::erro(
+                $res,
+                'O endereço público precisa ser um IP — o Asterisk não resolve nome aqui.',
+                422,
+                ['campo' => 'ip_publico']
+            );
+        }
+
+        foreach (Rede::faixas($locais) as $faixa) {
+            if (!Rede::faixaValida($faixa)) {
+                return Resposta::erro(
+                    $res,
+                    "\"{$faixa}\" não é uma faixa de rede válida. Use algo como 192.168.0.0/16.",
+                    422,
+                    ['campo' => 'redes_locais']
+                );
+            }
+        }
+
+        Rede::guardar($ip, implode(',', Rede::faixas($locais)));
+        Bd::executar(
+            "INSERT INTO sistema (chave, valor) VALUES ('config_pendente','1')
+             ON DUPLICATE KEY UPDATE valor = '1'"
+        );
+
+        return Resposta::json($res, [
+            'ip_publico'   => Rede::ipPublico(),
+            'redes_locais' => implode(', ', Rede::redesLocais()),
+        ]);
+    }
+
+    /**
+     * GET /api/diagnostico/rede/descobrir — pergunta o IP público a um STUN.
+     *
+     * Ninguém sabe de cor o IP de saída do próprio link, e errar esse
+     * campo é pior do que deixá-lo vazio. Quem responde é o mesmo
+     * servidor STUN que o softphone do navegador já usa.
+     */
+    public function descobrirIp(Request $req, Response $res): Response
+    {
+        $servidores = Rede::servidoresStun();
+        if ($servidores === []) {
+            return Resposta::json($res, [
+                'ip' => null,
+                'motivo' => 'Nenhum servidor STUN configurado nesta instalação.',
+            ]);
+        }
+
+        $ip = Stun::primeiroQueResponder($servidores);
+
+        return Resposta::json($res, [
+            'ip' => $ip,
+            'motivo' => $ip === null
+                ? 'Nenhum servidor STUN respondeu. Confira se a saída UDP está liberada.'
+                : null,
         ]);
     }
 

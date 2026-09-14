@@ -161,6 +161,14 @@ final class Recurso
             return Resposta::erro($res, 'Nenhum campo válido enviado', 422);
         }
 
+        // Editar só o campo secreto e deixá-lo em branco é pedir para
+        // não mudar nada: responder o registro como está é a resposta
+        // certa, não um erro de "nenhum campo válido".
+        $dados = $this->semSegredoEmBranco($dados);
+        if ($dados === []) {
+            return Resposta::json($res, $this->limpar($atual));
+        }
+
         $problema = $this->validar($dados, false);
         if ($problema !== null) {
             return Resposta::erro($res, $problema['mensagem'], 422, ['campo' => $problema['campo']]);
@@ -333,6 +341,45 @@ final class Recurso
         }
 
         return $this->meta;
+    }
+
+    /**
+     * Campo secreto enviado em branco numa edição: manter o que está lá.
+     *
+     * A leitura nunca devolve esses campos — é o que ocultas faz —, então
+     * o formulário reabre com eles vazios e qualquer edição de outro
+     * campo mandava "" junto, apagando o segredo. A senha do tronco
+     * sumia assim: o Asterisk recusava o auth sem senha, a registration
+     * apontava para um auth inexistente, e o log dizia "Couldn't find
+     * auth", sem nenhuma relação aparente com a edição feita.
+     *
+     * Em branco só pode significar "não mexi nisso", porque quem edita
+     * não tinha como ver o valor para redigitá-lo.
+     *
+     * @param  array<string,mixed> $dados
+     * @return array<string,mixed>
+     */
+    private function semSegredoEmBranco(array $dados): array
+    {
+        foreach ($this->ocultas as $coluna) {
+            if (!array_key_exists($coluna, $dados)) {
+                continue;
+            }
+
+            // null é a caixa "remover o que está gravado" marcada no
+            // formulário: é o único jeito de tirar um PIN, já que em
+            // branco passou a significar "não mexi nisso".
+            if ($dados[$coluna] === null) {
+                $dados[$coluna] = '';
+                continue;
+            }
+
+            if ((string) $dados[$coluna] === '') {
+                unset($dados[$coluna]);
+            }
+        }
+
+        return $dados;
     }
 
     /** Remove colunas sensíveis da resposta. */

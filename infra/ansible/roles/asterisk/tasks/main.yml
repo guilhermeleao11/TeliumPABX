@@ -299,6 +299,21 @@
 # Publicando os marcadores primeiro, o #include sempre encontra alguma
 # coisa, mesmo que seja um arquivo com uma linha de comentário.
 
+# Os transportes saíram do pjsip.conf estático e viraram arquivo
+# gerado, porque mudar o IP público passou a ser tarefa do console. O
+# ponto de partida tem de existir antes do pjsip.conf que o inclui: sem
+# nenhum transporte o Asterisk sobe e não atende ninguém, nem SIP nem
+# WebRTC, e o motivo fica escondido numa linha de #include.
+- name: Criar ponto de partida dos transportes (a API sobrescreve)
+  ansible.builtin.template:
+    src: pjsip.transports.conf.j2
+    dest: "{{ asterisk_gerado_dir }}/pjsip.transports.conf"
+    owner: "{{ telium_user }}"
+    group: asterisk
+    mode: "0640"
+    force: false          # nunca sobrescreve o que a API já gerou
+  notify: recarregar asterisk
+
 - name: Criar placeholders dos arquivos gerados (a API sobrescreve)
   ansible.builtin.copy:
     dest: "{{ asterisk_gerado_dir }}/{{ item.arquivo }}"

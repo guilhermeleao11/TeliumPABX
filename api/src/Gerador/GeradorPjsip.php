@@ -333,75 +333,104 @@ final class GeradorPjsip
         $troncos = Bd::todos("SELECT * FROM troncos WHERE ativo = 1 AND tipo = 'pjsip' ORDER BY nome");
 
         foreach ($troncos as $t) {
-            $nome   = $this->identificador((string) $t['nome']);
-            $codecs = implode(',', array_map('trim', explode(',', (string) $t['codecs'])));
-
-            $b->comentario(str_repeat('-', 62))
-              ->comentario("Tronco {$t['nome']} — {$t['host']}:{$t['porta']}")
-              ->comentario(str_repeat('-', 62))
-              ->crua("[{$nome}]")
-              ->crua('type = endpoint')
-              ->crua("transport = transport-{$t['transporte']}")
-              ->crua("context = {$t['contexto_entrada']}")
-              ->crua('disallow = all')
-              ->crua("allow = {$codecs}")
-              ->crua("aors = {$nome}")
-              ->crua('direct_media = no')
-              ->crua('rtp_symmetric = yes')
-              ->crua('force_rport = yes')
-              ->crua('rewrite_contact = yes')
-              ->crua("set_var = TELIUM_TRONCO={$t['nome']}");
-
-            if ($t['from_user']) {
-                $b->crua("from_user = {$t['from_user']}");
-            }
-            if ($t['from_domain']) {
-                $b->crua("from_domain = {$t['from_domain']}");
-            }
-            if ($t['usuario']) {
-                $b->crua("outbound_auth = {$nome}");
-            }
-            if ($t['cid_saida']) {
-                $b->crua(sprintf('callerid = <%s>', $t['cid_saida']));
-            }
-
-            $b->branco()
-              ->crua("[{$nome}]")
-              ->crua('type = aor')
-              ->crua("contact = sip:{$t['host']}:{$t['porta']}")
-              ->crua('qualify_frequency = 60')
-              ->branco();
-
-            if ($t['usuario']) {
-                $b->crua("[{$nome}]")
-                  ->crua('type = auth')
-                  ->crua('auth_type = userpass')
-                  ->crua("username = {$t['usuario']}")
-                  ->crua("password = {$t['senha']}")
-                  ->branco();
-            }
-
-            $b->crua("[{$nome}-identify]")
-              ->crua('type = identify')
-              ->crua("endpoint = {$nome}")
-              ->crua("match = {$t['host']}")
-              ->branco();
-
-            if ((int) $t['registrar'] === 1 && $t['usuario']) {
-                $b->crua("[{$nome}-reg]")
-                  ->crua('type = registration')
-                  ->crua("transport = transport-{$t['transporte']}")
-                  ->crua("outbound_auth = {$nome}")
-                  ->crua("server_uri = sip:{$t['host']}:{$t['porta']}")
-                  ->crua("client_uri = sip:{$t['usuario']}@{$t['host']}")
-                  ->crua('retry_interval = 60')
-                  ->crua('forbidden_retry_interval = 600')
-                  ->crua('expiration = 3600')
-                  ->branco();
-            }
+            $this->tronco($b, $t);
         }
 
         return $b->texto();
+    }
+
+    /**
+     * Um tronco: endpoint, aor, auth, identify e registration.
+     *
+     * Recebe a linha em vez de ler do banco para caber num teste — o que
+     * sai daqui com a senha em branco já derrubou tronco em produção.
+     *
+     * @param array<string,mixed> $t
+     */
+    public function tronco(Bloco $b, array $t): void
+    {
+        $nome   = $this->identificador((string) $t['nome']);
+        $codecs = implode(',', array_map('trim', explode(',', (string) $t['codecs'])));
+
+        // Usuário sem senha não vira auth: o Asterisk recusa o objeto
+        // ("No plain text or digest password found") e tudo que
+        // apontar para ele passa a apontar para o nada. O endpoint
+        // ficava com outbound_auth de um auth inexistente e a
+        // registration morria de vez no primeiro 401 — "Fatal
+        // response '401' ... stopping outbound registration" —, um
+        // estrago silencioso muito longe da causa. Sem senha, sai um
+        // tronco sem autenticação e um comentário dizendo o que
+        // falta; a tela de troncos avisa o resto.
+        $autentica = (string) $t['usuario'] !== '' && (string) $t['senha'] !== '';
+
+        $b->comentario(str_repeat('-', 62))
+          ->comentario("Tronco {$t['nome']} — {$t['host']}:{$t['porta']}")
+          ->comentario(str_repeat('-', 62))
+          ->crua("[{$nome}]")
+          ->crua('type = endpoint')
+          ->crua("transport = transport-{$t['transporte']}")
+          ->crua("context = {$t['contexto_entrada']}")
+          ->crua('disallow = all')
+          ->crua("allow = {$codecs}")
+          ->crua("aors = {$nome}")
+          ->crua('direct_media = no')
+          ->crua('rtp_symmetric = yes')
+          ->crua('force_rport = yes')
+          ->crua('rewrite_contact = yes')
+          ->crua("set_var = TELIUM_TRONCO={$t['nome']}");
+
+        if ($t['from_user']) {
+            $b->crua("from_user = {$t['from_user']}");
+        }
+        if ($t['from_domain']) {
+            $b->crua("from_domain = {$t['from_domain']}");
+        }
+        if ($autentica) {
+            $b->crua("outbound_auth = {$nome}");
+        } elseif ((string) $t['usuario'] !== '') {
+            $b->comentario('sem outbound_auth: usuário informado e senha em branco');
+        }
+        if ($t['cid_saida']) {
+            $b->crua(sprintf('callerid = <%s>', $t['cid_saida']));
+        }
+
+        $b->branco()
+          ->crua("[{$nome}]")
+          ->crua('type = aor')
+          ->crua("contact = sip:{$t['host']}:{$t['porta']}")
+          ->crua('qualify_frequency = 60')
+          ->branco();
+
+        if ($autentica) {
+            $b->crua("[{$nome}]")
+              ->crua('type = auth')
+              ->crua('auth_type = userpass')
+              ->crua("username = {$t['usuario']}")
+              ->crua("password = {$t['senha']}")
+              ->branco();
+        }
+
+        $b->crua("[{$nome}-identify]")
+          ->crua('type = identify')
+          ->crua("endpoint = {$nome}")
+          ->crua("match = {$t['host']}")
+          ->branco();
+
+        if ((int) $t['registrar'] === 1 && $autentica) {
+            $b->crua("[{$nome}-reg]")
+              ->crua('type = registration')
+              ->crua("transport = transport-{$t['transporte']}")
+              ->crua("outbound_auth = {$nome}")
+              ->crua("server_uri = sip:{$t['host']}:{$t['porta']}")
+              ->crua("client_uri = sip:{$t['usuario']}@{$t['host']}")
+              // Sem isto o Contact sai como "sip:s@…", e operadora
+              // que casa o Contact com a conta recusa o registro.
+              ->crua("contact_user = {$t['usuario']}")
+              ->crua('retry_interval = 60')
+              ->crua('forbidden_retry_interval = 600')
+              ->crua('expiration = 3600')
+              ->branco();
+        }
     }
 
     /** Lista de classes de discagem liberadas para o ramal. */

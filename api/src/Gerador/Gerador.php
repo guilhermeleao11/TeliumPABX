@@ -31,6 +31,7 @@ final class Gerador
     private function arquivos(): array
     {
         return [
+            ...(new GeradorTransportes())->gerar(),
             ...(new GeradorPjsip())->gerar(),
             ...(new GeradorDialplan())->gerar(),
             ...(new GeradorRecursos())->gerar(),

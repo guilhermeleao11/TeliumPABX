@@ -589,6 +589,9 @@ function paginaCrud(cfg) {
               if (!el) return;
               let v = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
               if (v === '' && c.tipo === 'number') v = null;
+              // Segredo em branco o servidor mantém; marcar "remover" é
+              // o único jeito de apagá-lo, e vai como null de propósito.
+              if (c.limpavel && dw.querySelector(`[data-limpar="${c.campo}"]`)?.checked) v = null;
               dados[c.campo] = v;
             });
 
@@ -804,10 +807,21 @@ function campoHtml(c, item) {
     </div>`;
   }
 
+  // Campo secreto: a leitura nunca devolve o valor, então ele reabre
+  // vazio e vazio quer dizer "não mexi nisso". Quem quiser tirar o
+  // segredo precisa de um jeito de dizer isso — sem esta caixa, um PIN
+  // posto uma vez não sairia nunca mais.
+  const limpar = c.limpavel && item.id
+    ? `<label class="check small" style="margin-top:6px">
+         <input type="checkbox" data-limpar="${c.campo}"> Remover o que está gravado
+       </label>`
+    : '';
+
   return `<div class="field${largura}" data-campo="${c.campo}">
     <label class="label">${esc(c.label)}${c.obrigatorio ? ' *' : ''}</label>
     <input class="input${c.mono ? ' mono' : ''}" type="${c.tipo || 'text'}" name="${c.campo}"
            value="${esc(v)}" placeholder="${esc(c.placeholder || '')}" ${desabilitado}>
+    ${limpar}
     ${c.ajuda ? `<span class="hint">${esc(c.ajuda)}</span>` : ''}
   </div>`;
 }
@@ -903,7 +917,7 @@ PAGES['conn.ramais'] = paginaCrud({
       largura: 'full',
       placeholder: r.id ? 'deixe em branco para manter' : 'mínimo 12 caracteres',
       ajuda: 'É ela que protege o ramal contra fraude de tarifação. Use o botão para gerar uma longa.' },
-    { campo: 'pin', label: 'PIN do usuário', mono: true, tipo: 'password',
+    { campo: 'pin', label: 'PIN do usuário', mono: true, tipo: 'password', limpavel: true,
       padraoValido: /^[0-9]{0,10}$/, mensagemPadrao: 'só dígitos',
       ajuda: 'Usado onde a central pede confirmação, como nas rotas com senha. '
            + 'Ao editar, em branco mantém o atual.' },

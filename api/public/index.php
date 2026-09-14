@@ -644,6 +644,9 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('admin.permissoes', 'permissoes'));
     // ---- diagnóstico: só leitura, do estado real do Asterisk ----
     $g->get('/diagnostico/rede', [Diagnostico::class, 'rede'])->add(new Permissao('conn.rede'));
+    $g->put('/diagnostico/rede', [Diagnostico::class, 'salvarRede'])->add(new Permissao('conn.rede'));
+    $g->get('/diagnostico/rede/descobrir', [Diagnostico::class, 'descobrirIp'])
+      ->add(new Permissao('conn.rede'));
     $g->get('/diagnostico/webrtc', [Diagnostico::class, 'webrtc'])->add(new Permissao('conn.webrtc'));
     $g->get('/diagnostico/seguranca', [Diagnostico::class, 'seguranca'])
       ->add(new Permissao('conn.firewall'));

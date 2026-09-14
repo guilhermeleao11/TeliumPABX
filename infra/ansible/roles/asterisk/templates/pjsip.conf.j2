@@ -1,5 +1,5 @@
 ; {{ ansible_managed }}
-; Transportes e globais ficam aqui (estático).
+; Globais ficam aqui (estático); transportes vêm do console.
 ; Endpoints e troncos são gerados pela API em {{ asterisk_gerado_dir }}.
 
 [global]
@@ -13,74 +13,16 @@ type = system
 timer_t1 = 500
 timer_b  = 32000
 
-[transport-udp]
-type      = transport
-protocol  = udp
-bind      = 0.0.0.0:{{ sip_porta }}
-{% for rede in redes_locais %}
-local_net = {{ rede }}
-{% endfor %}
-{% if nat_ip_publico %}
-external_media_address     = {{ nat_ip_publico }}
-external_signaling_address = {{ nat_ip_publico }}
-{% endif %}
-
-[transport-tcp]
-type     = transport
-protocol = tcp
-bind     = 0.0.0.0:{{ sip_porta }}
-{% for rede in redes_locais %}
-local_net = {{ rede }}
-{% endfor %}
-{% if nat_ip_publico %}
-external_media_address     = {{ nat_ip_publico }}
-external_signaling_address = {{ nat_ip_publico }}
-{% endif %}
-
-; SIP TLS na 5061. O par vem do módulo de certificados do console;
-; até alguém enviar um, é o autoassinado de fábrica — o suficiente para
-; cifrar a sinalização, mas o telefone vai pedir para confiar nele.
-[transport-tls]
-type          = transport
-protocol      = tls
-bind          = 0.0.0.0:{{ sip_tls_porta }}
-cert_file     = {{ cert_asterisk_dir }}/asterisk.crt
-priv_key_file = {{ cert_asterisk_dir }}/asterisk.key
-method        = tlsv1_2
-{% for rede in redes_locais %}
-local_net = {{ rede }}
-{% endfor %}
-{% if nat_ip_publico %}
-external_media_address     = {{ nat_ip_publico }}
-external_signaling_address = {{ nat_ip_publico }}
-{% endif %}
-
 ; ------------------------------------------------------------------
-; WebRTC: o navegador fala direto com o Asterisk.
+; Transportes: por onde o Asterisk fala SIP.
 ;
-; Fica preso em 127.0.0.1 porque quem atende o navegador é o nginx, que
-; já termina TLS com o certificado do console e repassa em /ws. Assim o
-; softphone usa o mesmo endereço e o mesmo certificado do resto do
-; sistema, e não há uma segunda porta TLS para manter.
-;
-; O ramal marcado como WebRTC no console sai com este transporte, e o
-; gerador liga junto o que o navegador exige: AVPF, ICE, rtcp-mux e
-; DTLS — faltando qualquer um, a chamada conecta e fica muda.
+; Ficavam aqui, escritos pelo instalador. Quem instalasse atrás de NAT e
+; descobrisse depois — olhando um REGISTER sair com IP interno — só
+; tinha o caminho de editar variável do Ansible e rodar o playbook de
+; novo. Agora o endereço público e as faixas locais vêm do console
+; (Conexões > Rede), e o arquivo abaixo é gerado como qualquer outro.
 ; ------------------------------------------------------------------
-[transport-wss]
-type     = transport
-protocol = wss
-bind     = 127.0.0.1:{{ ast_http_porta }}
-{% for rede in redes_locais %}
-local_net = {{ rede }}
-{% endfor %}
-{% if nat_ip_publico %}
-; A sinalização chega pelo nginx, mas a mídia sai daqui direto para o
-; navegador: sem o endereço público no SDP, o áudio some quando o
-; servidor está atrás de NAT.
-external_media_address     = {{ nat_ip_publico }}
-external_signaling_address = {{ nat_ip_publico }}
-{% endif %}
+#include "telium/pjsip.transports.conf"
 
 #include "telium/pjsip.acl.conf"
 #include "telium/pjsip.trunks.conf"

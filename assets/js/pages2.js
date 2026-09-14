@@ -3646,11 +3646,13 @@ PAGES['apps.conferencias'] = {
         { aba: 'Sala', campo: 'ativo', label: 'Sala ativa', tipo: 'switch', padrao: 1 },
 
         { aba: 'Entrada', campo: 'pin', label: 'PIN para entrar', mono: true, tipo: 'password',
+          limpavel: true,
           padraoValido: /^[0-9]{0,16}$/, mensagemPadrao: 'só dígitos',
           ajuda: 'Sem PIN, qualquer um que disque o número entra na reunião. '
                + 'Ao editar, em branco mantém o atual.' },
         { aba: 'Entrada', campo: 'pin_admin', label: 'PIN de administrador', mono: true,
-          tipo: 'password', padraoValido: /^[0-9]{0,16}$/, mensagemPadrao: 'só dígitos',
+          tipo: 'password', limpavel: true,
+          padraoValido: /^[0-9]{0,16}$/, mensagemPadrao: 'só dígitos',
           ajuda: 'Quem entra com este PIN pode trancar a sala (tecla 2) e tirar o último que '
                + 'entrou (tecla 3). Ao editar, em branco mantém o atual.' },
         { aba: 'Entrada', campo: 'anuncio_entrada_id', label: 'Mensagem de anúncio de entrada',
@@ -4969,7 +4971,7 @@ PAGES['conn.did'] = {
 
 /* ------------------------- Conectividade · Rede ------------------------- */
 PAGES['conn.rede'] = {
-  async render() {
+  async render(ctx) {
     let d;
     try { d = await Api.get('/diagnostico/rede'); }
     catch (e) { return pageHead('Configurações de Rede', '') + blocoErro(e); }
@@ -4980,8 +4982,48 @@ PAGES['conn.rede'] = {
       <td class="mono">${esc(t.endereco)}</td>
     </tr>`).join('');
 
+    const nat = d.nat || {};
+    const editavel = ctx.can('editar');
+
     return pageHead('Configurações de Rede',
       'Onde a central escuta e por onde a voz trafega. Lido do Asterisk, não do cadastro.') + `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head"><b>Central atrás de NAT</b></div>
+        <div style="padding:18px">
+          <p class="small muted" style="margin:0 0 14px">
+            Se a central tem um IP de rede interna e sai para a internet por outro,
+            é preciso dizer qual é o de fora. Sem isso o convite SIP anuncia o endereço
+            interno, a operadora responde para um endereço que não existe na internet,
+            e o tronco nunca registra.
+          </p>
+          <form data-form-nat>
+            <div class="grid g-2">
+              <div class="field" data-campo="ip_publico">
+                <label class="label">Endereço público</label>
+                <div class="row gap-8">
+                  <input class="input mono" name="ip_publico" placeholder="deixe vazio se o IP já é público"
+                         value="${esc(nat.ip_publico || '')}" ${editavel ? '' : 'disabled'}>
+                  ${editavel ? `<button type="button" class="btn btn-outline" data-descobrir
+                     ${nat.tem_stun ? '' : 'disabled'}
+                     data-tip="${nat.tem_stun ? 'Pergunta a um servidor STUN'
+                                              : 'Nenhum servidor STUN configurado'}">Descobrir</button>` : ''}
+                </div>
+                <span class="hint">Em rede com IP público direto, deixe em branco.</span>
+              </div>
+              <div class="field" data-campo="redes_locais">
+                <label class="label">Faixas da rede interna</label>
+                <input class="input mono" name="redes_locais" placeholder="10.0.0.0/8, 192.168.0.0/16"
+                       value="${esc(nat.redes_locais || '')}" ${editavel ? '' : 'disabled'}>
+                <span class="hint">Para quem está nestas faixas, a central usa o endereço interno.</span>
+              </div>
+            </div>
+            ${editavel ? `<div class="row gap-8" style="margin-top:14px;align-items:center">
+              <button type="button" class="btn btn-primary" data-salvar-nat>Salvar</button>
+              <span class="small muted" data-aviso-nat>Depois de salvar, aplique as configurações.</span>
+            </div>` : readOnlyNote(ctx)}
+          </form>
+        </div>
+      </div>
       <div class="grid g-2">
         <div class="card">
           <div class="card-head"><b>Transportes SIP</b></div>
@@ -4998,6 +5040,55 @@ PAGES['conn.rede'] = {
         ${blocoCli('Faixa de portas de voz (RTP)', d.rtp)}
       </div>
       <div style="margin-top:16px">${blocoCli('Servidor HTTP do Asterisk', d.http)}</div>`;
+  },
+
+  mount() {
+    const form = document.querySelector('[data-form-nat]');
+    if (!form) return;
+
+    const aviso = form.querySelector('[data-aviso-nat]');
+    const diga = (texto, classe = 'muted') => {
+      if (aviso) { aviso.className = 'small ' + classe; aviso.textContent = texto; }
+    };
+
+    form.querySelector('[data-descobrir]')?.addEventListener('click', async ev => {
+      const b = ev.currentTarget;
+      b.disabled = true; b.textContent = 'Perguntando…';
+      try {
+        const r = await Api.get('/diagnostico/rede/descobrir');
+        if (r.ip) {
+          form.querySelector('[name=ip_publico]').value = r.ip;
+          diga('Encontrado ' + r.ip + '. Confira e salve.');
+        } else {
+          diga(r.motivo || 'Não foi possível descobrir.', 'danger');
+        }
+      } catch (e) {
+        diga(e.message || 'Não foi possível descobrir.', 'danger');
+      } finally {
+        b.disabled = false; b.textContent = 'Descobrir';
+      }
+    });
+
+    form.querySelector('[data-salvar-nat]')?.addEventListener('click', async ev => {
+      const b = ev.currentTarget;
+      b.disabled = true; b.textContent = 'Salvando…';
+      form.querySelectorAll('.field').forEach(f => f.classList.remove('erro'));
+      try {
+        await Api.put('/diagnostico/rede', {
+          ip_publico: form.querySelector('[name=ip_publico]').value.trim(),
+          redes_locais: form.querySelector('[name=redes_locais]').value.trim()
+        });
+        toast('Rede salva. Aplique as configurações para valer na central.', 'ok');
+        diga('Salvo. Falta aplicar as configurações.', 'warn');
+      } catch (e) {
+        if (e.detalhe?.campo) {
+          form.querySelector(`[data-campo="${e.detalhe.campo}"]`)?.classList.add('erro');
+        }
+        toast(e.message || 'Não foi possível salvar.', 'err');
+      } finally {
+        b.disabled = false; b.textContent = 'Salvar';
+      }
+    });
   }
 };
 

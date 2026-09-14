@@ -140,6 +140,10 @@ vals = {
     'udptl_inicio': '4000', 'udptl_fim': '4999',
     'sons_pt_br': 'true',
 }
+# Os transportes viraram arquivo gerado; o template é só o ponto de
+# partida, e vai para o diretório do que a API gera — como o playbook faz.
+GERADOS = {'pjsip.transports.conf'}
+
 for origem in glob.glob(f'{raiz}/infra/ansible/roles/asterisk/templates/*.conf.j2'):
     nome = os.path.basename(origem)[:-3]
     s = open(origem).read()
@@ -152,7 +156,8 @@ for origem in glob.glob(f'{raiz}/infra/ansible/roles/asterisk/templates/*.conf.j
     # o que sobrou com "| default(x)" fica com o próprio default
     s = re.sub(r'\{\{[^}|]*\|\s*default\(([^)]*)\)\s*\}\}', r'\1', s)
     s = re.sub(r'\{\{[^}]*\}\}', '', s)
-    open(f'{trab}/ast/{nome}', 'w').write(s)
+    destino = f'{trab}/ast/telium/{nome}' if nome in GERADOS else f'{trab}/ast/{nome}'
+    open(destino, 'w').write(s)
 print('   base publicada')
 PY
 
