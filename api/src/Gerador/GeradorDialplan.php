@@ -858,7 +858,16 @@ final class GeradorDialplan
               ->same('GoSub(sub-limite-saida,s,1)');
 
             if ($r['pin_set_id']) {
-                $b->same('Authenticate(/etc/asterisk/telium/pin-' . $r['pin_set_id'] . '.txt)');
+                // A opção "a" grava o PIN digitado no accountcode, que é
+                // o que permite cobrar a ligação de um centro de custo.
+                $noCdr = (int) (Bd::valor('SELECT no_cdr FROM pin_sets WHERE id = ?',
+                                          [$r['pin_set_id']]) ?? 1);
+                $b->same(sprintf(
+                    'Authenticate(%s/pin-%d.txt%s)',
+                    $this->diretorioGerado(),
+                    (int) $r['pin_set_id'],
+                    $noCdr === 1 ? '' : ',a'
+                ));
             }
 
             // A gravação do sainte é decidida pelo ramal que discou.
@@ -1001,6 +1010,15 @@ final class GeradorDialplan
     private function ehCoringa(?string $did): bool
     {
         return in_array(trim((string) $did), ['', '*', 's', 'qualquer'], true);
+    }
+
+    /** Onde os arquivos gerados ficam — o mesmo que o Gerador usa. */
+    private function diretorioGerado(): string
+    {
+        return rtrim(
+            (string) \Telium\Suporte\Ambiente::get('ASTERISK_GERADO_DIR', '/etc/asterisk/telium'),
+            '/'
+        );
     }
 
     private function identificador(string $nome): string

@@ -166,10 +166,12 @@ PAGES['conn.rotassaida'] = paginaCrud({
 
   aoCarregar: async (pagina) => {
     pagina._troncos = (await Api.get('/troncos', { limite: 200 }).catch(() => ({ dados: [] }))).dados;
+    pagina._pins = (await Api.get('/pin-sets', { limite: 200 }).catch(() => ({ dados: [] }))).dados;
   },
 
   campos: (r, ctx, pagina) => {
     const troncos = (pagina._troncos || []).map(t => ({ valor: t.id, rotulo: t.nome }));
+    const pins = (pagina._pins || []).map(p => ({ valor: p.id, rotulo: p.nome }));
     return [
       { campo: 'nome', label: 'Nome da rota', obrigatorio: true, placeholder: 'Celular' },
       { campo: 'ordem', label: 'Ordem de precedência', tipo: 'number', padrao: 10,
@@ -185,6 +187,11 @@ PAGES['conn.rotassaida'] = paginaCrud({
         opcoes: [{ valor: '', rotulo: 'nenhum' }, ...troncos] },
       { campo: 'prefixo_remover', label: 'Prefixo a remover', mono: true, placeholder: '0' },
       { campo: 'prefixo_adicionar', label: 'Prefixo a adicionar', mono: true },
+      { campo: 'pin_set_id', label: 'Pedir PIN', tipo: 'select', largura: 'full',
+        opcoes: [{ valor: '', rotulo: 'não pedir senha nesta rota' }, ...pins],
+        ajuda: pins.length
+          ? 'A central pede a senha antes de completar a chamada. Cadastre os conjuntos em Configurações › Conjuntos de PIN.'
+          : 'Nenhum conjunto cadastrado ainda — crie um em Configurações › Conjuntos de PIN.' },
       { campo: 'ativo', label: 'Rota ativa', tipo: 'switch', padrao: 1 }
     ];
   }
@@ -4259,4 +4266,50 @@ PAGES['pcu.contatos'] = paginaAgenda({
   escopoPadrao: 'pessoal',
   titulo: 'Meus Contatos',
   sub: 'Sua agenda pessoal, mais a agenda da empresa. Clique em Ligar para discar pelo softphone.'
+});
+
+/* ------------------------- Configurações · Conjuntos de PIN ------------------------- */
+PAGES['cfg.pinsets'] = paginaCrud({
+  recurso: 'pin-sets',
+  titulo: 'Conjuntos de PIN',
+  sub: `Senhas que a central pede antes de completar uma chamada. Depois de criados,
+        aparecem nas rotas de saída — é assim que se controla quem liga para
+        interurbano e internacional sem trancar o ramal inteiro.`,
+  ico: 'lock',
+  plural: 'conjuntos',
+  rotuloNovo: 'Novo conjunto',
+  tituloNovo: 'Novo conjunto de PIN',
+  tituloEditar: p => `Conjunto ${p.nome}`,
+  tituloExcluir: p => `Excluir o conjunto ${p.nome}?`,
+  vazioTitulo: 'Nenhum conjunto de PIN',
+  vazioTexto: `Crie um conjunto, liste os PINs e escolha-o numa rota de saída. Quem discar
+               por essa rota vai ouvir o pedido de senha antes de a chamada sair.`,
+  placeholderBusca: 'Buscar por nome…',
+  textoBusca: p => p.nome,
+
+  colunas: [
+    { label: 'Nome', render: p => `<b>${esc(p.nome)}</b>` },
+    { label: 'Quantos PINs', render: p => {
+        const n = String(p.pins || '').split(/[\s,;]+/).filter(Boolean).length;
+        return `<span class="num">${n}</span>`;
+      } },
+    { label: 'No relatório', render: p => Number(p.no_cdr)
+        ? '<span class="muted">não identifica quem discou</span>'
+        : '<span class="badge badge-brand">PIN vai para o CDR</span>' }
+  ],
+
+  campos: () => [
+    { campo: 'nome', label: 'Nome do conjunto', obrigatorio: true, placeholder: 'Diretoria',
+      ajuda: 'É o nome que aparece na hora de escolher o conjunto numa rota de saída.' },
+    { campo: 'pins', label: 'PINs', tipo: 'textarea', obrigatorio: true, largura: 'full',
+      placeholder: '4721\n8890\n1234',
+      padraoValido: /^[0-9\s,;]+$/,
+      mensagemPadrao: 'Só dígitos, um PIN por linha.',
+      ajuda: 'Um por linha. Só dígitos — letra ou símbolo faz a central recusar o PIN certo.' },
+    { campo: 'no_cdr', label: 'Não identificar quem discou', tipo: 'switch', padrao: 1,
+      largura: 'full',
+      ajuda: 'Desligue para o PIN digitado ir para o relatório de chamadas. '
+           + 'É o que permite cobrar a ligação de um centro de custo — e também '
+           + 'o que torna possível saber quem ligou.' }
+  ]
 });

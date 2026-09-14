@@ -69,7 +69,18 @@ def responder(texto, origem, linha, extra='', corpo=''):
 
 registrar()
 fim = time.time() + 3600
+proximo_registro = time.time() + 120
+cseq = 3
+
 while time.time() < fim:
+    # Registro vence em 300 s. Sem renovar, o telefone some da central no
+    # meio do teste e o erro que aparece é "endpoint não registrado" —
+    # que parece defeito do sistema e é só o fone de bancada dormindo.
+    if time.time() > proximo_registro:
+        registrar(cseq=cseq)
+        cseq += 1
+        proximo_registro = time.time() + 120
+
     try:
         dados, origem = s.recvfrom(9000)
     except socket.timeout:
@@ -78,7 +89,8 @@ while time.time() < fim:
 
     if t.startswith(('SIP/2.0 401', 'SIP/2.0 407')):
         wa = cab(t, 'WWW-Authenticate') or cab(t, 'Proxy-Authenticate')
-        registrar(autorizacao(wa, 'REGISTER', f'sip:{HOST}'), 2)
+        cseq += 1
+        registrar(autorizacao(wa, 'REGISTER', f'sip:{HOST}'), cseq)
     elif t.startswith('SIP/2.0 200') and 'REGISTER' in cab(t, 'CSeq'):
         print(f'[{RAMAL}] registrado', flush=True)
     elif t.startswith('INVITE'):

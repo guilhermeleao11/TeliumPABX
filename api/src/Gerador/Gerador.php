@@ -38,6 +38,7 @@ final class Gerador
             ...(new GeradorConferencias())->gerar(),
             ...(new GeradorEstacionamento())->gerar(),
             ...(new GeradorVoicemail())->gerar(),
+            ...(new GeradorPins())->gerar(),
         ];
     }
 

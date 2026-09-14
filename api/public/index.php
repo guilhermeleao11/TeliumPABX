@@ -363,6 +363,25 @@ $recursos = [
             modulo: 'conn.provisionamento',
         ),
     ],
+    'pin-sets' => [
+        'modulo' => 'cfg.pinsets',
+        'recurso' => new Recurso(
+            tabela: 'pin_sets',
+            colunas: ['nome', 'pins', 'no_cdr'],
+            ordem: 'nome',
+            busca: ['nome'],
+            afetaAsterisk: true,
+            modulo: 'cfg.pinsets',
+            regras: [
+                'nome' => ['rotulo' => 'nome do conjunto', 'obrigatorio' => true, 'max' => 60],
+                'pins' => ['rotulo' => 'PINs', 'obrigatorio' => true,
+                           'padrao' => '/^[0-9\s,;]+$/',
+                           'mensagem' => 'Os PINs são só dígitos, um por linha. '
+                                       . 'Letra ou símbolo faz o Authenticate recusar o PIN certo.'],
+            ],
+            unicas: ['nome'],
+        ),
+    ],
     'tarifas' => [
         'modulo' => 'telium.tarifacao',
         'recurso' => new Recurso(
