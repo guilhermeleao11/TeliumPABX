@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# =========================================================
+# {{ ansible_managed }}
+# Telium PABX — publica a configuração de envio de e-mail
+#
+# Roda como root, sem argumentos. Lê a tabela smtp e escreve a
+# configuração do msmtp para os dois que mandam e-mail: o Asterisk,
+# que envia o recado do correio de voz, e a API, que manda o teste.
+#
+# São dois arquivos porque o msmtp recusa ler um arquivo com senha que
+# esteja legível para o grupo — e os dois serviços rodam com usuários
+# diferentes. Copiar é mais simples do que inventar um terceiro usuário.
+#
+# Não receber argumentos é intencional: a regra de sudo para a API fica
+# sem curinga nenhum.
+# =========================================================
+set -uo pipefail
+
+BANCO={{ db_nome }}
+mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1" 2>/dev/null; }
+
+linha=$(mysql "SELECT ativo, servidor, porta, seguranca, usuario, senha, remetente, nome_remetente
+                 FROM smtp WHERE id = 1")
+
+if [[ -z "$linha" ]]; then
+  echo "sem configuração de e-mail no banco"
+  exit 1
+fi
+
+IFS=$'\t' read -r ativo servidor porta seguranca usuario senha remetente nome <<< "$linha"
+
+gerar() {
+  echo "# Gerado pelo Telium PABX — NÃO EDITE À MÃO"
+  echo "defaults"
+  echo "logfile /var/log/telium-smtp.log"
+  case "$seguranca" in
+    tls)      echo "tls on"; echo "tls_starttls off" ;;
+    starttls) echo "tls on"; echo "tls_starttls on" ;;
+    *)        echo "tls off" ;;
+  esac
+  echo "tls_trust_file /etc/ssl/certs/ca-certificates.crt"
+  echo
+  echo "account telium"
+  echo "host $servidor"
+  echo "port $porta"
+  echo "from $remetente"
+  if [[ -n "$usuario" ]]; then
+    echo "auth on"
+    echo "user $usuario"
+    echo "password $senha"
+  else
+    echo "auth off"
+  fi
+  echo
+  echo "account default : telium"
+}
+
+if [[ "$ativo" != "1" || -z "$servidor" || -z "$remetente" ]]; then
+  # Desligado: apaga a configuração em vez de deixar uma meia-boca que
+  # falha com erro difícil de ler.
+  rm -f /var/lib/asterisk/.msmtprc {{ telium_etc }}/msmtprc
+  echo "envio de e-mail desligado"
+  exit 0
+fi
+
+umask 077
+gerar > /var/lib/asterisk/.msmtprc
+chown asterisk:asterisk /var/lib/asterisk/.msmtprc
+chmod 600 /var/lib/asterisk/.msmtprc
+
+gerar > {{ telium_etc }}/msmtprc
+chown {{ telium_user }}:{{ telium_group }} {{ telium_etc }}/msmtprc
+chmod 600 {{ telium_etc }}/msmtprc
+
+touch /var/log/telium-smtp.log
+chmod 620 /var/log/telium-smtp.log
+chown asterisk:{{ telium_group }} /var/log/telium-smtp.log
+
+echo "configuração de e-mail publicada para $servidor:$porta"

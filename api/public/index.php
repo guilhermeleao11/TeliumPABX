@@ -9,6 +9,7 @@ use Telium\Http\Controllers\Certificados;
 use Telium\Http\Controllers\Conferencias;
 use Telium\Http\Controllers\Contatos;
 use Telium\Http\Controllers\Destinos;
+use Telium\Http\Controllers\Email;
 use Telium\Http\Controllers\Filas;
 use Telium\Http\Controllers\Gravacoes;
 use Telium\Http\Controllers\Horarios;
@@ -568,6 +569,13 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('admin.permissoes', 'permissoes'));
     $g->put('/perfis/{id}/permissoes', [Cadastros::class, 'salvarPermissoes'])
       ->add(new Permissao('admin.permissoes', 'permissoes'));
+    // ---- envio de e-mail ----
+    $g->get('/email', [Email::class, 'obter'])->add(new Permissao('cfg.notificacoes'));
+    $g->put('/email', [Email::class, 'salvar'])
+      ->add(new Permissao('cfg.notificacoes', 'editar'));
+    $g->post('/email/testar', [Email::class, 'testar'])
+      ->add(new Permissao('cfg.notificacoes', 'editar'));
+
     $g->get('/empresa', [Cadastros::class, 'empresa']);
     $g->put('/empresa', [Cadastros::class, 'salvarEmpresa'])
       ->add(new Permissao('cfg.empresa', 'editar'));

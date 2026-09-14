@@ -85,6 +85,7 @@ BACKUP_DIR=/backup
 AUDIOS_DIR=/audios
 GRAVACOES_DIR=/gravacoes
 SQL_DIR=/w/infra/sql
+TELIUM_ETC=/etc/telium
 ASTERISK_CONF_DIR=/s/ast
 ASTERISK_GERADO_DIR=/s/ast/telium
 # Na bancada o Asterisk roda como root e os dois contêineres não

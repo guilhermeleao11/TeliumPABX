@@ -1,0 +1,49 @@
+---
+# Envio de e-mail.
+#
+# O cadastro do ramal oferece "receber recado por e-mail" e o
+# voicemail.conf aponta para /usr/sbin/sendmail — que não existia em
+# Debian mínimo. Toda cópia de recado falhava em silêncio.
+#
+# O msmtp é um cliente de relay, não um servidor: não tem fila, não
+# escuta porta nenhuma e não vira máquina de spam se alguém achar a
+# senha. Servidor de e-mail em PABX de cliente acaba com a caixa de
+# entrada bloqueada por reputação de IP em poucos dias.
+
+- name: Instalar o cliente de e-mail
+  ansible.builtin.apt:
+    name:
+      - msmtp
+      - msmtp-mta        # fornece /usr/sbin/sendmail
+    state: present
+    update_cache: true
+
+- name: Publicar o gerador da configuração de e-mail
+  ansible.builtin.template:
+    src: telium-smtp.j2
+    dest: /usr/local/sbin/telium-smtp
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Permitir que a API publique a configuração de e-mail
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/telium-smtp
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+    content: |
+      # {{ ansible_managed }}
+      # Sem curinga: a API só pode rodar este comando, sem argumentos.
+      {{ telium_user }} ALL=(root) NOPASSWD: /usr/local/sbin/telium-smtp
+
+- name: Publicar a configuração a partir do banco
+  ansible.builtin.command: /usr/local/sbin/telium-smtp
+  register: smtp_publicado
+  changed_when: "'publicada' in smtp_publicado.stdout"
+  failed_when: false
+
+- name: Estado do envio de e-mail
+  ansible.builtin.debug:
+    var: smtp_publicado.stdout

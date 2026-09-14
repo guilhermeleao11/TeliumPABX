@@ -38,6 +38,7 @@
       when: instalar_turn | default(true)
     - backup
     - certificados
+    - email
     - api
     - seguranca
 

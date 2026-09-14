@@ -4782,3 +4782,126 @@ function ligarFiltroPeriodo(f) {
     f.de = ''; f.ate = ''; App.route();
   });
 }
+
+/* ------------------------- Configurações · Notificações e E-mail ------------------------- */
+PAGES['cfg.notificacoes'] = {
+  async render(ctx) {
+    let d;
+    try { d = await Api.get('/email'); }
+    catch (e) { return pageHead('Notificações e E-mail', '') + blocoErro(e); }
+
+    const c = d.config || {};
+    const ligado = Number(c.ativo) === 1;
+    const testado = c.testado_em
+      ? (Number(c.teste_ok)
+          ? `<span class="badge badge-ok">último teste entregue · ${dataHora(c.testado_em)}</span>`
+          : `<span class="badge badge-danger">último teste falhou · ${dataHora(c.testado_em)}</span>`)
+      : '<span class="badge">nunca testado</span>';
+
+    return pageHead('Notificações e E-mail',
+      'Por onde a central manda a cópia do correio de voz e os avisos do sistema.') + `
+      <div class="grid g-2">
+        <form class="card" id="fSmtp" style="padding:18px">
+          <div class="row-between" style="margin-bottom:14px">
+            <b>Servidor de saída</b>
+            ${ligado ? '<span class="badge badge-ok">ligado</span>' : '<span class="badge">desligado</span>'}
+          </div>
+
+          ${campoHtml({ campo: 'ativo', label: 'Enviar e-mail por este servidor', tipo: 'switch',
+            largura: 'full' }, c)}
+          ${campoHtml({ campo: 'servidor', label: 'Servidor', mono: true,
+            placeholder: 'smtp.gmail.com', largura: 'full',
+            ajuda: 'O relay do seu provedor. A central não roda servidor de e-mail próprio — '
+                 + 'seria caixa de entrada bloqueada por reputação de IP em poucos dias.' }, c)}
+          ${campoHtml({ campo: 'porta', label: 'Porta', tipo: 'number', padrao: 587 }, c)}
+          ${campoHtml({ campo: 'seguranca', label: 'Segurança', tipo: 'select',
+            opcoes: [{ valor: 'starttls', rotulo: 'STARTTLS (587) — o mais comum' },
+                     { valor: 'tls', rotulo: 'TLS direto (465)' },
+                     { valor: 'nenhuma', rotulo: 'Nenhuma (25, rede interna)' }],
+            padrao: 'starttls' }, c)}
+          ${campoHtml({ campo: 'usuario', label: 'Usuário', largura: 'full',
+            placeholder: 'pabx@suaempresa.com.br',
+            ajuda: 'Em branco, a central não autentica — só serve em relay interno.' }, c)}
+          ${campoHtml({ campo: 'senha', label: 'Senha', tipo: 'password', largura: 'full',
+            placeholder: d.tem_senha ? 'deixe em branco para manter a atual' : '',
+            ajuda: 'No Gmail e no Microsoft 365 é uma senha de aplicativo, não a sua senha de entrada.' }, c)}
+          ${campoHtml({ campo: 'remetente', label: 'Remetente (De:)', largura: 'full',
+            placeholder: 'pabx@suaempresa.com.br',
+            ajuda: 'Muitos provedores recusam a mensagem quando o remetente não é do domínio autenticado.' }, c)}
+          ${campoHtml({ campo: 'nome_remetente', label: 'Nome do remetente', largura: 'full',
+            placeholder: 'Central Telefônica' }, c)}
+
+          <div class="row gap-8" style="margin-top:16px">
+            <button class="btn btn-primary btn-sm" type="submit">
+              ${icon('check','ico ico-sm')} Salvar</button>
+            <span class="small muted" id="smtpEstado"></span>
+          </div>
+        </form>
+
+        <div class="card" style="padding:18px">
+          <div class="row-between" style="margin-bottom:12px">
+            <b>Conferir</b>${testado}
+          </div>
+          <p class="small muted" style="margin-bottom:14px">
+            Mande uma mensagem de verdade agora. Sem isso, "configurei o e-mail" só vira
+            verdade na primeira vez que alguém deixa um recado — e quem descobre que não
+            funciona é o cliente.</p>
+
+          <form id="fTeste" class="row gap-8" style="align-items:flex-end">
+            <div class="field grow" style="margin:0">
+              <label class="label">Mandar para</label>
+              <input class="input" name="para" type="email" placeholder="voce@suaempresa.com.br"
+                     ${ligado ? '' : 'disabled'}>
+            </div>
+            <button class="btn btn-outline btn-sm" type="submit" ${ligado ? '' : 'disabled'}>
+              ${icon('mail','ico ico-sm')} Enviar teste</button>
+          </form>
+          ${ligado ? '' : '<p class="tiny muted" style="margin-top:8px">Ligue e salve antes de testar.</p>'}
+          <div id="testeSaida" style="margin-top:12px"></div>
+
+          ${c.teste_saida && !Number(c.teste_ok)
+            ? `<pre class="detalhe" style="margin-top:12px">${esc(c.teste_saida)}</pre>` : ''}
+
+          <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">
+            <b class="small">Quem usa isto</b>
+            <ul class="small muted lista-ajuda" style="margin-top:8px">
+              <li>A cópia do recado do correio de voz, quando o ramal pede.</li>
+              <li>O ditado enviado pelo código <span class="mono">*35</span>.</li>
+              <li>Os avisos de falha de backup e de validade de certificado.</li>
+            </ul>
+          </div>
+        </div>
+      </div>`;
+  },
+
+  mount() {
+    document.getElementById('fSmtp')?.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const estado = document.getElementById('smtpEstado');
+      estado.textContent = 'salvando…';
+      try {
+        const r = await Api.put('/email', lerFormulario(ev.currentTarget));
+        estado.textContent = '';
+        toast(r.detalhe, r.publicado ? 'ok' : 'warn');
+        App.route();
+      } catch (e) { estado.textContent = ''; toast(e.message, 'err'); }
+    });
+
+    document.getElementById('fTeste')?.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const botao = ev.currentTarget.querySelector('button');
+      const saida = document.getElementById('testeSaida');
+      botao.disabled = true;
+      botao.innerHTML = '<span class="spin"></span> enviando…';
+      saida.innerHTML = '';
+      try {
+        const r = await Api.post('/email/testar', lerFormulario(ev.currentTarget));
+        saida.innerHTML = `<div class="aviso ok">${icon('checkCirc','ico ico-sm')} ${esc(r.detalhe)}</div>`;
+      } catch (e) {
+        saida.innerHTML = `<div class="aviso erro">${icon('alert','ico ico-sm')} ${esc(e.message)}</div>`;
+      }
+      botao.disabled = false;
+      botao.innerHTML = `${icon('mail','ico ico-sm')} Enviar teste`;
+    });
+  }
+};

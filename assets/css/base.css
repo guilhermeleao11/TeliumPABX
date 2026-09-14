@@ -420,3 +420,22 @@ tr:hover .row-actions { opacity: 1; }
   background: var(--brand);
   border-radius: 999px;
 }
+
+/* Faixa de resultado — usada onde a ação tem retorno imediato
+   (teste de e-mail, aplicação de certificado). */
+.aviso {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 11px 13px; border-radius: 10px;
+  font-size: 13px; line-height: 1.5;
+  background: var(--surface-2); color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.aviso .ico { flex: none; margin-top: 2px; }
+.aviso.ok {
+  background: var(--ok-soft); color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 26%, transparent);
+}
+.aviso.erro {
+  background: var(--danger-soft); color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 26%, transparent);
+}
