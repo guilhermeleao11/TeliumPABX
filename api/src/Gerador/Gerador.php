@@ -108,6 +108,17 @@ final class Gerador
             );
         }
 
+        // Uma conferência só, no primeiro arquivo: dono e modo são
+        // iguais para todos, e o erro que ela pega é mudo demais para
+        // ficar sem aviso.
+        $primeiro = array_key_first($resultado);
+        if ($primeiro !== null) {
+            $problema = $this->conferirLeitura("{$this->destino}/{$primeiro}");
+            if ($problema !== null) {
+                throw new \RuntimeException($problema);
+            }
+        }
+
         return $resultado;
     }
 
@@ -119,6 +130,9 @@ final class Gerador
      * consigo atravessar o diretório pai". Separar os dois casos evita
      * caçar um diretório que está lá o tempo todo.
      */
+    /** Grupo que o Asterisk usa para ler o que a API gera. */
+    private const GRUPO_ASTERISK = 'asterisk';
+
     private function conferirDestino(): void
     {
         $pai = dirname($this->destino);
@@ -189,11 +203,60 @@ final class Gerador
         if (file_put_contents($tmp, $conteudo, LOCK_EX) === false) {
             throw new \RuntimeException("Falha ao escrever {$tmp}");
         }
+
+        // 0640 com grupo asterisk: a API escreve, o Asterisk lê, e mais
+        // ninguém. O grupo normalmente vem do setgid do diretório; o
+        // chgrp aqui é o cinto de segurança para quando alguém recria o
+        // diretório à mão e perde o bit — sem ele, todo arquivo gerado
+        // fica ilegível para o Asterisk e a central segue com a
+        // configuração antiga sem dizer nada.
         @chmod($tmp, 0640);
+        @chgrp($tmp, self::GRUPO_ASTERISK);
+
         if (!rename($tmp, $caminho)) {
             @unlink($tmp);
             throw new \RuntimeException("Falha ao publicar {$caminho}");
         }
+    }
+
+    /**
+     * O Asterisk consegue ler o que acabamos de escrever?
+     *
+     * Roda uma vez por geração, sobre um arquivo só. O modo e o grupo
+     * são o que decide, e errar isso é silencioso: o gerador diz
+     * "atualizado", o Asterisk recarrega, e nada muda.
+     *
+     * @return string|null o problema, ou null quando está tudo certo
+     */
+    private function conferirLeitura(string $caminho): ?string
+    {
+        if (!is_file($caminho)) {
+            return null;
+        }
+
+        $dono = posix_getpwuid((int) fileowner($caminho))['name'] ?? '?';
+        $grupo = posix_getgrgid((int) filegroup($caminho))['name'] ?? '?';
+        $modo = substr(sprintf('%o', fileperms($caminho)), -4);
+
+        // Legível pelo grupo, e o grupo é o do Asterisk?
+        $grupoLe = (fileperms($caminho) & 0040) !== 0;
+        $outrosLeem = (fileperms($caminho) & 0004) !== 0;
+
+        if ($outrosLeem || ($grupoLe && $grupo === self::GRUPO_ASTERISK)) {
+            return null;
+        }
+
+        return sprintf(
+            'O Asterisk não vai conseguir ler %s (%s %s:%s). '
+            . 'O diretório %s precisa estar com o bit setgid e grupo %s — '
+            . 'sem isso a central recarrega e continua com a configuração anterior.',
+            basename($caminho),
+            $modo,
+            $dono,
+            $grupo,
+            $this->destino,
+            self::GRUPO_ASTERISK
+        );
     }
 
     private function semData(string $conteudo): string
