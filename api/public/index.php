@@ -102,7 +102,9 @@ $recursos = [
             ordem: 'numero',
             busca: ['numero','nome','setor'],
             filtros: ['setor','ativo','gravar'],
-            ocultas: ['senha_sip','vm_senha'],
+            // O PIN do usuário autoriza chamada nas rotas que o pedem:
+            // vale o mesmo cuidado da senha SIP.
+            ocultas: ['senha_sip','vm_senha','pin'],
             afetaAsterisk: true,
             modulo: 'conn.ramais',
             regras: [
@@ -270,6 +272,9 @@ $recursos = [
             ordem: 'numero',
             busca: ['numero','nome','descricao'],
             filtros: ['ativo'],
+            // O PIN da sala é o que impede alguém de entrar na reunião:
+            // não volta numa listagem. Em branco, ao editar, mantém.
+            ocultas: ['pin','pin_admin'],
             afetaAsterisk: true,
             modulo: 'apps.conferencias',
         ),

@@ -905,7 +905,8 @@ PAGES['conn.ramais'] = paginaCrud({
       ajuda: 'É ela que protege o ramal contra fraude de tarifação. Use o botão para gerar uma longa.' },
     { campo: 'pin', label: 'PIN do usuário', mono: true, tipo: 'password',
       padraoValido: /^[0-9]{0,10}$/, mensagemPadrao: 'só dígitos',
-      ajuda: 'Usado onde a central pede confirmação, como nas rotas com senha.' },
+      ajuda: 'Usado onde a central pede confirmação, como nas rotas com senha. '
+           + 'Ao editar, em branco mantém o atual.' },
     { campo: 'accountcode', label: 'Código da conta', mono: true,
       ajuda: 'Vai para o CDR — serve para separar custo por cliente ou projeto.' },
     { campo: 'ativo', label: 'Ramal ativo', tipo: 'switch', padrao: 1 },

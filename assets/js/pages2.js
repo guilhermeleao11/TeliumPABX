@@ -3645,12 +3645,14 @@ PAGES['apps.conferencias'] = {
           ajuda: 'O áudio da sala inteira vira um arquivo, que aparece em Gravação de Chamadas.' },
         { aba: 'Sala', campo: 'ativo', label: 'Sala ativa', tipo: 'switch', padrao: 1 },
 
-        { aba: 'Entrada', campo: 'pin', label: 'PIN para entrar', mono: true,
+        { aba: 'Entrada', campo: 'pin', label: 'PIN para entrar', mono: true, tipo: 'password',
           padraoValido: /^[0-9]{0,16}$/, mensagemPadrao: 'só dígitos',
-          ajuda: 'Em branco, qualquer um que disque o número entra.' },
+          ajuda: 'Sem PIN, qualquer um que disque o número entra na reunião. '
+               + 'Ao editar, em branco mantém o atual.' },
         { aba: 'Entrada', campo: 'pin_admin', label: 'PIN de administrador', mono: true,
-          padraoValido: /^[0-9]{0,16}$/, mensagemPadrao: 'só dígitos',
-          ajuda: 'Quem entra com este PIN pode trancar a sala (tecla 2) e tirar o último que entrou (tecla 3).' },
+          tipo: 'password', padraoValido: /^[0-9]{0,16}$/, mensagemPadrao: 'só dígitos',
+          ajuda: 'Quem entra com este PIN pode trancar a sala (tecla 2) e tirar o último que '
+               + 'entrou (tecla 3). Ao editar, em branco mantém o atual.' },
         { aba: 'Entrada', campo: 'anuncio_entrada_id', label: 'Mensagem de anúncio de entrada',
           tipo: 'select', opcoes: anunciosSelect(), largura: 'full',
           ajuda: 'Tocada para quem entra, antes de cair na sala. Os anúncios são montados em Aplicações › Anúncios.' },
