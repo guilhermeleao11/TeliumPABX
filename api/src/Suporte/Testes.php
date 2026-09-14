@@ -6,6 +6,7 @@ namespace Telium\Suporte;
 use Telium\Dominio\Permissoes;
 use Telium\Dominio\Senha;
 use Telium\Dominio\Totp;
+use Telium\Gerador\Aplicador;
 use Telium\Gerador\Bloco;
 use Telium\Gerador\Conferencia;
 
@@ -37,6 +38,13 @@ final class Testes
             $this->grupo('Banco e esquema', $this->banco(...));
             $this->grupo('Conferência do cadastro', $this->conferencia(...));
             $this->grupo('Portas da API', $this->rotas(...));
+        }
+
+        if (Ami::tentarComando('core show version') !== null) {
+            $this->grupo('Aplicar no Asterisk', $this->aplicar(...));
+        } else {
+            echo "\n  Aplicar no Asterisk\n"
+               . "    \033[33m!\033[0m sem AMI — este grupo precisa do Asterisk no ar\n";
         }
 
         return ['passou' => $this->passou, 'falhou' => $this->falhou, 'erros' => $this->erros];
@@ -158,6 +166,70 @@ final class Testes
         $this->ok(
             str_contains($usuario, ':'),
             'o usuário carrega a validade antes dos dois-pontos'
+        );
+    }
+
+    /**
+     * O botão "aplicar configurações" funciona?
+     *
+     * Este grupo nasceu de um defeito que passou por toda a auditoria:
+     * a lista de recargas mandava "pjsip reload", que não existe no
+     * Asterisk 22. O console dizia que tinha aplicado, e ramal e tronco
+     * novos nunca chegavam à central. Os testes anteriores geravam os
+     * arquivos e recarregavam à mão — o caminho do botão nunca era
+     * exercido.
+     */
+    private function aplicar(): void
+    {
+        // Cada comando da lista existe nesta versão do Asterisk?
+        foreach (Aplicador::comandosDeRecarga() as $comando => $descricao) {
+            $r = (string) Ami::tentarComando($comando);
+            $this->ok(
+                !str_contains(strtolower($r), 'no such command')
+                && !str_contains(strtolower($r), 'does not support reload'),
+                "o Asterisk conhece a recarga de {$descricao} (\"{$comando}\")"
+            );
+        }
+
+        // Família vazia responde erro no AMI e não é problema: numa
+        // central sem lista negra, todas estão vazias.
+        $ami = Ami::compartilhada();
+        $r = $ami->acao(['Action' => 'DBDelTree', 'Family' => 'telium-teste-inexistente']);
+        $this->ok(
+            str_contains(strtolower($r), 'not found') || str_contains(strtolower($r), 'success'),
+            'apagar uma família vazia na base do Asterisk não é tratado como falha'
+        );
+
+        // Dez ações seguidas: é onde o casamento por pedaço de texto
+        // quebrava, porque "telium-4" casa com "ActionID: telium-47" e
+        // as respostas passavam a sair trocadas.
+        $ids = [];
+        $certas = true;
+        for ($i = 1; $i <= 12; $i++) {
+            $r = $ami->acao(['Action' => 'DBPut', 'Family' => 'telium-teste',
+                             'Key' => "k{$i}", 'Val' => "v{$i}"]);
+            if (preg_match('/ActionID:\s*(\S+)/', $r, $m) !== 1 || isset($ids[$m[1]])) {
+                $certas = false;
+                break;
+            }
+            $ids[$m[1]] = true;
+        }
+        $ami->acao(['Action' => 'DBDelTree', 'Family' => 'telium-teste']);
+        $this->ok($certas, 'doze ações seguidas recebem cada uma a sua resposta');
+
+        // E o caminho inteiro, que é o que o botão faz. Duas vezes: a
+        // segunda é a que pegava o desalinhamento herdado da primeira.
+        (new Aplicador())->aplicar(null, []);
+        $resultado = (new Aplicador())->aplicar(null, []);
+        $falharam = array_keys(array_filter(
+            $resultado['etapas'],
+            static fn (string $e): bool => $e !== 'ok'
+        ));
+
+        $this->ok(
+            (bool) $resultado['sucesso'],
+            'aplicar a configuração inteira termina em sucesso'
+            . ($falharam === [] ? '' : ' — falhou em: ' . implode(', ', $falharam))
         );
     }
 

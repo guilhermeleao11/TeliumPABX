@@ -13,12 +13,38 @@ use Telium\Suporte\Trava;
  */
 final class Aplicador
 {
+    /**
+     * O que recarregar, e como cada módulo chama a sua recarga.
+     *
+     * "pjsip reload" NÃO existe no Asterisk 22 — só "pjsip reload
+     * qualify". Enquanto esteve nesta lista, toda aplicação falhava e,
+     * pior, endpoint e tronco novos nunca chegavam ao Asterisk: o
+     * console dizia que tinha aplicado e o ramal não existia.
+     *
+     * A lista cobre todos os arquivos que o gerador escreve. Faltando
+     * um, a alteração fica no disco esperando alguém reiniciar.
+     */
     private const RECARGAS = [
-        'pjsip reload'            => 'endpoints e troncos',
-        'dialplan reload'         => 'dialplan',
-        'module reload app_queue' => 'filas',
-        'voicemail reload'        => 'correio de voz',
+        'module reload res_pjsip.so'        => 'ramais e troncos',
+        'dialplan reload'                   => 'dialplan',
+        'module reload app_queue'           => 'filas',
+        'voicemail reload'                  => 'correio de voz',
+        'module reload app_confbridge.so'   => 'conferências',
+        'module reload res_parking.so'      => 'estacionamento',
+        'module reload res_musiconhold.so'  => 'música em espera',
+        'module reload features'            => 'códigos de recurso',
     ];
+
+    /**
+     * A lista de recargas, para a bateria de testes conferir que cada
+     * comando existe nesta versão do Asterisk.
+     *
+     * @return array<string,string>
+     */
+    public static function comandosDeRecarga(): array
+    {
+        return self::RECARGAS;
+    }
 
     /** @return array{sucesso:bool, etapas:array<string,string>, saida:string} */
     public function aplicar(?int $usuarioId = null, array $arquivos = []): array
@@ -51,8 +77,7 @@ final class Aplicador
 
             foreach (self::RECARGAS as $comando => $descricao) {
                 $resposta = $ami->comando($comando);
-                $ok = !str_contains(strtolower($resposta), 'no such command')
-                    && !str_contains(strtolower($resposta), 'error');
+                $ok = $this->recarregou($resposta);
                 $etapas[$descricao] = $ok ? 'ok' : 'falhou';
                 $saida .= "\$ {$comando}\n" . trim($resposta) . "\n\n";
                 $sucesso = $sucesso && $ok;
@@ -85,6 +110,56 @@ final class Aplicador
         }
 
         return ['sucesso' => $sucesso, 'etapas' => $etapas, 'saida' => $saida];
+    }
+
+    /**
+     * Apaga uma família inteira da base do Asterisk.
+     *
+     * Família vazia responde "Database entry not found", que é um erro
+     * do protocolo e um não-evento para nós: numa instalação sem lista
+     * negra, sem siga-me e sem não perturbe — ou seja, a maioria —
+     * todas as famílias estão vazias, e a etapa inteira era dada como
+     * falha. Era esse o 500 de "aplicar" numa central recém-instalada.
+     */
+    private function limpouFamilia(Ami $ami, string $familia): bool
+    {
+        $resposta = $ami->acao(['Action' => 'DBDelTree', 'Family' => $familia]);
+        if ($this->deuCerto($resposta)) {
+            return true;
+        }
+
+        $texto = strtolower($resposta);
+
+        return str_contains($texto, 'not found')
+            || str_contains($texto, 'not exist')
+            || str_contains($texto, 'no such');
+    }
+
+    /** A ação do AMI respondeu sucesso? */
+    private function deuCerto(string $resposta): bool
+    {
+        return preg_match('/^Response:\s*Success/mi', $resposta) === 1;
+    }
+
+    /**
+     * A recarga deu certo?
+     *
+     * A procura por "error" em qualquer lugar da resposta dava falso
+     * positivo: basta o nome de um ramal ou de uma fila conter a
+     * palavra para a etapa ser dada como falha. O que importa é a
+     * linha de resposta do AMI e a recusa do próprio CLI.
+     */
+    private function recarregou(string $resposta): bool
+    {
+        if (preg_match('/^Response:\s*Error/mi', $resposta) === 1) {
+            return false;
+        }
+
+        $texto = strtolower($resposta);
+
+        return !str_contains($texto, 'no such command')
+            && !str_contains($texto, 'does not support reload')
+            && !str_contains($texto, 'failed to reload');
     }
 
     /**
@@ -130,9 +205,7 @@ final class Aplicador
         $tabelas['ditado'] = 'SELECT numero FROM ramais WHERE ativo = 1 AND ditado = 1';
 
         foreach ($tabelas as $familia => $sql) {
-            $resposta = $ami->acao(['Action' => 'DBDelTree', 'Family' => $familia]);
-            if (str_contains(strtolower($resposta), 'error')
-                && !str_contains(strtolower($resposta), 'not exist')) {
+            if (!$this->limpouFamilia($ami, $familia)) {
                 $ok = false;
             }
 
@@ -148,7 +221,7 @@ final class Aplicador
                     'Key'    => $numero,
                     'Val'    => '1',
                 ]);
-                if (str_contains(strtolower($resposta), 'error')) {
+                if (!$this->deuCerto($resposta)) {
                     $ok = false;
                 }
             }
@@ -166,9 +239,7 @@ final class Aplicador
     {
         $ok = true;
         foreach (['sigame', 'sigame-modo', 'sigame-toque'] as $familia) {
-            $resposta = $ami->acao(['Action' => 'DBDelTree', 'Family' => $familia]);
-            if (str_contains(strtolower($resposta), 'error')
-                && !str_contains(strtolower($resposta), 'not exist')) {
+            if (!$this->limpouFamilia($ami, $familia)) {
                 $ok = false;
             }
         }
@@ -191,7 +262,7 @@ final class Aplicador
                     'Action' => 'DBPut', 'Family' => $fam,
                     'Key' => (string) $r['numero'], 'Val' => (string) $val,
                 ]);
-                if (str_contains(strtolower($resposta), 'error')) {
+                if (!$this->deuCerto($resposta)) {
                     $ok = false;
                 }
             }

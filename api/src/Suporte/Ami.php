@@ -116,7 +116,7 @@ final class Ami
         }
     }
 
-    public function acao(array $campos): string
+    public function acao(array $campos, ?float $espera = null): string
     {
         if (!$this->socket) {
             throw new \RuntimeException('AMI não conectado');
@@ -133,7 +133,7 @@ final class Ami
         }
         fwrite($this->socket, $pacote . "\r\n");
 
-        return $this->lerResposta($id);
+        return $this->lerResposta($id, $espera);
     }
 
     /**
@@ -161,31 +161,63 @@ final class Ami
      * Lê pacotes até encontrar a resposta do ActionID pedido.
      * Eventos avulsos são descartados em vez de virarem "a resposta".
      */
-    private function lerResposta(string $actionId): string
+    private function lerResposta(string $actionId, ?float $espera = null): string
     {
-        $limite = microtime(true) + $this->timeout;
+        $limite = microtime(true) + ($espera ?? $this->timeout);
 
         while (microtime(true) < $limite) {
-            $pacote = $this->ler();
+            $pacote = $this->ler($espera);
 
             if ($pacote === '') {
                 break;
             }
-            if (str_contains($pacote, "ActionID: {$actionId}")) {
+            if ($this->ehDoActionId($pacote, $actionId)) {
                 return $pacote;
             }
-            if (!str_contains($pacote, 'Event:') && str_contains($pacote, 'Response:')) {
+
+            // Resposta de OUTRA ação — atrasada, de um comando anterior
+            // que estourou o prazo — é descartada, nunca devolvida.
+            // Aceitá-la desalinhava tudo dali em diante: cada leitura
+            // passava a entregar a resposta da ação anterior, e o
+            // "aplicar" reportava falha em etapas que tinham dado certo.
+            if (!str_contains($pacote, 'Event:')
+                && str_contains($pacote, 'Response:')
+                && !str_contains($pacote, 'ActionID:')) {
                 return $pacote;                       // resposta sem ActionID ecoado
             }
-            // qualquer outra coisa é evento: descarta e continua
+            // evento ou resposta atrasada: descarta e continua
         }
 
         return '';
     }
 
-    public function comando(string $comando): string
+    /**
+     * O pacote é a resposta desta ação?
+     *
+     * A comparação precisa ser da linha inteira: com str_contains,
+     * "telium-4" casa com "ActionID: telium-47", e bastavam dez ações
+     * numa requisição — o que uma aplicação de configuração faz de
+     * sobra — para as respostas saírem trocadas.
+     */
+    private function ehDoActionId(string $pacote, string $actionId): bool
     {
-        return $this->acao(['Action' => 'Command', 'Command' => $comando]);
+        return preg_match(
+            '/^ActionID:\s*' . preg_quote($actionId, '/') . '\s*$/mi',
+            $pacote
+        ) === 1;
+    }
+
+    /**
+     * Comando de CLI.
+     *
+     * A espera é maior que a das consultas: recarregar o PJSIP numa
+     * central com centenas de ramais passa dos três segundos, e o
+     * prazo curto fazia a resposta chegar depois — para ser lida como
+     * resposta da ação seguinte.
+     */
+    public function comando(string $comando, float $espera = 20.0): string
+    {
+        return $this->acao(['Action' => 'Command', 'Command' => $comando], $espera);
     }
 
     public function desconectar(): void
@@ -198,10 +230,10 @@ final class Ami
     }
 
     /** Lê um pacote do AMI: termina na linha em branco. */
-    private function ler(): string
+    private function ler(?float $espera = null): string
     {
         $buffer = '';
-        $limite = microtime(true) + $this->timeout;
+        $limite = microtime(true) + ($espera ?? $this->timeout);
 
         while (microtime(true) < $limite) {
             $linha = fgets($this->socket, 8192);
