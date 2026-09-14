@@ -63,9 +63,28 @@ $erros->setDefaultErrorHandler(
 /* =========================================================
    Recursos REST — tabela, colunas graváveis e como filtrar
    ========================================================= */
+/**
+ * Telas que oferecem um seletor de destino.
+ *
+ * Para montar o seletor elas precisam LER a lista de ramais, filas,
+ * URAs, anúncios e afins. Exigir o módulo dono de cada lista deixava 19
+ * das 63 telas quebradas para qualquer perfil que não fosse o
+ * administrador — a tela abria e toda chamada dela voltava 403.
+ * Escolher não é administrar: isto libera só a listagem. Gravar, abrir
+ * o cadastro e excluir seguem exigindo o dono.
+ */
+const ESCOLHEM_DESTINO = [
+    'apps.ura', 'apps.filas', 'apps.anuncios', 'apps.condicoes', 'apps.grupohorario',
+    'apps.estacionamento', 'apps.paging', 'apps.despertar', 'apps.conferencias',
+    'apps.grupostoque', 'apps.disa', 'apps.sigame', 'apps.correiovoz',
+    'conn.rotasentrada', 'conn.rotassaida', 'conn.provisionamento',
+    'admin.listanegra', 'admin.allowlist', 'admin.destinos', 'cfg.musica', 'cfg.correiovoz',
+];
+
 $recursos = [
     'ramais' => [
         'modulo' => 'conn.ramais',
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'ramais',
             colunas: ['numero','nome','setor','email','tecnologia','senha_sip','contexto','transporte',
@@ -168,6 +187,7 @@ $recursos = [
     ],
     'troncos' => [
         'modulo' => 'conn.troncos',
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'troncos',
             colunas: ['nome','tipo','host','porta','transporte','usuario','senha','registrar','from_user',
@@ -211,6 +231,7 @@ $recursos = [
     ],
     'filas' => [
         'modulo' => 'apps.filas',
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'filas',
             colunas: ['numero','nome','descricao','callcenter','estrategia','timeout_agente','retry',
@@ -230,6 +251,7 @@ $recursos = [
     ],
     'estacionamentos' => [
         'modulo' => 'apps.estacionamento',
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'estacionamentos',
             colunas: ['nome','descricao','padrao','numero_estacionar','vaga_inicio','vaga_fim',
@@ -256,6 +278,7 @@ $recursos = [
     ],
     'grupos-horario' => [
         'modulo' => 'apps.grupohorario',
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'grupos_horario',
             colunas: ['nome', 'descricao'],
@@ -280,6 +303,7 @@ $recursos = [
     ],
     'anuncios' => [
         'modulo' => 'apps.anuncios',
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'anuncios',
             colunas: ['nome','descricao','audio_id','repetir_tecla','permitir_pular','retornar_ura',
@@ -293,6 +317,7 @@ $recursos = [
     ],
     'conferencias' => [
         'modulo' => 'apps.conferencias',
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'conferencias',
             colunas: ['numero','nome','descricao','pin','pin_admin','anuncio_entrada_id','max_usuarios',
@@ -346,6 +371,7 @@ $recursos = [
     ],
     'ura' => [
         'modulo' => 'apps.ura',
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'ura',
             colunas: ['nome','anuncio_id','timeout_digito','tentativas','discagem_direta',
@@ -370,6 +396,7 @@ $recursos = [
     ],
     'grupos-toque' => [
         'modulo' => 'apps.grupostoque',
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'grupos_toque',
             colunas: ['numero','nome','estrategia','ramais','tempo_toque','destino_falha_tipo',
@@ -394,6 +421,7 @@ $recursos = [
     ],
     'destinos-personalizados' => [
         'modulo' => 'admin.destinos',
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'destinos_personalizados',
             colunas: ['nome','descricao','contexto','extensao','prioridade','ativo'],
@@ -439,6 +467,7 @@ $recursos = [
     ],
     'disa' => [
         'modulo' => 'apps.disa',
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'disa',
             colunas: ['nome', 'senha', 'contexto', 'cid_saida', 'tempo_digito',
@@ -501,6 +530,7 @@ $recursos = [
     ],
     'pin-sets' => [
         'modulo' => 'cfg.pinsets',
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'pin_sets',
             colunas: ['nome', 'pins', 'no_cdr'],
@@ -523,6 +553,10 @@ $recursos = [
     ],
     'tarifas' => [
         'modulo' => 'telium.tarifacao',
+        // A mesma tabela aparece em duas telas: Tarifação e a Tabela de
+        // Tarifas. Não é destino de chamada — a referência aqui é só a
+        // outra tela que a lê.
+        'referencia' => ['cfg.tarifas'],
         'recurso' => new Recurso(
             tabela: 'tarifas',
             colunas: ['nome','padrao','custo_minuto','taxa_fixa','incremento_seg','ativo'],
@@ -550,7 +584,11 @@ $recursos = [
         'modulo' => 'admin.listanegra',
         'recurso' => new Recurso(
             tabela: 'lista_negra',
-            colunas: ['numero', 'descricao', 'tratamento', 'audio_id', 'ativo'],
+            // anuncio_id faltava: o formulário oferecia "tocar um anúncio
+            // e desligar", a escolha era descartada aqui em silêncio, e o
+            // gerador — que lê ln.anuncio_id — sempre achava vazio. O
+            // bloqueio funcionava; o anúncio, nunca.
+            colunas: ['numero', 'descricao', 'tratamento', 'audio_id', 'anuncio_id', 'ativo'],
             ordem: 'numero',
             busca: ['numero', 'descricao'],
             filtros: ['tratamento', 'ativo'],
@@ -612,8 +650,10 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->delete('/me/2fa', [CtrlAuth::class, 'desligar2fa']);
 
     // ---- portal do usuário: tudo preso ao ramal da sessão ----
-    $g->get('/me/ramal', [Portal::class, 'ramal'])->add(new Permissao('pcu.meuramal'));
-    $g->put('/me/ramal', [Portal::class, 'salvarRamal'])->add(new Permissao('pcu.meuramal'));
+    $g->get('/me/ramal', [Portal::class, 'ramal'])
+      ->add(new Permissao('pcu.meuramal', null, ['pcu.sigame', 'pcu.perfil']));
+    $g->put('/me/ramal', [Portal::class, 'salvarRamal'])
+      ->add(new Permissao('pcu.meuramal', null, ['pcu.sigame']));
     $g->get('/me/chamadas', [Portal::class, 'chamadas'])->add(new Permissao('pcu.chamadas'));
     $g->get('/me/correiovoz', [Portal::class, 'correioVoz'])->add(new Permissao('pcu.correiovoz'));
     $g->get('/me/correiovoz/audio', [Portal::class, 'audioCorreio'])
@@ -649,7 +689,8 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/auditoria', [Relatorios::class, 'auditoria'])->add(new Permissao('rel.logs'));
 
     // ---- cadastros especiais ----
-    $g->get('/perfis', [Cadastros::class, 'perfis'])->add(new Permissao('admin.permissoes'));
+    $g->get('/perfis', [Cadastros::class, 'perfis'])
+      ->add(new Permissao('admin.permissoes', null, ['admin.usuarios']));
     $g->post('/perfis', [Cadastros::class, 'criarPerfil'])
       ->add(new Permissao('admin.permissoes', 'permissoes'));
     $g->put('/perfis/{id}', [Cadastros::class, 'atualizarPerfil'])
@@ -698,7 +739,8 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('admin.backup', 'excluir'));
 
     // ---- áudios do sistema ----
-    $g->get('/audios', [Audios::class, 'listar'])->add(new Permissao('admin.gravacoes'));
+    $g->get('/audios', [Audios::class, 'listar'])
+      ->add(new Permissao('admin.gravacoes', null, ESCOLHEM_DESTINO));
     $g->post('/audios', [Audios::class, 'enviar'])
       ->add(new Permissao('admin.gravacoes', 'criar'));
     $g->get('/audios/{id}/ouvir', [Audios::class, 'ouvir'])->add(new Permissao('admin.gravacoes'));
@@ -730,7 +772,8 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     // Não entra no CRUD genérico: quem só tem a agenda pessoal enxerga os
     // contatos corporativos mas mexe apenas nos próprios, e isso é decidido
     // por linha, dentro do controller.
-    $g->get('/contatos', [Contatos::class, 'listar'])->add(new Permissao('pcu.contatos'));
+    $g->get('/contatos', [Contatos::class, 'listar'])
+      ->add(new Permissao('pcu.contatos', null, ['admin.contatos']));
     $g->get('/contatos/{id}', [Contatos::class, 'obter'])->add(new Permissao('pcu.contatos'));
     $g->post('/contatos', [Contatos::class, 'criar'])
       ->add(new Permissao('pcu.contatos', 'criar'));
@@ -791,7 +834,8 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
         $r = $def['recurso'];
         $modulo = $def['modulo'];
 
-        $g->get("/{$caminho}", [$r, 'listar'])->add(new Permissao($modulo));
+        $g->get("/{$caminho}", [$r, 'listar'])
+          ->add(new Permissao($modulo, null, $def['referencia'] ?? []));
         $g->get("/{$caminho}/{id}", [$r, 'obter'])->add(new Permissao($modulo));
 
         // usuarios tem criação própria (senha), declarada acima

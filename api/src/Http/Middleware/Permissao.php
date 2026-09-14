@@ -17,9 +17,19 @@ use Telium\Suporte\Resposta;
  */
 final class Permissao implements MiddlewareInterface
 {
+    /**
+     * @param list<string> $tambem outros módulos que também abrem esta porta
+     *
+     * O terceiro parâmetro existe por causa do seletor de destino: a tela
+     * de URA precisa listar ramais para apontar uma tecla, e exigir dela
+     * o módulo "Ramais" deixava 19 telas quebradas para todo perfil que
+     * não fosse o administrador. Escolher não é administrar — vale só
+     * para ler a lista; gravar e abrir o cadastro seguem com o dono.
+     */
     public function __construct(
         private readonly string $modulo,
         private readonly ?string $acao = null,
+        private readonly array $tambem = [],
     ) {
     }
 
@@ -28,7 +38,12 @@ final class Permissao implements MiddlewareInterface
         $allow = $request->getAttribute('allow', []);
         $caps  = $request->getAttribute('caps', []);
 
-        if (!Permissoes::podeModulo($allow, $this->modulo)) {
+        $pode = Permissoes::podeModulo($allow, $this->modulo);
+        foreach ($this->tambem as $outro) {
+            $pode = $pode || Permissoes::podeModulo($allow, $outro);
+        }
+
+        if (!$pode) {
             return Resposta::erro(
                 new SlimResponse(),
                 "Seu perfil não tem acesso ao módulo {$this->modulo}",

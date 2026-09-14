@@ -161,6 +161,10 @@ aparelho abrir o viva-voz.
 ## 5. Administrador
 
 ### Usuários, Perfis e Permissões — **automático**
+Crie um perfil com **um único módulo** marcado, entre com ele e abra a tela
+desse módulo. Ela tem de funcionar inteira — nenhuma chamada pode voltar
+403. Foi assim que se descobriu que 19 telas dependiam da permissão de
+outro módulo para montar o seletor de destino.
 A bateria já garante que nenhuma rota responde sem sessão e que o perfil
 limita o menu. À mão, vale entrar com um Operador e confirmar que ele vê
 só o PCU.

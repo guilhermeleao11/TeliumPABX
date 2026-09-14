@@ -12,6 +12,7 @@ use Telium\Gerador\Aplicador;
 use Telium\Gerador\Bloco;
 use Telium\Gerador\Conferencia;
 use Telium\Gerador\GeradorPjsip;
+use Telium\Http\Middleware\Permissao;
 use Telium\Http\Controllers\Diagnostico;
 
 /**
@@ -40,6 +41,7 @@ final class Testes
         $this->grupo('Estado do tronco na central', $this->estadoTronco(...));
         $this->grupo('Tronco gerado', $this->troncoGerado(...));
         $this->grupo('Endereço público e faixas locais', $this->nat(...));
+        $this->grupo('Permissão por referência', $this->permissaoReferencia(...));
 
         if ($comBanco) {
             $this->grupo('Banco e esquema', $this->banco(...));
@@ -56,6 +58,60 @@ final class Testes
         }
 
         return ['passou' => $this->passou, 'falhou' => $this->falhou, 'erros' => $this->erros];
+    }
+
+    // ---------------------------------------------------------------
+    /**
+     * Ler a lista para escolher um destino não é administrar a lista.
+     *
+     * A tela de URA precisa listar ramais para apontar uma tecla. Exigir
+     * dela o módulo "Ramais" deixava 19 das 63 telas quebradas para todo
+     * perfil que não fosse o administrador: a tela abria e cada chamada
+     * dela voltava 403. O que não pode voltar é o contrário — quem só
+     * escolhe destino não grava, não exclui e não abre o cadastro.
+     */
+    private function permissaoReferencia(): void
+    {
+        $so = static fn (string $modulo): array => [$modulo];
+
+        $mw = new Permissao('conn.ramais', null, ['apps.ura']);
+        $this->ok(
+            $this->passou($mw, $so('apps.ura')),
+            'quem tem URA consegue listar ramais para montar o seletor'
+        );
+        $this->ok(
+            $this->passou($mw, $so('conn.ramais')),
+            'o dono do módulo continua passando'
+        );
+        $this->ok(
+            !$this->passou($mw, $so('rel.cdr')),
+            'módulo que não referencia a lista continua barrado'
+        );
+
+        // Sem a lista de alternativas, nada muda para quem não é dono.
+        $estrito = new Permissao('conn.ramais');
+        $this->ok(
+            !$this->passou($estrito, $so('apps.ura')),
+            'a rota de gravar e a de abrir o cadastro seguem só com o dono'
+        );
+    }
+
+    /** Roda o middleware com um perfil e diz se ele deixou passar. */
+    private function passou(Permissao $mw, array $allow): bool
+    {
+        $req = (new \Slim\Psr7\Factory\ServerRequestFactory())
+            ->createServerRequest('GET', '/api/ramais')
+            ->withAttribute('allow', $allow)
+            ->withAttribute('caps', ['ver', 'criar', 'editar', 'excluir']);
+
+        $handler = new class implements \Psr\Http\Server\RequestHandlerInterface {
+            public function handle(\Psr\Http\Message\ServerRequestInterface $r): \Psr\Http\Message\ResponseInterface
+            {
+                return new \Slim\Psr7\Response(200);
+            }
+        };
+
+        return $mw->process($req, $handler)->getStatusCode() === 200;
     }
 
     // ---------------------------------------------------------------
