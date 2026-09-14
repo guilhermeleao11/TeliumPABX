@@ -545,6 +545,9 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/cdr', [Relatorios::class, 'cdr'])->add(new Permissao('rel.cdr'));
     $g->get('/relatorios/filas', [Relatorios::class, 'filas'])->add(new Permissao('rel.filas'));
     $g->get('/relatorios/agentes', [Relatorios::class, 'agentes'])->add(new Permissao('rel.agentes'));
+    $g->get('/relatorios/ramais', [Relatorios::class, 'ramais'])->add(new Permissao('rel.ramais'));
+    $g->get('/relatorios/troncos', [Relatorios::class, 'troncos'])->add(new Permissao('rel.troncos'));
+    $g->get('/relatorios/eventos', [Relatorios::class, 'eventos'])->add(new Permissao('rel.cel'));
     $g->get('/relatorios/tarifacao', [Relatorios::class, 'tarifacao'])->add(new Permissao('telium.tarifacao'));
     // ---- arquivo de gravações ----
     // Não há rota de exclusão, de propósito: gravação é prova de

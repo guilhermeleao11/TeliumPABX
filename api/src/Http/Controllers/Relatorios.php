@@ -61,6 +61,151 @@ final class Relatorios
         ]);
     }
 
+    /**
+     * GET /api/relatorios/ramais — quanto cada ramal falou.
+     *
+     * O CDR guarda origem e destino como texto, sem vínculo com a
+     * tabela de ramais: o relatório junta pelo número, e um ramal
+     * excluído continua aparecendo com o histórico dele — que é o que
+     * se quer num relatório, e não o contrário.
+     */
+    public function ramais(Request $req, Response $res): Response
+    {
+        [$filtro, $args] = $this->periodo($req);
+
+        $linhas = Bd::todos(
+            "SELECT r.numero, r.nome, r.setor,
+                    SUM(c.src = r.numero) AS feitas,
+                    SUM(c.dst = r.numero) AS recebidas,
+                    SUM(c.src = r.numero AND c.disposition = 'ANSWERED') AS feitas_ok,
+                    SUM(c.dst = r.numero AND c.disposition = 'ANSWERED') AS recebidas_ok,
+                    COALESCE(SUM(CASE WHEN c.src = r.numero THEN c.billsec END), 0) AS seg_feitas,
+                    COALESCE(SUM(CASE WHEN c.dst = r.numero THEN c.billsec END), 0) AS seg_recebidas,
+                    COALESCE(SUM(c.custo), 0) AS custo
+               FROM ramais r
+          LEFT JOIN cdr c ON (c.src = r.numero OR c.dst = r.numero){$filtro}
+              WHERE r.ativo = 1
+           GROUP BY r.id
+           ORDER BY (COALESCE(SUM(c.billsec), 0)) DESC, r.numero",
+            $args
+        );
+
+        foreach ($linhas as &$l) {
+            $l['total'] = (int) $l['feitas'] + (int) $l['recebidas'];
+            $l['segundos'] = (int) $l['seg_feitas'] + (int) $l['seg_recebidas'];
+            $l['perdidas'] = (int) $l['recebidas'] - (int) $l['recebidas_ok'];
+        }
+        unset($l);
+
+        return Resposta::json($res, ['dados' => $linhas]);
+    }
+
+    /** GET /api/relatorios/troncos — volume e falha por operadora. */
+    public function troncos(Request $req, Response $res): Response
+    {
+        [$filtro, $args] = $this->periodo($req, 'c.');
+
+        $linhas = Bd::todos(
+            "SELECT t.nome, t.host, t.ativo,
+                    COUNT(c.id) AS chamadas,
+                    SUM(c.disposition = 'ANSWERED') AS atendidas,
+                    SUM(c.disposition = 'BUSY') AS ocupadas,
+                    SUM(c.disposition = 'FAILED') AS falhas,
+                    SUM(c.disposition = 'NO ANSWER') AS sem_resposta,
+                    COALESCE(SUM(c.billsec), 0) AS segundos,
+                    COALESCE(SUM(c.custo), 0) AS custo
+               FROM troncos t
+          LEFT JOIN cdr c ON c.tronco = t.nome"
+            . ($filtro === '' ? '' : ' AND ' . ltrim($filtro, ' WHERE')) . "
+           GROUP BY t.id
+           ORDER BY chamadas DESC, t.nome",
+            $args
+        );
+
+        foreach ($linhas as &$l) {
+            $total = (int) $l['chamadas'];
+            // Taxa de completamento (ASR): é o número que se leva para a
+            // operadora quando a reclamação é "a linha não completa".
+            $l['asr'] = $total > 0 ? round((int) $l['atendidas'] / $total * 100, 1) : null;
+            // Duração média da chamada atendida (ACD).
+            $l['acd'] = (int) $l['atendidas'] > 0
+                ? (int) round((int) $l['segundos'] / (int) $l['atendidas'])
+                : 0;
+        }
+        unset($l);
+
+        return Resposta::json($res, ['dados' => $linhas]);
+    }
+
+    /**
+     * GET /api/relatorios/eventos — a linha do tempo de uma chamada.
+     *
+     * O CEL registra cada passo (atendeu, transferiu, entrou na ponte,
+     * desligou). É o que responde "por que essa chamada caiu" quando o
+     * CDR só diz que durou doze segundos.
+     */
+    public function eventos(Request $req, Response $res): Response
+    {
+        $p = $req->getQueryParams();
+        $chamada = trim((string) ($p['linkedid'] ?? $p['uniqueid'] ?? ''));
+
+        if ($chamada !== '') {
+            return Resposta::json($res, [
+                'chamada' => $chamada,
+                'dados'   => Bd::todos(
+                    'SELECT eventtype, eventtime, cid_num, cid_name, exten, context,
+                            channame, appname, appdata, uniqueid, linkedid
+                       FROM cel WHERE linkedid = ? OR uniqueid = ?
+                      ORDER BY eventtime, id',
+                    [$chamada, $chamada]
+                ),
+            ]);
+        }
+
+        // Sem chamada escolhida, mostra as últimas para escolher uma.
+        [$filtro, $args] = $this->periodo($req);
+        $limite = min(200, max(10, (int) ($p['limite'] ?? 50)));
+
+        return Resposta::json($res, [
+            'chamada' => null,
+            'dados'   => Bd::todos(
+                "SELECT linkedid, MIN(eventtime) AS inicio, MAX(eventtime) AS fim,
+                        COUNT(*) AS eventos,
+                        SUBSTRING_INDEX(GROUP_CONCAT(cid_num ORDER BY eventtime), ',', 1) AS origem,
+                        SUBSTRING_INDEX(GROUP_CONCAT(exten ORDER BY eventtime), ',', 1) AS destino
+                   FROM cel"
+                . str_replace('calldate', 'eventtime', $filtro) . "
+               GROUP BY linkedid
+               ORDER BY inicio DESC
+                  LIMIT {$limite}",
+                $args
+            ),
+        ]);
+    }
+
+    /**
+     * Recorte de período comum aos relatórios.
+     *
+     * @return array{0:string, 1:list<string>}
+     */
+    private function periodo(Request $req, string $prefixo = ''): array
+    {
+        $p = $req->getQueryParams();
+        $where = [];
+        $args = [];
+
+        if (($p['de'] ?? '') !== '') {
+            $where[] = "{$prefixo}calldate >= ?";
+            $args[] = $p['de'] . ' 00:00:00';
+        }
+        if (($p['ate'] ?? '') !== '') {
+            $where[] = "{$prefixo}calldate <= ?";
+            $args[] = $p['ate'] . ' 23:59:59';
+        }
+
+        return [$where === [] ? '' : ' WHERE ' . implode(' AND ', $where), $args];
+    }
+
     /** GET /api/relatorios/filas */
     public function filas(Request $req, Response $res): Response
     {

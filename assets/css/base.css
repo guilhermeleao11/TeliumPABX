@@ -406,3 +406,17 @@ tr:hover .row-actions { opacity: 1; }
   line-height: 1.6;
   color: var(--text-muted);
 }
+
+/* Barra de proporção nos relatórios — compara sem precisar de gráfico. */
+.barra-uso {
+  height: 8px;
+  background: var(--surface-3, var(--surface-2));
+  border-radius: 999px;
+  overflow: hidden;
+}
+.barra-uso span {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+  border-radius: 999px;
+}

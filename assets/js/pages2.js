@@ -4594,3 +4594,191 @@ PAGES['apps.disa'] = paginaCrud({
     { campo: 'ativo', label: 'DISA ativa', tipo: 'switch', padrao: 1 }
   ]
 });
+
+/* ------------------------- Relatórios · Por ramal ------------------------- */
+PAGES['rel.ramais'] = {
+  _f: { de: '', ate: '' },
+
+  async render(ctx) {
+    let d;
+    try { d = await Api.get('/relatorios/ramais', this._f); }
+    catch (e) { return pageHead('Relatório por Ramal', '') + blocoErro(e); }
+
+    const linhas = d.dados.filter(r => r.total > 0);
+    const topo = Math.max(1, ...linhas.map(r => Number(r.segundos)));
+
+    const corpo = linhas.length ? linhas.map(r => `
+      <tr>
+        <td><b class="mono">${esc(r.numero)}</b>
+          <div class="tiny muted">${esc(r.nome || '')}${r.setor ? ` · ${esc(r.setor)}` : ''}</div></td>
+        <td class="num">${num(r.feitas)}</td>
+        <td class="num">${num(r.recebidas)}</td>
+        <td class="num">${Number(r.perdidas) > 0
+          ? `<span class="badge badge-warn">${num(r.perdidas)}</span>` : '—'}</td>
+        <td class="num">${duracao(r.segundos)}</td>
+        <td style="width:180px">
+          <div class="barra-uso"><span style="width:${Math.round(r.segundos / topo * 100)}%"></span></div>
+        </td>
+      </tr>`).join('') : '';
+
+    return pageHead('Relatório por Ramal',
+      'Quanto cada ramal falou no período — e quantas chamadas deixou de atender.') + `
+      ${filtroPeriodo(this._f)}
+      <div class="card">
+        ${corpo ? `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Ramal</th><th class="num">Feitas</th><th class="num">Recebidas</th>
+            <th class="num">Não atendidas</th><th class="num">Tempo falado</th><th></th></tr></thead>
+          <tbody>${corpo}</tbody></table></div>`
+        : vazio('phone', 'Nenhuma chamada no período',
+            'Quando houver movimento, cada ramal aparece aqui com o que fez e o que recebeu.')}
+      </div>`;
+  },
+
+  mount() { ligarFiltroPeriodo(this._f); }
+};
+
+/* ------------------------- Relatórios · Por tronco ------------------------- */
+PAGES['rel.troncos'] = {
+  _f: { de: '', ate: '' },
+
+  async render(ctx) {
+    let d;
+    try { d = await Api.get('/relatorios/troncos', this._f); }
+    catch (e) { return pageHead('Relatório por Tronco', '') + blocoErro(e); }
+
+    const corpo = (d.dados || []).map(t => {
+      // ASR baixo é o número que se leva para a operadora quando a
+      // reclamação é "a linha não completa".
+      const asr = t.asr === null ? null : Number(t.asr);
+      const tomAsr = asr === null ? '' : asr >= 60 ? 'badge-ok' : asr >= 40 ? 'badge-warn' : 'badge-danger';
+      return `<tr>
+        <td><b>${esc(t.nome)}</b><div class="tiny muted mono">${esc(t.host || '')}</div></td>
+        <td>${Number(t.ativo) ? '<span class="badge badge-ok">Ativo</span>'
+                              : '<span class="badge badge-warn">Desativado</span>'}</td>
+        <td class="num">${num(t.chamadas)}</td>
+        <td class="num">${num(t.atendidas)}</td>
+        <td class="num">${num(t.ocupadas)}</td>
+        <td class="num">${num(Number(t.falhas) + Number(t.sem_resposta))}</td>
+        <td>${asr === null ? '<span class="muted">—</span>'
+          : `<span class="badge ${tomAsr}">${asr}%</span>`}</td>
+        <td class="num">${duracao(t.acd)}</td>
+        <td class="num">${duracao(t.segundos)}</td>
+      </tr>`;
+    }).join('');
+
+    return pageHead('Relatório por Tronco',
+      'Volume e qualidade de cada operadora. Use ao cobrar quando a linha não completa.') + `
+      ${filtroPeriodo(this._f)}
+      <div class="card" style="padding:14px;margin-bottom:14px">
+        <div class="row gap-12" style="align-items:flex-start">
+          ${icon('info','ico')}
+          <div class="small muted">
+            <b>Completamento</b> é quanto das chamadas o tronco levou até alguém atender.
+            Abaixo de 40% costuma ser problema da operadora ou da rota, não do seu PABX.
+            <b>Média</b> é quanto durou a chamada atendida — uma média muito curta com
+            completamento alto costuma ser áudio ruim, com o cliente desligando.
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        ${corpo ? `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Tronco</th><th>Estado</th><th class="num">Chamadas</th>
+            <th class="num">Atendidas</th><th class="num">Ocupado</th><th class="num">Falha</th>
+            <th>Completamento</th><th class="num">Média</th><th class="num">Total falado</th></tr></thead>
+          <tbody>${corpo}</tbody></table></div>`
+        : vazio('server', 'Nenhum tronco cadastrado',
+            'Cadastre um tronco em Conectividade › Troncos para começar a medir.')}
+      </div>`;
+  },
+
+  mount() { ligarFiltroPeriodo(this._f); }
+};
+
+/* ------------------------- Relatórios · Eventos da chamada (CEL) ------------------------- */
+PAGES['rel.cel'] = {
+  _f: { de: '', ate: '', linkedid: '' },
+
+  async render(ctx) {
+    let d;
+    try { d = await Api.get('/relatorios/eventos', this._f); }
+    catch (e) { return pageHead('Eventos da Chamada', '') + blocoErro(e); }
+
+    if (d.chamada) {
+      const passos = (d.dados || []).map(e => `
+        <tr>
+          <td class="small mono">${esc(String(e.eventtime).slice(11, 23))}</td>
+          <td><span class="badge">${esc(e.eventtype)}</span></td>
+          <td class="mono small">${esc(e.channame || '—')}</td>
+          <td class="mono">${esc(e.cid_num || '—')}</td>
+          <td class="mono">${esc(e.exten || '—')}</td>
+          <td class="small dim">${esc(e.appname || '')} ${esc((e.appdata || '').slice(0, 60))}</td>
+        </tr>`).join('');
+
+      return pageHead(`Chamada ${esc(d.chamada)}`,
+        'Cada passo que a central registrou, na ordem em que aconteceu.',
+        `<button class="btn btn-outline btn-sm" id="celVoltar">
+           ${icon('chevronL','ico ico-sm')} Voltar à lista</button>`) + `
+        <div class="card">
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Hora</th><th>Evento</th><th>Canal</th><th>Origem</th>
+              <th>Destino</th><th>Aplicação</th></tr></thead>
+            <tbody>${passos}</tbody></table></div>
+        </div>`;
+    }
+
+    const linhas = (d.dados || []).map(c => `
+      <tr data-chamada="${esc(c.linkedid)}" style="cursor:pointer">
+        <td class="small">${dataHora(c.inicio)}</td>
+        <td class="mono">${esc(c.origem || '—')}</td>
+        <td class="mono">${esc(c.destino || '—')}</td>
+        <td class="num">${num(c.eventos)}</td>
+        <td class="mono small dim">${esc(c.linkedid)}</td>
+      </tr>`).join('');
+
+    return pageHead('Eventos da Chamada',
+      `O relatório de chamadas diz que a ligação durou doze segundos. Este diz por quê.`) + `
+      ${filtroPeriodo(this._f)}
+      <div class="card">
+        ${linhas ? `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Início</th><th>Origem</th><th>Destino</th>
+            <th class="num">Passos</th><th>Identificador</th></tr></thead>
+          <tbody>${linhas}</tbody></table></div>`
+        : vazio('activity', 'Nenhum evento no período',
+            'A central registra cada passo das chamadas aqui — atendeu, transferiu, desligou.')}
+      </div>`;
+  },
+
+  mount() {
+    ligarFiltroPeriodo(this._f);
+    document.getElementById('celVoltar')?.addEventListener('click', () => {
+      this._f.linkedid = ''; App.route();
+    });
+    document.querySelectorAll('[data-chamada]').forEach(tr =>
+      tr.addEventListener('click', () => {
+        this._f.linkedid = tr.dataset.chamada; App.route();
+      }));
+  }
+};
+
+/** Filtro de período comum aos relatórios. */
+function filtroPeriodo(f) {
+  return `<div class="card" style="padding:14px;margin-bottom:14px">
+    <div class="row gap-8 wrap">
+      <label class="small muted" style="align-self:center">Período</label>
+      <input class="input" type="date" id="relDe" value="${esc(f.de)}" style="max-width:170px">
+      <input class="input" type="date" id="relAte" value="${esc(f.ate)}" style="max-width:170px">
+      <button class="btn btn-outline btn-sm" id="relLimpar">Tudo</button>
+      <span class="grow"></span>
+      <span class="small muted">${f.de || f.ate
+        ? `${f.de || 'início'} até ${f.ate || 'hoje'}` : 'todo o histórico'}</span>
+    </div>
+  </div>`;
+}
+
+function ligarFiltroPeriodo(f) {
+  document.getElementById('relDe')?.addEventListener('change', e => { f.de = e.target.value; App.route(); });
+  document.getElementById('relAte')?.addEventListener('change', e => { f.ate = e.target.value; App.route(); });
+  document.getElementById('relLimpar')?.addEventListener('click', () => {
+    f.de = ''; f.ate = ''; App.route();
+  });
+}
