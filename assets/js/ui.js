@@ -273,6 +273,24 @@ const Softphone = {
     this.pintar(novo); this.ligar();
   },
 
+  /** Click-to-call: a central origina, o aparelho de mesa toca. */
+  async ligarPeloAparelho(destino) {
+    if (!destino) { toast('Informe um número para discar.', 'warn'); return; }
+    try {
+      const r = await Api.post('/discar', { destino });
+      toast(r.mensagem, 'ok');
+      this.numero = '';
+      this.aberto = false;
+      this.pintar();
+    } catch (e) {
+      // 422 é a conta sem ramal vinculado — a frase do servidor já
+      // explica, e repetir "erro ao discar" antes dela só atrapalha.
+      toast(e.status === 422 || e.status === 502
+        ? e.message
+        : (this.registro?.motivo || 'Não foi possível originar a chamada.'), 'err');
+    }
+  },
+
   tecla(t) {
     if (this.estado === 'em chamada') { SipLink.dtmf(t); return; }
     this.numero += t;
@@ -290,8 +308,13 @@ const Softphone = {
 
   ligar() {
     if (!this.numero) { toast('Informe um número para discar.', 'warn'); return; }
+
+    // Sem softphone pronto no navegador, quem toca é o aparelho de mesa:
+    // a central liga para o ramal e, quando ele atende, disca o destino.
+    // Antes o botão "Ligar" simplesmente não fazia nada para quem não usa
+    // o telefone do navegador — que é a maioria de quem tem aparelho.
     if (this.registro?.estado !== 'pronto') {
-      toast(this.registro?.motivo || 'O ramal ainda não registrou na central.', 'warn');
+      this.ligarPeloAparelho(this.numero.replace(/[^0-9*#+]/g, ''));
       return;
     }
 

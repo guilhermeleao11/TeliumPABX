@@ -52,7 +52,30 @@ const Api = {
       throw new ErroApi(dados?.erro || `Erro ${resposta.status}`, resposta.status, dados);
     }
 
+    // Gravou algo? O aviso de configuração pendente tem de acender
+    // agora. Antes ele só era lido na entrada do console e depois de
+    // aplicar: quem cadastrava um ramal e ficava na tela não via aviso
+    // nenhum até recarregar a página, e concluía que não precisava
+    // aplicar. Fica aqui porque é o único ponto por onde toda escrita
+    // passa, inclusive a das telas com formulário próprio.
+    if (metodo !== 'GET' && !caminho.startsWith('/auth/')) {
+      Api.avisarPendencia();
+    }
+
     return dados;
+  },
+
+  /**
+   * Relê o estado da configuração, no máximo uma vez por segundo.
+   *
+   * Salvar em lote — uma tela que grava vários registros seguidos —
+   * dispararia uma consulta por gravação sem este respiro.
+   */
+  avisarPendencia() {
+    clearTimeout(this._pendencia);
+    this._pendencia = setTimeout(() => {
+      if (typeof App !== 'undefined' && App.verificarConfig) App.verificarConfig();
+    }, 900);
   },
 
   /**

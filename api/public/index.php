@@ -650,6 +650,13 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->delete('/me/2fa', [CtrlAuth::class, 'desligar2fa']);
 
     // ---- portal do usuário: tudo preso ao ramal da sessão ----
+    // Click-to-call: o ramal de origem é sempre o da sessão, então a
+    // porta é a mesma do "Meu Ramal". As telas que oferecem o botão —
+    // agenda, relatório de chamadas — entram por referência.
+    $g->post('/discar', [Portal::class, 'discar'])
+      ->add(new Permissao('pcu.meuramal', null,
+            ['pcu.contatos', 'pcu.chamadas', 'admin.contatos', 'rel.cdr', 'conn.ramais']));
+
     $g->get('/me/ramal', [Portal::class, 'ramal'])
       ->add(new Permissao('pcu.meuramal', null, ['pcu.sigame', 'pcu.perfil']));
     $g->put('/me/ramal', [Portal::class, 'salvarRamal'])

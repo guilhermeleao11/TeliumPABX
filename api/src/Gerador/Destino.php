@@ -35,8 +35,16 @@ final class Destino
             'externo'   => ["Goto(telium-saida,{$valor},1)"],
             'condicao'  => ["Goto(telium-condicoes,{$valor},1)"],
             'disa'      => ["Goto(telium-disa,disa-{$valor},1)"],
+            'conferencia' => ["Goto(telium-conferencias,{$valor},1)"],
+            'paging'    => ["Goto(telium-paging,{$valor},1)"],
             'personalizado' => $this->paraPersonalizado((string) $valor),
+            // Três jeitos de encerrar, e a diferença importa para quem
+            // liga: desligar é silêncio, ocupado toca o tom de ocupado e
+            // congestionado diz "todos os circuitos estão ocupados". A
+            // operadora também lê a causa Q.850 de cada um.
             'desligar'  => ['Hangup()'],
+            'ocupado'   => ['Busy(20)', 'Hangup()'],
+            'congestionado' => ['Congestion(20)', 'Hangup()'],
             default     => ['NoOp(Destino não configurado)', 'Hangup()'],
         };
     }
@@ -85,6 +93,10 @@ final class Destino
             'condicao'  => "condição horária {$valor}",
             'disa'      => "DISA {$valor}",
             'externo'   => "número externo {$valor}",
+            'conferencia' => "conferência {$valor}",
+            'paging'    => "megafonia {$valor}",
+            'ocupado'   => 'tom de ocupado',
+            'congestionado' => 'tom de congestionamento',
             'personalizado' => isset($this->personalizados[(int) $valor])
                 ? "destino personalizado {$this->personalizados[(int) $valor]['nome']}"
                 : "destino personalizado {$valor} (não encontrado)",

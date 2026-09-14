@@ -1159,7 +1159,15 @@ final class GeradorDialplan
                        . ' ${CALLERID(name)})');
             }
 
-            if ((int) $r['gravar'] === 1) {
+            // Recusar não é atender. Com Answer() antes, o "tom de
+            // ocupado" vira vinte segundos de tom numa chamada já
+            // atendida — e cobrada — em vez de um 486 devolvido à
+            // operadora, que é o que faz o telefone de quem ligou
+            // mostrar ocupado. Gravar uma recusa também não serve para
+            // nada: o arquivo sai com o tom.
+            $recusa = in_array($r['destino_tipo'], ['ocupado', 'congestionado'], true);
+
+            if ((int) $r['gravar'] === 1 && !$recusa) {
                 $b->same('Answer()')
                   ->same('GoSub(sub-decidir-gravacao,s,1(1,sim,entrada))');
             }

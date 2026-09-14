@@ -587,6 +587,13 @@ function paginaCrud(cfg) {
             campos.forEach(c => {
               const el = dw.querySelector(`[name="${c.campo}"]`);
               if (!el) return;
+              // Um seletor de destino grava duas colunas.
+              if (c.tipo === 'destino') {
+                const d = lerDestino(el);
+                dados[`${c.campo}_tipo`] = d.tipo;
+                dados[`${c.campo}_valor`] = d.valor;
+                return;
+              }
               let v = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
               if (v === '' && c.tipo === 'number') v = null;
               // Segredo em branco o servidor mantém; marcar "remover" é
@@ -736,6 +743,14 @@ function validarCampos(escopo, campos) {
 
     const valor = (el.value || '').trim();
 
+    if (c.tipo === 'destino') {
+      if (c.obrigatorio && (valor === '|' || valor === '')) {
+        marcarErro(escopo, c.campo, 'Escolha para onde a chamada vai.');
+        problemas.push(c.label);
+      }
+      return;
+    }
+
     if (c.obrigatorio && valor === '') {
       marcarErro(escopo, c.campo, 'Este campo é obrigatório.');
       problemas.push(c.label);
@@ -805,6 +820,18 @@ function campoHtml(c, item) {
       <textarea class="textarea" name="${c.campo}" placeholder="${esc(c.placeholder || '')}" ${desabilitado}>${esc(v)}</textarea>
       ${c.ajuda ? `<span class="hint">${esc(c.ajuda)}</span>` : ''}
     </div>`;
+  }
+
+  // O seletor de destino é o mesmo das outras telas — um <select> com
+  // todos os tipos agrupados, mais o campo do número externo. Entra aqui
+  // como tipo de campo para qualquer cadastro poder usá-lo: a rota de
+  // entrada usava um seletor próprio, de dois campos, que oferecia oito
+  // tipos enquanto a central já entendia quinze.
+  if (c.tipo === 'destino') {
+    return destinoSelect(c.campo, item, c.destinos, {
+      label: c.label, ajuda: c.ajuda, largura: c.largura,
+      obrigatorio: c.obrigatorio, rotuloVazio: c.rotuloVazio
+    });
   }
 
   // Campo secreto: a leitura nunca devolve o valor, então ele reabre
@@ -1781,7 +1808,10 @@ PAGES['rel.cdr'] = {
           <tr>
             <td class="mono small">${dataHora(c.calldate)}</td>
             <td class="mono">${esc(c.src)}</td>
-            <td class="mono">${esc(c.dst)}</td>
+            <td class="mono">${esc(c.dst)}
+              <button class="btn btn-ghost btn-sm btn-icon" data-tip="Ligar para este número"
+                      data-ligar="${esc(c.direcao === 'entrada' ? c.src : c.dst)}"
+                      aria-label="Ligar">${icon('phone','ico ico-sm')}</button></td>
             <td>${c.direcao ? `<span class="badge">${icon(DIRECAO_ICO[c.direcao] || 'phone','ico ico-sm')}${esc(c.direcao)}</span>` : '<span class="muted">—</span>'}</td>
             <td class="num">${duracao(c.duration)}</td>
             <td class="num">${duracao(c.billsec)}</td>
@@ -1840,6 +1870,11 @@ PAGES['rel.cdr'] = {
         }, evento === 'input' ? 400 : 0);
       });
     });
+    document.querySelectorAll('[data-ligar]').forEach(b => b.onclick = ev => {
+      ev.stopPropagation();
+      Softphone.discarPara(b.dataset.ligar);
+    });
+
     document.querySelectorAll('[data-pagina]').forEach(b => b.onclick = () => {
       this._f.pagina = Number(b.dataset.pagina);
       App.route();

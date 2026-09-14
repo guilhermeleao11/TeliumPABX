@@ -27,8 +27,13 @@ final class Conferencia
         $grupos = self::coluna('SELECT numero FROM grupos_toque WHERE ativo = 1', 'numero');
         $anun   = self::coluna('SELECT id FROM anuncios WHERE ativo = 1', 'id');
         $cond   = self::coluna('SELECT id FROM condicoes_horarias WHERE ativo = 1', 'id');
+        $conf   = self::coluna('SELECT numero FROM conferencias WHERE ativo = 1', 'numero');
+        $pag    = self::coluna('SELECT numero FROM grupos_paging WHERE ativo = 1', 'numero');
+        $disa   = self::coluna('SELECT id FROM disa WHERE ativo = 1', 'id');
 
-        $existe = static function (?string $tipo, ?string $valor) use ($ramais, $filas, $uras, $grupos, $anun, $cond): bool {
+        $existe = static function (?string $tipo, ?string $valor) use (
+            $ramais, $filas, $uras, $grupos, $anun, $cond, $conf, $pag, $disa
+        ): bool {
             $valor = (string) $valor;
 
             return match ($tipo) {
@@ -39,7 +44,12 @@ final class Conferencia
                 'anuncio'   => in_array($valor, $anun, true),
                 'condicao'  => in_array($valor, $cond, true),
                 'voicemail' => in_array($valor, $ramais, true),
-                default     => true,   // externo, personalizado, desligar
+                'conferencia' => in_array($valor, $conf, true),
+                'paging'    => in_array($valor, $pag, true),
+                'disa'      => in_array($valor, $disa, true),
+                // externo e personalizado apontam para fora do cadastro;
+                // desligar, ocupado e congestionado não têm valor.
+                default     => true,
             };
         };
 
@@ -113,6 +123,32 @@ final class Conferencia
                     ];
                 }
             }
+        }
+
+        // Duas rotas de saída com o mesmo padrão: o Asterisk registra a
+        // primeira e recusa a segunda com "already in use" — no log, que
+        // ninguém lê. Quem criou "Celular Vivo" e "Celular Claro" com o
+        // mesmo padrão fica com uma rota que nunca é usada e não tem como
+        // saber. A ordem decide qual vale.
+        $vistos = [];
+        foreach (self::consulta(
+            'SELECT nome, padrao, ordem FROM rotas_saida WHERE ativo = 1 ORDER BY ordem, id'
+        ) as $r) {
+            $padrao = trim((string) $r['padrao']);
+            if ($padrao === '') {
+                continue;
+            }
+            if (isset($vistos[$padrao])) {
+                $p[] = [
+                    'nivel' => 'aviso',
+                    'onde'  => "rota de saída {$r['nome']}",
+                    'texto' => "usa o mesmo padrão \"{$padrao}\" da rota \"{$vistos[$padrao]}\", "
+                             . 'que vem antes na ordem. O Asterisk fica só com a primeira: '
+                             . 'esta rota nunca é usada.',
+                ];
+                continue;
+            }
+            $vistos[$padrao] = $r['nome'];
         }
 
         // Rota de saída sem tronco ativo não disca.

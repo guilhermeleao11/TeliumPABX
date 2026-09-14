@@ -423,3 +423,10 @@
   .crumbs .c-item:not(.cur) { display: none; }
   .crumbs .ico { display: none; }
 }
+
+/* Seletor de destino: o campo do número externo fica ao lado do select
+   e só aparece quando "Número externo" é escolhido. */
+.destino-par { display: flex; gap: 8px; align-items: center; }
+.destino-par select { flex: 1 1 auto; min-width: 0; }
+.destino-par input[data-destino-externo] { flex: 0 1 190px; min-width: 0; }
+.destino-par input[hidden] { display: none; }

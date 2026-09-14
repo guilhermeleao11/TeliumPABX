@@ -11,6 +11,7 @@ use Telium\Dominio\Totp;
 use Telium\Gerador\Aplicador;
 use Telium\Gerador\Bloco;
 use Telium\Gerador\Conferencia;
+use Telium\Gerador\Destino;
 use Telium\Gerador\GeradorPjsip;
 use Telium\Http\Middleware\Permissao;
 use Telium\Http\Controllers\Diagnostico;
@@ -42,6 +43,7 @@ final class Testes
         $this->grupo('Tronco gerado', $this->troncoGerado(...));
         $this->grupo('Endereço público e faixas locais', $this->nat(...));
         $this->grupo('Permissão por referência', $this->permissaoReferencia(...));
+        $this->grupo('Destinos de chamada', $this->destinos(...));
 
         if ($comBanco) {
             $this->grupo('Banco e esquema', $this->banco(...));
@@ -58,6 +60,65 @@ final class Testes
         }
 
         return ['passou' => $this->passou, 'falhou' => $this->falhou, 'erros' => $this->erros];
+    }
+
+    // ---------------------------------------------------------------
+    /**
+     * Todo destino que a tela oferece tem de virar dialplan.
+     *
+     * A tela e o resolvedor cresceram separados: o seletor oferecia oito
+     * grupos e o resolvedor entendia onze, com DISA carregada e nunca
+     * mostrada. Um destino que a tela mostra e o gerador não conhece vira
+     * "NoOp(Destino não configurado)" — a chamada cai e ninguém sabe por quê.
+     */
+    private function destinos(): void
+    {
+        $d = new Destino(
+            ['1001' => ['numero' => '1001', 'tempo_toque' => 20, 'voicemail' => 1, 'opcoes_dial' => '']],
+            [7 => ['nome' => 'Hora certa', 'contexto' => 'telium-recursos',
+                   'extensao' => '*60', 'prioridade' => 1]]
+        );
+
+        $esperado = [
+            'ramal'         => ['1001', 'GoSub(sub-ramal'],
+            'fila'          => ['3000', 'Goto(telium-filas,3000,1)'],
+            'ura'           => ['1',    'Goto(telium-ura-1,s,1)'],
+            'grupo'         => ['2000', 'Goto(telium-grupos,2000,1)'],
+            'voicemail'     => ['1001', 'VoiceMail(1001@telium,u)'],
+            'anuncio'       => ['3',    'Goto(telium-anuncios,3,1)'],
+            'condicao'      => ['2',    'Goto(telium-condicoes,2,1)'],
+            'conferencia'   => ['4000', 'Goto(telium-conferencias,4000,1)'],
+            'paging'        => ['5000', 'Goto(telium-paging,5000,1)'],
+            'disa'          => ['1',    'Goto(telium-disa,disa-1,1)'],
+            'externo'       => ['011999', 'Goto(telium-saida,011999,1)'],
+            'personalizado' => ['7',    'Goto(telium-recursos,*60,1)'],
+            'desligar'      => ['',     'Hangup()'],
+            'ocupado'       => ['',     'Busy(20)'],
+            'congestionado' => ['',     'Congestion(20)'],
+        ];
+
+        foreach ($esperado as $tipo => [$valor, $trecho]) {
+            $linhas = implode(' | ', $d->linhas($tipo, $valor));
+            $this->ok(
+                str_contains($linhas, $trecho),
+                sprintf('destino "%s" vira %s', $tipo, $trecho)
+            );
+        }
+
+        $this->ok(
+            str_contains(implode(' ', $d->linhas('inventado', '1')), 'não configurado'),
+            'destino desconhecido não some em silêncio'
+        );
+
+        // Cada tipo precisa de uma frase para a linha de comentário do
+        // dialplan e para a tela de conferência do cadastro.
+        $semDescricao = [];
+        foreach (array_keys($esperado) as $tipo) {
+            if ($d->descricao($tipo, '1') === 'não configurado') {
+                $semDescricao[] = $tipo;
+            }
+        }
+        $this->ok($semDescricao === [], 'todo destino sabe se descrever: ' . (implode(',', $semDescricao) ?: 'ok'));
     }
 
     // ---------------------------------------------------------------

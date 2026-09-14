@@ -276,6 +276,89 @@ final class Portal
     }
 
     // ---------------------------------------------------------------
+    /**
+     * POST /api/discar — click-to-call.
+     *
+     * Toca primeiro no ramal de quem clicou; quando ele atende, a
+     * central disca o destino. É a ordem que faz sentido no balcão:
+     * ninguém quer o cliente ouvindo o telefone da recepção tocar.
+     *
+     * A origem vem da sessão, nunca do que o navegador manda — senão
+     * qualquer um faria o telefone do vizinho ligar para onde quisesse.
+     * E o destino entra pelo contexto do próprio ramal, então passa pela
+     * permissão de discagem, pelo limite de chamadas e pela rota de
+     * saída como se a pessoa tivesse discado no aparelho.
+     */
+    public function discar(Request $req, Response $res): Response
+    {
+        $r = $this->meuRamal($req);
+        if ($r === null) {
+            return Resposta::erro(
+                $res,
+                'Sua conta não tem ramal vinculado, então não há de onde originar a chamada.',
+                422
+            );
+        }
+
+        $corpo = (array) $req->getParsedBody();
+        // Só o que se disca num teclado. Sem isto, o valor viaja para uma
+        // ação do AMI e vira superfície de ataque.
+        $destino = preg_replace('/[^0-9*#+]/', '', (string) ($corpo['destino'] ?? '')) ?? '';
+        if ($destino === '') {
+            return Resposta::erro($res, 'Informe o número a discar.', 422, ['campo' => 'destino']);
+        }
+
+        $numero = (string) $r['numero'];
+        $contexto = (string) ($r['contexto_custom'] ?: $r['contexto']);
+
+        try {
+            // doAmbiente(), não new Ami(): o construtor nu usa
+            // credenciais vazias e o AMI recusa a autenticação.
+            $ami = Ami::doAmbiente();
+            $ami->conectar();
+            $resposta = $ami->acao([
+                'Action'   => 'Originate',
+                'Channel'  => "PJSIP/{$numero}",
+                'Context'  => $contexto,
+                'Exten'    => $destino,
+                'Priority' => '1',
+                // Quem vê o número no visor é o ramal, e o que ele
+                // precisa ver é para onde a chamada vai.
+                'CallerID' => "{$destino} <{$numero}>",
+                'Timeout'  => '30000',
+                'Async'    => 'true',
+            ]);
+            $ami->desconectar();
+        } catch (\Throwable $e) {
+            return Resposta::erro($res, 'A central não respondeu: ' . $e->getMessage(), 502);
+        }
+
+        if (!str_contains($resposta, 'Success')) {
+            return Resposta::erro(
+                $res,
+                'A central recusou a originação. Confira se o ramal está registrado.',
+                502,
+                ['saida' => trim($resposta)]
+            );
+        }
+
+        Auditoria::registrar(
+            $req->getAttribute('usuario'),
+            'discar',
+            'pcu.meuramal',
+            $destino,
+            ['ramal' => $numero, 'destino' => $destino],
+            $req->getServerParams()['REMOTE_ADDR'] ?? null
+        );
+
+        return Resposta::json($res, [
+            'ok' => true,
+            'ramal' => $numero,
+            'destino' => $destino,
+            'mensagem' => "Seu ramal {$numero} vai tocar. Atenda para a central discar {$destino}.",
+        ]);
+    }
+
     private function meuRamal(Request $req): ?array
     {
         $eu = (array) $req->getAttribute('usuario');

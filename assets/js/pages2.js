@@ -5,23 +5,32 @@
 
 /* Opções de destino usadas por rotas e URA — carregadas do banco. */
 async function opcoesDestino() {
-  const [ramais, filas, uras, custom, grupos, anuncios, disa] = await Promise.all([
-    Api.get('/ramais', { limite: 500 }).catch(() => ({ dados: [] })),
-    Api.get('/filas', { limite: 200 }).catch(() => ({ dados: [] })),
-    Api.get('/ura', { limite: 100 }).catch(() => ({ dados: [] })),
-    Api.get('/destinos-personalizados', { limite: 200 }).catch(() => ({ dados: [] })),
-    Api.get('/grupos-toque', { limite: 200 }).catch(() => ({ dados: [] })),
-    Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] })),
-    Api.get('/disa', { limite: 100 }).catch(() => ({ dados: [] }))
-  ]);
+  const vazio = () => ({ dados: [] });
+  const [ramais, filas, uras, custom, grupos, anuncios, disa, condicoes, conferencias, paging] =
+    await Promise.all([
+      Api.get('/ramais', { limite: 500 }).catch(vazio),
+      Api.get('/filas', { limite: 200 }).catch(vazio),
+      Api.get('/ura', { limite: 100 }).catch(vazio),
+      Api.get('/destinos-personalizados', { limite: 200 }).catch(vazio),
+      Api.get('/grupos-toque', { limite: 200 }).catch(vazio),
+      Api.get('/anuncios', { limite: 200 }).catch(vazio),
+      Api.get('/disa', { limite: 100 }).catch(vazio),
+      Api.get('/condicoes-horarias', { limite: 200 }).catch(vazio),
+      Api.get('/conferencias', { limite: 200 }).catch(vazio),
+      Api.get('/grupos-paging', { limite: 200 }).catch(vazio)
+    ]);
+  const ativos = l => (l.dados || []).filter(x => Number(x.ativo));
   return {
     ramais: ramais.dados, filas: filas.dados, uras: uras.dados,
     grupos: grupos.dados,
-    disa: (disa.dados || []).filter(d => Number(d.ativo)),
+    disa: ativos(disa),
+    condicoes: ativos(condicoes),
+    conferencias: ativos(conferencias),
+    paging: ativos(paging),
     // Anúncio, não gravação: a gravação é matéria-prima, o anúncio é o
     // que sabe o que fazer com ela.
-    anuncios: anuncios.dados.filter(a => Number(a.ativo)),
-    personalizados: custom.dados.filter(d => Number(d.ativo))
+    anuncios: ativos(anuncios),
+    personalizados: ativos(custom)
   };
 }
 
@@ -33,7 +42,11 @@ async function opcoesDestino() {
  */
 function destinoSelect(prefixo, item, destinos, extras = {}) {
   const d = destinos || {};
-  const atual = `${item?.[`${prefixo}_tipo`] || ''}|${item?.[`${prefixo}_valor`] ?? ''}`;
+  const tipoAtual = item?.[`${prefixo}_tipo`] || '';
+  const valorAtual = item?.[`${prefixo}_valor`] ?? '';
+  // "externo" é o único destino cujo valor é digitado: a opção no
+  // seletor é sempre "externo|", e o número vive no campo ao lado.
+  const atual = tipoAtual === 'externo' ? 'externo|' : `${tipoAtual}|${valorAtual}`;
 
   const grupo = (rotulo, itens) => itens.length
     ? `<optgroup label="${esc(rotulo)}">${itens.map(o =>
@@ -47,16 +60,36 @@ function destinoSelect(prefixo, item, destinos, extras = {}) {
     grupo('Grupos de toque', (d.grupos || []).map(g => ({ v: `grupo|${g.numero}`, r: `${g.numero} — ${g.nome}` }))),
     grupo('Correio de voz', (d.ramais || []).map(r => ({ v: `voicemail|${r.numero}`, r: `Caixa de ${r.numero} — ${r.nome}` }))),
     grupo('Anúncios', (d.anuncios || []).map(a => ({ v: `anuncio|${a.id}`, r: a.nome }))),
+    grupo('Condições horárias', (d.condicoes || []).map(c =>
+        ({ v: `condicao|${c.id}`, r: c.nome }))),
+    grupo('Conferências', (d.conferencias || []).map(c =>
+        ({ v: `conferencia|${c.numero}`, r: `${c.numero} — ${c.nome}` }))),
+    grupo('DISA', (d.disa || []).map(x => ({ v: `disa|${x.id}`, r: x.nome }))),
+    grupo('Megafonia', (d.paging || []).map(g =>
+        ({ v: `paging|${g.numero}`, r: `${g.numero} — ${g.nome}` }))),
     grupo('Destinos personalizados', (d.personalizados || []).map(x =>
         ({ v: `personalizado|${x.id}`, r: `${x.nome} (${x.contexto},${x.extensao})` }))),
-    grupo('Encerrar', [{ v: 'desligar|', r: 'Desligar a chamada' }])
+    // Número externo é o único destino que não sai de um cadastro: o
+    // campo de texto ao lado só aparece quando esta opção é escolhida.
+    grupo('Fora da central', [{ v: 'externo|', r: 'Número externo — transbordo' }]),
+    // Três jeitos de encerrar, e quem liga ouve coisas diferentes.
+    grupo('Encerrar', [
+      { v: 'desligar|', r: 'Desligar a chamada' },
+      { v: 'ocupado|', r: 'Tom de ocupado' },
+      { v: 'congestionado|', r: 'Tom de congestionamento' }
+    ])
   ].join('');
 
   const semEscolha = extras.rotuloVazio ?? '— escolha um destino —';
-  const select = `<select class="select" name="${prefixo}" data-destino>
+  const select = `<span class="destino-par">
+    <select class="select" name="${prefixo}" data-destino>
       <option value="|" ${atual === '|' || atual.startsWith('undefined') ? 'selected' : ''}>${esc(semEscolha)}</option>
       ${corpo}
-    </select>`;
+    </select>
+    <input class="input mono" data-destino-externo type="text" inputmode="tel"
+           placeholder="número com DDD" value="${tipoAtual === 'externo' ? esc(valorAtual) : ''}"
+           ${tipoAtual === 'externo' ? '' : 'hidden'}>
+  </span>`;
 
   // Dentro de uma tabela não cabe rótulo nem ajuda; só o seletor.
   if (extras.nu) return select;
@@ -78,34 +111,25 @@ function opcoesAnuncio(anuncios, rotuloVazio = '— nenhum —') {
 /** Lê um destinoSelect de volta para {tipo, valor}. */
 function lerDestino(el) {
   const [tipo, ...resto] = String(el?.value ?? '|').split('|');
+  if (tipo === 'externo') {
+    const campo = el?.parentElement?.querySelector('[data-destino-externo]');
+    return { tipo, valor: (campo?.value || '').replace(/[^0-9*#+]/g, '') };
+  }
   return { tipo, valor: resto.join('|') };
 }
 
-function seletorDestino(prefixo, item, destinos) {
-  const tipos = [
-    { valor: 'ramal', rotulo: 'Ramal' }, { valor: 'fila', rotulo: 'Fila' },
-    { valor: 'ura', rotulo: 'URA' }, { valor: 'voicemail', rotulo: 'Correio de voz' },
-    { valor: 'anuncio', rotulo: 'Anúncio' }, { valor: 'personalizado', rotulo: 'Destino personalizado' },
-    { valor: 'disa', rotulo: 'DISA' }, { valor: 'desligar', rotulo: 'Desligar' }
-  ];
-  const valores = [
-    ...destinos.ramais.map(r => ({ valor: r.numero, rotulo: `Ramal ${r.numero} — ${r.nome}`, tipo: 'ramal' })),
-    ...destinos.filas.map(f => ({ valor: f.numero, rotulo: `Fila ${f.numero} — ${f.nome}`, tipo: 'fila' })),
-    ...destinos.uras.map(u => ({ valor: String(u.id), rotulo: `URA — ${u.nome}`, tipo: 'ura' })),
-    ...(destinos.personalizados || []).map(d => ({
-      valor: String(d.id), rotulo: `Personalizado — ${d.nome} (${d.contexto},${d.extensao})`,
-      tipo: 'personalizado'
-    })),
-    ...(destinos.disa || []).map(d => ({
-      valor: String(d.id), rotulo: `DISA — ${d.nome}`, tipo: 'disa'
-    }))
-  ];
-  return [
-    { campo: `${prefixo}_tipo`, label: 'Tipo de destino', tipo: 'select', opcoes: tipos },
-    { campo: `${prefixo}_valor`, label: 'Destino', tipo: 'select',
-      opcoes: valores.length ? valores : [{ valor: '', rotulo: 'cadastre ramais ou filas antes' }] }
-  ];
-}
+// O campo do número externo aparece e some com a escolha. Delegado no
+// documento porque o seletor é montado dentro de telas que não têm um
+// gancho próprio para ligar eventos.
+document.addEventListener('change', ev => {
+  const sel = ev.target.closest?.('[data-destino]');
+  if (!sel) return;
+  const campo = sel.parentElement?.querySelector('[data-destino-externo]');
+  if (!campo) return;
+  campo.hidden = !String(sel.value).startsWith('externo|');
+  if (!campo.hidden) campo.focus();
+});
+
 
 /* ------------------------- Rotas de entrada ------------------------- */
 PAGES['conn.rotasentrada'] = paginaCrud({
@@ -138,7 +162,10 @@ PAGES['conn.rotasentrada'] = paginaCrud({
       ajuda: 'Aceita padrão do dialplan, por exemplo _X. para qualquer número. '
            + 'Um asterisco sozinho vale como "qualquer DID" e é sempre avaliado por último.' },
     { campo: 'descricao', label: 'Descrição', placeholder: 'Comercial 0800' },
-    ...seletorDestino('destino', r, pagina._destinos || { ramais: [], filas: [], uras: [] }),
+    { campo: 'destino', tipo: 'destino', label: 'Para onde vai a chamada', obrigatorio: true,
+      largura: 'full', destinos: pagina._destinos,
+      ajuda: 'Todo destino que a central sabe alcançar. "Número externo" passa pelas rotas de '
+           + 'saída, então use o mesmo formato que um ramal discaria.' },
     { campo: 'ordem', label: 'Ordem de avaliação', tipo: 'number', padrao: 10 },
     { campo: 'gravar', label: 'Gravar chamadas desta rota', tipo: 'switch' },
     { campo: 'ativo', label: 'Rota ativa', tipo: 'switch', padrao: 1 }

@@ -237,6 +237,14 @@ Guarda webhooks e chaves; nenhuma URL é chamada.
 
 Entre com um usuário de perfil Operador vinculado ao ramal 1001.
 
+### Click-to-call — **falta provar**
+Na agenda ou no relatório de chamadas, clique em **Ligar**. Com o
+softphone do navegador registrado, a chamada sai por ele. Sem ele, a
+central liga para o seu ramal e, quando você atende, disca o destino —
+teste com um aparelho de mesa, que é o caso de quem não usa o navegador.
+O número discado passa pela sua permissão e pela rota de saída como se
+você tivesse digitado no aparelho.
+
 ### Meu Ramal, Minhas Chamadas, Meu Correio de Voz, Meu Siga-me, Meus Contatos, Meu Perfil — **falta provar**
 O ramal vem sempre da sessão, nunca do que o navegador manda — vale
 tentar trocar o ramal na requisição e confirmar que não adianta.
