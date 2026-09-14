@@ -181,13 +181,44 @@ final class Testes
      */
     private function aplicar(): void
     {
+        // Antes de qualquer coisa: o dialplan está de pé?
+        //
+        // Basta um arquivo do #include faltar para o pbx_config recusar
+        // carregar, e aí a central não roteia mais nada. O sintoma que
+        // aparece primeiro é enganoso — "dialplan reload" some, porque
+        // quem registra esse comando é o módulo que não subiu —, então
+        // a conferência começa pela causa, não pelo sintoma.
+        $modulo = (string) Ami::tentarComando('module show like pbx_config');
+        $this->ok(
+            str_contains($modulo, 'Running') && !str_contains($modulo, 'Not Running'),
+            'o módulo do dialplan está carregado'
+            . (str_contains($modulo, 'Not Running')
+                ? ' — NÃO ESTÁ: a central não roteia nenhuma chamada neste estado. '
+                . 'Quase sempre é um arquivo do #include faltando em '
+                . 'extensions.conf; procure "does not exist" no log do Asterisk.'
+                : '')
+        );
+
+        $contextos = (string) Ami::tentarComando('dialplan show');
+        preg_match('/in (\d+) contexts/', $contextos, $m);
+        $quantos = (int) ($m[1] ?? 0);
+        $this->ok($quantos >= 10, "o dialplan tem os contextos do Telium ({$quantos} carregados)");
+
         // Cada comando da lista existe nesta versão do Asterisk?
+        //
+        // A falha mostra o que o Asterisk respondeu: sem isso, o teste
+        // diz que o comando foi recusado e não diz por quê, e quem está
+        // instalando a central fica sem saber o que fazer com a
+        // informação.
         foreach (Aplicador::comandosDeRecarga() as $comando => $descricao) {
             $r = (string) Ami::tentarComando($comando);
+            $conhece = !str_contains(strtolower($r), 'no such command')
+                && !str_contains(strtolower($r), 'does not support reload');
+
             $this->ok(
-                !str_contains(strtolower($r), 'no such command')
-                && !str_contains(strtolower($r), 'does not support reload'),
+                $conhece,
                 "o Asterisk conhece a recarga de {$descricao} (\"{$comando}\")"
+                . ($conhece ? '' : ' — respondeu: ' . $this->resumo($r))
             );
         }
 
@@ -229,8 +260,32 @@ final class Testes
         $this->ok(
             (bool) $resultado['sucesso'],
             'aplicar a configuração inteira termina em sucesso'
-            . ($falharam === [] ? '' : ' — falhou em: ' . implode(', ', $falharam))
+            . ($falharam === [] ? '' : ' — falhou em: ' . implode(', ', $falharam)
+                                     . "\n      saída do Asterisk: " . $this->resumo($resultado['saida']))
         );
+    }
+
+    /**
+     * A parte útil de uma resposta do AMI, numa linha.
+     *
+     * O envelope do protocolo e o "Output:" de cada linha não ajudam
+     * quem está lendo o resultado de um teste às duas da manhã.
+     */
+    private function resumo(string $bruto): string
+    {
+        $linhas = [];
+        foreach (explode("\n", $bruto) as $linha) {
+            $linha = trim(preg_replace('/^Output:\s?/', '', rtrim($linha, "\r")) ?? '');
+            if ($linha === '' || preg_match('/^(Response|ActionID|Message|Privilege|--END)/', $linha)) {
+                continue;
+            }
+            $linhas[] = $linha;
+            if (count($linhas) === 3) {
+                break;
+            }
+        }
+
+        return $linhas === [] ? '(resposta vazia — o AMI não respondeu)' : implode(' | ', $linhas);
     }
 
     // ---------------------------------------------------------------

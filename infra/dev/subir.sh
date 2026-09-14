@@ -203,6 +203,12 @@ INI'
 
   docker exec -d v-ast asterisk -f -vvv
   sleep 6
+
+  # "docker restart v-ast" mata o Asterisk e traz de volta só o
+  # sleep do contêiner. O atalho abaixo é o jeito certo de reiniciá-lo
+  # na bancada — está aqui para quem vier depois não penar como eu penei.
+  #   docker exec v-ast sh -c 'pkill -f "asterisk -f"; rm -f /var/run/asterisk/asterisk.ctl'
+  #   docker exec -d v-ast asterisk -f -vvv
   # Sem arquivo nenhum, a classe de música em espera some sem avisar e
   # a fila toca silêncio.
   # A imagem do Asterisk vem sem nenhum arquivo de som. Dois arquivos de
