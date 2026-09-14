@@ -5168,3 +5168,184 @@ PAGES['cfg.sip'] = {
       <div style="margin-top:16px">${blocoCli('Custo de conversão entre codecs', d.codecs)}</div>`;
   }
 };
+
+/** Formulário de uma tabela de linha única (parâmetros gerais). */
+function paginaAjustes(cfg) {
+  return {
+    async render(ctx) {
+      let d;
+      try { d = await Api.get(`/${cfg.recurso}/1`); }
+      catch (e) { return pageHead(cfg.titulo, cfg.sub) + blocoErro(e); }
+
+      const campos = cfg.campos(d, ctx);
+      const abas = [...new Set(campos.map(c => c.grupo || 'Geral'))];
+
+      return pageHead(cfg.titulo, cfg.sub) + `
+        <form id="fAjustes">
+          ${abas.map(a => `
+            <div class="card" style="padding:18px;margin-bottom:14px">
+              ${abas.length > 1 ? `<b>${esc(a)}</b><div style="height:10px"></div>` : ''}
+              <div class="form-grid">
+                ${campos.filter(c => (c.grupo || 'Geral') === a)
+                        .map(c => campoHtml(c, d)).join('')}
+              </div>
+            </div>`).join('')}
+          ${ctx.can('editar') ? `<div class="row gap-8">
+            <button class="btn btn-primary btn-sm" type="submit">
+              ${icon('check','ico ico-sm')} Salvar</button>
+            <span class="small muted" id="ajEstado"></span>
+          </div>` : readOnlyNote(ctx)}
+        </form>
+        ${cfg.rodape ? cfg.rodape(d) : ''}`;
+    },
+
+    mount() {
+      document.getElementById('fAjustes')?.addEventListener('submit', async ev => {
+        ev.preventDefault();
+        const estado = document.getElementById('ajEstado');
+        estado.textContent = 'salvando…';
+        try {
+          await Api.put(`/${cfg.recurso}/1`, lerFormulario(ev.currentTarget));
+          estado.textContent = '';
+          toast('Salvo. Aplique as configurações para a central passar a usar.', 'ok');
+          App.route();
+        } catch (e) { estado.textContent = ''; toast(e.message, 'err'); }
+      });
+    }
+  };
+}
+
+/* ------------------------- Configurações · Correio de voz ------------------------- */
+PAGES['cfg.correiovoz'] = paginaAjustes({
+  recurso: 'voicemail-geral',
+  titulo: 'Correio de Voz',
+  sub: 'Como as caixas se comportam. Quem tem correio e qual a senha fica no cadastro do ramal.',
+  campos: () => [
+    { grupo: 'Gravação', campo: 'max_segundos', label: 'Duração máxima do recado (s)',
+      tipo: 'number', padrao: 180,
+      ajuda: 'Passando disso a central corta. 180 s costuma bastar; muito mais vira recado que ninguém ouve.' },
+    { grupo: 'Gravação', campo: 'min_segundos', label: 'Duração mínima (s)', tipo: 'number', padrao: 2,
+      ajuda: 'Recado mais curto que isto é descartado — é quase sempre engano ou silêncio.' },
+    { grupo: 'Gravação', campo: 'max_mensagens', label: 'Máximo de recados por caixa',
+      tipo: 'number', padrao: 100 },
+    { grupo: 'Gravação', campo: 'formato', label: 'Formatos gravados', mono: true,
+      padrao: 'wav49|gsm|wav',
+      ajuda: 'Separados por barra vertical. O wav49 é o que abre no Windows sem instalar nada.' },
+    { grupo: 'Gravação', campo: 'max_tentativas', label: 'Tentativas de senha', tipo: 'number', padrao: 3 },
+
+    { grupo: 'O que a pessoa ouve', campo: 'dizer_origem',
+      label: 'Falar de quem é o recado', tipo: 'switch', padrao: 1 },
+    { grupo: 'O que a pessoa ouve', campo: 'dizer_hora',
+      label: 'Falar a duração do recado', tipo: 'switch', padrao: 1 },
+
+    { grupo: 'E-mail', campo: 'anexar', label: 'Anexar a gravação no e-mail',
+      tipo: 'switch', padrao: 1, largura: 'full' },
+    { grupo: 'E-mail', campo: 'apagar_apos_email',
+      label: 'Apagar da caixa depois de enviar por e-mail', tipo: 'switch', largura: 'full',
+      ajuda: 'Ligado, o recado só existe no e-mail. Quem depende do telefone para ouvir perde o acesso.' },
+    { grupo: 'E-mail', campo: 'assunto', label: 'Assunto', largura: 'full',
+      ajuda: 'Aceita ${VM_CALLERID}, ${VM_NAME}, ${VM_DATE} e ${VM_DUR}.' },
+    { grupo: 'E-mail', campo: 'corpo', label: 'Corpo da mensagem', tipo: 'textarea', largura: 'full',
+      ajuda: 'Em branco, a central usa um texto padrão com o nome da empresa.' }
+  ],
+  rodape: () => `<div class="card" style="padding:14px">
+    <div class="row gap-12" style="align-items:flex-start">
+      ${icon('info','ico')}
+      <div class="small muted">
+        O envio por e-mail depende de <b>Configurações › Notificações e E-mail</b> estar ligado
+        e testado. Sem isso, o ramal pode pedir a cópia e nada chega.
+      </div>
+    </div>
+  </div>`
+});
+
+/* ------------------------- Configurações · Fax ------------------------- */
+PAGES['cfg.fax'] = paginaAjustes({
+  recurso: 'fax-geral',
+  titulo: 'Fax',
+  sub: 'Recepção de fax pela própria central, sem aparelho. O código *666 recebe no ramal.',
+  campos: () => [
+    { campo: 'ativo', label: 'Receber fax nesta central', tipo: 'switch', padrao: 1, largura: 'full' },
+    { campo: 'email_destino', label: 'Mandar o fax recebido para', largura: 'full',
+      placeholder: 'recepcao@suaempresa.com.br',
+      ajuda: 'Em branco, o arquivo fica só no servidor, em /var/spool/asterisk/fax.' },
+    { campo: 'cabecalho', label: 'Cabeçalho impresso', largura: 'full',
+      placeholder: 'Minha Empresa Ltda',
+      ajuda: 'Texto que aparece no topo da página no aparelho do outro lado.' },
+    { campo: 'ecm', label: 'Correção de erro (ECM)', tipo: 'switch', padrao: 1,
+      ajuda: 'Melhora a recepção em linha ruim. Desligue só se o outro lado não completar.' },
+    { campo: 'minimo_bits', label: 'Velocidade mínima', tipo: 'number', padrao: 4800 },
+    { campo: 'maximo_bits', label: 'Velocidade máxima', tipo: 'number', padrao: 14400 }
+  ],
+  rodape: () => `<div class="card" style="padding:14px">
+    <div class="row gap-12" style="align-items:flex-start">
+      ${icon('alert','ico')}
+      <div class="small muted">
+        Fax sobre VoIP é frágil por natureza: o áudio comprimido que economiza banda numa
+        conversa destrói o sinal do fax. Funciona bem com T.38 no tronco e codec G.711; com
+        celular ou com compressão agressiva, falha de forma intermitente.
+      </div>
+    </div>
+  </div>`
+});
+
+/* ------------------------- Telium · Suporte ------------------------- */
+PAGES['telium.suporte'] = {
+  async render() {
+    const [saude, estado] = await Promise.all([
+      Api.get('/health').catch(e => e.detalhe || null),
+      Api.get('/config/estado').catch(() => null)
+    ]);
+
+    const check = (nome, c) => `<div class="row-between" style="padding:10px 0;border-bottom:1px solid var(--border)">
+      <span>${esc(nome)}</span>
+      <span>${c?.ok
+        ? `<span class="badge badge-ok">${esc(c.detalhe || 'ok')}</span>`
+        : `<span class="badge badge-danger">${esc(c?.detalhe || 'sem resposta')}</span>`}</span>
+    </div>`;
+
+    return pageHead('Suporte',
+      'O que informar ao abrir um chamado — e o que conferir antes.') + `
+      <div class="grid g-2">
+        <div class="card" style="padding:18px">
+          <b>Esta instalação</b>
+          <div style="margin-top:10px">
+            ${Object.entries(saude?.checagens || {}).map(([n, c]) => check(n, c)).join('')
+              || '<p class="small muted">Não foi possível ler o estado dos serviços.</p>'}
+            <div class="row-between" style="padding:10px 0">
+              <span>Configuração pendente</span>
+              <span>${estado?.pendente
+                ? '<span class="badge badge-warn">sim — aplique antes de testar</span>'
+                : '<span class="badge badge-ok">não</span>'}</span>
+            </div>
+          </div>
+          <p class="small muted" style="margin-top:12px">
+            Versão <b>${esc(saude?.versao || '—')}</b>. Cite-a no chamado: a resposta muda
+            conforme a versão instalada.</p>
+        </div>
+
+        <div class="card" style="padding:18px">
+          <b>Antes de abrir o chamado</b>
+          <ul class="small muted lista-ajuda" style="margin-top:10px">
+            <li>Anote <b>o que foi discado</b>, de qual ramal, e a hora com minuto.
+                Com isso, <b>Relatórios › Eventos da Chamada</b> mostra cada passo.</li>
+            <li>Se for áudio, diga se falta nos dois lados ou em um só — são problemas
+                diferentes, e um só costuma ser NAT ou falta de TURN.</li>
+            <li>Se for chamada que não completa, veja <b>Relatórios › Ocupação de Troncos</b>:
+                completamento baixo é a operadora, não a central.</li>
+            <li>Se for registro de aparelho, <b>Conectividade › Firewall</b> mostra se a
+                tentativa chegou e foi recusada, ou se nem chegou.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px;padding:18px">
+        <b>Comandos que respondem rápido no servidor</b>
+        <pre class="saida-cli" style="border-radius:10px;margin-top:10px">sudo asterisk -rx "core show channels"     # o que está em curso agora
+sudo asterisk -rx "pjsip show contacts"    # quais aparelhos estão registrados
+sudo asterisk -rx "pjsip show registrations"  # se o tronco está registrado na operadora
+sudo tail -f /var/log/asterisk/full        # o que a central está fazendo, ao vivo
+cd /opt/telium/api && php bin/telium testar   # confere a instalação inteira</pre>
+      </div>`;
+  }
+};

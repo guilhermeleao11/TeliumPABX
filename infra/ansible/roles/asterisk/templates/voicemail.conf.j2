@@ -1,18 +1,15 @@
 ; {{ ansible_managed }}
+;
+; O que muda no dia a dia — tamanho do recado, texto do e-mail, formato —
+; vem do console, no arquivo incluído logo abaixo. Aqui fica só o que
+; depende da instalação.
 [general]
-format        = wav49|gsm|wav
-attach        = yes
-maxmsg        = 100
-maxsecs       = 180
-minsecs       = 2
 skipms        = 3000
-maxlogins     = 3
 emaildateformat = %d/%m/%Y às %H:%M:%S
 serveremail   = pabx@{{ pabx_hostname }}
 fromstring    = {{ pabx_empresa }} — PABX
-emailsubject  = Nova mensagem de voz de ${VM_CALLERID}
-emailbody     = Olá ${VM_NAME},\n\nvocê recebeu uma mensagem de ${VM_CALLERID}\nem ${VM_DATE}, com duração de ${VM_DUR}.\n\nA gravação está anexada.\n\n-- {{ pabx_empresa }}
 mailcmd       = /usr/sbin/sendmail -t
+#include "telium/voicemail.geral.conf"
 
 [zonemessages]
 brasil = {{ pabx_timezone }}|'vm-received' q 'digits/at' HM

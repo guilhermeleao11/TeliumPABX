@@ -430,6 +430,37 @@ $recursos = [
             unicas: ['nome'],
         ),
     ],
+    'voicemail-geral' => [
+        'modulo' => 'cfg.correiovoz',
+        'recurso' => new Recurso(
+            tabela: 'voicemail_geral',
+            colunas: ['max_mensagens', 'max_segundos', 'min_segundos', 'max_tentativas',
+                      'formato', 'anexar', 'dizer_hora', 'dizer_origem',
+                      'apagar_apos_email', 'assunto', 'corpo'],
+            afetaAsterisk: true,
+            modulo: 'cfg.correiovoz',
+            regras: [
+                'max_segundos' => ['rotulo' => 'duração máxima', 'padrao' => '/^[0-9]{1,4}$/',
+                                   'mensagem' => 'A duração máxima é em segundos, só dígitos.'],
+                'formato' => ['rotulo' => 'formato',
+                              'padrao' => '/^[a-z0-9|]{3,40}$/',
+                              'mensagem' => 'Os formatos são separados por barra vertical, '
+                                          . 'por exemplo wav49|gsm|wav.'],
+            ],
+        ),
+    ],
+    'fax-geral' => [
+        'modulo' => 'cfg.fax',
+        'recurso' => new Recurso(
+            tabela: 'fax_geral',
+            colunas: ['ativo', 'ecm', 'cabecalho', 'email_destino', 'minimo_bits', 'maximo_bits'],
+            afetaAsterisk: true,
+            modulo: 'cfg.fax',
+            regras: [
+                'email_destino' => ['rotulo' => 'e-mail de destino', 'email' => true],
+            ],
+        ),
+    ],
     'pin-sets' => [
         'modulo' => 'cfg.pinsets',
         'recurso' => new Recurso(

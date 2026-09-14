@@ -46,7 +46,6 @@ const MENU = [
       { id: 'apps.disa',         label: 'DISA',                   icon: 'key' },
       { id: 'apps.estacionamento', label: 'Estacionamento',       icon: 'package' },
       { id: 'apps.paging',       label: 'Megafonia e Interfonia', icon: 'volume' },
-      { id: 'apps.tts',          label: 'Texto em Voz',           icon: 'mic' },
       { id: 'apps.despertar',    label: 'Chamadas de Despertar',  icon: 'clock' }
     ]
   },
@@ -79,7 +78,6 @@ const MENU = [
   {
     id: 'cfg', label: 'Configurações', icon: 'sliders',
     items: [
-      { id: 'cfg.avancadas',  label: 'Configurações Avançadas', icon: 'settings' },
       { id: 'cfg.sip',        label: 'SIP / PJSIP',             icon: 'network' },
       { id: 'cfg.correiovoz', label: 'Correio de Voz',          icon: 'voicemail' },
       { id: 'cfg.musica',     label: 'Música em Espera',        icon: 'volume' },
@@ -93,9 +91,7 @@ const MENU = [
   {
     id: 'telium', label: 'Telium', icon: 'star',
     items: [
-      { id: 'telium.painel',      label: 'Painel Telium',    icon: 'building' },
       { id: 'telium.tarifacao',   label: 'Tarifação',        icon: 'creditCard' },
-      { id: 'telium.licencas',    label: 'Licenciamento',    icon: 'key' },
       { id: 'telium.integracoes', label: 'Integrações / API',icon: 'layers' },
       { id: 'telium.suporte',     label: 'Suporte',          icon: 'helpCircle' }
     ]

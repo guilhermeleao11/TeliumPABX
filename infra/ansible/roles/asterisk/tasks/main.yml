@@ -434,6 +434,7 @@
     - { arquivo: "musicaespera.conf",       conteudo: "; gerado pela API" }
     - { arquivo: "queues.conf",             conteudo: "; gerado pela API" }
     - { arquivo: "voicemail.conf",          conteudo: "[telium]\n; gerado pela API" }
+    - { arquivo: "voicemail.geral.conf",    conteudo: "; gerado pela API" }
     - { arquivo: "confbridge.conf",         conteudo: "; gerado pela API" }
     - { arquivo: "res_parking.conf",        conteudo: "; gerado pela API" }
     - { arquivo: "pjsip.acl.conf",          conteudo: "; gerado pela API" }
