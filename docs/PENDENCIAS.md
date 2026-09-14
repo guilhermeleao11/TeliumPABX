@@ -26,7 +26,55 @@ e construir a tela.
 
 ---
 
-## 2. Só um navegador e um telefone de verdade provam
+## 2. Tela que promete o que a central ainda não faz
+
+Estes têm cadastro completo, tela bonita e **nenhum efeito**. São o
+mesmo tipo de defeito que a auditoria vinha limpando; ficaram por
+último porque cada um é um módulo, não um ajuste.
+
+### 2.1 Tarifação — o custo é sempre zero
+
+A tabela de tarifas existe, a tela de tarifas existe, e três relatórios
+somam `cdr.custo`. **Nada nunca escreve esse campo.** Quem cadastrar
+tarifa e abrir o relatório vê R$ 0,00 em tudo.
+
+Falta o cálculo: casar o número discado com o padrão da tarifa, aplicar
+taxa fixa mais custo por minuto com o incremento cadastrado, e gravar
+no CDR ao fim da chamada. É um gancho no dialplan de saída mais uma
+função de tarifação.
+
+### 2.2 Provisionamento — o aparelho não tem de onde baixar
+
+A tela diz "cadastre o MAC do telefone para ele receber a configuração
+automaticamente". O MAC é gravado e mais nada acontece: nenhum arquivo
+de configuração é gerado e nenhum endereço HTTP o serve.
+
+Falta gerar o arquivo por fabricante (Yealink, Grandstream, Fanvil,
+Intelbras têm formatos diferentes) e publicá-lo num caminho que o
+telefone busque, com o MAC no nome.
+
+### 2.3 Integrações e API — o webhook não dispara
+
+O cadastro guarda webhooks e chaves. Nenhum código chama nenhuma URL
+quando uma chamada começa ou termina.
+
+Falta decidir o formato do evento e quem o dispara — o candidato natural
+é um ouvinte de AMI, que hoje não existe (a central é consultada sob
+demanda, não escutada).
+
+### 2.4 Módulo de call center — a fila fica sem agente
+
+A fila tem a marca "call center" e o vínculo de agente por origem. Ao
+marcar, a tela avisa que os agentes "são atribuídos pelo módulo de call
+center". **Esse módulo não existe.** Na prática, marcar a fila a deixa
+permanentemente sem agente.
+
+Enquanto não existir, a saída honesta é não marcar a fila como call
+center e montar os agentes à mão, que funciona.
+
+---
+
+## 3. Só um navegador e um telefone de verdade provam
 
 Foram desenhados, revisados e, onde possível, conferidos por trás — mas
 **não puderam ser testados de ponta a ponta** na bancada. Validação
@@ -59,7 +107,7 @@ necessária no ambiente real:
 
 ---
 
-## 3. Limitações conhecidas, por decisão
+## 4. Limitações conhecidas, por decisão
 
 Não são defeitos; ficam registradas para ninguém "corrigir" por engano.
 
@@ -89,7 +137,7 @@ Não são defeitos; ficam registradas para ninguém "corrigir" por engano.
 
 ---
 
-## 4. O que foi resolvido
+## 5. O que foi resolvido
 
 Para quem leu a versão anterior desta lista.
 
@@ -125,7 +173,7 @@ prometia um desempate que o sistema não faz.
 
 ---
 
-## 5. Como conferir o que está pronto
+## 6. Como conferir o que está pronto
 
 ```sh
 php bin/telium testar      # 46 casos, com ou sem banco
