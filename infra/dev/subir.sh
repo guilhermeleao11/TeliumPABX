@@ -90,9 +90,11 @@ ASTERISK_GERADO_DIR=/s/ast/telium
 SOFTPHONE_WS=
 SIP_DOMINIO=
 SOFTPHONE_STUN=stun:stun.l.google.com:19302
+# Sem TURN na bancada: para provar o relay, suba um coturn e aponte
+# SOFTPHONE_TURN para ele com o mesmo TURN_SEGREDO.
 SOFTPHONE_TURN=
-SOFTPHONE_TURN_USUARIO=
-SOFTPHONE_TURN_SENHA=
+TURN_SEGREDO=
+TURN_VALIDADE_SEGUNDOS=21600
 ENV
 
   docker run -d --name v-web -p "${PORTA}:80" \

@@ -12,6 +12,7 @@
           - "Alvo ...... {{ inventory_hostname }} ({{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }})"
           - "Asterisk .. {{ asterisk_versao }} (compilado do fonte)"
           - "Janus ..... {{ janus_versao }} (compilado do fonte)"
+          - "TURN ...... coturn (mídia do softphone onde o caminho direto não passa)"
           - "MariaDB ... {{ mariadb_versao }} (repositório oficial)"
           - "nginx ..... canal {{ nginx_canal }} (repositório oficial)"
           - "PHP ....... 8.4 + Slim"
@@ -32,6 +33,9 @@
     - asterisk
     - role: janus
       when: instalar_janus | default(false)
+    # O TURN vem antes da API porque o .env da API leva o segredo dele.
+    - role: turn
+      when: instalar_turn | default(true)
     - backup
     - certificados
     - api

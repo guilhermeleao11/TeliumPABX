@@ -1,0 +1,63 @@
+# {{ ansible_managed }}
+#
+# TURN do Telium PABX. Só o softphone do navegador usa: a mídia de um
+# telefone de mesa vai direto ao Asterisk.
+
+listening-port={{ turn_porta }}
+tls-listening-port={{ turn_porta_tls }}
+
+# A faixa é própria, separada da do Asterisk: são dois processos
+# disputando portas, e sobrepor rende "porta em uso" na madrugada.
+min-port={{ turn_rtp_inicio }}
+max-port={{ turn_rtp_fim }}
+
+{% if nat_ip_publico %}
+# Atrás de NAT o coturn precisa saber o endereço que o mundo vê, senão
+# anuncia o endereço interno e o navegador manda a mídia para lugar
+# nenhum.
+external-ip={{ nat_ip_publico }}
+{% endif %}
+
+realm={{ turn_dominio }}
+server-name={{ turn_dominio }}
+
+# Credencial com prazo, derivada de um segredo: o navegador recebe um
+# usuário que vale por algumas horas e não serve para mais ninguém. Uma
+# senha fixa no JavaScript da página seria um relay aberto para quem
+# abrisse o código-fonte.
+use-auth-secret
+static-auth-secret={{ turn_segredo_efetivo }}
+
+# TLS com o mesmo par do console.
+cert=/etc/coturn/turn.crt
+pkey=/etc/coturn/turn.key
+no-tlsv1
+no-tlsv1_1
+
+# Só retransmitir mídia. Sem isto o TURN vira um proxy para a rede
+# interna do cliente — é assim que um relay mal configurado acaba
+# varrendo a rede de quem o instalou.
+no-cli
+no-multicast-peers
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=::1
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+{% for rede in turn_peers_liberados %}
+# Liberado de propósito: {{ rede }}
+allowed-peer-ip={{ rede }}
+{% endfor %}
+
+# Teto por sessão, para um softphone sozinho não consumir o enlace.
+user-quota=12
+total-quota={{ turn_sessoes_max }}
+max-bps={{ turn_max_bps }}
+
+fingerprint
+stale-nonce=600
+no-loopback-peers
+syslog

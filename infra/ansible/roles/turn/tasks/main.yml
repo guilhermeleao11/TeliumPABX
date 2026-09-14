@@ -1,0 +1,92 @@
+---
+# Servidor TURN (coturn).
+#
+# O softphone do navegador fala RTP direto com o Asterisk. Em rede
+# doméstica e na maioria das empresas o STUN resolve, mas onde a saída
+# UDP é bloqueada, ou onde o NAT é simétrico, a chamada conecta e fica
+# muda — sem nada no log do Asterisk, porque o problema está entre o
+# navegador e a borda da rede do usuário.
+#
+# O TURN é o plano B: retransmite a mídia por um endereço público, em
+# UDP e, quando nem isso passa, em TCP na 443, que é a porta que
+# firewall nenhum fecha.
+
+- name: Instalar o coturn
+  ansible.builtin.apt:
+    name: coturn
+    state: present
+    update_cache: true
+
+- name: Gerar o segredo do TURN
+  ansible.builtin.set_fact:
+    turn_segredo_efetivo: "{{ turn_segredo | default(lookup('password', credenciais_dir ~ '/turn_segredo chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho), true) }}"
+
+# O coturn do Debian não sobe enquanto este arquivo disser que não.
+- name: Liberar a partida do coturn
+  ansible.builtin.copy:
+    dest: /etc/default/coturn
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # {{ ansible_managed }}
+      TURNSERVER_ENABLED=1
+  notify: reiniciar coturn
+
+- name: Publicar a configuração do coturn
+  ansible.builtin.template:
+    src: turnserver.conf.j2
+    dest: /etc/turnserver.conf
+    owner: root
+    group: turnserver
+    mode: "0640"
+  notify: reiniciar coturn
+
+# O TURN precisa de TLS na 5349 e o par do console já existe. Ele é
+# lido pelo usuário turnserver, que não está no grupo do Asterisk.
+- name: Publicar o par de certificado do TURN
+  ansible.builtin.copy:
+    src: "{{ item.origem }}"
+    dest: "{{ item.destino }}"
+    remote_src: true
+    owner: root
+    group: turnserver
+    mode: "{{ item.modo }}"
+  loop:
+    - { origem: "{{ cert_asterisk_dir }}/asterisk.crt", destino: /etc/coturn/turn.crt, modo: "0644" }
+    - { origem: "{{ cert_asterisk_dir }}/asterisk.key", destino: /etc/coturn/turn.key, modo: "0640" }
+  failed_when: false
+  notify: reiniciar coturn
+
+- name: Garantir o diretório de certificado do TURN
+  ansible.builtin.file:
+    path: /etc/coturn
+    state: directory
+    owner: root
+    group: turnserver
+    mode: "0750"
+
+- name: Habilitar e iniciar o coturn
+  ansible.builtin.service:
+    name: coturn
+    state: started
+    enabled: true
+
+- name: Abrir as portas do TURN no firewall
+  ansible.builtin.command:
+    cmd: "ufw allow {{ item }}"
+  loop:
+    - "{{ turn_porta }}/udp"
+    - "{{ turn_porta }}/tcp"
+    - "{{ turn_porta_tls }}/tcp"
+    - "{{ turn_rtp_inicio }}:{{ turn_rtp_fim }}/udp"
+  when: instalar_firewall | default(true)
+  register: ufw_turn
+  changed_when: "'Rule added' in ufw_turn.stdout"
+
+- name: Lembrar que o TURN está no ar
+  ansible.builtin.debug:
+    msg:
+      - "TURN no ar em {{ turn_dominio }}:{{ turn_porta }}"
+      - "O softphone recebe as credenciais pelo .env da API, que o papel"
+      - "api publica em seguida — nada a fazer à mão."

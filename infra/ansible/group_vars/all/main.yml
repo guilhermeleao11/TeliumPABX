@@ -124,10 +124,24 @@ sons_pt_br: true
 asterisk_max_chamadas: 480
 asterisk_max_carga: "{{ (ansible_facts.processor_vcpus | default(2) | int * 1.5) | round(1) }}"
 
-# ICE do softphone do navegador. O STUN público resolve a maioria dos
-# casos; o TURN fica em branco até existir um servidor próprio, porque
-# com ele toda a mídia passa a trafegar pelo relay.
+# ---------- TURN (coturn) ----------
+# Retransmite a mídia do softphone do navegador onde o caminho direto
+# não passa: rede que bloqueia UDP de saída, NAT simétrico, hotel,
+# 4G corporativo. Sem ele a chamada conecta e fica muda.
+instalar_turn: true
+turn_porta: 3478
+turn_porta_tls: 5349
+turn_rtp_inicio: 49152
+turn_rtp_fim: 49500
+turn_dominio: "{{ pabx_hostname }}"
+turn_sessoes_max: 200
+turn_max_bps: 128000
+# Redes que o relay pode alcançar além da internet. Vazio é o certo:
+# o TURN não deve servir de ponte para a rede interna do cliente.
+turn_peers_liberados: []
+
+# ICE do softphone do navegador. O STUN resolve a maioria dos casos; o
+# TURN entra quando o caminho direto não existe. As credenciais do TURN
+# são geradas a cada requisição, com prazo — veja Autenticacao::ice().
 softphone_stun: "stun:stun.l.google.com:19302"
-softphone_turn: ""
-softphone_turn_usuario: ""
-softphone_turn_senha: ""
+turn_segredo: ""          # vazio: gerado na instalação, em credenciais_dir

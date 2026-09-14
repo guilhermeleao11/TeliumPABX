@@ -31,6 +31,7 @@ final class Testes
         $this->grupo('Verificação em dois passos', $this->totp(...));
         $this->grupo('Permissões', $this->permissoes(...));
         $this->grupo('Geração de dialplan', $this->dialplan(...));
+        $this->grupo('Credencial do TURN', $this->turn(...));
 
         if ($comBanco) {
             $this->grupo('Banco e esquema', $this->banco(...));
@@ -130,6 +131,34 @@ final class Testes
         // dialplan duas vezes.
         $t = (new Bloco())->same('NoOp(um; dois)')->texto();
         $this->ok(!str_contains($t, ';'), 'o ponto e vírgula não sobrevive dentro da aplicação');
+    }
+
+    /**
+     * A credencial do TURN segue o esquema use-auth-secret do coturn:
+     * usuário é a hora em que ela morre, senha é o HMAC-SHA1 disso com
+     * o segredo do servidor. Errar aqui não quebra nada visível — só
+     * faz o relay recusar, e a chamada fica muda sem explicação.
+     */
+    private function turn(): void
+    {
+        $segredo = 'segredo-de-teste';
+        $validade = 1789410842;
+        $usuario = $validade . ':telium';
+        $senha = base64_encode(hash_hmac('sha1', $usuario, $segredo, true));
+
+        $this->ok(
+            $senha === base64_encode(hash_hmac('sha1', $usuario, $segredo, true)),
+            'a senha do TURN é o HMAC-SHA1 do usuário, em base64'
+        );
+        $this->ok(strlen(base64_decode($senha, true) ?: '') === 20, 'o HMAC tem os 20 bytes do SHA1');
+        $this->ok(
+            $senha !== base64_encode(hash_hmac('sha1', $usuario, 'outro-segredo', true)),
+            'segredo diferente gera senha diferente'
+        );
+        $this->ok(
+            str_contains($usuario, ':'),
+            'o usuário carrega a validade antes dos dois-pontos'
+        );
     }
 
     // ---------------------------------------------------------------

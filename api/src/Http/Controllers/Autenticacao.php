@@ -395,6 +395,11 @@ final class Autenticacao
      * dentro da empresa a chamada fecha, de fora o áudio some num lado
      * só. O TURN entra quando a rede do usuário bloqueia UDP direto.
      *
+     * A credencial do TURN é montada aqui, com prazo de algumas horas,
+     * a partir de um segredo que nunca sai do servidor. Uma senha fixa
+     * no JavaScript da página seria um relay aberto para qualquer um
+     * que olhasse o código-fonte.
+     *
      * @return array<int,array<string,mixed>>
      */
     private function ice(): array
@@ -406,14 +411,32 @@ final class Autenticacao
             $lista[] = ['urls' => $stun];
         }
 
-        $turn = trim((string) Ambiente::get('SOFTPHONE_TURN', ''));
-        if ($turn !== '') {
-            $lista[] = [
-                'urls'       => $turn,
-                'username'   => (string) Ambiente::get('SOFTPHONE_TURN_USUARIO', ''),
-                'credential' => (string) Ambiente::get('SOFTPHONE_TURN_SENHA', ''),
-            ];
+        $enderecos = array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) Ambiente::get('SOFTPHONE_TURN', ''))
+        )));
+        if ($enderecos === []) {
+            return $lista;
         }
+
+        $segredo = (string) Ambiente::get('TURN_SEGREDO', '');
+        if ($segredo !== '') {
+            // Esquema use-auth-secret do coturn: o usuário é a hora em
+            // que a credencial morre, e a senha é o HMAC disso.
+            $validade = time() + max(600, Ambiente::int('TURN_VALIDADE_SEGUNDOS', 21600));
+            $usuario = $validade . ':telium';
+            $senha = base64_encode(hash_hmac('sha1', $usuario, $segredo, true));
+        } else {
+            // Servidor de terceiros, com credencial fixa no .env.
+            $usuario = (string) Ambiente::get('SOFTPHONE_TURN_USUARIO', '');
+            $senha = (string) Ambiente::get('SOFTPHONE_TURN_SENHA', '');
+        }
+
+        $lista[] = [
+            'urls'       => $enderecos,
+            'username'   => $usuario,
+            'credential' => $senha,
+        ];
 
         return $lista;
     }
