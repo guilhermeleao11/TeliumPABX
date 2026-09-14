@@ -1014,7 +1014,8 @@ final class GeradorDialplan
                    . $this->soNumero((string) ($r['tronco_cid'] ?? '')) . '))');
 
             $b->same("Dial(PJSIP/{$numero}@{$tronco},60,tT)")
-              ->same('NoOp(Tronco principal: ${DIALSTATUS})');
+              ->same('NoOp(Tronco principal: ${DIALSTATUS})')
+              ->same('GoSub(sub-motivo-falha,s,1(' . $tronco . '))');
 
             if ($r['tronco_falha_nome']) {
                 // Só cai no reserva quando o principal não completou. Sem
@@ -1030,7 +1031,8 @@ final class GeradorDialplan
                   ->same('GoSub(sub-cid-saida,s,1('
                        . $this->soNumero((string) ($r['tronco_falha_cid'] ?? '')) . '))')
                   ->same("Dial(PJSIP/{$numero}@{$falha},60,tT)")
-                  ->same('NoOp(Tronco reserva: ${DIALSTATUS})');
+                  ->same('NoOp(Tronco reserva: ${DIALSTATUS})')
+                  ->same('GoSub(sub-motivo-falha,s,1(' . $falha . '))');
             }
 
             // Tradução do motivo para quem está no telefone: sem isto, a
@@ -1047,7 +1049,50 @@ final class GeradorDialplan
               ->same('Hangup()');
         }
 
+        $this->subMotivoFalha($b);
+
         return $b->texto();
+    }
+
+    /**
+     * Sub-rotina que guarda por que o tronco não completou.
+     *
+     * Mora aqui, no mesmo arquivo das rotas que a chamam, e não no
+     * extensions.conf do instalador: assim ela chega junto com o GoSub
+     * que a usa. Separados, quem atualizasse o código e só aplicasse a
+     * configuração — sem rodar o playbook — passaria a chamar um
+     * contexto inexistente, e toda chamada de saída morreria ali.
+     *
+     * "Nenhum tronco atendeu" não é resposta para quem paga a linha. A
+     * operadora diz o motivo no SIP — 404 para número que ela não
+     * conhece, 403 para número não liberado, 503 para tronco sem
+     * capacidade — e isso morria no log do Asterisk.
+     */
+    private function subMotivoFalha(Bloco $b): void
+    {
+        $b->branco()
+          ->comentario(str_repeat('-', 62))
+          ->comentario('Sub-rotina: por que o tronco não completou (ARG1 = tronco)')
+          ->comentario(str_repeat('-', 62))
+          ->contexto('sub-motivo-falha')
+          ->exten('s', 'GotoIf($["${DIALSTATUS}" = "ANSWER"]?fim)')
+          ->same('Set(TELIUM_SIP=)')
+          // DIALEDPEERNAME só existe quando a chamada chegou a ser
+          // atendida, que é justamente o caso que não interessa aqui.
+          // Quem guarda o canal de uma tentativa que falhou é
+          // HANGUPCAUSE_KEYS.
+          ->same('Set(TELIUM_KEYS=${HANGUPCAUSE_KEYS()})')
+          ->same('Set(TELIUM_CANAL=${CUT(TELIUM_KEYS,\,,1)})')
+          // Sem canal criado não há o que perguntar, e perguntar assim
+          // mesmo enche o log de "Unable to find information for channel".
+          ->same('GotoIf($["${TELIUM_CANAL}" = ""]?guarda)')
+          ->same('Set(TELIUM_SIP=${HANGUPCAUSE(${TELIUM_CANAL},tech)})')
+          ->same('GotoIf($["${TELIUM_SIP}" = ""]?semsip)', 'guarda')
+          ->same('Set(CDR(motivo)=${ARG1}: ${DIALSTATUS} — ${TELIUM_SIP})')
+          ->same('Goto(anota)')
+          ->same('Set(CDR(motivo)=${ARG1}: ${DIALSTATUS})', 'semsip')
+          ->same('NoOp(Tronco ${ARG1} não completou: ${DIALSTATUS} ${TELIUM_SIP})', 'anota')
+          ->same('Return()', 'fim');
     }
 
     // ---------------------------------------------------------------

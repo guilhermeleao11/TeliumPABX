@@ -153,4 +153,10 @@ softphone_stun: "{{ ('stun:' ~ stun_servidor) if stun_servidor else '' }}"
 # endereço público do SDP vem de external_media_address, configurado no
 # console, e não precisa de descoberta.
 rtp_stunaddr: "{{ stun_servidor }}"
+
+# A quem o console pergunta o endereço público quando alguém clica em
+# "Descobrir", em Conexões > Rede. Tem de ser um servidor de fora: o TURN
+# desta máquina está dentro do mesmo NAT. Uso sob demanda, nunca em
+# chamada; vazio desliga o botão.
+stun_descoberta: "stun.l.google.com:19302,stun.cloudflare.com:3478"
 turn_segredo: ""          # vazio: gerado na instalação, em credenciais_dir

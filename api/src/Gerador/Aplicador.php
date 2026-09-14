@@ -33,6 +33,11 @@ final class Aplicador
         'module reload res_parking.so'      => 'estacionamento',
         'module reload res_musiconhold.so'  => 'música em espera',
         'module reload features'            => 'códigos de recurso',
+        // O cdr_adaptive_odbc guarda o desenho da tabela de quando
+        // subiu. Coluna nova criada por migração só passa a ser
+        // gravada depois disto — sem recarregar, o dialplan escreve
+        // em CDR(motivo) e o banco fica com NULL, sem erro nenhum.
+        'module reload cdr_adaptive_odbc.so' => 'colunas do CDR',
     ];
 
     /**
@@ -149,6 +154,12 @@ final class Aplicador
      * palavra para a etapa ser dada como falha. O que importa é a
      * linha de resposta do AMI e a recusa do próprio CLI.
      */
+    /** Só para a bateria de testes alcançar a regra sem subir Asterisk. */
+    public static function recargaDeuCerto(string $resposta): bool
+    {
+        return (new self())->recarregou($resposta);
+    }
+
     private function recarregou(string $resposta): bool
     {
         if (preg_match('/^Response:\s*Error/mi', $resposta) === 1) {
@@ -158,6 +169,11 @@ final class Aplicador
         $texto = strtolower($resposta);
 
         return !str_contains($texto, 'no such command')
+            // "No such module" é a resposta quando o módulo não está
+            // carregado. Passava por sucesso porque a frase é outra —
+            // então uma central sem o res_pjsip carregado aplicava
+            // "com sucesso" e ficava sem ramal nenhum.
+            && !str_contains($texto, 'no such module')
             && !str_contains($texto, 'does not support reload')
             && !str_contains($texto, 'failed to reload');
     }

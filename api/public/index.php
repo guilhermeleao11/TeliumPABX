@@ -190,6 +190,22 @@ $recursos = [
                            'mensagem' => 'Esta central entronca por SIP. Placa analógica ou E1 '
                                        . 'exige chan_dahdi, que não faz parte desta instalação.'],
                 'transporte' => ['rotulo' => 'transporte', 'em' => ['udp', 'tcp', 'tls']],
+                // "From domain" com o número da conta gera
+                // From: <sip:112658668@112658668>, um domínio que não
+                // existe, e a operadora responde 404 sem dizer por quê.
+                // Quem quer o número no From usa "From user".
+                'from_domain' => [
+                    'rotulo' => 'From domain',
+                    'padrao' => '/^(?!\d+$)[A-Za-z0-9._-]+$/',
+                    'mensagem' => 'From domain é o domínio ou IP da operadora — sip.operadora.com.br '
+                                . 'ou 200.201.141.210. Para mandar o número da conta, use "From user". '
+                                . 'Em branco, vale o host do tronco.',
+                ],
+                'from_user' => [
+                    'rotulo' => 'From user',
+                    'padrao' => '/^[^@\s]+$/',
+                    'mensagem' => 'From user é só a parte antes do @ — sem arroba e sem espaço.',
+                ],
             ],
         ),
     ],

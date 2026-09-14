@@ -1229,8 +1229,14 @@ PAGES['conn.troncos'] = paginaCrud({
       placeholder: t.id ? 'deixe em branco para manter' : '' },
     { campo: 'registrar', label: 'Registrar no provedor', tipo: 'switch', padrao: 1 },
     { campo: 'ativo', label: 'Tronco ativo', tipo: 'switch', padrao: 1 },
-    { campo: 'from_user', label: 'From user', mono: true },
-    { campo: 'from_domain', label: 'From domain', mono: true },
+    { campo: 'from_user', label: 'From user', mono: true,
+      padraoValido: /^[^@\s]*$/, mensagemPadrao: 'sem arroba e sem espaço',
+      ajuda: 'A parte antes do @ no From. Em branco, vale a identificação de saída.' },
+    { campo: 'from_domain', label: 'From domain', mono: true,
+      padraoValido: /^$|^(?!\d+$)[A-Za-z0-9._-]+$/,
+      mensagemPadrao: 'domínio ou IP — o número da conta vai em "From user"',
+      ajuda: 'O domínio ou IP da operadora, como sip.operadora.com.br. Em branco, vale o host '
+           + 'do tronco. Pôr o número da conta aqui gera um From que a operadora recusa com 404.' },
     { campo: 'cid_saida', label: 'Identificação de saída', mono: true, placeholder: '1133255800' },
     { campo: 'codecs', label: 'Codecs', mono: true, padrao: 'alaw,ulaw,g729' },
     { campo: 'contexto_entrada', label: 'Contexto de entrada', mono: true, padrao: 'de-tronco', largura: 'full' }
@@ -1780,7 +1786,8 @@ PAGES['rel.cdr'] = {
             <td class="num">${duracao(c.duration)}</td>
             <td class="num">${duracao(c.billsec)}</td>
             <td class="small dim">${esc(c.tronco || '—')}</td>
-            <td>${badgeCdr(c.disposition)}</td>
+            <td>${badgeCdr(c.disposition)}${c.motivo
+              ? `<div class="tiny muted" data-tip="${esc(c.motivo)}">${esc(c.motivo)}</div>` : ''}</td>
             <td>${c.gravacao ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Ouvir">${icon('play','ico ico-sm')}</button>` : '<span class="muted">—</span>'}</td>
           </tr>`).join('')}
         </tbody></table></div>

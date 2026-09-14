@@ -109,15 +109,35 @@ final class Rede
         return Ambiente::int('AST_HTTP_PORTA', 8090);
     }
 
-    /** @return list<string> servidores STUN que o softphone já usa */
+    /**
+     * Servidores a quem perguntar "qual é o meu endereço público?".
+     *
+     * Não serve o STUN do softphone: com o TURN instalado nesta máquina,
+     * ele é o STUN do navegador e está do lado de dentro do mesmo NAT —
+     * perguntar a ele devolveria o endereço interno, que é exatamente o
+     * que se quer descobrir que não é. Descoberta precisa de alguém de
+     * fora, e é uso sob demanda: só quando alguém clica no botão.
+     *
+     * @return list<string>
+     */
     public static function servidoresStun(): array
     {
-        $bruto = (string) Ambiente::get('SOFTPHONE_STUN', '');
+        $bruto = (string) Ambiente::get('STUN_DESCOBERTA', 'stun.l.google.com:19302,stun.cloudflare.com:3478');
         $lista = array_filter(array_map('trim', explode(',', $bruto)));
 
-        // Sem STUN configurado não há o que perguntar; o console diz isso
-        // em vez de fingir que tentou.
+        // Vazio é escolha legítima de quem não quer a central falando com
+        // servidor de fora; o console diz isso em vez de fingir que tentou.
         return array_values($lista);
+    }
+
+    /** Endereço de rede interna — o que a descoberta não pode devolver. */
+    public static function ehPrivado(string $ip): bool
+    {
+        return filter_var(
+            $ip,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        ) === false;
     }
 
     public static function guardar(string $ipPublico, string $redesLocais): void

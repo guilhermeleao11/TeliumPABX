@@ -45,7 +45,7 @@ final class Relatorios
         $total = (int) Bd::valor("SELECT COUNT(*) FROM cdr{$filtro}", $args);
         $linhas = Bd::todos(
             "SELECT id, calldate, clid, src, dst, direcao, duration, billsec,
-                    disposition, tronco, fila, gravacao, custo
+                    disposition, tronco, motivo, fila, gravacao, custo
                FROM cdr{$filtro}
            ORDER BY calldate DESC
               LIMIT {$limite} OFFSET " . (($pagina - 1) * $limite),

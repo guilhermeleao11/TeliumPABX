@@ -387,6 +387,16 @@ final class Diagnostico
 
         $ip = Stun::primeiroQueResponder($servidores);
 
+        // Endereço privado de volta significa que quem respondeu está
+        // dentro da mesma rede: a resposta é verdadeira e inútil.
+        if ($ip !== null && Rede::ehPrivado($ip)) {
+            return Resposta::json($res, [
+                'ip' => null,
+                'motivo' => "O STUN respondeu {$ip}, que é endereço de rede interna — "
+                          . 'ele está do lado de dentro do NAT. Informe o endereço público à mão.',
+            ]);
+        }
+
         return Resposta::json($res, [
             'ip' => $ip,
             'motivo' => $ip === null

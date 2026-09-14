@@ -32,6 +32,9 @@ final class Esquema
         'ura'    => ['anuncio_id'],
         'contatos' => ['empresa', 'discagem_rapida'],
         'codigos_recurso' => ['tipo', 'argumento'],
+        // Sem esta coluna o relatório de chamadas não mostra por que
+        // a ligação não completou, e o dialplan grava no vazio.
+        'cdr' => ['motivo'],
     ];
 
     /**

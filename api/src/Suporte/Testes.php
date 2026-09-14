@@ -220,6 +220,15 @@ final class Testes
 
         $auths = "     Auth:  Magnus-SPO/112658668\n     Auth:  1000/1000";
         $this->ok(
+            !Aplicador::recargaDeuCerto("Response: Success\nOutput: No such module 'res_pjsip.so'"),
+            'módulo ausente não passa por recarga bem-sucedida'
+        );
+        $this->ok(
+            Aplicador::recargaDeuCerto("Response: Success\nOutput: Module 'res_pjsip.so' reloaded successfully."),
+            'recarga de verdade continua contando como sucesso'
+        );
+
+        $this->ok(
             Diagnostico::temAuth($auths, 'Magnus-SPO'),
             'vê a autenticação do tronco carregada na central'
         );
