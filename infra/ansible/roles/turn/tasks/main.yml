@@ -29,7 +29,7 @@
     group: root
     mode: "0644"
     content: |
-      # {{ ansible_managed }}
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão.
       TURNSERVER_ENABLED=1
   notify: reiniciar coturn
 
@@ -72,17 +72,9 @@
     state: started
     enabled: true
 
-- name: Abrir as portas do TURN no firewall
-  ansible.builtin.command:
-    cmd: "ufw allow {{ item }}"
-  loop:
-    - "{{ turn_porta }}/udp"
-    - "{{ turn_porta }}/tcp"
-    - "{{ turn_porta_tls }}/tcp"
-    - "{{ turn_rtp_inicio }}:{{ turn_rtp_fim }}/udp"
-  when: instalar_firewall | default(true)
-  register: ufw_turn
-  changed_when: "'Rule added' in ufw_turn.stdout"
+# As portas do TURN são abertas pelo papel "seguranca", que é quem
+# instala o ufw. Tentar abri-las aqui falhava numa instalação nova: este
+# papel roda antes, e o comando ainda não existe na máquina.
 
 - name: Lembrar que o TURN está no ar
   ansible.builtin.debug:

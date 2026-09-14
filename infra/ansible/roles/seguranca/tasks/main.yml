@@ -22,6 +22,21 @@
   register: ufw_regras
   changed_when: "'Rule added' in ufw_regras.stdout"
 
+# As portas do TURN moram aqui, e não no papel do coturn, porque quem
+# instala o ufw é este papel — e ele roda por último. Abrir a porta lá
+# atrás tentava usar um comando que ainda não existia.
+- name: Regras de firewall do TURN
+  ansible.builtin.command:
+    cmd: "ufw allow {{ item }}"
+  loop:
+    - "{{ turn_porta }}/udp"
+    - "{{ turn_porta }}/tcp"
+    - "{{ turn_porta_tls }}/tcp"
+    - "{{ turn_rtp_inicio }}:{{ turn_rtp_fim }}/udp"
+  when: instalar_firewall and (instalar_turn | default(true))
+  register: ufw_turn
+  changed_when: "'Rule added' in ufw_turn.stdout"
+
 - name: Política padrão do firewall
   ansible.builtin.command:
     cmd: "ufw default {{ item.politica }} {{ item.direcao }}"

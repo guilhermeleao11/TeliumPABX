@@ -34,7 +34,7 @@
     mode: "0440"
     validate: "visudo -cf %s"
     content: |
-      # {{ ansible_managed }}
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão.
       # Sem curinga: a API só pode rodar este comando, sem argumentos.
       {{ telium_user }} ALL=(root) NOPASSWD: /usr/local/sbin/telium-smtp
 
