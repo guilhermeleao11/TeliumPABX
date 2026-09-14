@@ -43,8 +43,9 @@ final class Portal
         }
 
         return Resposta::json($res, [
-            'ramal'    => $this->publico($r),
-            'registro' => $this->registro((string) $r['numero']),
+            'disponivel' => true,
+            'ramal'      => $this->publico($r),
+            'registro'   => $this->registro((string) $r['numero']),
         ]);
     }
 
@@ -112,8 +113,9 @@ final class Portal
         $novo = Bd::um('SELECT * FROM ramais WHERE id = ?', [$r['id']]);
 
         return Resposta::json($res, [
-            'ramal'    => $this->publico((array) $novo),
-            'registro' => $this->registro((string) $r['numero']),
+            'disponivel' => true,
+            'ramal'      => $this->publico((array) $novo),
+            'registro'   => $this->registro((string) $r['numero']),
         ]);
     }
 
@@ -169,6 +171,7 @@ final class Portal
         unset($l);
 
         return Resposta::json($res, [
+            'disponivel' => true,
             'dados'  => $linhas,
             'total'  => $total,
             'pagina' => $pagina,
@@ -187,6 +190,7 @@ final class Portal
         }
         if ((int) $r['voicemail'] !== 1) {
             return Resposta::json($res, [
+                'disponivel' => true,
                 'ativo' => false,
                 'motivo' => 'O correio de voz não está ligado neste ramal. '
                           . 'Peça ao administrador para ativá-lo.',
@@ -206,6 +210,7 @@ final class Portal
         }
 
         return Resposta::json($res, [
+            'disponivel' => true,
             'ativo'  => true,
             'ramal'  => $r['numero'],
             'email'  => $r['email'],
@@ -282,14 +287,21 @@ final class Portal
         return Bd::um('SELECT * FROM ramais WHERE numero = ?', [$numero]);
     }
 
+    /**
+     * Conta sem ramal não é erro: é um estado normal do sistema —
+     * o administrador, por exemplo, costuma não ter ramal.
+     *
+     * Por isso responde 200 com o motivo, e não 404: um 404 aqui
+     * aparece como requisição falha no console do navegador e em
+     * qualquer monitoramento, sugerindo defeito onde não há.
+     */
     private function semRamal(Response $res): Response
     {
-        return Resposta::erro(
-            $res,
-            'A sua conta não está vinculada a nenhum ramal. '
-            . 'Peça ao administrador para fazer o vínculo em Gerenciador de Usuários.',
-            404
-        );
+        return Resposta::json($res, [
+            'disponivel' => false,
+            'motivo' => 'A sua conta não está vinculada a nenhum ramal. '
+                      . 'Peça ao administrador para fazer o vínculo em Gerenciador de Usuários.',
+        ]);
     }
 
     /** O que o dono do ramal pode ver — sem senha SIP nem PIN. */

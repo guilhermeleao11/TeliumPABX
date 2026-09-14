@@ -11,9 +11,9 @@
    ========================================================= */
 
 /** Aviso comum a todas as telas quando a conta não tem ramal vinculado. */
-function pcuSemRamal(e) {
+function pcuSemRamal(d) {
   return `<div class="card">${vazio('phone', 'Sua conta não tem ramal',
-    esc(e?.message || 'Peça ao administrador para vincular um ramal à sua conta.'))}</div>`;
+    esc(d?.motivo || 'Peça ao administrador para vincular um ramal à sua conta.'))}</div>`;
 }
 
 /** Linha de rótulo e valor, usada nos cartões de resumo. */
@@ -31,7 +31,8 @@ PAGES['pcu.meuramal'] = {
   async render(ctx) {
     let d;
     try { d = await Api.get('/me/ramal'); }
-    catch (e) { return pageHead('Meu Ramal', '') + (e.status === 404 ? pcuSemRamal(e) : blocoErro(e)); }
+    catch (e) { return pageHead('Meu Ramal', '') + blocoErro(e); }
+    if (!d.disponivel) return pageHead('Meu Ramal', '') + pcuSemRamal(d);
 
     this._dados = d;
     const r = d.ramal;
@@ -132,7 +133,8 @@ PAGES['pcu.sigame'] = {
   async render() {
     let d;
     try { d = await Api.get('/me/ramal'); }
-    catch (e) { return pageHead('Meu Siga-me', '') + (e.status === 404 ? pcuSemRamal(e) : blocoErro(e)); }
+    catch (e) { return pageHead('Meu Siga-me', '') + blocoErro(e); }
+    if (!d.disponivel) return pageHead('Meu Siga-me', '') + pcuSemRamal(d);
 
     const r = d.ramal;
     const ligado = Number(r.siga_me_ativo) === 1 && r.siga_me;
@@ -210,7 +212,8 @@ PAGES['pcu.chamadas'] = {
   async render() {
     let d;
     try { d = await Api.get('/me/chamadas', this._f); }
-    catch (e) { return pageHead('Minhas Chamadas', '') + (e.status === 404 ? pcuSemRamal(e) : blocoErro(e)); }
+    catch (e) { return pageHead('Minhas Chamadas', '') + blocoErro(e); }
+    if (!d.disponivel) return pageHead('Minhas Chamadas', '') + pcuSemRamal(d);
 
     const paginas = Math.max(1, Math.ceil(d.total / d.limite));
     const sel = v => this._f.direcao === v ? 'selected' : '';
@@ -292,7 +295,8 @@ PAGES['pcu.correiovoz'] = {
   async render() {
     let d;
     try { d = await Api.get('/me/correiovoz'); }
-    catch (e) { return pageHead('Meu Correio de Voz', '') + (e.status === 404 ? pcuSemRamal(e) : blocoErro(e)); }
+    catch (e) { return pageHead('Meu Correio de Voz', '') + blocoErro(e); }
+    if (!d.disponivel) return pageHead('Meu Correio de Voz', '') + pcuSemRamal(d);
 
     if (!d.ativo) {
       return pageHead('Meu Correio de Voz', '') +
