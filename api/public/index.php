@@ -745,6 +745,8 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
 
     // ---- configuração do Asterisk ----
     $g->get('/config/estado', [CtrlConfig::class, 'estado']);
+    $g->get('/config/arquivos', [CtrlConfig::class, 'arquivos'])
+      ->add(new Permissao('cfg.avancadas'));
     $g->post('/config/gerar', [CtrlConfig::class, 'gerar'])
       ->add(new Permissao('cfg.avancadas', 'editar'));
     $g->post('/config/aplicar', [CtrlConfig::class, 'aplicar'])

@@ -37,7 +37,7 @@ SELECT p.id, m.modulo FROM perfis p JOIN (
   UNION ALL SELECT 'apps.filas' UNION ALL SELECT 'apps.grupostoque' UNION ALL SELECT 'apps.ura'
   UNION ALL SELECT 'apps.conferencias' UNION ALL SELECT 'apps.gravacao' UNION ALL SELECT 'apps.anuncios'
   UNION ALL SELECT 'apps.condicoes' UNION ALL SELECT 'apps.grupohorario'
-  UNION ALL SELECT 'conn.ramais' UNION ALL SELECT 'telium.painel' UNION ALL SELECT 'telium.tarifacao'
+  UNION ALL SELECT 'conn.ramais' UNION ALL SELECT 'telium.tarifacao'
 ) m WHERE p.chave = 'supervisor';
 
 INSERT IGNORE INTO perfil_modulos (perfil_id, modulo)

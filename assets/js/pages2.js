@@ -5353,3 +5353,96 @@ cd /opt/telium/api && php bin/telium testar   # confere a instalação inteira</
       </div>`;
   }
 };
+
+/* ------------------------- Configurações · Arquivos e Aplicação ------------------------- */
+PAGES['cfg.avancadas'] = {
+  async render(ctx) {
+    let d, estado;
+    try { [d, estado] = await Promise.all([Api.get('/config/arquivos'), Api.get('/config/estado')]); }
+    catch (e) { return pageHead('Arquivos e Aplicação', '') + blocoErro(e); }
+
+    const rotulo = { criado: 'badge-brand', atualizado: 'badge-warn', inalterado: '' };
+    const mudariam = d.gerados.filter(g => g.estado !== 'inalterado');
+
+    const gerados = d.gerados.map(g => `<tr>
+      <td class="mono small">${esc(g.arquivo)}</td>
+      <td><span class="badge ${rotulo[g.estado] || ''}">${esc(g.estado)}</span></td>
+      <td class="num small dim">${g.bytes ? tamanho(g.bytes) : '—'}</td>
+      <td class="small dim">${g.mudado_em ? dataHora(g.mudado_em) : '—'}</td>
+    </tr>`).join('');
+
+    const custom = d.personalizados.map(c => `<tr>
+      <td class="mono small">${esc(c.arquivo)}</td>
+      <td>${c.tem_conteudo
+        ? '<span class="badge badge-brand">tem personalização</span>'
+        : '<span class="muted small">vazio</span>'}</td>
+      <td class="num small dim">${tamanho(c.bytes)}</td>
+      <td class="small dim">${dataHora(c.mudado_em)}</td>
+    </tr>`).join('');
+
+    const hist = (d.historico || []).map(h => `<tr>
+      <td class="small">${dataHora(h.criado_em)}</td>
+      <td>${Number(h.sucesso)
+        ? '<span class="badge badge-ok">aplicada</span>'
+        : '<span class="badge badge-danger">falhou</span>'}</td>
+      <td class="small dim">${esc(Object.keys(JSON.parse(h.reloads || '{}')).join(' · ') || '—')}</td>
+    </tr>`).join('');
+
+    return pageHead('Arquivos e Aplicação',
+      'O que a central escreve a partir do cadastro, e o que fica reservado para você.',
+      ctx.can('reiniciar')
+        ? `<button class="btn btn-primary btn-sm" id="aplicarAgora">
+             ${icon('check','ico ico-sm')} Aplicar agora</button>` : '') + `
+      ${d.permissao ? `<div class="aviso erro" style="margin-bottom:14px">
+        ${icon('alert','ico ico-sm')}<div>${esc(d.permissao)}</div></div>` : ''}
+
+      <div class="card" style="padding:14px;margin-bottom:14px">
+        <div class="row gap-12" style="align-items:flex-start">
+          ${icon('info','ico')}
+          <div class="small muted">
+            Os arquivos da primeira lista são <b>reescritos a cada aplicação</b> — editá-los à mão
+            no servidor é trabalho perdido. Para acrescentar dialplan seu, use os
+            <span class="mono">*_custom.conf</span> da segunda lista: o gerador nunca os toca.
+            Tudo fica em <span class="mono">${esc(d.diretorio)}</span>.
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head row-between">
+          <b>Gerados a partir do cadastro</b>
+          <span class="small ${mudariam.length ? 'badge badge-warn' : 'muted'}">
+            ${mudariam.length ? `${mudariam.length} mudaria${mudariam.length > 1 ? 'm' : ''} se aplicar agora`
+                              : 'tudo aplicado'}</span>
+        </div>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Arquivo</th><th>Se aplicar agora</th>
+            <th class="num">Tamanho</th><th>Escrito em</th></tr></thead>
+          <tbody>${gerados || '<tr><td colspan="4" class="small muted">Nada gerado ainda.</td></tr>'}</tbody>
+        </table></div>
+      </div>
+
+      <div class="grid g-2">
+        <div class="card">
+          <div class="card-head"><b>Reservados para personalização</b></div>
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Arquivo</th><th>Conteúdo</th><th class="num">Tamanho</th><th>Alterado</th></tr></thead>
+            <tbody>${custom || '<tr><td colspan="4" class="small muted">Nenhum.</td></tr>'}</tbody>
+          </table></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><b>Últimas aplicações</b></div>
+          <div class="table-wrap"><table class="table">
+            <thead><tr><th>Quando</th><th>Resultado</th><th>Recargas</th></tr></thead>
+            <tbody>${hist || '<tr><td colspan="3" class="small muted">Nenhuma ainda.</td></tr>'}</tbody>
+          </table></div>
+        </div>
+      </div>`;
+  },
+
+  mount() {
+    document.getElementById('aplicarAgora')?.addEventListener('click', ev =>
+      App.aplicarConfig(ev.currentTarget));
+  }
+};

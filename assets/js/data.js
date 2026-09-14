@@ -78,6 +78,7 @@ const MENU = [
   {
     id: 'cfg', label: 'Configurações', icon: 'sliders',
     items: [
+      { id: 'cfg.avancadas',  label: 'Arquivos e Aplicação',    icon: 'settings' },
       { id: 'cfg.sip',        label: 'SIP / PJSIP',             icon: 'network' },
       { id: 'cfg.correiovoz', label: 'Correio de Voz',          icon: 'voicemail' },
       { id: 'cfg.musica',     label: 'Música em Espera',        icon: 'volume' },

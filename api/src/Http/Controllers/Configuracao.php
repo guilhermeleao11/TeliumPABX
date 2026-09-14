@@ -9,6 +9,7 @@ use Telium\Dominio\Auditoria;
 use Telium\Gerador\Aplicador;
 use Telium\Gerador\Conferencia;
 use Telium\Gerador\Gerador;
+use Telium\Suporte\Ambiente;
 use Telium\Suporte\Bd;
 use Telium\Suporte\Esquema;
 use Telium\Suporte\Resposta;
@@ -41,6 +42,60 @@ final class Configuracao
             'pendente'           => (new Gerador())->pendente(),
             'arquivos_pendentes' => $pendentes,
             'ultima_aplicacao'   => $ultima,
+        ]);
+    }
+
+    /**
+     * GET /api/config/arquivos — o que a central escreve, e o que é seu.
+     *
+     * Dois tipos: o que a API gera a partir do cadastro, e reescreve a
+     * cada aplicação, e o que fica reservado para personalização e o
+     * gerador nunca toca. Saber de cabeça qual é qual é o que evita
+     * alguém editar à mão um arquivo que será sobrescrito.
+     */
+    public function arquivos(Request $req, Response $res): Response
+    {
+        $g = new Gerador();
+        $dir = rtrim((string) Ambiente::get('ASTERISK_GERADO_DIR', '/etc/asterisk/telium'), '/');
+
+        $estados = [];
+        try {
+            $estados = $g->simular();
+        } catch (\Throwable) {
+            // Sem acesso ao diretório a lista sai vazia; o aviso de
+            // permissão abaixo é que explica o motivo.
+        }
+
+        $gerados = [];
+        foreach ($estados as $nome => $estado) {
+            $caminho = "{$dir}/{$nome}";
+            $gerados[] = [
+                'arquivo' => $nome,
+                'estado'  => $estado,
+                'bytes'   => is_file($caminho) ? (int) filesize($caminho) : 0,
+                'mudado_em' => is_file($caminho) ? date('Y-m-d H:i:s', (int) filemtime($caminho)) : null,
+            ];
+        }
+
+        $personalizados = [];
+        foreach (glob("{$dir}/*_custom.conf") ?: [] as $caminho) {
+            $personalizados[] = [
+                'arquivo' => basename($caminho),
+                'bytes'   => (int) filesize($caminho),
+                'mudado_em' => date('Y-m-d H:i:s', (int) filemtime($caminho)),
+                'tem_conteudo' => trim((string) preg_replace('/^\s*;.*$/m', '', (string) file_get_contents($caminho))) !== '',
+            ];
+        }
+
+        return Resposta::json($res, [
+            'diretorio'      => $dir,
+            'gerados'        => $gerados,
+            'personalizados' => $personalizados,
+            'permissao'      => $g->problemaDePermissao(),
+            'historico'      => Bd::todos(
+                'SELECT id, sucesso, criado_em, reloads, arquivos
+                   FROM config_aplicacoes ORDER BY id DESC LIMIT 10'
+            ),
         ]);
     }
 
