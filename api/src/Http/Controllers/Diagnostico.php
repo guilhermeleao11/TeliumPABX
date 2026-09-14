@@ -34,6 +34,7 @@ final class Diagnostico
                 'id' => 1, 'tipo' => 2, 'endereco' => 5,
             ], '/^Transport:\s+(\S+)\s+(\S+)\s+(\d+)\s+(\d+)\s+(\S+)/'),
             'rtp'   => $this->blocoCli('rtp show settings'),
+            'stun_rtp' => self::stunDoRtp((string) (Ami::tentarComando('rtp show settings') ?? '')),
             'portas' => [
                 'sip'      => Ambiente::int('SIP_PORTA', 5060),
                 'sip_tls'  => Ambiente::int('SIP_TLS_PORTA', 5061),
@@ -432,6 +433,31 @@ final class Diagnostico
         }
 
         return 'Desconhecido';
+    }
+
+    /**
+     * STUN configurado no rtp.conf, que quase nunca se quer ligado.
+     *
+     * A consulta é síncrona e bloqueante: endereço que não responde
+     * segura a montagem do RTP por nove segundos — três tentativas de
+     * três — antes de a chamada discar, e o Asterisk só registra isso
+     * como NOTICE no log. O endereço público do SDP vem de
+     * external_media_address, que não consulta ninguém.
+     *
+     * @return array{ativo:bool, endereco:string}
+     */
+    public static function stunDoRtp(string $saida): array
+    {
+        $texto = self::semEnvelope($saida);
+
+        // "enbabled" não é erro de digitação daqui: é o que o Asterisk
+        // imprime. Casar pelas duas grafias evita depender de correção.
+        $ativo = preg_match('/^\s*STUN:\s*en\w*bled/mi', $texto) === 1;
+
+        $achado = [];
+        $endereco = preg_match('/^\s*Address:\s*(\S+)/mi', $texto, $achado) === 1 ? $achado[1] : '';
+
+        return ['ativo' => $ativo, 'endereco' => $endereco];
     }
 
     /**

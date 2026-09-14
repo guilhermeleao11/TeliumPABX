@@ -218,6 +218,22 @@ final class Testes
             'não confunde o contato de um tronco com o de outro'
         );
 
+        // O Asterisk escreve "enbabled" mesmo; casar pelas duas grafias
+        // evita que uma correção futura apague o aviso sem ninguém ver.
+        $ligado = "  STUN:            enbabled\n   Address:        127.0.1.1:3478";
+        $this->ok(
+            Diagnostico::stunDoRtp($ligado) === ['ativo' => true, 'endereco' => '127.0.1.1:3478'],
+            'vê o STUN bloqueante ligado no rtp.conf'
+        );
+        $this->ok(
+            Diagnostico::stunDoRtp("  STUN:            enabled\n   Address:        1.2.3.4:3478")['ativo'],
+            'e também na grafia certa, se um dia for corrigida'
+        );
+        $this->ok(
+            !Diagnostico::stunDoRtp('  STUN:            disabled')['ativo'],
+            'STUN desligado não vira aviso'
+        );
+
         $auths = "     Auth:  Magnus-SPO/112658668\n     Auth:  1000/1000";
         $this->ok(
             !Aplicador::recargaDeuCerto("Response: Success\nOutput: No such module 'res_pjsip.so'"),

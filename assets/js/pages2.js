@@ -5039,6 +5039,18 @@ PAGES['conn.rede'] = {
         </div>
         ${blocoCli('Faixa de portas de voz (RTP)', d.rtp)}
       </div>
+      ${d.stun_rtp?.ativo ? `<div class="card" style="margin-top:16px;padding:18px">
+        <span class="badge badge-warn">STUN ativo no RTP</span>
+        <p class="small muted" style="margin:10px 0 0">
+          A central está configurada para perguntar o próprio endereço a
+          <span class="mono">${esc(d.stun_rtp.endereco || '—')}</span> antes de montar cada chamada.
+          Essa consulta é bloqueante: se o endereço não responder, cada chamada atrasa nove
+          segundos antes de começar a discar, e o Asterisk registra isso apenas como aviso no log.
+          O endereço público do áudio já vem do campo acima, sem consultar ninguém —
+          tire o <span class="mono">stunaddr</span> do <span class="mono">rtp.conf</span>
+          a menos que você tenha um motivo para mantê-lo.
+        </p>
+      </div>` : ''}
       <div style="margin-top:16px">${blocoCli('Servidor HTTP do Asterisk', d.http)}</div>`;
   },
 

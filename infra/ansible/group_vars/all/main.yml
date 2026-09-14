@@ -149,10 +149,18 @@ turn_peers_liberados: []
 stun_servidor: "{{ (turn_dominio ~ ':' ~ turn_porta) if (instalar_turn | default(true)) else '' }}"
 softphone_stun: "{{ ('stun:' ~ stun_servidor) if stun_servidor else '' }}"
 
-# STUN do próprio Asterisk, no rtp.conf. Vazio é escolha legítima: o
-# endereço público do SDP vem de external_media_address, configurado no
-# console, e não precisa de descoberta.
-rtp_stunaddr: "{{ stun_servidor }}"
+# STUN do próprio Asterisk, no rtp.conf. Vazio de propósito.
+#
+# Esta descoberta é síncrona e bloqueante: endereço que não responde
+# trava a montagem do RTP por nove segundos — três tentativas de três —
+# antes de a chamada começar a discar, e o Asterisk só registra isso
+# como NOTICE. Apontar para o TURN desta máquina não resolve: o nome do
+# host resolve para 127.0.1.1 no Debian, que é um endereço morto.
+#
+# E é dispensável: o endereço público do SDP vem de
+# external_media_address, que o console configura em Conexões > Rede,
+# com um valor só e sem consultar ninguém em tempo de chamada.
+rtp_stunaddr: ""
 
 # A quem o console pergunta o endereço público quando alguém clica em
 # "Descobrir", em Conexões > Rede. Tem de ser um servidor de fora: o TURN
