@@ -371,3 +371,12 @@ tr:hover .row-actions { opacity: 1; }
 .lista-problemas li { color: var(--text-muted); }
 .lista-problemas li.grave { color: var(--danger); }
 .lista-problemas b { color: var(--text); }
+
+/* Lista explicativa dentro de um cartão. O reset tira o marcador de
+   todo ul; aqui ele faz falta — sem ele o texto vira parágrafo corrido. */
+.lista-ajuda {
+  list-style: disc;
+  padding-left: 18px;
+  line-height: 1.75;
+}
+.lista-ajuda li { margin-bottom: 6px; }

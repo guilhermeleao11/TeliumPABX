@@ -81,11 +81,21 @@ const Palette = {
     this.carregarDiscaveis();
   },
 
-  /** Ramais e contatos vêm da API — só entram na paleta se existirem. */
+  /**
+   * Ramais e contatos vêm da API — só entram na paleta se existirem.
+   *
+   * Quem não tem o módulo não pede a lista: o .catch já engolia o erro,
+   * mas o 403 continuava aparecendo no console do navegador de todo
+   * usuário do portal, poluindo o lugar onde se procura problema.
+   */
   async carregarDiscaveis() {
     const [ramais, contatos] = await Promise.all([
-      Api.get('/ramais', { limite: 500 }).catch(() => ({ dados: [] })),
-      Api.get('/contatos', { limite: 500 }).catch(() => ({ dados: [] }))
+      Auth.can('conn.ramais')
+        ? Api.get('/ramais', { limite: 500 }).catch(() => ({ dados: [] }))
+        : { dados: [] },
+      Auth.can('pcu.contatos') || Auth.can('admin.contatos')
+        ? Api.get('/contatos', { limite: 500 }).catch(() => ({ dados: [] }))
+        : { dados: [] }
     ]);
 
     ramais.dados.forEach(r => this.itens.push({

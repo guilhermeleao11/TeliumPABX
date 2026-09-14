@@ -18,6 +18,7 @@ use Telium\Http\Controllers\Backup;
 use Telium\Http\Controllers\Cli;
 use Telium\Http\Controllers\Configuracao as CtrlConfig;
 use Telium\Http\Controllers\Painel;
+use Telium\Http\Controllers\Portal;
 use Telium\Http\Controllers\Relatorios;
 use Telium\Http\Controllers\Saude;
 use Telium\Http\Controllers\Sistema;
@@ -446,6 +447,18 @@ $app->post('/auth/login', [CtrlAuth::class, 'login']);
 $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->post('/auth/logout', [CtrlAuth::class, 'logout']);
     $g->get('/me', [CtrlAuth::class, 'eu']);
+    // Sem módulo nem ação: é a própria conta de quem está logado.
+    $g->post('/me/senha', [CtrlAuth::class, 'trocarMinhaSenha']);
+
+    // ---- portal do usuário: tudo preso ao ramal da sessão ----
+    $g->get('/me/ramal', [Portal::class, 'ramal'])->add(new Permissao('pcu.meuramal'));
+    $g->put('/me/ramal', [Portal::class, 'salvarRamal'])->add(new Permissao('pcu.meuramal'));
+    $g->get('/me/chamadas', [Portal::class, 'chamadas'])->add(new Permissao('pcu.chamadas'));
+    $g->get('/me/correiovoz', [Portal::class, 'correioVoz'])->add(new Permissao('pcu.correiovoz'));
+    $g->get('/me/correiovoz/audio', [Portal::class, 'audioCorreio'])
+      ->add(new Permissao('pcu.correiovoz'));
+    $g->delete('/me/correiovoz', [Portal::class, 'apagarCorreio'])
+      ->add(new Permissao('pcu.correiovoz'));
 
     // ---- painel e operação ----
     $g->get('/painel/visaogeral', [Painel::class, 'visaogeral'])

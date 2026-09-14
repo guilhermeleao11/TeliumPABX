@@ -159,13 +159,20 @@ const App = {
   async verificarConfig() {
     let estado = null;
     let saude = null;
-    try { estado = await Api.get('/config/estado'); } catch { /* sem permissão ou fora do ar */ }
+    // Só quem administra a central precisa disto; pedir por quem não tem
+    // acesso rendia um 403 no console do navegador a cada tela.
+    if (Auth.can('cfg.avancadas')) {
+      try { estado = await Api.get('/config/estado'); } catch { /* central fora do ar */ }
+    }
     // /health devolve 503 quando algum serviço está fora — e é justamente
     // esse corpo que queremos mostrar. O erro carrega o JSON já decodificado.
     try { saude = await Api.get('/health'); }
     catch (e) { saude = e.detalhe && e.detalhe.checagens ? e.detalhe : null; }
 
-    this.configPendente = !!estado?.pendente;
+    // A barra e o aviso de configuração pendente só interessam a quem
+    // administra a central. Para o usuário do portal era ruído: um
+    // alerta permanente sobre algo que ele não pode nem deve resolver.
+    this.configPendente = !!estado?.pendente && Auth.can('cfg.avancadas');
     this.pintarStatus(saude);
     this.pintarBarraAplicar(estado);
 

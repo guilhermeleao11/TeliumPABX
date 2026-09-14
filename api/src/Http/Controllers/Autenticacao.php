@@ -176,6 +176,62 @@ final class Autenticacao
         );
     }
 
+    /**
+     * POST /api/me/senha — o usuário troca a própria senha.
+     *
+     * Existia só a redefinição pelo administrador, com o módulo
+     * admin.usuarios: todo esquecimento de senha virava chamado. Aqui
+     * qualquer perfil troca a sua, provando que sabe a atual — é o que
+     * impede que um console deixado aberto vire uma conta sequestrada.
+     */
+    public function trocarMinhaSenha(Request $req, Response $res): Response
+    {
+        $eu = (array) $req->getAttribute('usuario');
+        $corpo = (array) $req->getParsedBody();
+        $atual = (string) ($corpo['atual'] ?? '');
+        $nova  = (string) ($corpo['nova'] ?? '');
+        $ip = $this->ip($req);
+
+        $usuario = Bd::um('SELECT id, usuario, senha_hash FROM usuarios WHERE id = ?', [$eu['id'] ?? 0]);
+        if ($usuario === null) {
+            return Resposta::erro($res, 'Usuário não encontrado', 404);
+        }
+
+        if (!Senha::verificar($atual, (string) $usuario['senha_hash'])) {
+            Auditoria::registrar($eu, 'senha_falha', 'auth', (string) $usuario['usuario'], [], $ip);
+
+            return Resposta::erro($res, 'A senha atual não confere', 403, ['campo' => 'atual']);
+        }
+
+        $faltas = Senha::validar($nova);
+        if ($faltas !== []) {
+            return Resposta::erro($res, Senha::mensagemDeFalta($faltas), 422,
+                                  ['campo' => 'nova', 'faltas' => $faltas]);
+        }
+        if ($atual === $nova) {
+            return Resposta::erro($res, 'A senha nova precisa ser diferente da atual', 422,
+                                  ['campo' => 'nova']);
+        }
+
+        Bd::executar(
+            'UPDATE usuarios SET senha_hash = ?, tentativas_login = 0, bloqueado_ate = NULL WHERE id = ?',
+            [Senha::criar($nova), $usuario['id']]
+        );
+
+        // As outras sessões caem: trocar a senha é o que se faz quando se
+        // desconfia que alguém entrou. A desta continua, para não jogar
+        // o usuário para fora no meio da própria troca.
+        $encerradas = Sessao::encerrarOutras(
+            (int) $usuario['id'],
+            (string) $req->getAttribute('token')
+        );
+
+        Auditoria::registrar($eu, 'senha_propria', 'auth', (string) $usuario['usuario'],
+                             ['sessoes_encerradas' => $encerradas], $ip);
+
+        return Resposta::json($res, ['ok' => true, 'sessoes_encerradas' => $encerradas]);
+    }
+
     /** GET /api/me — usuário, permissões e menu já resolvidos. */
     public function eu(Request $req, Response $res): Response
     {

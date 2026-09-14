@@ -44,6 +44,22 @@ function pageHead(titulo, sub, acoes = '') {
   </div>`;
 }
 
+/**
+ * Lê um formulário solto — fora da gaveta do CRUD, que tem o próprio
+ * caminho. Campos de "switch" viram 1/0 e número vazio vira null, que é
+ * o que a API espera.
+ */
+function lerFormulario(form) {
+  const dados = {};
+  form.querySelectorAll('[name]').forEach(el => {
+    if (el.disabled) return;
+    let v = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
+    if (v === '' && el.type === 'number') v = null;
+    dados[el.name] = v;
+  });
+  return dados;
+}
+
 function readOnlyNote(ctx) {
   return ctx.can('editar') ? '' :
     `<span class="badge badge-warn">${icon('eye','ico ico-sm')} Somente leitura</span>`;
