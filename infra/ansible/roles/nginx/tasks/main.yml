@@ -62,12 +62,25 @@
     validate: "nginx -t -c %s"
   notify: recarregar nginx
 
+# O vhost não pode ser validado sozinho: ele só faz sentido dentro do
+# contexto http do nginx.conf. Por isso a conferência vem depois, sobre
+# a configuração inteira — e falha o playbook ali, antes de o handler
+# tentar recarregar e derrubar o console.
 - name: Publicar vhost do PABX
   ansible.builtin.template:
     src: telium-pabx.conf.j2
     dest: /etc/nginx/conf.d/telium-pabx.conf
     mode: "0644"
   notify: recarregar nginx
+
+- name: Conferir a configuração do nginx por inteiro
+  ansible.builtin.command: nginx -t
+  register: nginx_teste
+  changed_when: false
+
+- name: Resultado da conferência do nginx
+  ansible.builtin.debug:
+    msg: "{{ nginx_teste.stderr_lines | default([]) }}"
 
 - name: Permitir que o nginx leia o certificado
   ansible.builtin.user:

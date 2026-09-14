@@ -62,7 +62,12 @@ server {
     }
 
     location = /api/index.php {
-        include        fastcgi_params;
+        # Caminho absoluto de propósito: o nginx resolve include relativo
+        # a partir do prefixo, e o prefixo muda quando a configuração é
+        # validada num arquivo temporário — que é exatamente o que o
+        # Ansible faz antes de publicar. Com o caminho relativo, o
+        # playbook falhava no "nginx -t" sem nada de errado no arquivo.
+        include        /etc/nginx/fastcgi_params;
         fastcgi_pass   unix:/run/php/telium.sock;
         fastcgi_param  SCRIPT_FILENAME {{ telium_api }}/public/index.php;
         fastcgi_param  DOCUMENT_ROOT   {{ telium_api }}/public;
