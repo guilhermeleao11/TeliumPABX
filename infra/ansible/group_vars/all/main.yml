@@ -143,5 +143,14 @@ turn_peers_liberados: []
 # ICE do softphone do navegador. O STUN resolve a maioria dos casos; o
 # TURN entra quando o caminho direto não existe. As credenciais do TURN
 # são geradas a cada requisição, com prazo — veja Autenticacao::ice().
-softphone_stun: "stun:stun.l.google.com:19302"
+# STUN. Com o TURN instalado nesta máquina, ele também é o STUN: manda a
+# central e o navegador perguntarem aqui, em vez de depender de saída UDP
+# para um servidor público. Quem usar TURN de terceiros põe o de lá.
+stun_servidor: "{{ (turn_dominio ~ ':' ~ turn_porta) if (instalar_turn | default(true)) else '' }}"
+softphone_stun: "{{ ('stun:' ~ stun_servidor) if stun_servidor else '' }}"
+
+# STUN do próprio Asterisk, no rtp.conf. Vazio é escolha legítima: o
+# endereço público do SDP vem de external_media_address, configurado no
+# console, e não precisa de descoberta.
+rtp_stunaddr: "{{ stun_servidor }}"
 turn_segredo: ""          # vazio: gerado na instalação, em credenciais_dir

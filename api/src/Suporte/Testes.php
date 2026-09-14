@@ -218,6 +218,20 @@ final class Testes
             'não confunde o contato de um tronco com o de outro'
         );
 
+        $auths = "     Auth:  Magnus-SPO/112658668\n     Auth:  1000/1000";
+        $this->ok(
+            Diagnostico::temAuth($auths, 'Magnus-SPO'),
+            'vê a autenticação do tronco carregada na central'
+        );
+        $this->ok(
+            !Diagnostico::temAuth($auths, 'Magnus'),
+            'não confunde "Magnus" com "Magnus-SPO"'
+        );
+        $this->ok(
+            !Diagnostico::temAuth('No objects found.', 'Magnus-SPO'),
+            'central sem nenhum auth não passa por autenticada'
+        );
+
         $endpoints = " Endpoint:  Operadora/1140041000    Unavailable   0 of inf\n"
                    . " Endpoint:  1001/1001               Unavailable   0 of 2";
         $this->ok(

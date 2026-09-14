@@ -2,6 +2,18 @@
 [general]
 rtpstart = {{ ast_rtp_inicio }}
 rtpend   = {{ ast_rtp_fim }}
+; ICE fica ligado por causa do ramal do navegador; endpoint que não é
+; WebRTC tem ice_support = no e não usa nada disto.
 icesupport = yes
-stunaddr = stun.l.google.com:19302
+{% if rtp_stunaddr %}
+; STUN que o Asterisk usa para juntar candidatos ICE.
+;
+; Apontava para o servidor público do Google, o que obriga a central a
+; ter saída UDP para a internet — e quando o nome resolve em IPv6 numa
+; máquina só-IPv4, o pjproject falha a cada chamada com "Error sending
+; STUN request: Invalid argument". Com o TURN instalado aqui, o STUN é
+; ele mesmo, na rede local. O endereço público do SDP não depende disto:
+; vem de external_media_address, que o console configura.
+stunaddr = {{ rtp_stunaddr }}
+{% endif %}
 strictrtp = yes

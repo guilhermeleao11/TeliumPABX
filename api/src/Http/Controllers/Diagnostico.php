@@ -238,6 +238,7 @@ final class Diagnostico
         $endpoints = (string) (Ami::tentarComando('pjsip show endpoints') ?? '');
         $registros = (string) (Ami::tentarComando('pjsip show registrations') ?? '');
         $contatos  = (string) (Ami::tentarComando('pjsip show contacts') ?? '');
+        $auths     = (string) (Ami::tentarComando('pjsip show auths') ?? '');
         $central = $endpoints !== '';
 
         foreach ($cadastrados as &$t) {
@@ -250,6 +251,14 @@ final class Diagnostico
                 '/^\s*Endpoint:\s+' . preg_quote($id, '/') . '[\/\s]/mi',
                 self::semEnvelope($endpoints)
             ) === 1;
+
+            // O cadastro tem a credencial, mas a central carregou o
+            // objeto de autenticação? Já aconteceu de o "aplicar"
+            // responder sucesso, o arquivo em disco ficar certo e o
+            // Asterisk seguir com a configuração anterior — e o único
+            // sintoma era a operadora recusando o registro, que manda
+            // conferir usuário e senha que estão corretos.
+            $t['autenticado'] = (int) $t['tem_senha'] === 1 && self::temAuth($auths, $id);
 
             $t['estado_registro'] = self::estadoDoRegistro($registros, $id);
             $t['registrado'] = (int) $t['registrar'] === 1
@@ -265,6 +274,7 @@ final class Diagnostico
                 && (int) $t['ativo'] === 1
                 && $t['publicado']
                 && ((int) $t['tem_usuario'] !== 1 || (int) $t['tem_senha'] === 1)
+                && ((int) $t['tem_senha'] !== 1 || $t['autenticado'])
                 && ((int) $t['registrar'] !== 1 || $t['registrado'])
                 && in_array($t['estado_contato'], ['Avail', 'NonQual'], true);
 
@@ -283,6 +293,8 @@ final class Diagnostico
                     => 'usuário de autenticação sem senha — informe a senha da operadora',
                 (int) $t['registrar'] === 1 && (int) $t['tem_usuario'] !== 1
                     => 'marcado para registrar, mas sem usuário e senha da operadora',
+                (int) $t['tem_senha'] === 1 && !$t['autenticado']
+                    => 'a central não carregou a autenticação deste tronco — aplique de novo',
                 (int) $t['registrar'] === 1 && !$t['registrado'] => match ($t['estado_registro']) {
                     ''             => 'publicado, registro ainda não tentado',
                     'Rejected'     => 'operadora recusou o registro — confira usuário e senha',
@@ -410,6 +422,22 @@ final class Diagnostico
         }
 
         return 'Desconhecido';
+    }
+
+    /**
+     * A central carregou o objeto de autenticação deste tronco?
+     *
+     * O nome do auth é o do tronco, e a coluna é "<auth>/<usuário>".
+     * Casar só pelo começo confundiria "Magnus" com "Magnus-SPO", que é
+     * exatamente o tipo de engano que faria a tela dizer "tudo certo"
+     * sobre o tronco errado.
+     */
+    public static function temAuth(string $saida, string $id): bool
+    {
+        return $id !== '' && preg_match(
+            '/^\s*Auth:\s+' . preg_quote($id, '/') . '\//mi',
+            self::semEnvelope($saida)
+        ) === 1;
     }
 
     /**
