@@ -9,6 +9,7 @@ use Telium\Dominio\Totp;
 use Telium\Gerador\Aplicador;
 use Telium\Gerador\Bloco;
 use Telium\Gerador\Conferencia;
+use Telium\Http\Controllers\Diagnostico;
 
 /**
  * Bateria de testes do Telium, sem depender de nada instalado.
@@ -33,6 +34,7 @@ final class Testes
         $this->grupo('Permissões', $this->permissoes(...));
         $this->grupo('Geração de dialplan', $this->dialplan(...));
         $this->grupo('Credencial do TURN', $this->turn(...));
+        $this->grupo('Estado do tronco na central', $this->estadoTronco(...));
 
         if ($comBanco) {
             $this->grupo('Banco e esquema', $this->banco(...));
@@ -48,6 +50,87 @@ final class Testes
         }
 
         return ['passou' => $this->passou, 'falhou' => $this->falhou, 'erros' => $this->erros];
+    }
+
+    // ---------------------------------------------------------------
+    /**
+     * A tela de troncos diz se cada tronco chegou mesmo no Asterisk, e
+     * essa resposta sai de "pjsip show registrations". A saída é
+     * tabular, com coluna que aparece e some, e a armadilha é o
+     * "Unregistered", que contém "Registered" — procurar por substring
+     * dizia "registrado" justamente quando a operadora tinha recusado.
+     */
+    private function estadoTronco(): void
+    {
+        $registrado = ' Operadora-reg/sip:sip.op.com.br      Operadora      Registered';
+        $recusado   = ' Operadora-reg/sip:sip.op.com.br      Operadora      Rejected';
+        $semRegistro = ' Operadora-reg/sip:127.0.0.1:5081     Operadora      Unregistered      (exp. 3s)';
+        $semAuth    = ' Operadora-reg/sip:sip.op.com.br                     Registered';
+        $enviando   = ' Operadora-reg/sip:sip.op.com.br      Operadora      Auth. Sent';
+
+        $this->ok(
+            Diagnostico::estadoDoRegistro($registrado, 'Operadora') === 'Registered',
+            'lê o tronco registrado na operadora'
+        );
+        $this->ok(
+            Diagnostico::estadoDoRegistro($semRegistro, 'Operadora') === 'Unregistered',
+            '"Unregistered" não passa por registrado'
+        );
+        $this->ok(
+            Diagnostico::estadoDoRegistro($recusado, 'Operadora') === 'Rejected',
+            'lê a recusa da operadora'
+        );
+        $this->ok(
+            Diagnostico::estadoDoRegistro($semAuth, 'Operadora') === 'Registered',
+            'lê o registro do tronco que não autentica'
+        );
+        $this->ok(
+            Diagnostico::estadoDoRegistro($enviando, 'Operadora') === 'Auth. Sent',
+            'lê o registro em andamento'
+        );
+        $this->ok(
+            Diagnostico::estadoDoRegistro($registrado, 'Operadora2') === '',
+            'não confunde um tronco com outro de nome parecido'
+        );
+        $this->ok(
+            Diagnostico::estadoDoRegistro('No objects found.', 'Operadora') === '',
+            'tronco sem linha de registro fica sem estado'
+        );
+
+        $contatos = "  Contact:  Operadora/sip:127.0.0.1:5081   aac507088c Unavail        -nan";
+        $this->ok(
+            Diagnostico::estadoDoContato($contatos, 'Operadora') === 'Unavail',
+            '"Unavail" não passa por "Avail"'
+        );
+        $this->ok(
+            Diagnostico::estadoDoContato(
+                "  Contact:  Operadora/sip:sip.op.com.br   aac507088c Avail        21.500",
+                'Operadora'
+            ) === 'Avail',
+            'lê o contato que respondeu ao teste'
+        );
+        $this->ok(
+            Diagnostico::estadoDoContato(
+                "  Contact:  Operadora/sip:sip.op.com.br   aac507088c NonQual        nan",
+                'Operadora'
+            ) === 'NonQual',
+            'lê o tronco sem teste de resposta configurado'
+        );
+        $this->ok(
+            Diagnostico::estadoDoContato($contatos, 'Oper') === '',
+            'não confunde o contato de um tronco com o de outro'
+        );
+
+        $endpoints = " Endpoint:  Operadora/1140041000    Unavailable   0 of inf\n"
+                   . " Endpoint:  1001/1001               Unavailable   0 of 2";
+        $this->ok(
+            preg_match('/^\s*Endpoint:\s+' . preg_quote('Operadora', '/') . '[\/\s]/mi', $endpoints) === 1,
+            'reconhece o tronco publicado em "pjsip show endpoints"'
+        );
+        $this->ok(
+            preg_match('/^\s*Endpoint:\s+' . preg_quote('Oper', '/') . '[\/\s]/mi', $endpoints) !== 1,
+            'não dá o tronco por publicado pelo começo do nome'
+        );
     }
 
     // ---------------------------------------------------------------

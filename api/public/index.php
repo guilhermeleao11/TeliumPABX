@@ -178,6 +178,19 @@ $recursos = [
             ocultas: ['senha'],
             afetaAsterisk: true,
             modulo: 'conn.troncos',
+            regras: [
+                'nome' => ['rotulo' => 'nome do tronco', 'obrigatorio' => true, 'max' => 60],
+                'host' => ['rotulo' => 'host da operadora', 'obrigatorio' => true],
+                // Só PJSIP: o gerador não escreve outro tipo e o
+                // chan_dahdi nem carrega nesta instalação. Aceitar
+                // "dahdi" deixava o tronco cadastrado, o console dizia
+                // "aplicado" e nada aparecia no Asterisk.
+                'tipo' => ['rotulo' => 'tipo',
+                           'em' => ['pjsip'],
+                           'mensagem' => 'Esta central entronca por SIP. Placa analógica ou E1 '
+                                       . 'exige chan_dahdi, que não faz parte desta instalação.'],
+                'transporte' => ['rotulo' => 'transporte', 'em' => ['udp', 'tcp', 'tls']],
+            ],
         ),
     ],
     'filas' => [
@@ -636,6 +649,8 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('conn.firewall'));
     $g->get('/diagnostico/sip', [Diagnostico::class, 'sip'])->add(new Permissao('cfg.sip'));
     $g->get('/diagnostico/dids', [Diagnostico::class, 'dids'])->add(new Permissao('conn.did'));
+    $g->get('/diagnostico/troncos', [Diagnostico::class, 'troncos'])
+      ->add(new Permissao('conn.troncos'));
 
     // ---- envio de e-mail ----
     $g->get('/email', [Email::class, 'obter'])->add(new Permissao('cfg.notificacoes'));

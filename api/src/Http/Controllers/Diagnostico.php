@@ -212,6 +212,141 @@ final class Diagnostico
         return Resposta::json($res, ['dados' => $lista]);
     }
 
+    /**
+     * GET /api/diagnostico/troncos — o que o Asterisk sabe de cada um.
+     *
+     * "Cadastrei o tronco e ele não aparece no Asterisk" é a dúvida mais
+     * comum de quem instala uma central, e a tela não ajudava: a coluna
+     * "Ativo" dizia apenas que a linha do banco está ativa. Aqui a
+     * resposta vem da própria central.
+     */
+    public function troncos(Request $req, Response $res): Response
+    {
+        $cadastrados = Bd::todos('SELECT nome, host, porta, registrar, ativo, tipo FROM troncos ORDER BY nome');
+
+        $endpoints = (string) (Ami::tentarComando('pjsip show endpoints') ?? '');
+        $registros = (string) (Ami::tentarComando('pjsip show registrations') ?? '');
+        $contatos  = (string) (Ami::tentarComando('pjsip show contacts') ?? '');
+        $central = $endpoints !== '';
+
+        foreach ($cadastrados as &$t) {
+            // O mesmo saneamento do gerador: o nome do objeto no Asterisk
+            // não tem espaço nem acento.
+            $id = preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $t['nome']) ?? '';
+            $t['id_asterisk'] = $id;
+
+            $t['publicado'] = $id !== '' && preg_match(
+                '/^\s*Endpoint:\s+' . preg_quote($id, '/') . '[\/\s]/mi',
+                self::semEnvelope($endpoints)
+            ) === 1;
+
+            $t['estado_registro'] = self::estadoDoRegistro($registros, $id);
+            $t['registrado'] = (int) $t['registrar'] === 1
+                && $t['estado_registro'] === 'Registered';
+
+            $t['estado_contato'] = self::estadoDoContato($contatos, $id);
+            $t['respondendo'] = $t['estado_contato'] === 'Avail';
+
+            // Tronco com qualify desligado nunca fica "Avail", e chamar
+            // isso de fora do ar assustava sem motivo.
+            $t['no_ar'] = $central
+                && $t['tipo'] === 'pjsip'
+                && (int) $t['ativo'] === 1
+                && $t['publicado']
+                && ((int) $t['registrar'] !== 1 || $t['registrado'])
+                && in_array($t['estado_contato'], ['Avail', 'NonQual'], true);
+
+            // O diagnóstico em uma frase, que é o que se quer ler.
+            $t['situacao'] = match (true) {
+                !$central              => 'sem resposta da central',
+                // Mandar aplicar não adiantaria: o gerador não escreve
+                // tronco que não seja PJSIP.
+                $t['tipo'] !== 'pjsip'  => "tipo \"{$t['tipo']}\" não é publicado por esta central",
+                (int) $t['ativo'] !== 1 => 'desativado no cadastro',
+                !$t['publicado']       => 'não publicado — aplique as configurações',
+                (int) $t['registrar'] === 1 && !$t['registrado'] => match ($t['estado_registro']) {
+                    ''             => 'publicado, registro ainda não tentado',
+                    'Rejected'     => 'operadora recusou o registro — confira usuário e senha',
+                    'Unregistered' => 'publicado, operadora não registrou o tronco',
+                    'Auth. Sent',
+                    'Sent'         => 'registrando na operadora…',
+                    default        => "registro na operadora: {$t['estado_registro']}",
+                },
+                $t['no_ar'] && $t['estado_contato'] === 'NonQual'
+                                       => 'no ar (sem teste de resposta)',
+                $t['no_ar']            => 'no ar',
+                default                => match ($t['estado_contato']) {
+                    ''        => 'publicado, sem contato conhecido da operadora',
+                    'Unavail' => 'publicado, operadora não respondeu ao teste',
+                    default   => "publicado, contato {$t['estado_contato']}",
+                },
+            };
+        }
+        unset($t);
+
+        return Resposta::json($res, [
+            'central'   => $central,
+            'troncos'   => $cadastrados,
+            'registros' => $this->blocoCli('pjsip show registrations'),
+        ]);
+    }
+
+    /**
+     * Estado da linha do tronco em "pjsip show registrations".
+     *
+     * A saída é tabular e as colunas variam — o Auth some quando o
+     * tronco não autentica —, então lê-se a linha inteira e procura-se
+     * a coluna que é um estado conhecido. Procurar "Registered" por
+     * substring não serve: "Unregistered" também contém.
+     */
+    public static function estadoDoRegistro(string $saida, string $id): string
+    {
+        $achado = [];
+        if ($id === '' || preg_match(
+            '/^\s*' . preg_quote($id, '/') . '-reg\/\S+(.*)$/mi',
+            self::semEnvelope($saida),
+            $achado
+        ) !== 1) {
+            return '';
+        }
+
+        $conhecidos = ['Registered', 'Unregistered', 'Rejected', 'Auth. Sent', 'Sent', 'No Registration'];
+        foreach (preg_split('/\s{2,}/', trim($achado[1])) ?: [] as $coluna) {
+            if (in_array($coluna, $conhecidos, true)) {
+                return $coluna;
+            }
+        }
+
+        return 'Desconhecido';
+    }
+
+    /**
+     * Estado do contato do tronco em "pjsip show contacts".
+     *
+     * Mesmo cuidado do registro: "Unavail" contém "Avail". A busca é
+     * por palavra inteira, com maiúscula contando, e só na linha
+     * daquele tronco.
+     */
+    public static function estadoDoContato(string $saida, string $id): string
+    {
+        $achado = [];
+        if ($id === '' || preg_match(
+            '/^\s*(?:Contact:\s*)?' . preg_quote($id, '/') . '\/sip:\S+(.*)$/mi',
+            self::semEnvelope($saida),
+            $achado
+        ) !== 1) {
+            return '';
+        }
+
+        foreach (['Avail', 'Unavail', 'Unknown', 'NonQual', 'Created', 'Removed', 'Updated'] as $estado) {
+            if (preg_match('/\b' . $estado . '\b/', $achado[1]) === 1) {
+                return $estado;
+            }
+        }
+
+        return 'Desconhecido';
+    }
+
     // ---------------------------------------------------------------
     /** Saída bruta de um comando de CLI, já sem o envelope do AMI. */
     private function blocoCli(string $comando): array
@@ -221,7 +356,7 @@ final class Diagnostico
             return ['disponivel' => false, 'texto' => ''];
         }
 
-        return ['disponivel' => true, 'texto' => $this->semEnvelope($bruto)];
+        return ['disponivel' => true, 'texto' => self::semEnvelope($bruto)];
     }
 
     /**
@@ -231,7 +366,7 @@ final class Diagnostico
      * do CLI prefixada por "Output: " — sem limpar, a tela mostra isso
      * ao cliente.
      */
-    private function semEnvelope(string $bruto): string
+    public static function semEnvelope(string $bruto): string
     {
         $linhas = [];
         foreach (explode("\n", $bruto) as $linha) {
@@ -259,7 +394,7 @@ final class Diagnostico
         }
 
         $linhas = [];
-        foreach (explode("\n", $this->semEnvelope($bruto)) as $linha) {
+        foreach (explode("\n", self::semEnvelope($bruto)) as $linha) {
             if (preg_match($regex, $linha, $m) !== 1) {
                 continue;
             }

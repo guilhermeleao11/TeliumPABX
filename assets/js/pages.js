@@ -1156,20 +1156,56 @@ PAGES['conn.troncos'] = paginaCrud({
   tituloExcluir: t => `Excluir o tronco ${t.nome}?`,
   textoExcluir: () => 'As rotas de saída que usam este tronco deixarão de funcionar.',
 
+  // "Ativo" dizia só que a linha do banco está ativa, e quem cadastrava
+  // um tronco lia isso como "está no ar". O estado de verdade vem do
+  // Asterisk, e é o que responde "cadastrei e não aparece".
+  aoCarregar: async pagina => {
+    pagina._situacao = await Api.get('/diagnostico/troncos')
+      .catch(() => ({ central: false, troncos: [] }));
+  },
+
   colunas: [
-    { label: 'Tronco', render: t => `<b>${esc(t.nome)}</b>` },
-    { label: 'Tipo', render: t => `<span class="badge">${String(t.tipo || '').toUpperCase()}</span>` },
-    { label: 'Host', render: t => `<span class="mono small dim">${esc(t.host || '—')}:${t.porta || 5060}</span>` },
+    { label: 'Tronco', render: t => `<b>${esc(t.nome)}</b>
+        <div class="tiny muted mono">${esc(t.host || '—')}:${t.porta || 5060}</div>` },
     { label: 'Canais', render: t => `<span class="num">${t.canais_max || '—'}</span>` },
-    { label: 'Registra', render: t => Number(t.registrar) ? '<span class="badge badge-info">Sim</span>' : '<span class="muted">Não</span>' },
-    { label: 'Estado', render: t => Number(t.ativo)
-        ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
-        : '<span class="badge"><i class="dot"></i>Inativo</span>' }
+    { label: 'Registra', render: t => Number(t.registrar)
+        ? '<span class="badge badge-info">Sim</span>' : '<span class="muted">Não</span>' },
+    { label: 'No cadastro', render: t => Number(t.ativo)
+        ? '<span class="badge badge-ok">Ativo</span>'
+        : '<span class="badge">Inativo</span>' },
+    { label: 'Na central', render: t => {
+        const s = (PAGES['conn.troncos']._situacao?.troncos || [])
+          .find(x => x.nome === t.nome);
+        if (!s) return '<span class="muted small">—</span>';
+        if (s.no_ar)
+          return `<span class="badge badge-ok"><i class="dot dot-pulse"></i>${esc(s.situacao)}</span>`;
+        // Recusa de registro é erro de credencial: quem cadastrou tem
+        // o que corrigir agora, e não é a mesma coisa que esperar o
+        // primeiro registro subir.
+        const grave = !s.publicado || s.estado_registro === 'Rejected'
+          || s.situacao.includes('não é publicado');
+        return `<span class="badge ${grave ? 'badge-danger' : 'badge-warn'}"
+          data-tip="${esc(s.situacao)}">${esc(s.situacao)}</span>`;
+      } }
   ],
+
+  acoesExtra: () => {
+    const d = PAGES['conn.troncos']._situacao;
+    if (!d) return '';
+    if (!d.central)
+      return '<span class="badge badge-warn">central sem resposta — o estado não pôde ser lido</span>';
+    const fora = (d.troncos || []).filter(t => Number(t.ativo) && !t.no_ar).length;
+    return fora
+      ? `<span class="badge badge-warn">${fora} tronco${fora > 1 ? 's' : ''} fora do ar</span>`
+      : '';
+  },
 
   campos: (t) => [
     { campo: 'nome', label: 'Nome do tronco', obrigatorio: true, placeholder: 'SIP-Operadora' },
-    { campo: 'tipo', label: 'Tipo', tipo: 'select', opcoes: ['pjsip','dahdi'], padrao: 'pjsip' },
+    { campo: 'tipo', label: 'Tipo', tipo: 'select', padrao: 'pjsip',
+      opcoes: [{ valor: 'pjsip', rotulo: 'SIP (PJSIP)' }],
+      ajuda: 'Esta central entronca por SIP. Placa analógica ou E1 exige chan_dahdi, '
+           + 'que não faz parte desta instalação.' },
     { campo: 'host', label: 'Host da operadora', obrigatorio: true, mono: true, placeholder: 'sip.operadora.com.br' },
     { campo: 'porta', label: 'Porta', tipo: 'number', padrao: 5060 },
     { campo: 'transporte', label: 'Transporte', tipo: 'select', opcoes: ['udp','tcp','tls'], padrao: 'udp' },
