@@ -5,17 +5,19 @@
 
 /* Opções de destino usadas por rotas e URA — carregadas do banco. */
 async function opcoesDestino() {
-  const [ramais, filas, uras, custom, grupos, anuncios] = await Promise.all([
+  const [ramais, filas, uras, custom, grupos, anuncios, disa] = await Promise.all([
     Api.get('/ramais', { limite: 500 }).catch(() => ({ dados: [] })),
     Api.get('/filas', { limite: 200 }).catch(() => ({ dados: [] })),
     Api.get('/ura', { limite: 100 }).catch(() => ({ dados: [] })),
     Api.get('/destinos-personalizados', { limite: 200 }).catch(() => ({ dados: [] })),
     Api.get('/grupos-toque', { limite: 200 }).catch(() => ({ dados: [] })),
-    Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] }))
+    Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] })),
+    Api.get('/disa', { limite: 100 }).catch(() => ({ dados: [] }))
   ]);
   return {
     ramais: ramais.dados, filas: filas.dados, uras: uras.dados,
     grupos: grupos.dados,
+    disa: (disa.dados || []).filter(d => Number(d.ativo)),
     // Anúncio, não gravação: a gravação é matéria-prima, o anúncio é o
     // que sabe o que fazer com ela.
     anuncios: anuncios.dados.filter(a => Number(a.ativo)),
@@ -84,7 +86,7 @@ function seletorDestino(prefixo, item, destinos) {
     { valor: 'ramal', rotulo: 'Ramal' }, { valor: 'fila', rotulo: 'Fila' },
     { valor: 'ura', rotulo: 'URA' }, { valor: 'voicemail', rotulo: 'Correio de voz' },
     { valor: 'anuncio', rotulo: 'Anúncio' }, { valor: 'personalizado', rotulo: 'Destino personalizado' },
-    { valor: 'desligar', rotulo: 'Desligar' }
+    { valor: 'disa', rotulo: 'DISA' }, { valor: 'desligar', rotulo: 'Desligar' }
   ];
   const valores = [
     ...destinos.ramais.map(r => ({ valor: r.numero, rotulo: `Ramal ${r.numero} — ${r.nome}`, tipo: 'ramal' })),
@@ -93,6 +95,9 @@ function seletorDestino(prefixo, item, destinos) {
     ...(destinos.personalizados || []).map(d => ({
       valor: String(d.id), rotulo: `Personalizado — ${d.nome} (${d.contexto},${d.extensao})`,
       tipo: 'personalizado'
+    })),
+    ...(destinos.disa || []).map(d => ({
+      valor: String(d.id), rotulo: `DISA — ${d.nome}`, tipo: 'disa'
     }))
   ];
   return [
@@ -4468,3 +4473,124 @@ PAGES['cfg.musica'] = {
     });
   }
 };
+
+/* ------------------------- Aplicações · Megafonia e Interfonia ------------------------- */
+PAGES['apps.paging'] = paginaCrud({
+  recurso: 'grupos-paging',
+  titulo: 'Megafonia e Interfonia',
+  sub: `Um número que abre o viva-voz de vários aparelhos ao mesmo tempo — o
+        "atenção, loja" do balcão, ou o interfone entre duas salas.`,
+  ico: 'volume',
+  plural: 'grupos',
+  rotuloNovo: 'Novo grupo',
+  tituloNovo: 'Novo grupo de megafonia',
+  tituloEditar: g => `Grupo ${g.numero}`,
+  tituloExcluir: g => `Excluir o grupo ${g.numero}?`,
+  vazioTitulo: 'Nenhum grupo de megafonia',
+  vazioTexto: `Crie um grupo, escolha os aparelhos e disque o número dele: todos abrem o
+               viva-voz e ouvem quem chamou. Para falar com um ramal só, o código
+               <span class="mono">*81</span> mais o número já funciona.`,
+  placeholderBusca: 'Buscar por número ou nome…',
+  textoBusca: g => `${g.numero} ${g.nome}`,
+
+  colunas: [
+    { label: 'Número', render: g => `<b class="mono">${esc(g.numero)}</b>` },
+    { label: 'Grupo', render: g => `<b>${esc(g.nome)}</b>` },
+    { label: 'Aparelhos', render: g => {
+        const r = String(g.ramais || '').split('-').filter(Boolean);
+        return r.length
+          ? r.map(x => `<span class="badge mono">${esc(x)}</span>`).join(' ')
+          : '<span class="muted">nenhum</span>';
+      } },
+    { label: 'Sentido', render: g => Number(g.duplex)
+        ? '<span class="badge badge-brand">todos falam</span>'
+        : '<span class="badge">só quem chamou fala</span>' },
+    { label: 'Estado', render: g => Number(g.ativo)
+        ? '<span class="badge badge-ok">Ativo</span>' : '<span class="badge">Desativado</span>' }
+  ],
+
+  aoCarregar: async pagina => {
+    pagina._ramais = (await Api.get('/ramais', { limite: 500 }).catch(() => ({ dados: [] }))).dados;
+    pagina._anuncios = (await Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] }))).dados;
+  },
+
+  campos: (g, ctx, pagina) => [
+    { campo: 'numero', label: 'Número do grupo', obrigatorio: true, mono: true, placeholder: '700',
+      padraoValido: /^[0-9*#]{2,10}$/, mensagemPadrao: 'Só dígitos, * ou #.',
+      ajuda: 'É o que se disca para falar com o grupo.' },
+    { campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'Loja' },
+    { campo: 'ramais', label: 'Aparelhos do grupo', obrigatorio: true, mono: true,
+      largura: 'full', placeholder: '1001-1002-1003',
+      ajuda: (pagina._ramais || []).length
+        ? 'Números separados por hífen. Cadastrados: '
+          + (pagina._ramais || []).map(r => r.numero).join(', ')
+        : 'Números separados por hífen.' },
+    { campo: 'duplex', label: 'Todos podem falar (interfonia)', tipo: 'switch', largura: 'full',
+      ajuda: 'Desligado, os aparelhos só ouvem. Ligado, vira conversa de mão dupla — '
+           + 'útil entre duas salas, confuso com dez aparelhos.' },
+    { campo: 'forcar', label: 'Interromper quem está em chamada', tipo: 'switch', largura: 'full',
+      ajuda: 'Ignora quem recusou megafonia pelo código *82. Use com parcimônia.' },
+    { campo: 'anuncio_id', label: 'Tocar antes de abrir o som', tipo: 'select', largura: 'full',
+      opcoes: [{ valor: '', rotulo: 'nada — abre direto' },
+               ...(pagina._anuncios || []).map(a => ({ valor: a.id, rotulo: a.nome }))],
+      ajuda: 'Um bipe ou aviso curto evita o susto de o aparelho abrir som do nada.' },
+    { campo: 'duracao_max', label: 'Tempo máximo (segundos)', tipo: 'number', padrao: 60 },
+    { campo: 'ativo', label: 'Grupo ativo', tipo: 'switch', padrao: 1 }
+  ]
+});
+
+/* ------------------------- Aplicações · DISA ------------------------- */
+PAGES['apps.disa'] = paginaCrud({
+  recurso: 'disa',
+  titulo: 'DISA — Discagem Direta',
+  sub: `Ligar de fora, ouvir o tom da central e discar como se estivesse na mesa.
+        Depois de criada, aponte uma rota de entrada ou uma opção de URA para ela.`,
+  ico: 'key',
+  plural: 'DISAs',
+  rotuloNovo: 'Nova DISA',
+  tituloNovo: 'Nova DISA',
+  tituloEditar: d => `DISA ${d.nome}`,
+  tituloExcluir: d => `Excluir a DISA ${d.nome}?`,
+  vazioTitulo: 'Nenhuma DISA',
+  vazioTexto: `Serve para quem está na rua discar pela central — e é, junto com o correio de
+               voz sem senha, o caminho mais explorado por fraude de tarifação. Se criar uma,
+               use senha longa e o contexto mais restrito que resolver.`,
+  placeholderBusca: 'Buscar por nome…',
+  textoBusca: d => d.nome,
+
+  colunas: [
+    { label: 'Nome', render: d => `<b>${esc(d.nome)}</b>` },
+    { label: 'Até onde disca', render: d => ({
+        'telium-ramais': '<span class="badge badge-ok">só ramais internos</span>',
+        'telium-bloqueado': '<span class="badge">nenhuma saída</span>',
+        'interno': '<span class="badge badge-warn">ramais e rotas de saída</span>'
+      }[d.contexto] || `<span class="badge mono">${esc(d.contexto)}</span>`) },
+    { label: 'CID de saída', render: d => d.cid_saida
+        ? `<span class="mono">${esc(d.cid_saida)}</span>`
+        : '<span class="muted small">o do tronco</span>' },
+    { label: 'Estado', render: d => Number(d.ativo)
+        ? '<span class="badge badge-ok">Ativa</span>' : '<span class="badge">Desativada</span>' }
+  ],
+
+  campos: () => [
+    { campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'Diretoria em viagem' },
+    { campo: 'senha', label: 'Senha', obrigatorio: true, mono: true, tipo: 'password',
+      padraoValido: /^[0-9]{6,20}$/, mensagemPadrao: 'De 6 a 20 dígitos.',
+      ajuda: 'De 6 a 20 dígitos. É o que separa a sua central de quem discar o número por acaso — '
+           + 'não use 1234 nem o número do ramal.' },
+    { campo: 'contexto', label: 'Até onde quem entrou pode discar', tipo: 'select', largura: 'full',
+      opcoes: [
+        { valor: 'telium-ramais', rotulo: 'Só ramais internos — mais seguro' },
+        { valor: 'interno', rotulo: 'Ramais e rotas de saída permitidas' },
+        { valor: 'telium-bloqueado', rotulo: 'Nenhuma saída (para desativar sem excluir)' }
+      ], padrao: 'telium-ramais',
+      ajuda: 'Liberar as rotas de saída é o que torna a DISA útil para quem viaja — e o que '
+           + 'torna o estrago grande se a senha vazar.' },
+    { campo: 'cid_saida', label: 'Número de saída', mono: true, placeholder: '1140041000',
+      ajuda: 'O que a operadora recebe nas chamadas feitas por aqui. Em branco, vale o do tronco.' },
+    { campo: 'tempo_digito', label: 'Espera por dígito (segundos)', tipo: 'number', padrao: 10 },
+    { campo: 'responder', label: 'Atender a chamada antes de pedir a senha', tipo: 'switch',
+      padrao: 1, ajuda: 'Desligado, a operadora não tarifa enquanto ninguém digita.' },
+    { campo: 'ativo', label: 'DISA ativa', tipo: 'switch', padrao: 1 }
+  ]
+});

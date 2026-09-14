@@ -275,6 +275,7 @@ include => telium-ramais
 include => telium-grupos
 include => telium-filas
 include => telium-conferencias
+include => telium-paging
 include => telium-ura
 include => telium-saida
 include => telium-custom
@@ -362,4 +363,6 @@ exten => _X.,1,Answer()
 #include "telium/extensions.ura.conf"
 #include "telium/extensions.saida.conf"
 #include "telium/extensions.entrada.conf"
+#include "telium/extensions.paging.conf"
+#include "telium/extensions.disa.conf"
 #include "telium/extensions_custom.conf"

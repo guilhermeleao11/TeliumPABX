@@ -429,6 +429,9 @@
     - { arquivo: "extensions.anuncios.conf",     conteudo: "[telium-anuncios]\n; gerado pela API" }
     - { arquivo: "extensions.condicoes.conf",    conteudo: "[telium-condicoes]\n; gerado pela API" }
     - { arquivo: "extensions.estacionamento.conf", conteudo: "; gerado pela API" }
+    - { arquivo: "extensions.paging.conf",  conteudo: "[telium-paging]\n; gerado pela API" }
+    - { arquivo: "extensions.disa.conf",    conteudo: "[telium-disa]\n; gerado pela API" }
+    - { arquivo: "musicaespera.conf",       conteudo: "; gerado pela API" }
     - { arquivo: "queues.conf",             conteudo: "; gerado pela API" }
     - { arquivo: "voicemail.conf",          conteudo: "[telium]\n; gerado pela API" }
     - { arquivo: "confbridge.conf",         conteudo: "; gerado pela API" }

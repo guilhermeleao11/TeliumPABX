@@ -54,6 +54,8 @@ final class GeradorDialplan
             'extensions.ura.conf'     => $this->uras(),
             'extensions.saida.conf'   => $this->rotasSaida(),
             'extensions.entrada.conf' => $this->rotasEntrada(),
+            'extensions.paging.conf'  => $this->paging(),
+            'extensions.disa.conf'    => $this->disa(),
         ];
     }
 
@@ -807,6 +809,136 @@ final class GeradorDialplan
         }
 
         return $b->texto();
+    }
+
+    /**
+     * Megafonia: um número que abre o viva-voz de vários aparelhos.
+     *
+     * O Page() já faz o trabalho; o que muda de grupo para grupo é quem
+     * toca, se todos falam ou só quem chamou, e se a chamada em curso é
+     * interrompida.
+     */
+    private function paging(): string
+    {
+        $b = $this->cabecalho('Contexto: megafonia e interfonia')->contexto('telium-paging');
+
+        $grupos = $this->consulta('SELECT * FROM grupos_paging WHERE ativo = 1 ORDER BY numero');
+        if ($grupos === []) {
+            return $b->comentario('nenhum grupo de megafonia cadastrado')->texto();
+        }
+
+        foreach ($grupos as $g) {
+            $ramais = array_filter(array_map('trim', explode('-', (string) $g['ramais'])));
+            if ($ramais === []) {
+                continue;
+            }
+
+            $canais = implode('&', array_map(
+                static fn (string $r): string => 'PJSIP/' . preg_replace('/[^0-9]/', '', $r),
+                $ramais
+            ));
+
+            // d = todos falam (interfonia), sem d só quem chamou é ouvido.
+            // i = ignora quem recusa megafonia. q = sem o bipe do Asterisk.
+            $opcoes = 'q'
+                . ((int) $g['duplex'] === 1 ? 'd' : '')
+                . ((int) $g['forcar'] === 1 ? 'i' : '');
+
+            $b->branco()
+              ->comentario("{$g['numero']} — {$g['nome']} ("
+                  . count($ramais) . ' aparelho' . (count($ramais) > 1 ? 's' : '')
+                  . ((int) $g['duplex'] === 1 ? ', todos falam' : '') . ')')
+              ->exten((string) $g['numero'], "NoOp(Megafonia: {$g['nome']})")
+              ->same('Set(CDR(direcao)=interna)')
+              ->same('Answer()')
+              ->same('Wait(1)');
+
+            $anuncio = $this->audioDoAnuncio($g['anuncio_id'] ?? 0);
+            if ($anuncio !== '') {
+                $b->same("Playback({$anuncio})");
+            }
+
+            $b->same('Set(CALLERID(name)=Megafonia ${CALLERID(num)})')
+              ->same(sprintf('Page(%s,%s,%d)', $canais, $opcoes, (int) $g['duracao_max']))
+              ->same('Hangup()');
+        }
+
+        return $b->texto();
+    }
+
+    /**
+     * DISA: ligar de fora e discar como se estivesse na mesa.
+     *
+     * É o recurso mais explorado por fraude de tarifação que existe num
+     * PABX, então a senha não é opcional e o contexto é o do cadastro —
+     * quem quiser liberar interurbano põe um contexto próprio, de
+     * propósito, em vez de ganhar isso por descuido.
+     */
+    private function disa(): string
+    {
+        $b = $this->cabecalho('Contextos: DISA');
+
+        $lista = $this->consulta('SELECT * FROM disa WHERE ativo = 1 ORDER BY id');
+        if ($lista === []) {
+            return $b->contexto('telium-disa')->comentario('nenhuma DISA cadastrada')->texto();
+        }
+
+        // Contexto de entrada, para a rota apontar por id.
+        $b->contexto('telium-disa');
+        foreach ($lista as $d) {
+            $b->exten("disa-{$d['id']}", "Goto(telium-disa-{$d['id']},s,1)");
+        }
+
+        foreach ($lista as $d) {
+            $id = (int) $d['id'];
+            $b->branco()
+              ->comentario(str_repeat('-', 62))
+              ->comentario("DISA {$id} — {$d['nome']}")
+              ->comentario(str_repeat('-', 62))
+              ->contexto("telium-disa-{$id}")
+              ->exten('s', "NoOp(DISA: {$d['nome']})");
+
+            if ((int) $d['responder'] === 1) {
+                $b->same('Answer()')->same('Wait(1)');
+            }
+
+            // O CID de saída é do cadastro da DISA: sem ele a chamada
+            // sairia com o número de quem ligou de fora, que a operadora
+            // recusa.
+            $cid = $this->soNumero((string) ($d['cid_saida'] ?? ''));
+            if ($cid !== '') {
+                $b->same("Set(CALLERID(num)={$cid})")
+                  ->same("Set(CALLERID(name)={$cid})");
+            }
+
+            $b->same(sprintf(
+                'DISA(%s,%s,,,%d)',
+                $this->soNumero((string) $d['senha']),
+                $this->identificador((string) $d['contexto']),
+                max(3, (int) $d['tempo_digito'])
+            ))
+              ->same('NoOp(DISA encerrada)')
+              ->same('Hangup()');
+        }
+
+        return $b->texto();
+    }
+
+    /**
+     * Consulta que tolera tabela ausente.
+     *
+     * Um módulo novo chega com o seu script de banco; até ele ser
+     * aplicado, o gerador não pode parar de escrever todo o resto.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function consulta(string $sql): array
+    {
+        try {
+            return Bd::todos($sql);
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     // ---------------------------------------------------------------

@@ -363,6 +363,55 @@ $recursos = [
             modulo: 'conn.provisionamento',
         ),
     ],
+    'grupos-paging' => [
+        'modulo' => 'apps.paging',
+        'recurso' => new Recurso(
+            tabela: 'grupos_paging',
+            colunas: ['numero', 'nome', 'ramais', 'duplex', 'anuncio_id', 'forcar',
+                      'duracao_max', 'ativo'],
+            ordem: 'numero',
+            busca: ['numero', 'nome'],
+            filtros: ['ativo'],
+            afetaAsterisk: true,
+            modulo: 'apps.paging',
+            regras: [
+                'numero' => ['rotulo' => 'número do grupo', 'obrigatorio' => true,
+                             'padrao' => '/^[0-9*#]{2,10}$/',
+                             'mensagem' => 'O número do grupo é o que se disca para falar: '
+                                         . 'só dígitos, * ou #.'],
+                'nome' => ['rotulo' => 'nome', 'obrigatorio' => true, 'max' => 80],
+                'ramais' => ['rotulo' => 'aparelhos', 'obrigatorio' => true],
+            ],
+            unicas: ['numero'],
+        ),
+    ],
+    'disa' => [
+        'modulo' => 'apps.disa',
+        'recurso' => new Recurso(
+            tabela: 'disa',
+            colunas: ['nome', 'senha', 'contexto', 'cid_saida', 'tempo_digito',
+                      'tentativas', 'responder', 'ativo'],
+            ordem: 'nome',
+            busca: ['nome'],
+            afetaAsterisk: true,
+            modulo: 'apps.disa',
+            regras: [
+                'nome' => ['rotulo' => 'nome', 'obrigatorio' => true, 'max' => 80],
+                // DISA sem senha é a porta aberta clássica da fraude de
+                // tarifação: quem achar o número liga o mundo pela sua conta.
+                'senha' => ['rotulo' => 'senha', 'obrigatorio' => true, 'min' => 6,
+                            'padrao' => '/^[0-9]{6,20}$/',
+                            'mensagem' => 'A senha da DISA é de 6 a 20 dígitos. Ela é o que '
+                                        . 'separa a sua central de quem discar o número por acaso.'],
+                'contexto' => ['rotulo' => 'contexto',
+                               'em' => ['interno', 'telium-ramais', 'telium-bloqueado'],
+                               'mensagem' => 'O contexto decide até onde quem entrou pode discar. '
+                                           . '"telium-ramais" limita a ramais internos; "interno" '
+                                           . 'libera também as rotas de saída permitidas.'],
+            ],
+            unicas: ['nome'],
+        ),
+    ],
     'pin-sets' => [
         'modulo' => 'cfg.pinsets',
         'recurso' => new Recurso(

@@ -34,6 +34,7 @@ final class Destino
             'anuncio'   => ["Goto(telium-anuncios,{$valor},1)"],
             'externo'   => ["Goto(telium-saida,{$valor},1)"],
             'condicao'  => ["Goto(telium-condicoes,{$valor},1)"],
+            'disa'      => ["Goto(telium-disa,disa-{$valor},1)"],
             'personalizado' => $this->paraPersonalizado((string) $valor),
             'desligar'  => ['Hangup()'],
             default     => ['NoOp(Destino não configurado)', 'Hangup()'],
@@ -82,6 +83,7 @@ final class Destino
             'voicemail' => "correio de voz {$valor}",
             'anuncio'   => "anúncio {$valor}",
             'condicao'  => "condição horária {$valor}",
+            'disa'      => "DISA {$valor}",
             'externo'   => "número externo {$valor}",
             'personalizado' => isset($this->personalizados[(int) $valor])
                 ? "destino personalizado {$this->personalizados[(int) $valor]['nome']}"
