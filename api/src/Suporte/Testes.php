@@ -44,6 +44,7 @@ final class Testes
         $this->grupo('Endereço público e faixas locais', $this->nat(...));
         $this->grupo('Permissão por referência', $this->permissaoReferencia(...));
         $this->grupo('Destinos de chamada', $this->destinos(...));
+        $this->grupo('Áudios que o dialplan toca', $this->sons(...));
 
         if ($comBanco) {
             $this->grupo('Banco e esquema', $this->banco(...));
@@ -60,6 +61,79 @@ final class Testes
         }
 
         return ['passou' => $this->passou, 'falhou' => $this->falhou, 'erros' => $this->erros];
+    }
+
+    // ---------------------------------------------------------------
+    /**
+     * Os áudios que o dialplan manda tocar existem no disco?
+     *
+     * Playback de arquivo que não existe não dá erro: o Asterisk registra
+     * uma linha no log e segue. A URA fica muda, o aviso de "todos os
+     * circuitos ocupados" não toca, e quem liga acha que a central está
+     * quebrada. A seleção dos sons na compilação é "falha aqui não
+     * interrompe" de propósito — então a conferência tem de ser aqui,
+     * na máquina do cliente.
+     */
+    private function sons(): void
+    {
+        $conf = rtrim((string) Ambiente::get('ASTERISK_CONF_DIR', '/etc/asterisk'), '/');
+        $sons = rtrim((string) Ambiente::get('ASTERISK_SONS_DIR', '/var/lib/asterisk/sounds'), '/');
+
+        if (!is_dir($sons)) {
+            $this->ok(false, "o diretório de áudios {$sons} não existe — o Asterisk foi instalado sem sons");
+
+            return;
+        }
+
+        $arquivos = array_merge(
+            glob("{$conf}/extensions.conf") ?: [],
+            glob(rtrim((string) Ambiente::get('ASTERISK_GERADO_DIR', "{$conf}/telium"), '/') . '/*.conf') ?: []
+        );
+        if ($arquivos === []) {
+            $this->ok(false, "não achei dialplan em {$conf} para saber quais áudios conferir");
+
+            return;
+        }
+
+        $pedidos = [];
+        foreach ($arquivos as $arquivo) {
+            $texto = (string) file_get_contents($arquivo);
+            $achados = [];
+            preg_match_all('/\b(Playback|Background|BackGround)\(([^)\n]*)/i', $texto, $achados, PREG_SET_ORDER);
+            foreach ($achados as $a) {
+                // Read() fica de fora: o primeiro argumento dele é o nome
+                // da variável, não um arquivo.
+                foreach (explode(',', $a[2]) as $parte) {
+                    $nome = trim(explode('&', $parte)[0]);
+                    if ($nome !== '' && preg_match('/^[A-Za-z0-9\/_-]+$/', $nome) === 1
+                        && !str_starts_with($nome, '$')) {
+                        $pedidos[$nome] = true;
+                    }
+                }
+            }
+        }
+
+        $faltando = [];
+        foreach (array_keys($pedidos) as $nome) {
+            if ((glob("{$sons}/*/{$nome}.*") ?: []) === [] && (glob("{$sons}/{$nome}.*") ?: []) === []) {
+                $faltando[] = $nome;
+            }
+        }
+
+        $this->ok(
+            $pedidos !== [],
+            sprintf('o dialplan pede %d áudios', count($pedidos))
+        );
+        $this->ok(
+            $faltando === [],
+            $faltando === []
+                ? 'todos os áudios que o dialplan toca existem no disco'
+                : sprintf(
+                    'áudio que o dialplan toca e não existe em %s: %s',
+                    $sons,
+                    implode(', ', array_slice($faltando, 0, 8)) . (count($faltando) > 8 ? '…' : '')
+                )
+        );
     }
 
     // ---------------------------------------------------------------

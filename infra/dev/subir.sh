@@ -88,6 +88,10 @@ SQL_DIR=/w/infra/sql
 TELIUM_ETC=/etc/telium
 ASTERISK_CONF_DIR=/s/ast
 ASTERISK_GERADO_DIR=/s/ast/telium
+# No servidor a API e o Asterisk dividem a mesma máquina e este caminho é
+# o de fábrica. Na bancada são dois contêineres, então os áudios moram no
+# diretório compartilhado e o Asterisk chega neles por um atalho.
+ASTERISK_SONS_DIR=/s/ast/sounds
 # Na bancada o Asterisk roda como root e os dois contêineres não
 # compartilham o grupo asterisk. No servidor o padrão vale.
 ASTERISK_GRUPO=root
@@ -222,6 +226,24 @@ INI'
   # vêm do menuselect, na compilação.
   docker exec v-ast sh -c \
     'mkdir -p /var/lib/asterisk/moh && for i in 1 2; do head -c 320000 /dev/zero > /var/lib/asterisk/moh/silencio$i.sln; done'
+
+  # A imagem do Asterisk vem sem os áudios do sistema, e Playback de
+  # arquivo que não existe não dá erro: a URA fica muda e o dialplan
+  # segue como se tivesse tocado. Aqui eles viram silêncio, com a
+  # duração certa — o que interessa na bancada é o caminho da chamada,
+  # não o que se ouve. No servidor de verdade quem instala é o playbook.
+  passo "criando áudios de silêncio (a imagem do Asterisk vem sem sons)"
+  docker exec v-ast sh -c '
+    mkdir -p /etc/asterisk/sounds/pt_BR /var/lib/asterisk/sounds/pt_BR
+    for s in activated de-activated all-circuits-busy-now beep conf-getpin \
+             conf-invalidpin conf-onlyperson demo-echotest dial goodbye hello \
+             invalid pbx-invalid please-enter-your privacy-you-are-not-permitted \
+             queue-callswaiting ss-noservice vm-enter-num-to-call agent-loggedoff \
+             agent-loginok demo-congrats vm-goodbye vm-intro auth-thankyou \
+             pbx-invalidpark parking-lot-full; do
+      head -c 16000 /dev/zero > /etc/asterisk/sounds/pt_BR/$s.sln
+    done
+    cp /etc/asterisk/sounds/pt_BR/*.sln /var/lib/asterisk/sounds/pt_BR/'
 fi
 
 echo
