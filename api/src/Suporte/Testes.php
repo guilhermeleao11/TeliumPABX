@@ -478,6 +478,29 @@ final class Testes
         $this->ok(!Rede::faixaValida('192.168.0.0/99'), 'recusa máscara impossível');
         $this->ok(!Rede::faixaValida('rede-interna'), 'recusa o que não é endereço');
 
+        // O navegador não roda no servidor: ele precisa resolver e
+        // alcançar o STUN e o TURN. Apontar os dois para o nome interno
+        // da central deixa o navegador sem candidato srflx e sem relay —
+        // a chamada conecta, não passa áudio, e a única mensagem é a do
+        // próprio navegador: "ICE failed, your TURN server appears to be
+        // broken". Foi assim que aconteceu no POC.
+        foreach ([
+            'stun:pabx.telium.local:3478'   => '.local não vale para o navegador de fora',
+            'turn:192.168.1.10:3478'        => 'endereço de rede interna não serve de ICE',
+            'stun:naoexiste.invalido:3478'  => 'nome que não resolve não serve de ICE',
+            ''                              => 'endereço vazio não passa por servidor válido',
+        ] as $servidor => $porque) {
+            $this->ok(!Rede::conferirServidorIce($servidor)['ok'], $porque);
+        }
+        $this->ok(
+            Rede::conferirServidorIce('stun:stun.l.google.com:19302')['ok'],
+            'um STUN público de verdade passa'
+        );
+        $this->ok(
+            Rede::conferirServidorIce('turn:200.170.198.144:3478?transport=tcp')['ok'],
+            'TURN em IP público passa, com parâmetro e tudo'
+        );
+
         // 100.64.0.0/10 é o CGNAT da RFC 6598 — onde fica quem está atrás
         // do NAT da operadora. O filtro do PHP não cobre essa faixa, e sem
         // ela um servidor em CGNAT passava por "tem IP público": o

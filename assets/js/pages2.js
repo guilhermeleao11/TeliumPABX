@@ -5174,6 +5174,25 @@ PAGES['conn.webrtc'] = {
       <td>${Number(r.rtcp_mux) ? '<span class="badge badge-ok">sim</span>' : '<span class="badge badge-danger">não</span>'}</td>
     </tr>`).join('');
 
+    const iceRuins = (d.servidores_ice || []).filter(s => !s.ok);
+    const alertaIce = iceRuins.length ? `
+      <div class="card" style="margin-bottom:16px;padding:18px;border-left:3px solid var(--danger)">
+        <span class="badge badge-danger">o navegador não alcança o servidor de ICE</span>
+        <p class="small" style="margin:10px 0 0">
+          Sem alcançar STUN e TURN, o navegador só oferece o endereço da rede local dele.
+          A chamada conecta, ninguém ouve, e a única mensagem é a dele mesmo:
+          <i>“ICE failed, your TURN server appears to be broken”</i>.
+        </p>
+        <ul class="simples small" style="margin:10px 0 0">
+          ${iceRuins.map(s => `<li><span class="mono">${esc(s.servidor)}</span> — ${esc(s.motivo)}</li>`).join('')}
+        </ul>
+        <p class="small muted" style="margin:10px 0 0">
+          O endereço do TURN sai de <span class="mono">turn_dominio</span>, que por padrão é o
+          nome do servidor. Ele precisa ser um nome ou IP que a máquina de quem usa o console
+          resolva e alcance.
+        </p>
+      </div>` : '';
+
     const alerta = incompativeis.length ? `
       <div class="card" style="margin-bottom:16px;padding:18px;border-left:3px solid var(--danger)">
         <span class="badge badge-danger">chamada conecta e fica muda</span>
@@ -5194,7 +5213,7 @@ PAGES['conn.webrtc'] = {
       </div>` : '';
 
     return pageHead('WebRTC / Softphone',
-      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + alerta + `
+      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + alertaIce + alerta + `
       <div class="grid g-2">
         <div class="card" style="padding:18px">
           <b>Caminho da chamada</b>

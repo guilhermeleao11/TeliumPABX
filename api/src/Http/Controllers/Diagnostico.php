@@ -85,6 +85,18 @@ final class Diagnostico
 
         $turn = trim((string) Ambiente::get('SOFTPHONE_TURN', ''));
 
+        // O navegador precisa RESOLVER e ALCANÇAR cada servidor de ICE.
+        // Quando não consegue, ele não oferece candidato srflx nem relay,
+        // a chamada conecta sem áudio e a única mensagem é a do próprio
+        // navegador: "ICE failed, your TURN server appears to be broken".
+        $servidoresIce = [];
+        foreach (array_filter(array_map('trim', array_merge(
+            explode(',', (string) Ambiente::get('SOFTPHONE_STUN', '')),
+            explode(',', $turn)
+        ))) as $sv) {
+            $servidoresIce[] = Rede::conferirServidorIce($sv);
+        }
+
         return Resposta::json($res, [
             'transporte_wss' => str_contains($transportes, 'transport-wss'),
             'websocket'      => str_contains($http, '/ws'),
@@ -92,6 +104,7 @@ final class Diagnostico
             'stun'           => trim((string) Ambiente::get('SOFTPHONE_STUN', '')),
             'turn'           => $turn === '' ? [] : array_map('trim', explode(',', $turn)),
             'turn_proprio'   => trim((string) Ambiente::get('TURN_SEGREDO', '')) !== '',
+            'servidores_ice' => $servidoresIce,
             'ramais'         => array_values(array_filter(
                 $ramais,
                 static fn (array $r): bool => (int) $r['webrtc'] === 1

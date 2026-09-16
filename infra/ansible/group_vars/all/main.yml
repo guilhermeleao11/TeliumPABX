@@ -159,11 +159,18 @@ turn_peers_liberados: []
 # ICE do softphone do navegador. O STUN resolve a maioria dos casos; o
 # TURN entra quando o caminho direto não existe. As credenciais do TURN
 # são geradas a cada requisição, com prazo — veja Autenticacao::ice().
-# STUN. Com o TURN instalado nesta máquina, ele também é o STUN: manda a
-# central e o navegador perguntarem aqui, em vez de depender de saída UDP
-# para um servidor público. Quem usar TURN de terceiros põe o de lá.
-stun_servidor: "{{ (turn_dominio ~ ':' ~ turn_porta) if (instalar_turn | default(true)) else '' }}"
-softphone_stun: "{{ ('stun:' ~ stun_servidor) if stun_servidor else '' }}"
+# STUN do NAVEGADOR — servidor público, de propósito.
+#
+# O STUN existe para o navegador descobrir o próprio endereço público, e
+# quem responde isso tem de estar do lado de fora do NAT dele. Apontar
+# para o TURN desta máquina parece economia e não é: o nome do servidor
+# quase nunca resolve na máquina de quem usa o console, e sem resposta o
+# navegador só oferece o endereço da LAN dele — a chamada conecta e não
+# passa áudio, sem nada no log dizendo por quê.
+#
+# O TURN daqui continua servindo para o que ele serve: o candidato de
+# relay, quando o caminho direto não existe.
+softphone_stun: "stun:stun.l.google.com:19302"
 
 # STUN do próprio Asterisk, no rtp.conf. Vazio de propósito.
 #

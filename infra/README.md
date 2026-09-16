@@ -38,8 +38,25 @@ pabx_hostname: "pabx.suaempresa.com.br"
 ```
 
 Esse nome vira o endereço do console, o domínio do TURN e o nome no
-certificado. Se a central atende pela internet, use um nome que resolva
-de fora.
+certificado.
+
+**Ele precisa resolver e ser alcançável da máquina de quem usa o
+console**, não só de dentro do servidor. O TURN sai daí, e o softphone
+do navegador depende dele: com um nome que o navegador não resolve — um
+`.local`, por exemplo — o navegador não consegue oferecer candidato
+nenhum além do endereço da LAN dele, a chamada conecta e não passa
+áudio. A mensagem que aparece é a dele mesmo: *“ICE failed, your TURN
+server appears to be broken”*.
+
+Se o nome ainda não existe no DNS, aponte o TURN direto para o IP
+público:
+
+```yaml
+turn_dominio: "200.170.198.144"
+```
+
+A tela **Conectividade → WebRTC / Softphone** confere isso e diz qual
+servidor de ICE o navegador não vai alcançar.
 
 Duas variáveis que costumam confundir e **não precisam ser mexidas**:
 

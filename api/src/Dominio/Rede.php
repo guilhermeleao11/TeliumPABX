@@ -193,6 +193,55 @@ final class Rede
         return $n !== false && ($n & 0xFFC00000) === (ip2long('100.64.0.0') & 0xFFC00000);
     }
 
+    /**
+     * Um servidor de ICE serve para o navegador de quem usa o console?
+     *
+     * O navegador não roda nesta máquina: ele precisa RESOLVER o nome e
+     * CHEGAR no endereço. Nome terminado em .local é mDNS e nunca vale
+     * fora da própria rede; nome que não resolve, ou que resolve para
+     * endereço de rede interna, deixa o navegador sem candidato — a
+     * chamada conecta e não passa áudio, e o Firefox só diz "ICE failed,
+     * your TURN server appears to be broken".
+     *
+     * Resolver aqui não prova que o navegador resolve. Mas .local,
+     * endereço interno e nome que não existe são falha certa, e é isso
+     * que esta conferência pega.
+     *
+     * @return array{servidor:string, host:string, ok:bool, motivo:string}
+     */
+    public static function conferirServidorIce(string $servidor): array
+    {
+        $host = trim(preg_replace('/^(stun|stuns|turn|turns):/i', '', trim($servidor)) ?? '');
+        $host = explode('?', $host)[0];
+        $host = explode(':', $host)[0];
+
+        $r = static fn (bool $ok, string $motivo): array
+            => ['servidor' => trim($servidor), 'host' => $host, 'ok' => $ok, 'motivo' => $motivo];
+
+        if ($host === '') {
+            return $r(false, 'endereço vazio');
+        }
+
+        if (str_ends_with(strtolower($host), '.local')) {
+            return $r(false, 'termina em .local, que só vale dentro da própria rede — '
+                           . 'o navegador de quem usa o console não resolve esse nome');
+        }
+
+        $ehIp = filter_var($host, FILTER_VALIDATE_IP) !== false;
+        $ip = $ehIp ? $host : gethostbyname($host);
+
+        if (!$ehIp && $ip === $host) {
+            return $r(false, 'o nome não resolve nem aqui no servidor');
+        }
+
+        if (self::ehPrivado($ip)) {
+            return $r(false, "resolve para {$ip}, que é endereço de rede interna — "
+                           . 'o navegador de fora não alcança');
+        }
+
+        return $r(true, "resolve para {$ip}");
+    }
+
     public static function guardar(string $ipPublico, string $redesLocais): void
     {
         self::gravar('rede_ip_publico', $ipPublico);
