@@ -29,6 +29,7 @@ final class Diagnostico
                 'ip_publico'    => Rede::ipPublico(),
                 'redes_locais'  => implode(', ', Rede::redesLocais()),
                 'tem_stun'      => Rede::servidoresStun() !== [],
+                'sdp'           => Rede::sdpSaiErrado(),
             ],
             'transportes' => $this->tabela('pjsip show transports', [
                 'id' => 1, 'tipo' => 2, 'endereco' => 5,

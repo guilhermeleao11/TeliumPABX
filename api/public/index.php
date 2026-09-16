@@ -176,8 +176,16 @@ $recursos = [
                     return $dados;
                 }
 
+                // max_contatos = 1 no WebRTC, e não é gosto: o endpoint
+                // carrega DTLS, ICE e o transporte wss para TODO contato
+                // registrado nele. Com duas vagas, um softphone comum se
+                // registra ao lado do navegador e leva a chamada para um
+                // caminho que não sabe falar — o Asterisk aceita, o ICE
+                // nunca fecha e o áudio sai com zero byte. Uma vaga
+                // fecha a porta para esse engano.
                 foreach (['dtls' => 1, 'avpf' => 1, 'ice' => 1, 'rtcp_mux' => 1,
-                          'transporte' => 'wss', 'srtp' => 1] as $campo => $valor) {
+                          'transporte' => 'wss', 'srtp' => 1,
+                          'max_contatos' => 1] as $campo => $valor) {
                     $dados[$campo] = $valor;
                 }
 

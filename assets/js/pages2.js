@@ -5014,6 +5014,20 @@ PAGES['conn.rede'] = {
 
     return pageHead('Configurações de Rede',
       'Onde a central escuta e por onde a voz trafega. Lido do Asterisk, não do cadastro.') + `
+      ${nat.sdp?.problema ? `<div class="card" style="margin-bottom:16px;padding:18px;border-left:3px solid var(--danger)">
+        <span class="badge badge-danger">a chamada conecta e ninguém ouve</span>
+        <p class="small" style="margin:10px 0 0">
+          Esta máquina sai pela internet com o endereço
+          <b class="mono">${esc(nat.sdp.local)}</b>, que é de rede interna, e não há endereço
+          público configurado abaixo. Todo convite SIP que a central manda leva esse endereço no
+          SDP: a outra ponta devolve o áudio para um lugar que não existe na internet, e a
+          chamada completa sem som nenhum.
+        </p>
+        <p class="small muted" style="margin:8px 0 0">
+          Preencha o endereço público abaixo — o botão <b>Descobrir</b> pergunta a um servidor
+          de fora — e aplique as configurações.
+        </p>
+      </div>` : ''}
       <div class="card" style="margin-bottom:16px">
         <div class="card-head"><b>Central atrás de NAT</b></div>
         <div style="padding:18px">

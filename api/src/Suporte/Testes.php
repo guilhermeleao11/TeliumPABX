@@ -478,6 +478,19 @@ final class Testes
         $this->ok(!Rede::faixaValida('192.168.0.0/99'), 'recusa máscara impossível');
         $this->ok(!Rede::faixaValida('rede-interna'), 'recusa o que não é endereço');
 
+        // 100.64.0.0/10 é o CGNAT da RFC 6598 — onde fica quem está atrás
+        // do NAT da operadora. O filtro do PHP não cobre essa faixa, e sem
+        // ela um servidor em CGNAT passava por "tem IP público": o
+        // diagnóstico dizia que estava tudo certo enquanto o SDP saía com
+        // um endereço que ninguém alcança e a chamada ficava sem som.
+        foreach (['192.168.1.1', '10.0.0.5', '172.16.3.9', '127.0.0.1',
+                  '100.64.0.1', '100.64.50.3', '100.127.255.254'] as $ip) {
+            $this->ok(Rede::ehPrivado($ip), "{$ip} é endereço que não chega de fora");
+        }
+        foreach (['200.170.198.144', '8.8.8.8', '100.63.255.255', '100.128.0.1'] as $ip) {
+            $this->ok(!Rede::ehPrivado($ip), "{$ip} é endereço público");
+        }
+
         // Resposta STUN montada à mão: cabeçalho, cookie, transação e o
         // XOR-MAPPED-ADDRESS de 203.0.113.9:54321.
         $transacao = str_repeat("\x01", 12);
