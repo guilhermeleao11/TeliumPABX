@@ -39,7 +39,7 @@ final class GeradorTransportes
 
         $b = (new Bloco())
             ->comentario('Gerado pelo Telium PABX — NÃO EDITE À MÃO')
-            ->comentario('Endereço público e faixas locais: console, Conexões > Rede')
+            ->comentario('Endereço público e faixas locais: console, Conectividade > Configurações de Rede')
             ->comentario('Gerado em ' . date('d/m/Y H:i:s'))
             ->branco();
 

@@ -44,7 +44,7 @@ de fora.
 Duas variáveis que costumam confundir e **não precisam ser mexidas**:
 
 - `nat_ip_publico` e `redes_locais` são apenas o ponto de partida. Quem
-  manda depois é o console, em **Conexões → Rede** — inclusive com um
+  manda depois é o console, em **Conectividade → Configurações de Rede** — inclusive com um
   botão que descobre o endereço público. Trocar de link não exige mais
   editar arquivo nem rodar o playbook.
 - `tls_autoassinado: true` gera um certificado de laboratório. O
