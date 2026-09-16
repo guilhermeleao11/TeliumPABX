@@ -405,45 +405,7 @@ final class Autenticacao
      */
     private function ice(): array
     {
-        $lista = [];
-
-        $stun = trim((string) Ambiente::get('SOFTPHONE_STUN', 'stun:stun.l.google.com:19302'));
-        if ($stun !== '') {
-            $lista[] = ['urls' => $stun];
-        }
-
-        // O endereço do TURN vem do instalador e costuma nascer com o
-        // nome interno da central, que o navegador não resolve — e sem
-        // relay a chamada conecta e não passa áudio. Quando o console
-        // sabe o endereço público, ele conserta aqui, sem exigir playbook.
-        $enderecos = array_values(array_filter(array_map(
-            static fn (string $sv): string => Rede::corrigirServidorIce($sv),
-            array_map('trim', explode(',', (string) Ambiente::get('SOFTPHONE_TURN', '')))
-        )));
-        if ($enderecos === []) {
-            return $lista;
-        }
-
-        $segredo = (string) Ambiente::get('TURN_SEGREDO', '');
-        if ($segredo !== '') {
-            // Esquema use-auth-secret do coturn: o usuário é a hora em
-            // que a credencial morre, e a senha é o HMAC disso.
-            $validade = time() + max(600, Ambiente::int('TURN_VALIDADE_SEGUNDOS', 21600));
-            $usuario = $validade . ':telium';
-            $senha = base64_encode(hash_hmac('sha1', $usuario, $segredo, true));
-        } else {
-            // Servidor de terceiros, com credencial fixa no .env.
-            $usuario = (string) Ambiente::get('SOFTPHONE_TURN_USUARIO', '');
-            $senha = (string) Ambiente::get('SOFTPHONE_TURN_SENHA', '');
-        }
-
-        $lista[] = [
-            'urls'       => $enderecos,
-            'username'   => $usuario,
-            'credential' => $senha,
-        ];
-
-        return $lista;
+        return Rede::servidoresParaNavegador();
     }
 
     private function publico(array $u): array

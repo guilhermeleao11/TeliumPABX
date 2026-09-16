@@ -5151,6 +5151,7 @@ PAGES['conn.webrtc'] = {
     let d;
     try { d = await Api.get('/diagnostico/webrtc'); }
     catch (e) { return pageHead('WebRTC / Softphone', '') + blocoErro(e); }
+    PAGES['conn.webrtc']._ice = d.ice || [];
 
     const item = (ok, titulo, texto) => `
       <div class="row gap-12" style="align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--border)">
@@ -5231,6 +5232,21 @@ PAGES['conn.webrtc'] = {
 
     return pageHead('WebRTC / Softphone',
       'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + alertaIce + avisoCorrigido + alerta + `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head row-between">
+          <b>Este computador consegue fazer WebRTC?</b>
+          <button class="btn btn-primary btn-sm" data-testar-ice>Testar agora</button>
+        </div>
+        <div style="padding:18px">
+          <p class="small muted" style="margin:0">
+            O teste roda aqui no seu navegador, com os mesmos servidores que o softphone usa.
+            Em três segundos ele diz quais caminhos de áudio existem entre esta máquina e a
+            central — que é o que decide se a chamada vai ter som.
+          </p>
+          <div id="resultadoIce" style="margin-top:14px"></div>
+        </div>
+      </div>
+
       <div class="grid g-2">
         <div class="card" style="padding:18px">
           <b>Caminho da chamada</b>
@@ -5283,6 +5299,82 @@ PAGES['conn.webrtc'] = {
         : `<div style="padding:20px">${vazio('headset', 'Nenhum ramal com WebRTC',
             'Marque "Softphone do navegador (WebRTC)" no cadastro de um ramal para usar o discador.')}</div>`}
       </div>`;
+  },
+
+  /**
+   * Junta os candidatos ICE que ESTE navegador consegue formar.
+   *
+   * É o único teste que responde de verdade "a chamada vai ter som?",
+   * porque roda na máquina de quem vai usar e com os mesmos servidores
+   * que o softphone usa. Tudo o que o servidor sabe dizer é o que ele
+   * mesmo enxerga — e o problema mora justamente do outro lado.
+   */
+  mount(ctx) {
+    const botao = document.querySelector('[data-testar-ice]');
+    const saida = document.getElementById('resultadoIce');
+    if (!botao || !saida) return;
+
+    const linha = (tom, titulo, texto) => `
+      <div class="row gap-12" style="align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">
+        <span style="color:var(--${tom});flex:none">${icon(tom === 'ok' ? 'checkCirc' : 'alert', 'ico')}</span>
+        <div><b>${esc(titulo)}</b><div class="small muted">${texto}</div></div>
+      </div>`;
+
+    botao.onclick = async () => {
+      const servidores = (PAGES['conn.webrtc']._ice || []);
+      if (!servidores.length) {
+        saida.innerHTML = linha('danger', 'Nenhum servidor de ICE configurado',
+          'Sem STUN nem TURN, o navegador só oferece o endereço da rede local dele.');
+        return;
+      }
+
+      botao.disabled = true;
+      botao.textContent = 'Testando…';
+      saida.innerHTML = '<p class="small muted">Juntando candidatos…</p>';
+
+      const tipos = new Set();
+      let erro = null;
+      try {
+        const pc = new RTCPeerConnection({ iceServers: servidores, iceTransportPolicy: 'all' });
+        pc.createDataChannel('telium');
+        pc.onicecandidate = ev => { if (ev.candidate?.type) tipos.add(ev.candidate.type); };
+        pc.onicecandidateerror = ev => {
+          // 701 é "não deu para falar com o servidor" — o caso que interessa.
+          if (!erro && ev.errorCode >= 700) erro = `${ev.url || 'servidor de ICE'}: ${ev.errorText || 'sem resposta'}`;
+        };
+        await pc.setLocalDescription(await pc.createOffer());
+        await new Promise(r => {
+          const fim = () => { pc.onicegatheringstatechange = null; r(); };
+          pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') fim(); };
+          setTimeout(fim, 8000);
+        });
+        pc.close();
+      } catch (e) {
+        erro = e.message;
+      }
+
+      const tem = t => tipos.has(t);
+      saida.innerHTML =
+        linha(tem('host') ? 'ok' : 'danger', 'Endereço desta máquina',
+          tem('host') ? 'O navegador liberou a rede local.' : 'O navegador não ofereceu nem o endereço local.') +
+        linha(tem('srflx') ? 'ok' : 'danger', 'Endereço público (STUN)',
+          tem('srflx')
+            ? 'O navegador descobriu como é visto de fora. Chamada direta possível.'
+            : 'O STUN não respondeu. Sem isto, só o caminho pelo TURN funciona.') +
+        linha(tem('relay') ? 'ok' : 'warn', 'Caminho pelo TURN (relay)',
+          tem('relay')
+            ? 'O TURN está de pé e alcançável. É a rede que salva a chamada quando o caminho direto não existe.'
+            : 'Nenhum candidato de relay. Em rede que bloqueia UDP, a chamada vai conectar e ficar muda.') +
+        (erro ? `<p class="small" style="margin-top:12px;color:var(--danger)">${esc(erro)}</p>` : '') +
+        `<p class="small muted" style="margin-top:12px">${
+          tem('relay') || tem('srflx')
+            ? 'Há caminho de áudio entre esta máquina e a central.'
+            : 'Não há caminho de áudio: a chamada vai conectar e ninguém vai ouvir.'
+        }</p>`;
+
+      botao.disabled = false;
+      botao.textContent = 'Testar de novo';
+    };
   }
 };
 

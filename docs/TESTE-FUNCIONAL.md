@@ -112,7 +112,23 @@ mesmo caminho pelo navegador ainda falta provar**.
 ### Rotas de entrada — **provado**
 Ligue para o DID 1140041000 de fora: tem de cair na URA.
 
-### DIDs, Firewall, Configurações de Rede, WebRTC — **provado** (leitura)
+### WebRTC — **o teste que decide** — **falta provar**
+Em **Conectividade → WebRTC / Softphone**, clique em **Testar agora**. O
+teste roda no navegador de quem vai usar, com os mesmos servidores que o
+softphone usa, e diz em três segundos quais caminhos de áudio existem:
+
+| Candidato | Significa |
+|---|---|
+| `host` | a rede local do navegador |
+| `srflx` | o STUN respondeu — chamada direta possível |
+| `relay` | o TURN está de pé e alcançável |
+
+**Sem `srflx` nem `relay` não há caminho de áudio**: a chamada conecta e
+ninguém ouve. Faça este teste na máquina do cliente antes de qualquer
+conclusão sobre o softphone do navegador — é a única verificação que olha
+do lado que importa.
+
+### DIDs, Firewall, Configurações de Rede — **provado** (leitura)
 São telas de diagnóstico. Confira que **Rede** mostra os quatro
 transportes e que o aviso de STUN bloqueante **não** aparece.
 

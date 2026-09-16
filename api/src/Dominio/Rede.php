@@ -283,6 +283,49 @@ final class Rede
         return str_replace($exame['host'], $publico, trim($servidor));
     }
 
+    /**
+     * A lista de servidores de ICE que o navegador recebe.
+     *
+     * Morava dentro do login. Passou para cá porque a tela de
+     * diagnóstico precisa testar exatamente o que o softphone usa — e
+     * testar uma lista parecida não prova nada.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public static function servidoresParaNavegador(): array
+    {
+        $lista = [];
+
+        $stun = trim((string) Ambiente::get('SOFTPHONE_STUN', 'stun:stun.l.google.com:19302'));
+        if ($stun !== '') {
+            $lista[] = ['urls' => self::corrigirServidorIce($stun)];
+        }
+
+        $enderecos = array_values(array_filter(array_map(
+            static fn (string $sv): string => self::corrigirServidorIce($sv),
+            array_map('trim', explode(',', (string) Ambiente::get('SOFTPHONE_TURN', '')))
+        )));
+        if ($enderecos === []) {
+            return $lista;
+        }
+
+        $segredo = (string) Ambiente::get('TURN_SEGREDO', '');
+        if ($segredo !== '') {
+            // Esquema use-auth-secret do coturn: o usuário é a hora em
+            // que a credencial morre, e a senha é o HMAC disso.
+            $validade = time() + max(600, Ambiente::int('TURN_VALIDADE_SEGUNDOS', 21600));
+            $usuario = $validade . ':telium';
+            $senha = base64_encode(hash_hmac('sha1', $usuario, $segredo, true));
+        } else {
+            $usuario = (string) Ambiente::get('SOFTPHONE_TURN_USUARIO', '');
+            $senha = (string) Ambiente::get('SOFTPHONE_TURN_SENHA', '');
+        }
+
+        $lista[] = ['urls' => $enderecos, 'username' => $usuario, 'credential' => $senha];
+
+        return $lista;
+    }
+
     public static function guardar(string $ipPublico, string $redesLocais): void
     {
         self::gravar('rede_ip_publico', $ipPublico);

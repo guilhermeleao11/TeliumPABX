@@ -112,6 +112,10 @@ final class Diagnostico
             'turn'           => $turn === '' ? [] : array_map('trim', explode(',', $turn)),
             'turn_proprio'   => trim((string) Ambiente::get('TURN_SEGREDO', '')) !== '',
             'servidores_ice' => $servidoresIce,
+            // A lista exata que o softphone usa, com credencial de prazo:
+            // é com ela que a tela testa, porque testar uma lista
+            // parecida não prova nada.
+            'ice'            => Rede::servidoresParaNavegador(),
             'ramais'         => array_values(array_filter(
                 $ramais,
                 static fn (array $r): bool => (int) $r['webrtc'] === 1
