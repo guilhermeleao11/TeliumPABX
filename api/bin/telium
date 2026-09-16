@@ -137,7 +137,7 @@ function gerarConfig(): void
 
 function aplicarConfig(): void
 {
-    global $verde, $vermelho, $zero;
+    global $verde, $vermelho, $amarelo, $zero;
 
     gerarConfig();
     $r = (new Aplicador())->aplicar();
@@ -156,7 +156,7 @@ function aplicarConfig(): void
 
 function doctor(): void
 {
-    global $verde, $vermelho, $zero;
+    global $verde, $vermelho, $amarelo, $zero;
 
     $checar = static function (string $nome, callable $fn) use ($verde, $vermelho, $zero): bool {
         try {
@@ -182,16 +182,22 @@ function doctor(): void
         return $m[0] ?? 'conectado';
     }) && $ok;
 
-    $ok = $checar('janus', static function (): string {
-        $ctx = stream_context_create(['http' => ['timeout' => 3]]);
-        $json = @file_get_contents('http://127.0.0.1:8088/janus/info', false, $ctx);
-        if ($json === false) {
-            throw new RuntimeException('não respondeu');
-        }
-        $d = json_decode($json, true);
-        return 'Janus ' . ($d['version_string'] ?? '?')
-            . (isset($d['plugins']['janus.plugin.sip']) ? ' (plugin SIP ok)' : ' (SEM plugin SIP)');
-    }) && $ok;
+    // O Janus é opcional e está desligado por padrão: o WebRTC vai
+    // direto ao Asterisk pelo /ws do nginx. Cobrá-lo sempre fazia o
+    // diagnóstico de uma instalação normal terminar em vermelho por
+    // causa de um serviço que ninguém pediu.
+    $ctx = stream_context_create(['http' => ['timeout' => 3]]);
+    $janus = @file_get_contents('http://127.0.0.1:8088/janus/info', false, $ctx);
+    if ($janus !== false) {
+        $ok = $checar('janus', static function () use ($janus): string {
+            $d = json_decode($janus, true);
+            return 'Janus ' . ($d['version_string'] ?? '?')
+                . (isset($d['plugins']['janus.plugin.sip']) ? ' (plugin SIP ok)' : ' (SEM plugin SIP)');
+        }) && $ok;
+    } else {
+        printf("  %s·%s %-16s não instalado (opcional — o WebRTC vai direto ao Asterisk)\n",
+            $amarelo, $zero, 'janus');
+    }
 
     $ok = $checar('escrita conf', static function (): string {
         $dir = (string) Ambiente::get('ASTERISK_GERADO_DIR');

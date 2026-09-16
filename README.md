@@ -5,15 +5,29 @@ JavaScript puro (sem build), API em PHP 8.4 e provisionamento por Ansible em
 Debian 13. Toda a configuração do Asterisk é **gerada a partir do banco** —
 ninguém edita `.conf` à mão.
 
-**Está em teste.** O que mudou e como conferir cada coisa:
-[docs/TESTE-1.0.1.md](docs/TESTE-1.0.1.md).
+**Está em teste.** O roteiro de validação, módulo a módulo, está em
+[docs/TESTE-FUNCIONAL.md](docs/TESTE-FUNCIONAL.md); o que ainda não faz
+nada está em [docs/PENDENCIAS.md](docs/PENDENCIAS.md).
 
-## Como abrir
+## Instalar
+
+Uma execução instala a central inteira numa VM Debian 13 — banco, PHP,
+nginx com TLS, Asterisk compilado, TURN, backup, firewall e o console:
 
 ```bash
-xdg-open index.html          # ou arraste o arquivo para o navegador
-# recomendado (evita restrições de file://):
-python3 -m http.server 8080  # e acesse http://localhost:8080
+sudo apt update && sudo apt install -y ansible git
+git clone https://github.com/guilhermeleao11/TeliumPABX.git /opt/telium-src
+cd /opt/telium-src/infra/ansible
+sudo ansible-playbook site.yml
+```
+
+O guia completo — variáveis, senhas, atualização, diagnóstico e o cenário
+de teste — está em **[infra/README.md](infra/README.md)**.
+
+Para mexer só no front-end, sem instalar nada:
+
+```bash
+python3 -m http.server 8080   # e acesse http://localhost:8080
 ```
 
 ### Acesso
@@ -111,12 +125,13 @@ A pilha de produção está em `infra/` e `api/`:
 | Debian | 13 (trixie) |
 | Telium PABX | 1.0.1 |
 | Asterisk | 22.11.0 — PJSIP, compilado do fonte |
-| Janus | 1.4.1 — opcional, fora do caminho da chamada |
+| coturn | TURN/STUN próprio, credencial com prazo |
+| Janus | 1.4.1 — opcional e **desligado**, fora do caminho da chamada |
 | MariaDB | 12.3.3 |
 | nginx | mainline 1.31.x |
 | PHP | 8.4 + Slim 4 |
 
-- `infra/README.md` — como provisionar e verificar a VM
+- `infra/README.md` — como instalar, atualizar e verificar a VM
 - `docs/BACKEND.md` — arquitetura, portas, fluxo de "Aplicar configurações" e API
 
 A API **gera os arquivos `.conf`** do Asterisk a partir do banco e recarrega pelo
@@ -139,13 +154,30 @@ sudo ansible-playbook site.yml -e limpar_banco=true
 
 Preserva empresa, perfis, permissões e a conta `admin`.
 
+Numa **máquina de teste**, vale o contrário: subir com um cenário pronto,
+para exercitar as funções sem vinte cadastros à mão antes da primeira
+ligação.
+
+```bash
+sudo ansible-playbook site.yml -e cenario_teste=true
+```
+
+Ramais 1001 a 1004, grupo de toque, fila com agentes, conferência, URA,
+horário comercial, DID e rotas. Nunca em instalação de cliente.
+
 ## O que falta
 
-- Softphone ligado de fato ao Janus (`janus.js` + plugin SIP registrando o ramal).
-- Barramento de tempo real (AMI → WebSocket) no lugar do recarregamento a cada 5 s.
-- Módulos ainda sem tela própria mostram "não implementado" em vez de fingir
-  configuração: firewall, backup, certificados, correio de voz global, entre outros.
+A lista honesta, com o estrago de cada pendência, está em
+[docs/PENDENCIAS.md](docs/PENDENCIAS.md). O resumo:
+
+- **Quatro módulos têm tela e nenhum efeito:** Tarifação, Tabela de
+  Tarifas, Provisionamento e Integrações/API.
+- Barramento de tempo real (AMI → WebSocket): hoje as telas de estado
+  perguntam ao Asterisk a cada carga e não se atualizam sozinhas.
 - Exportação de relatórios em CSV/PDF.
+
+O softphone do navegador **não depende mais do Janus**: fala SIP sobre
+WebSocket direto com o Asterisk, pelo `/ws` do nginx.
 
 ## Paleta de dados
 

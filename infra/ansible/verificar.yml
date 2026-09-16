@@ -8,7 +8,13 @@
   gather_facts: true
 
   vars:
-    servicos: [mariadb, php8.4-fpm, asterisk, janus, nginx, fail2ban]
+    # Janus e coturn são opcionais: cobrá-los sempre faria o diagnóstico
+    # de uma instalação normal — que não instala o Janus — acusar falha
+    # onde não há, e quem lesse a saída iria caçar um serviço que ninguém
+    # pediu.
+    servicos: "{{ ['mariadb', 'php8.4-fpm', 'asterisk', 'nginx', 'fail2ban']
+                  + (['janus'] if instalar_janus | default(false) else [])
+                  + (['coturn'] if instalar_turn | default(true) else []) }}"
 
   tasks:
     # ---------------- a pilha chegou a ser instalada? ----------------
@@ -18,7 +24,6 @@
       loop:
         - /usr/sbin/asterisk
         - /usr/sbin/mariadbd
-        - "{{ janus_prefix }}/bin/janus"
         - /usr/sbin/nginx
         - /usr/sbin/php-fpm8.4
       register: binarios
@@ -82,7 +87,6 @@
         - "php -v"
         - "nginx -v"
         - "asterisk -V"
-        - "{{ janus_prefix }}/bin/janus --version"
         - "isql --version"
       register: versoes
       changed_when: false
@@ -151,13 +155,14 @@
         msg: "Asterisk não instalado — nada a diagnosticar."
       when: "'/usr/sbin/asterisk' not in instalados"
 
-    # ---------------- janus ----------------
+    # ---------------- janus (opcional, fora do caminho da chamada) ------
     - name: Janus responde?
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ janus_http_porta }}/janus/info"
         return_content: true
       register: janus_info
       failed_when: false
+      when: instalar_janus | default(false)
 
     - name: Resumo do Janus
       ansible.builtin.debug:
@@ -166,6 +171,7 @@
              ~ (janus_info.json.plugins.keys() | list | join(', '))
              if (janus_info.status | default(0)) == 200
              else 'Janus não respondeu em 127.0.0.1:' ~ janus_http_porta }}
+      when: instalar_janus | default(false)
 
     # ---------------- API ----------------
     - name: API responde?
