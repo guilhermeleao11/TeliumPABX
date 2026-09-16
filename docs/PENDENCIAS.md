@@ -96,7 +96,10 @@ necessária no ambiente real:
   INVITE; falta ver o aparelho abrir o viva-voz).
 
 **Com linha de operadora**
-- chamada externa real entrando e saindo por um tronco;
+- ~~chamada externa saindo por um tronco~~ — **feito em 16/09/2026**:
+  atendida, RTP em alaw nos dois sentidos, encerramento normal. Faltou o
+  mesmo caminho pelo navegador, que negocia opus;
+- chamada externa entrando por um tronco;
 - comportamento quando a operadora cai no meio de uma chamada;
 - fax sobre T.38 de verdade.
 

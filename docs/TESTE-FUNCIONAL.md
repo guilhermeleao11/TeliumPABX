@@ -98,7 +98,11 @@ A coluna **Na central** é o teste: tem de dizer `no ar`. Se disser
 outra coisa, ela explica o quê — não publicado, senha faltando,
 registro recusado. Confira contra `pjsip show registrations`.
 
-### Rotas de saída — **provado** (bloqueio e CID) · **falta provar** (completar)
+### Rotas de saída — **provado**
+Chamada externa completa conferida no POC em 16/09/2026: ramal 1000 →
+celular pela operadora, atendida, com RTP em alaw nos dois sentidos e
+encerramento normal. O teste foi com softphone MicroSIP sobre UDP; **o
+mesmo caminho pelo navegador ainda falta provar**.
 - De 1001, disque um externo: tem de sair pelo tronco com o CID certo.
 - De **1004**, disque um celular: tem de ser barrado antes de discar.
 - Quando não completar, **Relatórios → Chamadas** mostra o motivo que a
