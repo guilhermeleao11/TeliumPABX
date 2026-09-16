@@ -29,7 +29,51 @@ final class GeradorTransportes
     /** @return array<string,string> */
     public function gerar(): array
     {
-        return ['pjsip.transports.conf' => $this->transportes()];
+        return [
+            'pjsip.transports.conf' => $this->transportes(),
+            'rtp.ice.conf'          => $this->iceDoRtp(),
+        ];
+    }
+
+    /**
+     * Gera o [ice_host_candidates] do rtp.conf.
+     *
+     * external_media_address conserta o "c=" do SDP, e só. A lista de
+     * candidatos ICE é montada à parte, a partir dos endereços das
+     * interfaces: numa central atrás de NAT ela sai só com o endereço
+     * interno, que o navegador não alcança — o ICE não fecha e o áudio
+     * não vai para lugar nenhum, mesmo com o navegador oferecendo um
+     * candidato público válido.
+     *
+     * Este mapa diz "quando anunciar o endereço interno, anuncie o
+     * público no lugar". É determinístico: não depende de perguntar a
+     * ninguém em tempo de chamada, ao contrário do stunaddr — que, com
+     * um endereço que não responde, segura a montagem do RTP por nove
+     * segundos antes de a chamada discar.
+     */
+    private function iceDoRtp(): string
+    {
+        $publico = Rede::ipPublico();
+        $local   = Rede::enderecoLocal();
+
+        $b = (new Bloco())
+            ->comentario('Gerado pelo Telium PABX — NÃO EDITE À MÃO')
+            ->comentario('Endereço público: console, Conectividade > Configurações de Rede')
+            ->comentario('Gerado em ' . date('d/m/Y H:i:s'))
+            ->branco();
+
+        if ($publico === '' || $local === '' || $local === $publico) {
+            $b->comentario('Sem NAT declarado: os candidatos ICE saem como estão.')
+              ->comentario('Se o softphone do navegador conecta e não passa áudio,')
+              ->comentario('preencha o endereço público no console.');
+
+            return $b->texto();
+        }
+
+        return $b->crua('[ice_host_candidates]')
+                 ->crua("{$local} => {$publico}")
+                 ->branco()
+                 ->texto();
     }
 
     private function transportes(): string

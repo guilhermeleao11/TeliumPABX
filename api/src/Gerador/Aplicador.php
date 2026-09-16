@@ -38,6 +38,9 @@ final class Aplicador
         // gravada depois disto — sem recarregar, o dialplan escreve
         // em CDR(motivo) e o banco fica com NULL, sem erro nenhum.
         'module reload cdr_adaptive_odbc.so' => 'colunas do CDR',
+        // Sem esta, mudar o endereço público no console reescrevia o
+        // mapa de candidatos ICE e o Asterisk seguia com o antigo.
+        'module reload res_rtp_asterisk.so' => 'candidatos ICE e portas de voz',
     ];
 
     /**

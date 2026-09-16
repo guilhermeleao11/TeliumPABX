@@ -360,6 +360,7 @@
   loop:
     - { arquivo: "pjsip.endpoints.conf", conteudo: "; gerado pela API — não edite à mão" }
     - { arquivo: "pjsip.trunks.conf",    conteudo: "; gerado pela API — não edite à mão" }
+    - { arquivo: "rtp.ice.conf",         conteudo: "; gerado pela API — não edite à mão" }
     - { arquivo: "extensions.recursos.conf",   conteudo: "[telium-recursos]\n; gerado pela API" }
     - { arquivo: "extensions.listanegra.conf", conteudo: "[telium-listanegra]\n; gerado pela API" }
     - { arquivo: "extensions.allowlist.conf",  conteudo: "[telium-allowlist]\n; gerado pela API" }

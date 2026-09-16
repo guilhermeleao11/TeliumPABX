@@ -17,3 +17,9 @@ icesupport = yes
 stunaddr = {{ rtp_stunaddr }}
 {% endif %}
 strictrtp = yes
+
+; Mapa de candidato ICE para a central atrás de NAT. Gerado a partir do
+; endereço público que o console configura: sem ele, o navegador recebe
+; candidatos com o endereço interno, o ICE não fecha e a chamada conecta
+; sem áudio — mesmo com o navegador oferecendo um candidato público.
+#include "telium/rtp.ice.conf"

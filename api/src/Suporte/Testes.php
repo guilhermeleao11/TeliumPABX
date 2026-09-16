@@ -13,6 +13,7 @@ use Telium\Gerador\Bloco;
 use Telium\Gerador\Conferencia;
 use Telium\Gerador\Destino;
 use Telium\Gerador\GeradorPjsip;
+use Telium\Gerador\GeradorTransportes;
 use Telium\Http\Middleware\Permissao;
 use Telium\Http\Controllers\Diagnostico;
 
@@ -477,6 +478,30 @@ final class Testes
         $this->ok(Rede::faixaValida('10.0.0.1'), 'aceita endereço solto');
         $this->ok(!Rede::faixaValida('192.168.0.0/99'), 'recusa máscara impossível');
         $this->ok(!Rede::faixaValida('rede-interna'), 'recusa o que não é endereço');
+
+        // external_media_address conserta o "c=" do SDP e só: a lista de
+        // candidatos ICE é montada à parte e, atrás de NAT, sai só com o
+        // endereço interno. O navegador não alcança, o ICE não fecha, e a
+        // chamada conecta sem áudio mesmo com o navegador oferecendo um
+        // candidato público válido. O mapa do rtp.conf conserta isso.
+        $gerado = (new GeradorTransportes())->gerar();
+        $this->ok(
+            isset($gerado['rtp.ice.conf']),
+            'o mapa de candidatos ICE é gerado junto com os transportes'
+        );
+        $ice = $gerado['rtp.ice.conf'] ?? '';
+        $publico = Rede::ipPublico();
+        if ($publico === '') {
+            $this->ok(
+                !str_contains($ice, '[ice_host_candidates]'),
+                'sem endereço público, o mapa fica vazio e explica o porquê'
+            );
+        } else {
+            $this->ok(
+                str_contains($ice, '[ice_host_candidates]') && str_contains($ice, $publico),
+                "o mapa aponta o endereço público ({$publico})"
+            );
+        }
 
         // O navegador não roda no servidor: ele precisa resolver e
         // alcançar o STUN e o TURN. Apontar os dois para o nome interno
