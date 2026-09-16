@@ -46,6 +46,7 @@ final class Testes
         $this->grupo('Destinos de chamada', $this->destinos(...));
         $this->grupo('Codecs', $this->codecs(...));
         $this->grupo('Áudios que o dialplan toca', $this->sons(...));
+        $this->grupo('Diretórios de gravação e recado', $this->spool(...));
 
         if ($comBanco) {
             $this->grupo('Banco e esquema', $this->banco(...));
@@ -93,6 +94,88 @@ final class Testes
             !in_array('g729', Conferencia::listaCodecs($padrao), true),
             "o codec padrão do tronco não traz g729 (está \"{$padrao}\")"
         );
+    }
+
+    // ---------------------------------------------------------------
+    /**
+     * O Asterisk consegue escrever onde o dialplan manda gravar?
+     *
+     * VoiceMail, MixMonitor, Dictate e ReceiveFAX criam subdiretório na
+     * hora da chamada. O "make install" cria esses diretórios como root
+     * e o Asterisk roda como asterisk: sem o dono certo, a gravação
+     * falha no meio da ligação e a única pista é um WARNING —
+     *
+     *   ast_mkdir '/var/spool/asterisk/voicemail/telium/1000/tmp'
+     *   failed: Permission denied
+     *
+     * — enquanto quem ligou é desligado em vez de deixar recado.
+     */
+    private function spool(): void
+    {
+        $usuario = trim((string) Ambiente::get('ASTERISK_USUARIO', 'asterisk')) ?: 'asterisk';
+        $grupo   = trim((string) Ambiente::get('ASTERISK_GRUPO', 'asterisk')) ?: 'asterisk';
+
+        // No servidor a API e o Asterisk dividem a máquina e este é o
+        // caminho de fábrica; na bancada são dois contêineres e o spool
+        // vem montado em outro lugar.
+        $spool = rtrim((string) Ambiente::get('ASTERISK_SPOOL_DIR', '/var/spool/asterisk'), '/');
+
+        $precisa = [
+            "{$spool}/voicemail" => 'recado do correio de voz',
+            "{$spool}/monitor"   => 'gravação de chamada',
+            "{$spool}/dictate"   => 'ditado',
+            "{$spool}/fax"       => 'fax recebido',
+        ];
+
+        // Por número, não por nome: dentro de um contêiner o UID do dono
+        // costuma não existir na base de usuários, e posix_getpwuid
+        // devolve nada — comparar nomes daria "?" e reprovaria uma
+        // instalação correta.
+        $conta = posix_getpwnam($usuario);
+        $grupoInfo = posix_getgrnam($grupo);
+
+        if ($conta === false) {
+            $this->ok(false, "o usuário {$usuario} não existe nesta máquina — confira ASTERISK_USUARIO");
+
+            return;
+        }
+
+        $uid = (int) $conta['uid'];
+        $gid = $grupoInfo === false ? -1 : (int) $grupoInfo['gid'];
+
+        foreach ($precisa as $dir => $paraQue) {
+            if (!is_dir($dir)) {
+                $this->ok(false, "{$dir} não existe — {$paraQue} vai falhar no meio da chamada");
+                continue;
+            }
+
+            $modo = fileperms($dir);
+            $dono = (int) fileowner($dir);
+            $gr   = (int) filegroup($dir);
+
+            // root escreve em qualquer lugar; para os demais, o dono
+            // precisa poder escrever, ou o grupo.
+            $escreve = $uid === 0
+                    || ($dono === $uid && ($modo & 0200) !== 0)
+                    || ($gid >= 0 && $gr === $gid && ($modo & 0020) !== 0);
+
+            $this->ok(
+                $escreve,
+                $escreve
+                    ? sprintf('%s: o Asterisk escreve — %s', $dir, $paraQue)
+                    : sprintf(
+                        '%s é %d:%d %s — o Asterisk roda como %s (%d:%d) e não vai gravar %s',
+                        $dir,
+                        $dono,
+                        $gr,
+                        substr(sprintf('%o', $modo), -4),
+                        $usuario,
+                        $uid,
+                        $gid,
+                        $paraQue
+                    )
+            );
+        }
     }
 
     // ---------------------------------------------------------------
@@ -157,7 +240,7 @@ final class Testes
         // no inglês sem dizer nada: aceitar qualquer diretório deixaria
         // passar uma central que responde em inglês com a configuração
         // dizendo pt_BR.
-        $idioma = trim((string) Ambiente::get('ASTERISK_IDIOMA', 'pt_BR'));
+        $idioma = trim((string) Ambiente::get('ASTERISK_IDIOMA', 'en'));
         $faltando = [];
         foreach (array_keys($pedidos) as $nome) {
             $no_idioma = glob("{$sons}/{$idioma}/{$nome}.*") ?: [];

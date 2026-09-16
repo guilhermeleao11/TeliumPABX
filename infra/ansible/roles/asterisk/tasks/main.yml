@@ -247,6 +247,15 @@
     - /var/spool/asterisk
     - /var/run/asterisk
     - /var/spool/asterisk/monitor
+    # O "make install" cria estes como root, e o Asterisk roda como
+    # asterisk: sem o dono certo, VoiceMail, Dictate e ReceiveFAX falham
+    # com "Permission denied" no meio da chamada. O correio de voz é o
+    # pior: quem ligou é desligado em vez de deixar recado, e a única
+    # pista é um WARNING no log.
+    - /var/spool/asterisk/voicemail
+    - /var/spool/asterisk/dictate
+    - /var/spool/asterisk/fax
+    - /var/spool/asterisk/tmp
     # Sem o diretório, a classe [default] de música em espera some sem
     # avisar e as filas tocam silêncio.
     - /var/lib/asterisk/moh

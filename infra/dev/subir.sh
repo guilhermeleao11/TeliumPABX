@@ -30,7 +30,13 @@ if [[ "${1:-}" == "--limpar" ]]; then
   rm -rf "$TRAB"
 fi
 
-mkdir -p "$TRAB"/{ast/telium,ast/keys,gravacoes,fotos,cofre,audios,backup}
+# O spool inteiro é compartilhado, e não só as gravações: a bateria
+# confere se o Asterisk consegue escrever recado, ditado e fax, e na
+# bancada quem roda o teste é o contêiner da API, que precisa enxergar
+# os mesmos diretórios.
+mkdir -p "$TRAB"/{ast/telium,ast/keys,fotos,cofre,audios,backup}
+mkdir -p "$TRAB"/spool/{monitor,voicemail,dictate,fax,tmp}
+ln -sfn "$TRAB/spool/monitor" "$TRAB/gravacoes" 2>/dev/null || true
 
 # ---------------------------------------------------------------- banco
 if ! docker ps --format '{{.Names}}' | grep -qx v-db; then
@@ -83,7 +89,10 @@ FOTOS_DIR=/fotos
 FOTOS_URL=/uploads/contatos
 BACKUP_DIR=/backup
 AUDIOS_DIR=/audios
-GRAVACOES_DIR=/gravacoes
+GRAVACOES_DIR=/s/spool/monitor
+ASTERISK_SPOOL_DIR=/s/spool
+# Na bancada o Asterisk roda como root; no servidor, como asterisk.
+ASTERISK_USUARIO=root
 SQL_DIR=/w/infra/sql
 TELIUM_ETC=/etc/telium
 ASTERISK_CONF_DIR=/s/ast
@@ -107,7 +116,7 @@ ENV
 
   docker run -d --name v-web -p "${PORTA}:80" \
     -v "$RAIZ":/w -v "$TRAB":/s \
-    -v "$TRAB/gravacoes":/gravacoes -v "$TRAB/fotos":/fotos \
+    -v "$TRAB/fotos":/fotos \
     -v "$TRAB/cofre":/cofre -v "$TRAB/audios":/audios -v "$TRAB/backup":/backup \
     --link v-db:v-db \
     "$IMG_PHP" sh -c \
@@ -184,7 +193,7 @@ if ! docker ps --format '{{.Names}}' | grep -qx v-ast; then
   docker rm -f v-ast >/dev/null 2>&1 || true
   docker run -d --name v-ast --network "container:v-web" \
     -v "$TRAB/ast":/etc/asterisk \
-    -v "$TRAB/gravacoes":/var/spool/asterisk/monitor \
+    -v "$TRAB/spool":/var/spool/asterisk \
     -v "$TRAB/audios":/audios \
     "$IMG_AST" sleep infinity >/dev/null
 
@@ -244,6 +253,7 @@ INI'
              invalid pbx-invalid please-enter-your cannot-complete-as-dialed \
              queue-callswaiting ss-noservice vm-enter-num-to-call agent-loggedoff \
              agent-loginok demo-congrats vm-goodbye vm-intro auth-thankyou \
+             vm-extension vm-then-pound cannot-complete-as-dialed \
              pbx-invalidpark parking-lot-full; do
       head -c 16000 /dev/zero > /etc/asterisk/sounds/$s.sln
     done
