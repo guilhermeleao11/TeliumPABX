@@ -92,6 +92,66 @@ O cenário **não cria tronco** (não teria como adivinhar as credenciais da
 operadora), e as duas rotas de saída dele só nascem se já houver um
 tronco cadastrado.
 
+## Áudios em português
+
+**O projeto Asterisk não publica áudios em português.** Os idiomas
+oficiais são `en`, `en_AU`, `en_GB`, `en_NZ`, `es`, `fr`, `it`, `ja`,
+`ru` e `sv` — não existe `pt` nem `pt_BR`. Para a central falar
+português é preciso trazer um pacote próprio.
+
+`pabx_idioma: "pt_BR"` já vem configurado: o Asterisk procura os áudios
+em `/var/lib/asterisk/sounds/pt_BR/`. Quando não acha, **cai no inglês
+sem avisar** — é por isso que a bateria de testes confere os arquivos
+nesse idioma e falha quando faltam.
+
+Para instalar um pacote, aponte o diretório na estação de onde o
+playbook roda:
+
+```yaml
+sons_dir: "/caminho/para/os/audios-pt-BR"
+```
+
+O conteúdo é copiado como está para `sounds/pt_BR/`, subpastas
+inclusive. Formatos que o Asterisk lê direto: `.gsm`, `.wav` (8 kHz
+16 bit mono), `.ulaw`, `.alaw`, `.g722`, `.sln`.
+
+### O que o pacote precisa cobrir
+
+| Conjunto | Arquivos | Para quê |
+|---|---|---|
+| **Avulsos do dialplan** | **16** | o mínimo: sem eles a central fica muda nos avisos |
+| `digits/` | 94 | SayNumber, SayDigits, hora certa, posição na fila |
+| `vm-*` | 114 | correio de voz e o menu de recados |
+| `conf-*` | 38 | conferência: PIN, entrada e saída de participante |
+| `queue-*` | 13 | fila: posição e tempo de espera |
+| `dir-*` | 15 | catálogo de ramais por nome |
+| `letters/`, `phonetic/` | 88 | soletrar nome no catálogo |
+
+Os **16 avulsos** que este dialplan toca diretamente:
+
+```
+activated                       de-activated
+agent-loggedoff                 demo-echotest
+agent-loginok                   dial
+all-circuits-busy-now           goodbye
+conf-onlyperson                 hello
+pbx-invalid                     please-enter-your
+privacy-you-are-not-permitted   queue-callswaiting
+ss-noservice                    vm-enter-num-to-call
+```
+
+Começar por esses 16 mais o `digits/` já deixa a central falando
+português no que o cliente ouve todos os dias. `vm-*`, `conf-*` e
+`dir-*` só aparecem para quem usa correio de voz, conferência e catálogo.
+
+### Conferir o que está instalado
+
+```bash
+sudo -u telium php /opt/telium/api/bin/telium testar   # o grupo "Áudios"
+sudo asterisk -rx "core show settings" | grep -i language
+ls /var/lib/asterisk/sounds/pt_BR/ | head
+```
+
 ## Senhas
 
 **Você não precisa gerar nada.** As senhas de serviço — banco, usuário

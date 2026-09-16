@@ -113,9 +113,17 @@ final class Testes
             }
         }
 
+        // No idioma configurado, não em qualquer um. Com languageprefix,
+        // o Asterisk procura sounds/<idioma>/arquivo e, se não achar, cai
+        // no inglês sem dizer nada: aceitar qualquer diretório deixaria
+        // passar uma central que responde em inglês com a configuração
+        // dizendo pt_BR.
+        $idioma = trim((string) Ambiente::get('ASTERISK_IDIOMA', 'pt_BR'));
         $faltando = [];
         foreach (array_keys($pedidos) as $nome) {
-            if ((glob("{$sons}/*/{$nome}.*") ?: []) === [] && (glob("{$sons}/{$nome}.*") ?: []) === []) {
+            $no_idioma = glob("{$sons}/{$idioma}/{$nome}.*") ?: [];
+            $solto = glob("{$sons}/{$nome}.*") ?: [];
+            if ($no_idioma === [] && $solto === []) {
                 $faltando[] = $nome;
             }
         }
@@ -127,11 +135,31 @@ final class Testes
         $this->ok(
             $faltando === [],
             $faltando === []
-                ? 'todos os áudios que o dialplan toca existem no disco'
+                ? "todos os áudios que o dialplan toca existem em {$idioma}"
                 : sprintf(
-                    'áudio que o dialplan toca e não existe em %s: %s',
+                    'áudio que o dialplan toca e não existe em %s/%s: %s',
                     $sons,
+                    $idioma,
                     implode(', ', array_slice($faltando, 0, 8)) . (count($faltando) > 8 ? '…' : '')
+                )
+        );
+
+        // Falar português é mais do que ter estes arquivos: SayNumber,
+        // VoiceMail, ConfBridge e a fila tocam áudios próprios, que o
+        // dialplan não cita. Sem o conjunto de dígitos, a central lê
+        // número em inglês no meio de uma frase em português.
+        $digitos = glob("{$sons}/{$idioma}/digits/*") ?: [];
+        $this->ok(
+            count($digitos) >= 20,
+            count($digitos) >= 20
+                ? sprintf('o conjunto de dígitos de %s está instalado (%d arquivos)', $idioma, count($digitos))
+                : sprintf(
+                    'faltam os dígitos em %s (%d arquivos em %s/%s/digits) — SayNumber, '
+                    . 'correio de voz e fila vão falar em inglês',
+                    $idioma,
+                    count($digitos),
+                    $sons,
+                    $idioma
                 )
         );
     }

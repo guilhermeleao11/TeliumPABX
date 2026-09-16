@@ -27,6 +27,16 @@ senha_padrao_console: "T3l1um_@2024_@aD1m"
 
 # ---------- identidade da central ----------
 pabx_hostname: "pabx.telium.local"
+
+# Idioma em que a central FALA. Com languageprefix ligado, o Asterisk
+# procura os áudios em sounds/<idioma>/ e, quando não acha, cai no inglês
+# sem dizer nada — por isso a bateria confere os arquivos neste idioma.
+#
+# O projeto Asterisk NÃO publica áudios em português: os idiomas
+# oficiais são en, en_AU, en_GB, en_NZ, es, fr, it, ja, ru e sv. Para a
+# central falar português é preciso trazer um pacote próprio — veja
+# sons_dir abaixo e infra/README.md.
+pabx_idioma: "pt_BR"
 pabx_empresa: "Telium Networks"
 pabx_timezone: "America/Sao_Paulo"
 pabx_locale: "pt_BR.UTF-8"
@@ -116,7 +126,11 @@ compilar_asterisk: true                      # false pula a compilação (VM já
 instalar_janus: false
 compilar_janus: true
 instalar_firewall: true
-sons_pt_br: true
+# Pacote de áudios do idioma, copiado para sounds/<pabx_idioma>/.
+# Caminho na máquina de onde o playbook roda; vazio = não instala nada.
+# Os arquivos vão para o diretório do idioma exatamente como estão —
+# inclusive subpastas (digits/, vm-*, conf-*).
+sons_dir: ""
 
 # Limites do Asterisk. maxcalls conta canais simultâneos (cada chamada
 # usa dois); maxload é a carga do sistema acima da qual ele recusa

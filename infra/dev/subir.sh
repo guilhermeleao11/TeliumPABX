@@ -142,7 +142,7 @@ vals = {
     'telium_gravacoes': '/var/spool/asterisk/monitor',
     'db_nome': 'telium', 'db_usuario': 'root', 'db_senha': 'r',
     'udptl_inicio': '4000', 'udptl_fim': '4999',
-    'sons_pt_br': 'true',
+    'pabx_idioma': 'pt_BR',
 }
 # Os transportes viraram arquivo gerado; o template é só o ponto de
 # partida, e vai para o diretório do que a API gera — como o playbook faz.
@@ -243,7 +243,13 @@ INI'
              pbx-invalidpark parking-lot-full; do
       head -c 16000 /dev/zero > /etc/asterisk/sounds/pt_BR/$s.sln
     done
-    cp /etc/asterisk/sounds/pt_BR/*.sln /var/lib/asterisk/sounds/pt_BR/'
+    mkdir -p /etc/asterisk/sounds/pt_BR/digits /var/lib/asterisk/sounds/pt_BR/digits
+    for d in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 30 40 50 60 70 80 90 \
+             hundred thousand million minute minutes second seconds oh at; do
+      head -c 8000 /dev/zero > /etc/asterisk/sounds/pt_BR/digits/$d.sln
+    done
+    cp /etc/asterisk/sounds/pt_BR/*.sln /var/lib/asterisk/sounds/pt_BR/
+    cp /etc/asterisk/sounds/pt_BR/digits/*.sln /var/lib/asterisk/sounds/pt_BR/digits/'
 fi
 
 echo

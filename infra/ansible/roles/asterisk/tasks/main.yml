@@ -174,13 +174,39 @@
   failed_when: false
   changed_when: false
 
-- name: Selecionar sons em português do Brasil
-  ansible.builtin.command:
-    cmd: "menuselect/menuselect --enable CORE-SOUNDS-PT_BR-GSM menuselect.makeopts"
-    chdir: "{{ src_dir }}/asterisk-{{ asterisk_versao }}"
-  when: ast_precisa_compilar and sons_pt_br
-  failed_when: false
-  changed_when: false
+# O projeto Asterisk não publica áudios em português — os idiomas
+# oficiais são en, en_AU, en_GB, en_NZ, es, fr, it, ja, ru e sv. A tarefa
+# que ficava aqui pedia CORE-SOUNDS-PT_BR-GSM ao menuselect, opção que
+# não existe, e com failed_when: false nunca reclamou: a central era
+# entregue falando inglês e ninguém via.
+#
+# Um pacote próprio entra por sons_dir. A bateria de testes confere, no
+# fim do provisionamento, se os áudios existem no idioma configurado.
+- name: Instalar o pacote de áudios do idioma configurado
+  when: sons_dir | default('') != ''
+  block:
+    - name: Conferir se o diretório de áudios existe na estação
+      ansible.builtin.stat:
+        path: "{{ sons_dir }}"
+      delegate_to: localhost
+      become: false
+      register: sons_origem
+
+    - name: Avisar quando o diretório de áudios não existe
+      ansible.builtin.fail:
+        msg: >-
+          sons_dir aponta para {{ sons_dir }}, que não existe na máquina de onde
+          o playbook roda. Deixe a variável vazia ou corrija o caminho.
+      when: not sons_origem.stat.exists
+
+    - name: Publicar os áudios em sounds/{{ pabx_idioma }}
+      ansible.builtin.copy:
+        src: "{{ sons_dir }}/"
+        dest: "/var/lib/asterisk/sounds/{{ pabx_idioma }}/"
+        owner: asterisk
+        group: asterisk
+        mode: "0644"
+      notify: recarregar asterisk
 
 - name: Compilar (pode levar vários minutos)
   ansible.builtin.command:

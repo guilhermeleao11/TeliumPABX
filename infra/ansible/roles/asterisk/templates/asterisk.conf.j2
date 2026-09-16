@@ -15,7 +15,13 @@ astsbindir    => /usr/sbin
 [options]
 runuser        = asterisk
 rungroup       = asterisk
-documentation_language = pt_BR
+; documentation_language muda só o texto do "core show application" no
+; CLI. Quem decide em que idioma a central FALA é defaultlanguage: com
+; languageprefix, o Asterisk procura sounds/<idioma>/arquivo e, se não
+; achar, cai no inglês sem avisar. Sem esta linha a central respondia em
+; inglês mesmo com os áudios em português instalados.
+documentation_language = {{ pabx_idioma }}
+defaultlanguage = {{ pabx_idioma }}
 verbose        = 3
 debug          = 0
 maxcalls       = {{ asterisk_max_chamadas }}
