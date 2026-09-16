@@ -5171,8 +5171,11 @@ PAGES['conn.webrtc'] = {
           As duas pontas mandam som e ninguém ouve nada.
         </p>
         <p class="small muted" style="margin:8px 0 0">
-          Use este ramal só pelo navegador, ou desmarque WebRTC no cadastro e crie outro ramal
-          para o softphone.
+          Um ramal serve a um tipo de aparelho só: o que exige DTLS e ICE não atende softphone
+          comum, e o contrário também não. Para a mesma pessoa usar os dois, crie
+          <b>dois ramais</b> — um sem WebRTC para o softphone, outro com — e ligue o
+          <b>Siga-me no modo “junto”</b> do ramal principal para o do navegador.
+          Discar o número principal passa a tocar nos dois, e quem atender primeiro fica.
         </p>
       </div>` : '';
 

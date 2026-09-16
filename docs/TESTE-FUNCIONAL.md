@@ -148,7 +148,11 @@ em **Administrador → Gravações** e confirmar que os dois lados estão lá.
 Mude a faixa do grupo Comercial para excluir o horário atual, aplique, e
 confirme que a chamada passa a cair no destino de fora do expediente.
 
-### Siga-me — **falta provar**
+### Siga-me — **provado** (modo junto) · **falta provar** (modo depois)
+O modo “junto” é o que permite a mesma pessoa usar softphone e navegador:
+são dois ramais — um sem WebRTC, outro com — e o Siga-me junto do
+principal para o do navegador faz `Dial(PJSIP/1001&Local/1003@telium-desvio)`,
+tocando nos dois. Conferido no Asterisk 22; falta ouvir os dois tocarem.
 Ligue o siga-me de 1001 para 1002 e confirme o desvio. Teste os dois
 modos (junto e depois).
 
