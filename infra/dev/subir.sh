@@ -241,7 +241,7 @@ INI'
     mkdir -p /etc/asterisk/sounds/digits /var/lib/asterisk/sounds/digits
     for s in activated de-activated all-circuits-busy-now beep conf-getpin \
              conf-invalidpin conf-onlyperson demo-echotest dial goodbye hello \
-             invalid pbx-invalid please-enter-your privacy-you-are-not-permitted \
+             invalid pbx-invalid please-enter-your cannot-complete-as-dialed \
              queue-callswaiting ss-noservice vm-enter-num-to-call agent-loggedoff \
              agent-loginok demo-congrats vm-goodbye vm-intro auth-thankyou \
              pbx-invalidpark parking-lot-full; do

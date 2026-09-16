@@ -153,7 +153,7 @@ agent-loginok                   dial
 all-circuits-busy-now           goodbye
 conf-onlyperson                 hello
 pbx-invalid                     please-enter-your
-privacy-you-are-not-permitted   queue-callswaiting
+cannot-complete-as-dialed       queue-callswaiting
 ss-noservice                    vm-enter-num-to-call
 ```
 

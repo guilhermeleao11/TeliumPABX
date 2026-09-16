@@ -193,7 +193,7 @@ exten => s,1,GotoIf($["${TELIUM_PERM}" = ""]?permitido)
  same => n,NoOp(Ramal ${CALLERID(num)} sem permissão para ${ARG1})
  same => n,Answer()
  same => n,Wait(1)
- same => n,Playback(privacy-you-are-not-permitted)
+ same => n,Playback(cannot-complete-as-dialed)
  same => n,Hangup(31)
  same => n(permitido),Return()
 
@@ -345,7 +345,7 @@ exten => s,1,NoOp(Despertador do ramal ${CALLERID(num)})
 [telium-bloqueado]
 exten => _X.,1,Answer()
  same => n,Wait(1)
- same => n,Playback(privacy-you-are-not-permitted)
+ same => n,Playback(cannot-complete-as-dialed)
  same => n,Hangup(31)
 
 #include "telium/extensions.recursos.conf"

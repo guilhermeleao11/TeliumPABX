@@ -147,7 +147,7 @@ final class GeradorRecursos
                 'SayDigits(${TELIUM_ULT})', 'Hangup()',
             ], ['barrado' => [
                 'NoOp(Este ramal não tem rastreio de chamada liberado)',
-                'Playback(privacy-you-are-not-permitted)', 'Hangup()',
+                'Playback(cannot-complete-as-dialed)', 'Hangup()',
             ], 'nada' => [
                 'NoOp(Nenhuma chamada registrada para este ramal)',
                 'Playback(pbx-invalid)', 'Hangup()',
@@ -353,9 +353,13 @@ final class GeradorRecursos
             ]]],
 
             // ---------------- núcleo ----------------
+            // Tom de discar é tom gerado, não gravação: Playback(dial)
+            // pedia um arquivo que não existe em pacote de som nenhum, e
+            // o Asterisk pulava a linha em silêncio. Playtones lê a
+            // frequência de indications.conf — no Brasil, 425 Hz.
             'core_linha' => [$codigo, [
                 'NoOp(Tom de discar interno)', 'Answer()', 'Wait(1)',
-                'Playback(dial)', 'WaitExten(15)',
+                'Playtones(dial)', 'WaitExten(15)', 'StopPlaytones()',
             ]],
             'chanspy' => [$comArg, [
                 "NoOp(Escutando o ramal {$arg})", 'Answer()',
@@ -374,7 +378,7 @@ final class GeradorRecursos
             'ditado_gravar' => [$codigo, [
                 'NoOp(Ditado)',
                 'GotoIf($[${DB_EXISTS(ditado/' . $eu . ')}]?pode)',
-                'Playback(privacy-you-are-not-permitted)', 'Hangup()',
+                'Playback(cannot-complete-as-dialed)', 'Hangup()',
             ], ['pode' => [
                 'Answer()', 'Wait(1)',
                 "System(mkdir -p /var/spool/asterisk/dictate/{$eu})",
@@ -384,7 +388,7 @@ final class GeradorRecursos
             'ditado_email' => [$codigo, [
                 'NoOp(Ditado para a caixa postal)',
                 'GotoIf($[${DB_EXISTS(ditado/' . $eu . ')}]?pode)',
-                'Playback(privacy-you-are-not-permitted)', 'Hangup()',
+                'Playback(cannot-complete-as-dialed)', 'Hangup()',
             ], ['pode' => [
                 'Answer()', 'Wait(1)',
                 "VoiceMail({$eu}@telium,su)", 'Hangup()',
@@ -545,7 +549,12 @@ final class GeradorRecursos
         return [$codigo, [
             "NoOp(Desvio {$rot}: perguntando o destino)",
             'Answer()', 'Wait(1)',
-            'Playback(please-enter-your&extension&then&press-pound)',
+            // "then" não existe em pacote de som nenhum, e "press-pound"
+            // só no extra: a frase tocava pela metade e ninguém percebia,
+            // porque Playback pula o arquivo que falta sem reclamar.
+            // vm-extension e vm-then-pound vêm no pacote básico e dizem a
+            // mesma coisa: "ramal ... e então tecle jogo da velha".
+            'Playback(vm-extension&vm-then-pound)',
             'Read(TELIUM_DEST,beep,,,3,10)',
             'GotoIf($["${TELIUM_DEST}" = ""]?erro)',
             "Set(DB({$fam}/{$eu})=\${TELIUM_DEST})",

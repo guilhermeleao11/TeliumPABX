@@ -101,10 +101,17 @@ final class Testes
             $achados = [];
             preg_match_all('/\b(Playback|Background|BackGround)\(([^)\n]*)/i', $texto, $achados, PREG_SET_ORDER);
             foreach ($achados as $a) {
+                // Só o primeiro argumento é a lista de arquivos; do
+                // segundo em diante são opções. E a lista pode encadear
+                // vários com "&" — conferir só o primeiro deixava passar
+                // "please-enter-your&extension&then&press-pound" com três
+                // arquivos nunca verificados, que tocariam pela metade.
+                //
                 // Read() fica de fora: o primeiro argumento dele é o nome
                 // da variável, não um arquivo.
-                foreach (explode(',', $a[2]) as $parte) {
-                    $nome = trim(explode('&', $parte)[0]);
+                $lista = explode(',', $a[2])[0];
+                foreach (explode('&', $lista) as $parte) {
+                    $nome = trim($parte);
                     if ($nome !== '' && preg_match('/^[A-Za-z0-9\/_-]+$/', $nome) === 1
                         && !str_starts_with($nome, '$')) {
                         $pedidos[$nome] = true;
