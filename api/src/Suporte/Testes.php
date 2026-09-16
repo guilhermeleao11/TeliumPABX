@@ -491,17 +491,26 @@ final class Testes
         );
         $ice = $gerado['rtp.ice.conf'] ?? '';
         $publico = Rede::ipPublico();
-        if ($publico === '') {
-            $this->ok(
-                !str_contains($ice, '[ice_host_candidates]'),
-                'sem endereço público, o mapa fica vazio e explica o porquê'
-            );
-        } else {
-            $this->ok(
-                str_contains($ice, '[ice_host_candidates]') && str_contains($ice, $publico),
-                "o mapa aponta o endereço público ({$publico})"
-            );
-        }
+        $local   = Rede::enderecoLocal();
+        $temMapa = str_contains($ice, '[ice_host_candidates]');
+
+        // Mapear só faz sentido quando os dois endereços são diferentes.
+        // Servidor com o IP público na própria interface já anuncia
+        // candidato alcançável, e o arquivo sai vazio com razão — a
+        // primeira versão deste teste exigia o mapa mesmo assim e
+        // reprovou uma instalação correta na máquina do cliente.
+        $precisaMapear = $publico !== '' && $local !== '' && $local !== $publico;
+
+        $this->ok(
+            $precisaMapear ? ($temMapa && str_contains($ice, $publico)) : !$temMapa,
+            $precisaMapear
+                ? "o mapa leva {$local} para {$publico}"
+                : sprintf(
+                    'sem nada a mapear, o arquivo fica vazio (local %s, público %s)',
+                    $local ?: 'não descoberto',
+                    $publico ?: 'não configurado'
+                )
+        );
 
         // O navegador não roda no servidor: ele precisa resolver e
         // alcançar o STUN e o TURN. Apontar os dois para o nome interno
