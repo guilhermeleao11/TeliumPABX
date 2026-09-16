@@ -44,6 +44,7 @@ final class Testes
         $this->grupo('Endereço público e faixas locais', $this->nat(...));
         $this->grupo('Permissão por referência', $this->permissaoReferencia(...));
         $this->grupo('Destinos de chamada', $this->destinos(...));
+        $this->grupo('Codecs', $this->codecs(...));
         $this->grupo('Áudios que o dialplan toca', $this->sons(...));
 
         if ($comBanco) {
@@ -61,6 +62,37 @@ final class Testes
         }
 
         return ['passou' => $this->passou, 'falhou' => $this->falhou, 'erros' => $this->erros];
+    }
+
+    // ---------------------------------------------------------------
+    /**
+     * Codec que o Asterisk não traduz só funciona ponta a ponta.
+     *
+     * O g729 de fábrica é passagem: a tabela de tradução nem lista o
+     * codec. Com g729 no tronco e opus no ramal do navegador, a operadora
+     * atende e a chamada cai na hora, com "Unable to find a codec
+     * translation path" no log — depois de a chamada ter sido tarifada.
+     */
+    private function codecs(): void
+    {
+        $lista = Conferencia::listaCodecs(' ALAW , ulaw;g729  ');
+        $this->ok(
+            $lista === ['alaw', 'ulaw', 'g729'],
+            'a lista de codecs aceita espaço, ponto e vírgula e maiúscula'
+        );
+        $this->ok(Conferencia::listaCodecs('') === [], 'lista vazia não vira codec vazio');
+
+        // O padrão de fábrica não pode trazer o codec que derruba chamada.
+        // O MariaDB devolve o padrão entre aspas simples: sem tirá-las,
+        // "g729'" não casa com "g729" e a conferência passa sem conferir.
+        $padrao = trim((string) Bd::valor(
+            "SELECT COLUMN_DEFAULT FROM information_schema.COLUMNS
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'troncos' AND COLUMN_NAME = 'codecs'"
+        ), "'\"");
+        $this->ok(
+            !in_array('g729', Conferencia::listaCodecs($padrao), true),
+            "o codec padrão do tronco não traz g729 (está \"{$padrao}\")"
+        );
     }
 
     // ---------------------------------------------------------------

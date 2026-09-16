@@ -125,6 +125,47 @@ final class Conferencia
             }
         }
 
+        // Codec que o Asterisk não sabe traduzir, oferecido só de um
+        // lado, é chamada que a operadora atende e cai na hora:
+        //
+        //   set_format: Unable to find a codec translation path: (g729) -> (opus)
+        //   dial_exec_full: Had to drop call because I couldn't make ... compatible
+        //
+        // O g729 de fábrica é só passagem — a tabela de tradução do
+        // Asterisk nem lista o codec. Ele só funciona quando os dois
+        // lados da chamada fecham nele.
+        $semTraducao = ['g729', 'g723'];
+        $ramaisCodec = self::consulta('SELECT numero, codecs FROM ramais WHERE ativo = 1');
+
+        foreach (self::consulta('SELECT nome, codecs FROM troncos WHERE ativo = 1') as $t) {
+            $doTronco = self::listaCodecs((string) $t['codecs']);
+            foreach (array_intersect($semTraducao, $doTronco) as $codec) {
+                $sem = [];
+                foreach ($ramaisCodec as $r) {
+                    if (!in_array($codec, self::listaCodecs((string) $r['codecs']), true)) {
+                        $sem[] = (string) $r['numero'];
+                    }
+                }
+                if ($sem === []) {
+                    continue;   // a central inteira fala o codec: passagem funciona
+                }
+                $p[] = [
+                    'nivel' => 'aviso',
+                    'onde'  => "tronco {$t['nome']}",
+                    'texto' => sprintf(
+                        'oferece %s, que o Asterisk não sabe traduzir. Se a operadora escolher '
+                        . 'esse codec, a chamada com %s atende e cai na hora. Tire %s do tronco '
+                        . 'ou ponha em todos os ramais.',
+                        $codec,
+                        count($sem) > 3
+                            ? sprintf('%d ramais (%s…)', count($sem), implode(', ', array_slice($sem, 0, 3)))
+                            : 'o ramal ' . implode(', ', $sem),
+                        $codec
+                    ),
+                ];
+            }
+        }
+
         // Duas rotas de saída com o mesmo padrão: o Asterisk registra a
         // primeira e recusa a segunda com "already in use" — no log, que
         // ninguém lê. Quem criou "Celular Vivo" e "Celular Claro" com o
@@ -177,6 +218,14 @@ final class Conferencia
     }
 
     /** @return list<array<string,mixed>> */
+    /** @return list<string> a lista de codecs, limpa e em minúsculas */
+    public static function listaCodecs(string $bruto): array
+    {
+        $partes = preg_split('/[\s,;]+/', strtolower(trim($bruto))) ?: [];
+
+        return array_values(array_filter(array_map('trim', $partes), static fn (string $c): bool => $c !== ''));
+    }
+
     private static function consulta(string $sql): array
     {
         try {

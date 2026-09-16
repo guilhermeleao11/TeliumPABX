@@ -140,7 +140,10 @@ CREATE TABLE IF NOT EXISTS troncos (
   from_user      VARCHAR(80)  NULL,
   from_domain    VARCHAR(160) NULL,
   contexto_entrada VARCHAR(60) NOT NULL DEFAULT 'de-tronco',
-  codecs         VARCHAR(120) NOT NULL DEFAULT 'alaw,ulaw,g729',
+  -- Sem g729 de propósito: o Asterisk não tem transcodificador para ele,
+  -- só passagem. Oferecê-lo num tronco enquanto os ramais falam opus ou
+  -- alaw faz a operadora atender e a chamada cair na hora.
+  codecs         VARCHAR(120) NOT NULL DEFAULT 'alaw,ulaw',
   canais_max     SMALLINT UNSIGNED NULL,
   cid_saida      VARCHAR(40)  NULL,
   ativo          BOOLEAN NOT NULL DEFAULT 1,

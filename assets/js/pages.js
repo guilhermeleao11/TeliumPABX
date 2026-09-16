@@ -1265,7 +1265,10 @@ PAGES['conn.troncos'] = paginaCrud({
       ajuda: 'O domínio ou IP da operadora, como sip.operadora.com.br. Em branco, vale o host '
            + 'do tronco. Pôr o número da conta aqui gera um From que a operadora recusa com 404.' },
     { campo: 'cid_saida', label: 'Identificação de saída', mono: true, placeholder: '1133255800' },
-    { campo: 'codecs', label: 'Codecs', mono: true, padrao: 'alaw,ulaw,g729' },
+    { campo: 'codecs', label: 'Codecs', mono: true, padrao: 'alaw,ulaw',
+      ajuda: 'O Asterisk não transcodifica g729 — ele só passa adiante. Com g729 aqui e '
+           + 'um ramal em opus ou alaw, a operadora atende e a chamada cai na hora. '
+           + 'Só acrescente se a central inteira falar g729.' },
     { campo: 'contexto_entrada', label: 'Contexto de entrada', mono: true, padrao: 'de-tronco', largura: 'full' }
   ]
 });
