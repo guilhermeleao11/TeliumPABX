@@ -89,12 +89,19 @@ final class Diagnostico
         // Quando não consegue, ele não oferece candidato srflx nem relay,
         // a chamada conecta sem áudio e a única mensagem é a do próprio
         // navegador: "ICE failed, your TURN server appears to be broken".
+        // Confere o endereço JÁ CORRIGIDO: o console troca o host
+        // inalcançável pelo IP público na hora de entregar a lista ao
+        // navegador, e avisar sobre o que está no arquivo — e não sobre
+        // o que o navegador recebe — seria mentir na direção contrária.
         $servidoresIce = [];
         foreach (array_filter(array_map('trim', array_merge(
             explode(',', (string) Ambiente::get('SOFTPHONE_STUN', '')),
             explode(',', $turn)
         ))) as $sv) {
-            $servidoresIce[] = Rede::conferirServidorIce($sv);
+            $exame = Rede::conferirServidorIce(Rede::corrigirServidorIce($sv));
+            $exame['configurado'] = $sv;
+            $exame['corrigido'] = $exame['servidor'] !== $sv;
+            $servidoresIce[] = $exame;
         }
 
         return Resposta::json($res, [

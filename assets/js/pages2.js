@@ -5175,6 +5175,21 @@ PAGES['conn.webrtc'] = {
     </tr>`).join('');
 
     const iceRuins = (d.servidores_ice || []).filter(s => !s.ok);
+    const iceCorrigidos = (d.servidores_ice || []).filter(s => s.ok && s.corrigido);
+    const avisoCorrigido = iceCorrigidos.length ? `
+      <div class="card" style="margin-bottom:16px;padding:18px;border-left:3px solid var(--warn)">
+        <span class="badge badge-warn">endereço do TURN corrigido pelo console</span>
+        <p class="small" style="margin:10px 0 0">
+          O instalador deixou um endereço que o navegador não alcança, e o console o trocou pelo
+          endereço público ao entregar a lista. Funciona, mas o certo é acertar
+          <span class="mono">turn_dominio</span> no instalador.
+        </p>
+        <ul class="simples small" style="margin:10px 0 0">
+          ${iceCorrigidos.map(s => `<li><span class="mono">${esc(s.configurado)}</span> →
+            <span class="mono">${esc(s.servidor)}</span></li>`).join('')}
+        </ul>
+      </div>` : '';
+
     const alertaIce = iceRuins.length ? `
       <div class="card" style="margin-bottom:16px;padding:18px;border-left:3px solid var(--danger)">
         <span class="badge badge-danger">o navegador não alcança o servidor de ICE</span>
@@ -5185,6 +5200,8 @@ PAGES['conn.webrtc'] = {
         </p>
         <ul class="simples small" style="margin:10px 0 0">
           ${iceRuins.map(s => `<li><span class="mono">${esc(s.servidor)}</span> — ${esc(s.motivo)}</li>`).join('')}
+        </ul>
+        <ul class="simples small" style="margin:0">
         </ul>
         <p class="small muted" style="margin:10px 0 0">
           O endereço do TURN sai de <span class="mono">turn_dominio</span>, que por padrão é o
@@ -5213,7 +5230,7 @@ PAGES['conn.webrtc'] = {
       </div>` : '';
 
     return pageHead('WebRTC / Softphone',
-      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + alertaIce + alerta + `
+      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + alertaIce + avisoCorrigido + alerta + `
       <div class="grid g-2">
         <div class="card" style="padding:18px">
           <b>Caminho da chamada</b>

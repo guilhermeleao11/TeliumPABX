@@ -242,6 +242,47 @@ final class Rede
         return $r(true, "resolve para {$ip}");
     }
 
+    /**
+     * Troca o host de um servidor de ICE inalcançável pelo IP público.
+     *
+     * O endereço do TURN vem do instalador, e o padrão é o nome da
+     * central — que costuma ser interno e que o navegador de quem usa o
+     * console não resolve. Corrigir isso exigia editar variável do
+     * Ansible e rodar o playbook de novo; agora o console, que já sabe o
+     * endereço público, conserta na hora de entregar a lista.
+     *
+     * Só reescreve o que está comprovadamente errado: host que resolve e
+     * é alcançável fica como está, porque pode ser um TURN de terceiros.
+     */
+    public static function corrigirServidorIce(string $servidor): string
+    {
+        $exame = self::conferirServidorIce($servidor);
+        if ($exame['ok'] || $exame['host'] === '') {
+            return trim($servidor);
+        }
+
+        // Só o que é impossível por construção: nome .local e endereço de
+        // rede interna nunca servem a um navegador de fora. Nome que
+        // apenas não resolve DAQUI pode ser um TURN de terceiros com DNS
+        // separado — trocá-lo pelo nosso apontaria o navegador para um
+        // servidor que não conhece a credencial dele, e o aviso da tela
+        // resolve melhor do que um palpite.
+        $host = strtolower($exame['host']);
+        $ip = filter_var($exame['host'], FILTER_VALIDATE_IP) !== false ? $exame['host'] : '';
+        $impossivel = str_ends_with($host, '.local') || ($ip !== '' && self::ehPrivado($ip));
+        if (!$impossivel) {
+            return trim($servidor);
+        }
+
+        $publico = self::ipPublico();
+        if ($publico === '') {
+            return trim($servidor);   // sem para onde apontar, fica o aviso na tela
+        }
+
+        // Só o host: esquema, porta e parâmetros continuam como estavam.
+        return str_replace($exame['host'], $publico, trim($servidor));
+    }
+
     public static function guardar(string $ipPublico, string $redesLocais): void
     {
         self::gravar('rede_ip_publico', $ipPublico);

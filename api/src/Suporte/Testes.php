@@ -535,6 +535,32 @@ final class Testes
             'TURN em IP público passa, com parâmetro e tudo'
         );
 
+        // O console troca o host inalcançável pelo endereço público ao
+        // entregar a lista ao navegador — mas só o que é impossível por
+        // construção. Um TURN de terceiros que não resolve daqui pode
+        // resolver lá, e apontá-lo para o nosso servidor mandaria o
+        // navegador para um relay que não conhece a credencial dele.
+        $publicoAntes = Rede::ipPublico();
+        Rede::guardar('200.170.198.144', implode(',', Rede::redesLocais()));
+        foreach ([
+            'turn:pabx.telium.local:3478'                => 'turn:200.170.198.144:3478',
+            'turns:pabx.telium.local:5349?transport=tcp' => 'turns:200.170.198.144:5349?transport=tcp',
+            'turn:192.168.1.10:3478'                     => 'turn:200.170.198.144:3478',
+            'stun:stun.l.google.com:19302'               => 'stun:stun.l.google.com:19302',
+            'turn:turn.de-terceiros.invalido:3478'       => 'turn:turn.de-terceiros.invalido:3478',
+        ] as $antes => $depois) {
+            $this->ok(
+                Rede::corrigirServidorIce($antes) === $depois,
+                sprintf('%s vira %s', $antes, $depois === $antes ? 'ele mesmo' : $depois)
+            );
+        }
+        Rede::guardar($publicoAntes, implode(',', Rede::redesLocais()));
+        $this->ok(
+            Rede::corrigirServidorIce('turn:pabx.telium.local:3478') === 'turn:pabx.telium.local:3478'
+                || Rede::ipPublico() !== '',
+            'sem endereço público configurado, nada é reescrito — fica o aviso na tela'
+        );
+
         // 100.64.0.0/10 é o CGNAT da RFC 6598 — onde fica quem está atrás
         // do NAT da operadora. O filtro do PHP não cobre essa faixa, e sem
         // ela um servidor em CGNAT passava por "tem IP público": o

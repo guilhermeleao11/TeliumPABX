@@ -7,6 +7,7 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Telium\Dominio\Auditoria;
 use Telium\Dominio\Permissoes;
+use Telium\Dominio\Rede;
 use Telium\Dominio\Senha;
 use Telium\Dominio\Totp;
 use Telium\Dominio\Sessao;
@@ -411,9 +412,13 @@ final class Autenticacao
             $lista[] = ['urls' => $stun];
         }
 
+        // O endereço do TURN vem do instalador e costuma nascer com o
+        // nome interno da central, que o navegador não resolve — e sem
+        // relay a chamada conecta e não passa áudio. Quando o console
+        // sabe o endereço público, ele conserta aqui, sem exigir playbook.
         $enderecos = array_values(array_filter(array_map(
-            'trim',
-            explode(',', (string) Ambiente::get('SOFTPHONE_TURN', ''))
+            static fn (string $sv): string => Rede::corrigirServidorIce($sv),
+            array_map('trim', explode(',', (string) Ambiente::get('SOFTPHONE_TURN', '')))
         )));
         if ($enderecos === []) {
             return $lista;
