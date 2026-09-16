@@ -149,13 +149,17 @@ Os **16 avulsos** que este dialplan toca diretamente:
 ```
 activated                       de-activated
 agent-loggedoff                 demo-echotest
-agent-loginok                   dial
-all-circuits-busy-now           goodbye
-conf-onlyperson                 hello
-pbx-invalid                     please-enter-your
-cannot-complete-as-dialed       queue-callswaiting
+agent-loginok                   goodbye
+all-circuits-busy-now           hello
+cannot-complete-as-dialed       pbx-invalid
+conf-onlyperson                 queue-callswaiting
 ss-noservice                    vm-enter-num-to-call
+vm-extension                    vm-then-pound
 ```
+
+Todos os 16 estão no pacote **core**: o dialplan não depende do
+`EXTRA-SOUNDS`, que é selecionado na compilação com "falha aqui não
+interrompe" e pode simplesmente não entrar.
 
 Esses 16 mais `digits/` já cobrem o que se ouve todos os dias.
 
