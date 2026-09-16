@@ -67,6 +67,18 @@ final class Diagnostico
         $contatos = (string) (Ami::tentarComando('pjsip show contacts') ?? '');
         foreach ($ramais as &$r) {
             $r['registrado'] = str_contains($contatos, "{$r['numero']}/sip:");
+            $r['transporte_contato'] = self::transporteDoContato($contatos, (string) $r['numero']);
+
+            // Ramal marcado como WebRTC exige DTLS, ICE e AVPF. Um
+            // softphone comum, por UDP, não faz nada disso: o Asterisk
+            // aceita a chamada, mantém o ICE ligado nessa perna, o ICE
+            // nunca fecha e TODO envio de RTP devolve zero byte — sem
+            // erro no log, só "len -000012" no rtp debug. A chamada
+            // conecta, as duas pontas mandam áudio e ninguém ouve nada.
+            $r['aparelho_incompativel'] = (int) $r['webrtc'] === 1
+                && $r['registrado']
+                && $r['transporte_contato'] !== ''
+                && !in_array(strtolower($r['transporte_contato']), ['ws', 'wss'], true);
         }
         unset($r);
 
@@ -458,6 +470,26 @@ final class Diagnostico
         $endereco = preg_match('/^\s*Address:\s*(\S+)/mi', $texto, $achado) === 1 ? $achado[1] : '';
 
         return ['ativo' => $ativo, 'endereco' => $endereco];
+    }
+
+    /**
+     * Transporte do contato registrado — "WS", "udp", "tls"…
+     *
+     * Vem do fim da URI do contato, em "pjsip show contacts". Quando não
+     * há parâmetro, o registro é UDP: é o padrão do SIP.
+     */
+    public static function transporteDoContato(string $saida, string $numero): string
+    {
+        $achado = [];
+        if ($numero === '' || preg_match(
+            '/^\s*(?:Contact:\s*)?' . preg_quote($numero, '/') . '\/sip:(\S+)/mi',
+            self::semEnvelope($saida),
+            $achado
+        ) !== 1) {
+            return '';
+        }
+
+        return preg_match('/;transport=([A-Za-z]+)/i', $achado[1], $t) === 1 ? $t[1] : 'udp';
     }
 
     /**

@@ -498,6 +498,31 @@ final class Testes
             'STUN desligado não vira aviso'
         );
 
+        // Ramal marcado como WebRTC registrado por UDP: a chamada
+        // conecta, o ICE nunca fecha e cada envio de RTP devolve zero
+        // byte. É o "conecta e fica mudo" mais difícil de diagnosticar,
+        // porque não há erro nenhum no log — só "len -000012" no rtp
+        // debug, que ninguém liga.
+        $contatosRamais = "  Contact:  1000/sip:abc@127.0.0.1:33278;transport=WS   h Avail 15\n"
+                        . "  Contact:  1001/sip:1001@200.170.201.2:55020          h Avail 21\n"
+                        . "  Contact:  1002/sip:1002@10.0.0.5:5060;transport=tls  h Avail 8";
+        $this->ok(
+            Diagnostico::transporteDoContato($contatosRamais, '1000') === 'WS',
+            'lê o ramal registrado pelo navegador'
+        );
+        $this->ok(
+            Diagnostico::transporteDoContato($contatosRamais, '1001') === 'udp',
+            'contato sem parâmetro de transporte é UDP, que é o padrão do SIP'
+        );
+        $this->ok(
+            Diagnostico::transporteDoContato($contatosRamais, '1002') === 'tls',
+            'lê o transporte declarado no contato'
+        );
+        $this->ok(
+            Diagnostico::transporteDoContato($contatosRamais, '1003') === '',
+            'ramal sem contato não inventa transporte'
+        );
+
         $auths = "     Auth:  Magnus-SPO/112658668\n     Auth:  1000/1000";
         $this->ok(
             !Aplicador::recargaDeuCerto("Response: Success\nOutput: No such module 'res_pjsip.so'"),

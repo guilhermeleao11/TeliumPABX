@@ -5145,19 +5145,39 @@ PAGES['conn.webrtc'] = {
         <div><b>${esc(titulo)}</b><div class="small muted">${texto}</div></div>
       </div>`;
 
+    const incompativeis = (d.ramais || []).filter(r => r.aparelho_incompativel);
     const ramais = (d.ramais || []).map(r => `<tr>
       <td><b class="mono">${esc(r.numero)}</b> <span class="dim">${esc(r.nome || '')}</span></td>
-      <td>${r.registrado
-        ? '<span class="badge badge-ok"><i class="dot dot-pulse"></i>registrado</span>'
-        : '<span class="badge">não registrado</span>'}</td>
+      <td>${r.aparelho_incompativel
+        ? `<span class="badge badge-danger" data-tip="Registrado por ${esc(r.transporte_contato)}">
+             aparelho incompatível</span>`
+        : r.registrado
+          ? '<span class="badge badge-ok"><i class="dot dot-pulse"></i>registrado</span>'
+          : '<span class="badge">não registrado</span>'}</td>
       <td>${Number(r.dtls) ? '<span class="badge badge-ok">sim</span>' : '<span class="badge badge-danger">não</span>'}</td>
       <td>${Number(r.ice) ? '<span class="badge badge-ok">sim</span>' : '<span class="badge badge-danger">não</span>'}</td>
       <td>${Number(r.avpf) ? '<span class="badge badge-ok">sim</span>' : '<span class="badge badge-danger">não</span>'}</td>
       <td>${Number(r.rtcp_mux) ? '<span class="badge badge-ok">sim</span>' : '<span class="badge badge-danger">não</span>'}</td>
     </tr>`).join('');
 
+    const alerta = incompativeis.length ? `
+      <div class="card" style="margin-bottom:16px;padding:18px;border-left:3px solid var(--danger)">
+        <span class="badge badge-danger">chamada conecta e fica muda</span>
+        <p class="small" style="margin:10px 0 0">
+          ${incompativeis.map(r => `O ramal <b class="mono">${esc(r.numero)}</b> está marcado como
+            WebRTC e registrou por <b>${esc(r.transporte_contato)}</b>.`).join(' ')}
+          Ramal WebRTC exige DTLS, ICE e AVPF, que um softphone comum não faz: o Asterisk aceita a
+          chamada, o ICE nunca fecha e todo pacote de áudio que ele tenta enviar sai com zero byte.
+          As duas pontas mandam som e ninguém ouve nada.
+        </p>
+        <p class="small muted" style="margin:8px 0 0">
+          Use este ramal só pelo navegador, ou desmarque WebRTC no cadastro e crie outro ramal
+          para o softphone.
+        </p>
+      </div>` : '';
+
     return pageHead('WebRTC / Softphone',
-      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + `
+      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + alerta + `
       <div class="grid g-2">
         <div class="card" style="padding:18px">
           <b>Caminho da chamada</b>
