@@ -28,15 +28,17 @@ senha_padrao_console: "T3l1um_@2024_@aD1m"
 # ---------- identidade da central ----------
 pabx_hostname: "pabx.telium.local"
 
-# Idioma em que a central FALA. Com languageprefix ligado, o Asterisk
-# procura os áudios em sounds/<idioma>/ e, quando não acha, cai no inglês
-# sem dizer nada — por isso a bateria confere os arquivos neste idioma.
+# Idioma em que a central FALA — inglês, que é o que o Asterisk publica.
 #
-# O projeto Asterisk NÃO publica áudios em português: os idiomas
-# oficiais são en, en_AU, en_GB, en_NZ, es, fr, it, ja, ru e sv. Para a
-# central falar português é preciso trazer um pacote próprio — veja
-# sons_dir abaixo e infra/README.md.
-pabx_idioma: "pt_BR"
+# O projeto NÃO tem áudios em português: os idiomas oficiais são en,
+# en_AU, en_GB, en_NZ, es, fr, it, ja, ru e sv. Deixar pt_BR aqui sem
+# trazer um pacote próprio faria a central procurar sounds/pt_BR/, não
+# achar, e cair no inglês do mesmo jeito — só que sem ninguém saber.
+#
+# Para mudar depois: ponha o idioma aqui e o pacote em sons_dir. A
+# bateria confere se os áudios existem no idioma configurado, então uma
+# central que diz falar português e não tem os arquivos não passa.
+pabx_idioma: "en"
 pabx_empresa: "Telium Networks"
 pabx_timezone: "America/Sao_Paulo"
 pabx_locale: "pt_BR.UTF-8"

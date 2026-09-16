@@ -148,16 +148,22 @@ final class Testes
         // VoiceMail, ConfBridge e a fila tocam áudios próprios, que o
         // dialplan não cita. Sem o conjunto de dígitos, a central lê
         // número em inglês no meio de uma frase em português.
-        $digitos = glob("{$sons}/{$idioma}/digits/*") ?: [];
+        // O pacote em inglês instala na RAIZ de sounds/, não em
+        // sounds/en/ — é o idioma de fábrica do Asterisk. Procurar só no
+        // diretório do idioma acusaria falta numa instalação correta.
+        $digitos = array_merge(
+            glob("{$sons}/{$idioma}/digits/*") ?: [],
+            glob("{$sons}/digits/*") ?: []
+        );
         $this->ok(
             count($digitos) >= 20,
             count($digitos) >= 20
-                ? sprintf('o conjunto de dígitos de %s está instalado (%d arquivos)', $idioma, count($digitos))
+                ? sprintf('o conjunto de dígitos está instalado (%d arquivos)', count($digitos))
                 : sprintf(
-                    'faltam os dígitos em %s (%d arquivos em %s/%s/digits) — SayNumber, '
-                    . 'correio de voz e fila vão falar em inglês',
-                    $idioma,
+                    'faltam os dígitos (%d arquivos em %s/digits e %s/%s/digits) — '
+                    . 'SayNumber, correio de voz e fila não vão saber falar número',
                     count($digitos),
+                    $sons,
                     $sons,
                     $idioma
                 )

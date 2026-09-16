@@ -142,7 +142,7 @@ vals = {
     'telium_gravacoes': '/var/spool/asterisk/monitor',
     'db_nome': 'telium', 'db_usuario': 'root', 'db_senha': 'r',
     'udptl_inicio': '4000', 'udptl_fim': '4999',
-    'pabx_idioma': 'pt_BR',
+    'pabx_idioma': 'en',
 }
 # Os transportes viraram arquivo gerado; o template é só o ponto de
 # partida, e vai para o diretório do que a API gera — como o playbook faz.
@@ -233,23 +233,26 @@ INI'
   # duração certa — o que interessa na bancada é o caminho da chamada,
   # não o que se ouve. No servidor de verdade quem instala é o playbook.
   passo "criando áudios de silêncio (a imagem do Asterisk vem sem sons)"
+  # O pacote oficial em inglês instala na RAIZ de sounds/ — é o idioma de
+  # fábrica do Asterisk. A bancada imita esse desenho para o teste de
+  # áudio valer o mesmo aqui e no servidor. São silêncios com a duração
+  # certa: o que interessa aqui é o caminho da chamada, não o que se ouve.
   docker exec v-ast sh -c '
-    mkdir -p /etc/asterisk/sounds/pt_BR /var/lib/asterisk/sounds/pt_BR
+    mkdir -p /etc/asterisk/sounds/digits /var/lib/asterisk/sounds/digits
     for s in activated de-activated all-circuits-busy-now beep conf-getpin \
              conf-invalidpin conf-onlyperson demo-echotest dial goodbye hello \
              invalid pbx-invalid please-enter-your privacy-you-are-not-permitted \
              queue-callswaiting ss-noservice vm-enter-num-to-call agent-loggedoff \
              agent-loginok demo-congrats vm-goodbye vm-intro auth-thankyou \
              pbx-invalidpark parking-lot-full; do
-      head -c 16000 /dev/zero > /etc/asterisk/sounds/pt_BR/$s.sln
+      head -c 16000 /dev/zero > /etc/asterisk/sounds/$s.sln
     done
-    mkdir -p /etc/asterisk/sounds/pt_BR/digits /var/lib/asterisk/sounds/pt_BR/digits
     for d in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 30 40 50 60 70 80 90 \
              hundred thousand million minute minutes second seconds oh at; do
-      head -c 8000 /dev/zero > /etc/asterisk/sounds/pt_BR/digits/$d.sln
+      head -c 8000 /dev/zero > /etc/asterisk/sounds/digits/$d.sln
     done
-    cp /etc/asterisk/sounds/pt_BR/*.sln /var/lib/asterisk/sounds/pt_BR/
-    cp /etc/asterisk/sounds/pt_BR/digits/*.sln /var/lib/asterisk/sounds/pt_BR/digits/'
+    cp /etc/asterisk/sounds/*.sln /var/lib/asterisk/sounds/ 2>/dev/null
+    cp /etc/asterisk/sounds/digits/*.sln /var/lib/asterisk/sounds/digits/'
 fi
 
 echo

@@ -92,22 +92,33 @@ O cenário **não cria tronco** (não teria como adivinhar as credenciais da
 operadora), e as duas rotas de saída dele só nascem se já houver um
 tronco cadastrado.
 
-## Áudios em português
+## Áudios do sistema
 
-**O projeto Asterisk não publica áudios em português.** Os idiomas
-oficiais são `en`, `en_AU`, `en_GB`, `en_NZ`, `es`, `fr`, `it`, `ja`,
-`ru` e `sv` — não existe `pt` nem `pt_BR`. Para a central falar
-português é preciso trazer um pacote próprio.
+A central **fala inglês**, que é o que o projeto Asterisk publica. Os
+áudios vêm na compilação (`CORE-SOUNDS-EN` e `EXTRA-SOUNDS-EN`) e ficam
+na raiz de `/var/lib/asterisk/sounds/`.
 
-`pabx_idioma: "pt_BR"` já vem configurado: o Asterisk procura os áudios
-em `/var/lib/asterisk/sounds/pt_BR/`. Quando não acha, **cai no inglês
-sem avisar** — é por isso que a bateria de testes confere os arquivos
-nesse idioma e falha quando faltam.
+Isso vale para os avisos **do sistema**: "todos os circuitos ocupados",
+"número inválido", o menu do correio de voz, a posição na fila. O que o
+cliente ouve primeiro — saudação, URA, música em espera — são gravações
+dele, enviadas pelo console em **Aplicações → Anúncios**, e essas podem
+estar em português desde o primeiro dia.
 
-Para instalar um pacote, aponte o diretório na estação de onde o
-playbook roda:
+A bateria de testes confere, no fim do provisionamento, se os áudios
+existem no idioma configurado: uma instalação sem som para a entrega em
+vez de chegar muda ao cliente.
+
+### Para mudar o idioma depois
+
+**O Asterisk não publica áudios em português.** Os idiomas oficiais são
+`en`, `en_AU`, `en_GB`, `en_NZ`, `es`, `fr`, `it`, `ja`, `ru` e `sv` —
+não existe `pt` nem `pt_BR`. Um pacote em português precisa ser gravado
+ou obtido de terceiros.
+
+Quando tiver um, são duas variáveis:
 
 ```yaml
+pabx_idioma: "pt_BR"
 sons_dir: "/caminho/para/os/audios-pt-BR"
 ```
 
@@ -115,14 +126,20 @@ O conteúdo é copiado como está para `sounds/pt_BR/`, subpastas
 inclusive. Formatos que o Asterisk lê direto: `.gsm`, `.wav` (8 kHz
 16 bit mono), `.ulaw`, `.alaw`, `.g722`, `.sln`.
 
-### O que o pacote precisa cobrir
+**Não mude `pabx_idioma` sem o pacote.** O Asterisk procuraria
+`sounds/pt_BR/`, não acharia e cairia no inglês do mesmo jeito — só que
+sem ninguém saber. Por isso a bateria falha nesse caso.
+
+### O que um pacote precisa cobrir
+
+Medido no pacote oficial em inglês:
 
 | Conjunto | Arquivos | Para quê |
 |---|---|---|
-| **Avulsos do dialplan** | **16** | o mínimo: sem eles a central fica muda nos avisos |
-| `digits/` | 94 | SayNumber, SayDigits, hora certa, posição na fila |
+| **Avulsos do dialplan** | **16** | os avisos que este dialplan toca direto |
+| `digits/` | 94 | SayNumber, hora certa, posição na fila |
 | `vm-*` | 114 | correio de voz e o menu de recados |
-| `conf-*` | 38 | conferência: PIN, entrada e saída de participante |
+| `conf-*` | 38 | conferência: PIN, entrada e saída |
 | `queue-*` | 13 | fila: posição e tempo de espera |
 | `dir-*` | 15 | catálogo de ramais por nome |
 | `letters/`, `phonetic/` | 88 | soletrar nome no catálogo |
@@ -140,16 +157,13 @@ privacy-you-are-not-permitted   queue-callswaiting
 ss-noservice                    vm-enter-num-to-call
 ```
 
-Começar por esses 16 mais o `digits/` já deixa a central falando
-português no que o cliente ouve todos os dias. `vm-*`, `conf-*` e
-`dir-*` só aparecem para quem usa correio de voz, conferência e catálogo.
+Esses 16 mais `digits/` já cobrem o que se ouve todos os dias.
 
-### Conferir o que está instalado
+### Conferir
 
 ```bash
 sudo -u telium php /opt/telium/api/bin/telium testar   # o grupo "Áudios"
 sudo asterisk -rx "core show settings" | grep -i language
-ls /var/lib/asterisk/sounds/pt_BR/ | head
 ```
 
 ## Senhas
