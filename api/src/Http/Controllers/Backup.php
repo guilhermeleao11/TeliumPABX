@@ -101,8 +101,8 @@ final class Backup
         $d = BackupRemoto::destino();
         // A senha nunca volta para a tela; o campo em branco quer dizer
         // "mantenha a que está", igual ao resto do console.
+        $d['tem_senha'] = trim((string) ($d['senha'] ?? '')) !== '';
         $d['senha'] = null;
-        $d['tem_senha'] = trim((string) (BackupRemoto::destino()['senha'] ?? '')) !== '';
         $d['curl'] = function_exists('curl_init');
 
         return Resposta::json($res, $d);

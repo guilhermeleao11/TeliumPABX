@@ -3204,10 +3204,10 @@ function descreveDias(bruto) {
  * resto, os sete dias para marcar.
  */
 function celulaDias(f = {}) {
-  const dias = lerDias(f.dias ?? (f.dia_semana_inicio === null || f.dia_semana_inicio === undefined ? '' : null));
-  const escolhidos = f.dias !== undefined && f.dias !== null
-    ? lerDias(f.dias)
-    : DIAS_ASTERISK.map(d => d.v);
+  // Faixa nova, ou antiga sem lista gravada: nasce com a semana inteira.
+  const escolhidos = (f.dias === undefined || f.dias === null)
+    ? DIAS_ASTERISK.map(d => d.v)
+    : lerDias(f.dias);
   const preset = presetDeDias(escolhidos);
 
   return `<div data-dias>
