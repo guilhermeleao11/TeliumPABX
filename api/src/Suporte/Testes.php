@@ -1290,22 +1290,40 @@ final class Testes
             return;
         }
 
-        $conteudo = (string) @file_get_contents($script);
-        foreach (Certificado::SERVICOS as $servico) {
-            $this->ok(
-                preg_match('/^\s*' . preg_quote($servico, '/') . '\)\s/m', $conteudo) === 1,
-                "o aplicador sabe instalar o certificado do serviço \"{$servico}\""
-            );
-        }
-
         $saida = [];
         $rc = 0;
         @exec('sudo -n -l ' . escapeshellarg($script) . ' 2>&1', $saida, $rc);
+        $podeChamar = $rc === 0;
         $this->ok(
-            $rc === 0,
+            $podeChamar,
             'o console pode acionar o aplicador por sudo — sem a regra em '
             . '/etc/sudoers.d/telium-certificados, aplicar certificado não faz nada'
         );
+
+        if (!$podeChamar) {
+            return;     // sem sudo não há como perguntar mais nada a ele
+        }
+
+        // Quais serviços ele sabe instalar. A pergunta vai para o
+        // PRÓPRIO programa, e não para o texto do arquivo: ele é
+        // 0750 root:root de propósito, e esta bateria roda como o
+        // usuário da API — ler o arquivo daqui devolve string vazia e
+        // reprova tudo, que foi como este teste nasceu errado.
+        $lista = [];
+        $rc = 0;
+        @exec('sudo -n ' . escapeshellarg($script) . ' servicos 2>/dev/null', $lista, $rc);
+        $suportados = $rc === 0
+            ? array_values(array_filter(array_map('trim', $lista)))
+            : [];
+
+        foreach (Certificado::SERVICOS as $servico) {
+            $this->ok(
+                in_array($servico, $suportados, true),
+                sprintf('o aplicador sabe instalar o certificado do serviço "%s"%s',
+                    $servico,
+                    $suportados === [] ? ' — ele não respondeu quais conhece' : '')
+            );
+        }
     }
 
     /** O trecho do arquivo entre [numero] type=endpoint e o próximo [. */

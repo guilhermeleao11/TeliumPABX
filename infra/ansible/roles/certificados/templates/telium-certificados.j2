@@ -33,6 +33,19 @@ JANUS_KEY={{ cert_janus_dir }}/janus.key
 TURN_CRT=/etc/coturn/turn.crt
 TURN_KEY=/etc/coturn/turn.key
 
+# Única exceção a "não recebe argumentos": "servicos" imprime quais
+# serviços este programa sabe instalar e sai. Existe porque a bateria de
+# testes roda como o usuário da API, que — de propósito — não tem
+# permissão de LER este arquivo (0750 root:root): perguntar ao programa
+# é o único jeito de conferir sem afrouxar a permissão dele.
+#
+# A lista sai das próprias linhas do "case" lá embaixo, e não de uma
+# cópia à mão: serviço novo aparece aqui sozinho, e some se for tirado.
+if [ "${1:-}" = "servicos" ]; then
+  sed -n 's/^[[:space:]]*\([a-z][a-z0-9]*\))[[:space:]].*aplicar_\1[[:space:]].*/\1/p' "$0"
+  exit 0
+fi
+
 mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1" 2>/dev/null; }
 escapar() { printf '%s' "$1" | sed "s/'/''/g"; }
 log() { echo "[$(date '+%F %T')] $*"; }
