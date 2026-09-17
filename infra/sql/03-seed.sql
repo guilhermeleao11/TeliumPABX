@@ -40,10 +40,14 @@ SELECT p.id, m.modulo FROM perfis p JOIN (
   UNION ALL SELECT 'conn.ramais' UNION ALL SELECT 'telium.tarifacao'
 ) m WHERE p.chave = 'supervisor';
 
+-- Nada de "apps.*" aqui: apps.correiovoz e apps.sigame são as telas de
+-- ADMINISTRAÇÃO desses serviços e listam todos os ramais da central, com
+-- senha de caixa postal e destino de desvio editáveis. O que o operador
+-- precisa é "pcu.*" — Meu Painel —, que resolve o ramal pela sessão e
+-- por isso só alcança o dele.
 INSERT IGNORE INTO perfil_modulos (perfil_id, modulo)
 SELECT p.id, m.modulo FROM perfis p JOIN (
   SELECT 'dash.visaogeral' AS modulo UNION ALL SELECT 'pcu.*'
-  UNION ALL SELECT 'apps.sigame' UNION ALL SELECT 'apps.correiovoz'
 ) m WHERE p.chave = 'operador';
 
 INSERT IGNORE INTO perfil_modulos (perfil_id, modulo)

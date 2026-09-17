@@ -585,25 +585,60 @@ final class Certificados
         return [
             'web'      => '/etc/ssl/telium/pabx.crt',
             'asterisk' => '/etc/asterisk/keys/asterisk.crt',
+            'turn'     => '/etc/coturn/turn.crt',
             'janus'    => '/etc/janus/certs/janus.crt',
         ];
     }
 
-    /** @return array{ok:bool, detalhe:string} */
+    /**
+     * Aciona o aplicador que roda como root.
+     *
+     * O disparo é em segundo plano porque recarregar nginx, Asterisk e
+     * coturn leva alguns segundos e o resultado de cada serviço fica
+     * gravado em certificado_servicos — é de lá que a tela lê.
+     *
+     * O que ANTES não se conferia era se o disparo era possível. Com o
+     * "&" no fim, o shell devolve sucesso assim que bifurca: script
+     * ausente, regra de sudo faltando, qualquer coisa — a API respondia
+     * "Aplicando nos serviços" e nada acontecia. O serviço ficava
+     * "pendente" para sempre e a tela mostrava "Aplicando" sem fim, que
+     * é a pior forma de falhar: parece que está trabalhando.
+     *
+     * @return array{ok:bool, detalhe:string}
+     */
     private function dispararAplicador(): array
     {
+        $script = '/usr/local/sbin/telium-certificados';
+
+        if (!is_file($script)) {
+            return [
+                'ok' => false,
+                'detalhe' => "O aplicador não está instalado neste servidor ({$script}). "
+                           . 'A atribuição ficou registrada; rode o playbook de instalação para publicá-lo.',
+            ];
+        }
+
+        // "sudo -n -l <comando>" pergunta se a regra existe, sem executar
+        // nada e sem pedir senha. É o único jeito de saber a verdade
+        // antes de mandar para segundo plano.
         $saida = [];
         $rc = 0;
-        exec('sudo -n /usr/local/sbin/telium-certificados > /dev/null 2>&1 &', $saida, $rc);
+        @exec('sudo -n -l ' . escapeshellarg($script) . ' 2>&1', $saida, $rc);
 
         if ($rc !== 0) {
             return [
                 'ok' => false,
-                'detalhe' => 'Não foi possível acionar o aplicador agora. A atribuição ficou pendente '
-                           . 'e o temporizador do sistema aplica em até um minuto.',
+                'detalhe' => 'O servidor não autoriza o console a acionar o aplicador — falta a regra em '
+                           . '/etc/sudoers.d/telium-certificados. A atribuição ficou pendente e o '
+                           . 'temporizador do sistema aplica em até um minuto.',
             ];
         }
 
-        return ['ok' => true, 'detalhe' => 'Aplicando nos serviços. A página atualiza em alguns segundos.'];
+        @exec('sudo -n ' . escapeshellarg($script) . ' > /dev/null 2>&1 &');
+
+        return [
+            'ok' => true,
+            'detalhe' => 'Aplicando nos serviços. A tela acompanha e mostra o resultado de cada um.',
+        ];
     }
 }

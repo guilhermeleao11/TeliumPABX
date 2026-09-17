@@ -436,9 +436,28 @@ final class GeradorDialplan
             ? '*'
             : substr((string) $f['hora_inicio'], 0, 5) . '-' . substr((string) $f['hora_fim'], 0, 5);
 
+        // A lista de dias é o formato novo, e vence quando existe. O par
+        // início/fim ficou para as faixas gravadas antes dela: só sabia
+        // dizer intervalo contínuo, e "sábado e domingo" não é contínuo
+        // numa semana que começa no domingo.
+        //
+        // O separador dentro do campo é "&", NÃO vírgula. O GotoIfTime
+        // separa os quatro campos por vírgula: escrever "mon,tue" ali
+        // empurra tudo uma casa para a direita — "tue" vira o dia do
+        // mês, "wed" vira o mês — e a condição passa a valer em dia
+        // nenhum, sem um aviso sequer. Conferido no Asterisk 22:
+        // "sat&sun" numa quinta-feira dá fora, e "mon&...&sun" dá
+        // dentro; com vírgula, a mesma regra dá fora numa quinta.
+        $dias = trim((string) ($f['dias'] ?? ''));
+        $diaSemana = ($dias !== '' && $dias !== '*')
+            ? implode('&', array_filter(array_map('trim', explode(',', $dias))))
+            : ($dias === '*'
+                ? '*'
+                : $intervalo($f['dia_semana_inicio'] ?? null, $f['dia_semana_fim'] ?? null, $semana));
+
         return implode(',', [
             $horas,
-            $intervalo($f['dia_semana_inicio'] ?? null, $f['dia_semana_fim'] ?? null, $semana),
+            $diaSemana,
             $intervalo($f['dia_mes_inicio'] ?? null, $f['dia_mes_fim'] ?? null),
             $intervalo($f['mes_inicio'] ?? null, $f['mes_fim'] ?? null, $meses),
         ]);

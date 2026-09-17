@@ -27,7 +27,11 @@ const MENU = [
       { id: 'admin.contatos',        label: 'Gerenciador de Contatos',  icon: 'book' },
       { id: 'admin.destinos',        label: 'Destinos Personalizados',  icon: 'branch' },
       { id: 'admin.codigos',         label: 'Códigos de Recurso',       icon: 'grid' },
-      { id: 'admin.gravacoes',       label: 'Gravações do Sistema',     icon: 'mic' }
+      { id: 'admin.gravacoes',       label: 'Gravações do Sistema',     icon: 'mic' },
+      // Auditoria é do administrador e de mais ninguém: a trilha guarda
+      // quem mexeu em quê, com IP e horário, e sob 'rel.*' ela caía junto
+      // para supervisor e auditor.
+      { id: 'admin.auditoria',       label: 'Auditoria',                icon: 'file' }
     ]
   },
   {
@@ -71,7 +75,6 @@ const MENU = [
       { id: 'rel.ramais',    label: 'Desempenho de Ramais',       icon: 'phone' },
       { id: 'rel.troncos',   label: 'Ocupação de Troncos',        icon: 'network' },
       { id: 'rel.cel',       label: 'Eventos de Canal (CEL)',     icon: 'activity' },
-      { id: 'rel.logs',      label: 'Registro de Atividades',     icon: 'file' },
       { id: 'rel.agentes',   label: 'Produtividade de Agentes',   icon: 'users' }
     ]
   },
@@ -102,7 +105,7 @@ const MENU = [
     items: [
       { id: 'pcu.meuramal',   label: 'Meu Ramal',        icon: 'phone' },
       { id: 'pcu.chamadas',   label: 'Minhas Chamadas',  icon: 'list' },
-      { id: 'pcu.correiovoz', label: 'Meu Correio de Voz', icon: 'voicemail', pill: '2' },
+      { id: 'pcu.correiovoz', label: 'Meu Correio de Voz', icon: 'voicemail' },
       { id: 'pcu.sigame',     label: 'Meu Siga-me',      icon: 'shuffle' },
       { id: 'pcu.contatos',   label: 'Meus Contatos',    icon: 'book' },
       { id: 'pcu.perfil',     label: 'Meu Perfil e Segurança', icon: 'lock' }

@@ -260,6 +260,66 @@
     # avisar e as filas tocam silêncio.
     - /var/lib/asterisk/moh
 
+# ------------------------------------------------------------------
+# Música em espera.
+#
+# O MOH-OPSOUND-WAV é pedido ao menuselect com "falha aqui não
+# interrompe" — e por isso ele pode simplesmente não entrar: sem saída
+# para a internet na hora de compilar, ou num alvo que o menuselect não
+# reconheça, o make termina bem e /var/lib/asterisk/moh fica vazio.
+# A classe [default] continua existindo, apontando para um diretório sem
+# nada, e quem espera na fila ouve SILÊNCIO. Não há erro em lugar nenhum
+# — é o mesmo modo de falhar dos áudios do idioma.
+#
+# Então se confere e, faltando, baixa o pacote direto do projeto.
+# ------------------------------------------------------------------
+- name: Conferir se a música em espera veio na compilação
+  ansible.builtin.find:
+    paths: /var/lib/asterisk/moh
+    patterns: "*.wav,*.gsm,*.ulaw,*.alaw,*.sln,*.g722"
+  register: moh_encontrada
+
+- name: Baixar e instalar a música em espera padrão do Asterisk
+  when: moh_encontrada.matched | int == 0
+  block:
+    - name: Baixar o pacote de música em espera
+      ansible.builtin.get_url:
+        url: "https://downloads.asterisk.org/pub/telephony/sounds/asterisk-moh-opsound-wav-current.tar.gz"
+        dest: "{{ src_dir }}/moh-opsound-wav.tar.gz"
+        mode: "0644"
+        timeout: 60
+      register: moh_baixada
+      retries: 2
+      delay: 5
+      until: moh_baixada is succeeded
+
+    - name: Descompactar a música em espera
+      ansible.builtin.unarchive:
+        src: "{{ src_dir }}/moh-opsound-wav.tar.gz"
+        dest: /var/lib/asterisk/moh
+        remote_src: true
+        owner: asterisk
+        group: asterisk
+      notify: recarregar asterisk
+
+  rescue:
+    # Sem internet na hora de instalar, a entrega não pode parar por
+    # causa de música — mas também não pode seguir em silêncio.
+    - name: Avisar que a música em espera não pôde ser instalada
+      ansible.builtin.debug:
+        msg: >-
+          Não foi possível baixar a música em espera padrão. As filas vão tocar
+          silêncio até alguém enviar um áudio da categoria "espera" pelo console,
+          em Aplicações > Anúncios. A bateria de testes reprova esta instalação.
+
+- name: Ajustar o dono da música em espera
+  ansible.builtin.file:
+    path: /var/lib/asterisk/moh
+    state: directory
+    owner: asterisk
+    group: asterisk
+    recurse: true
+
 # /etc/asterisk é 0750 asterisk:asterisk. Sem estar no grupo, a conta da
 # API nem atravessa o diretório pai — e um is_dir() falha como se o
 # destino não existisse.

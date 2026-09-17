@@ -93,6 +93,60 @@ final class Rede
         return $bits !== false && $bits >= 0 && $bits <= $maximo;
     }
 
+    /**
+     * O domínio SIP desta central — o que vai no "From" do que ela envia.
+     *
+     * Não é cosmético. O JsSIP, que é o softphone do navegador, segue a
+     * gramática do RFC 3261 à risca: um nome de máquina precisa começar
+     * por letra. O Asterisk, sem from_domain, assina OPTIONS, NOTIFY e
+     * INVITE com o hostname do servidor — e um hostname que comece por
+     * dígito faz o navegador DESCARTAR a mensagem inteira, sem erro
+     * nenhum na tela. O efeito é o pior possível: o OPTIONS de qualify
+     * não é respondido, o Asterisk marca o contato como inalcançável e
+     * toda chamada para o ramal do navegador morre em "Could not create
+     * dialog to invalid URI". Conferido na bancada, com hostname de
+     * contêiner ("9195cd758909"): antes, nenhuma chamada entrava; com
+     * from_domain, o contato volta a Avail e a chamada toca.
+     *
+     * Devolve vazio quando o instalador não deixou nome válido — aí o
+     * gerador não escreve a opção e fica o comportamento do Asterisk.
+     */
+    public static function dominioSip(): string
+    {
+        $dominio = trim((string) Ambiente::get('SIP_DOMINIO', ''));
+
+        return self::dominioValidoNoNavegador($dominio) ? $dominio : '';
+    }
+
+    /**
+     * Um host que o JsSIP consegue analisar.
+     *
+     * Endereço IP serve. Nome precisa do "toplabel" do RFC 3261: começa
+     * por letra, segue com letra, dígito ou hífen, e termina em
+     * alfanumérico.
+     */
+    public static function dominioValidoNoNavegador(string $host): bool
+    {
+        $host = trim($host);
+        if ($host === '') {
+            return false;
+        }
+
+        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
+            return true;
+        }
+
+        $rotulos = explode('.', rtrim($host, '.'));
+        foreach ($rotulos as $rotulo) {
+            if (preg_match('/^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$/', $rotulo) !== 1) {
+                return false;
+            }
+        }
+
+        // Só o último rótulo é que tem a exigência de começar por letra.
+        return preg_match('/^[A-Za-z]([A-Za-z0-9-]*[A-Za-z0-9])?$/', end($rotulos)) === 1;
+    }
+
     /** Porta de cada transporte, como o instalador deixou. */
     public static function portaSip(): int
     {

@@ -30,6 +30,8 @@ AST_CRT={{ cert_asterisk_dir }}/asterisk.crt
 AST_KEY={{ cert_asterisk_dir }}/asterisk.key
 JANUS_CRT={{ cert_janus_dir }}/janus.crt
 JANUS_KEY={{ cert_janus_dir }}/janus.key
+TURN_CRT=/etc/coturn/turn.crt
+TURN_KEY=/etc/coturn/turn.key
 
 mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1" 2>/dev/null; }
 escapar() { printf '%s' "$1" | sed "s/'/''/g"; }
@@ -135,6 +137,39 @@ aplicar_asterisk() {
   return 0
 }
 
+aplicar_turn() {
+  local crt="$1" key="$2" saida
+
+  # O coturn lê o par como usuário turnserver, que não está no grupo do
+  # Asterisk: por isso o par é instalado aqui de novo, com o grupo dele.
+  guardar "$TURN_CRT" "$TURN_KEY"
+  if ! instalar "$crt" "$key" "$TURN_CRT" "$TURN_KEY" turnserver; then
+    devolver "$TURN_CRT" "$TURN_KEY"
+    echo "não foi possível copiar o par para $TURN_CRT"
+    return 1
+  fi
+
+  if ! systemctl list-unit-files coturn.service >/dev/null 2>&1; then
+    descartar "$TURN_CRT" "$TURN_KEY"
+    echo "arquivos instalados; o coturn não está neste servidor"
+    return 0
+  fi
+
+  # O coturn lê o certificado só na subida: aqui é reinício mesmo.
+  saida=$(systemctl restart coturn 2>&1)
+  sleep 2
+  if ! systemctl is-active --quiet coturn; then
+    devolver "$TURN_CRT" "$TURN_KEY"
+    systemctl restart coturn >/dev/null 2>&1
+    echo "o coturn não subiu com este par e o anterior foi devolvido: ${saida:-veja journalctl -u coturn}"
+    return 1
+  fi
+
+  descartar "$TURN_CRT" "$TURN_KEY"
+  echo "coturn reiniciado; TURN sobre TLS na porta {{ turn_porta_tls }}"
+  return 0
+}
+
 aplicar_janus() {
   local crt="$1" key="$2" saida
 
@@ -193,6 +228,7 @@ while read -r servico base cert_id; do
   case "$servico" in
     web)      resultado=$(aplicar_web "$origem_crt" "$origem_key"); rc=$? ;;
     asterisk) resultado=$(aplicar_asterisk "$origem_crt" "$origem_key"); rc=$? ;;
+    turn)     resultado=$(aplicar_turn "$origem_crt" "$origem_key"); rc=$? ;;
     janus)    resultado=$(aplicar_janus "$origem_crt" "$origem_key"); rc=$? ;;
     *)        resultado="serviço desconhecido"; rc=1 ;;
   esac

@@ -84,15 +84,14 @@ final class Gravacoes
             Auditoria::registrar($req->getAttribute('usuario'), 'exportar', 'apps.gravacao', $nome);
         }
 
-        $corpo = $res->getBody();
-        $corpo->write((string) file_get_contents($caminho));
-
-        return $res->withBody($corpo)
-            ->withHeader('Content-Type', self::TIPOS[$ext] ?? 'application/octet-stream')
-            ->withHeader('Content-Length', (string) filesize($caminho))
-            ->withHeader('Accept-Ranges', 'none')
-            ->withHeader('Content-Disposition',
-                ($baixar ? 'attachment' : 'inline') . '; filename="' . $nome . '"');
+        return Resposta::arquivo(
+            $req,
+            $res,
+            $caminho,
+            self::TIPOS[$ext] ?? 'application/octet-stream',
+            $baixar,
+            $nome
+        );
     }
 
     /** POST /api/gravacoes/pacote — várias gravações num zip só */

@@ -6,7 +6,7 @@
 
 /* ============================== DRAWER ============================== */
 const Drawer = {
-  open({ titulo, sub, corpo, rodape = '', wide = false, aoAbrir }) {
+  open({ titulo, sub, corpo, rodape = '', wide = false, aoAbrir, aoFechar }) {
     this.close();
     const bd = document.createElement('div');
     bd.className = 'drawer-backdrop'; bd.id = 'drawerBackdrop';
@@ -25,6 +25,7 @@ const Drawer = {
     bd.onclick = () => this.close();
     dw.querySelectorAll('[data-drawer-close]').forEach(b => b.onclick = () => this.close());
     addEventListener('keydown', this._esc = e => e.key === 'Escape' && this.close());
+    this._aoFechar = aoFechar || null;
     if (aoAbrir) aoAbrir(dw);
   },
   close() {
@@ -32,6 +33,12 @@ const Drawer = {
     document.getElementById('drawerEl')?.remove();
     document.body.style.overflow = '';
     if (this._esc) { removeEventListener('keydown', this._esc); this._esc = null; }
+    // Quem abriu a gaveta pode ter deixado algo de pé — uma chamada de
+    // consulta, por exemplo — que precisa ser desfeito ao fechar, seja
+    // pelo botão, pelo fundo ou pelo Esc.
+    const fim = this._aoFechar;
+    this._aoFechar = null;
+    if (fim) fim();
   }
 };
 
@@ -259,7 +266,27 @@ const Softphone = {
       this.midia = dados.estado;
       if (dados.estado === 'falhou') toast(dados.motivo, 'err');
       if (dados.estado === 'instavel') toast(dados.motivo, 'warn');
+      // Autoplay recusado: um clique em qualquer lugar da página libera,
+      // e é isso que a frase pede. Sem ela a chamada fica muda sem motivo.
+      if (dados.estado === 'bloqueado') toast(dados.motivo, 'warn');
       this.pintar();
+      return;
+    }
+    // O que a central respondeu ao REFER. "Transferindo" é o que se sabe
+    // na hora de mandar; se deu certo, só o NOTIFY diz.
+    if (evento === 'transferencia') {
+      toast(dados.ok ? 'Transferência concluída.' : dados.motivo, dados.ok ? 'ok' : 'err');
+      return;
+    }
+    // A segunda perna da transferência com consulta.
+    if (evento === 'consulta') {
+      if (dados.estado === 'chamando')  this.consulta = { estado: 'chamando', numero: this.consulta?.numero || '' };
+      if (dados.estado === 'atendida')  this.consulta = { estado: 'atendida', numero: this.consulta?.numero || '' };
+      if (dados.estado === 'encerrada') {
+        if (dados.motivo) toast(dados.motivo, 'warn');
+        this.consulta = null;
+      }
+      this.pintarConsulta();
     }
   },
 
@@ -348,7 +375,7 @@ const Softphone = {
       });
     }
     this.estado = 'idle'; this.numero = ''; this.nome = '';
-    this.midia = '';
+    this.midia = ''; this.consulta = null;
     this.mudo = this.espera = this.gravando = this.teclado = false;
     this.pintar();
   },
@@ -472,28 +499,42 @@ const Softphone = {
       titulo: 'Transferir chamada',
       sub: `Chamada com ${this.numero}`,
       corpo: `
-        <div class="segmented" style="margin-bottom:16px">
-          <button class="on">Transferência cega</button><button>Com consulta</button>
-        </div>
         <div class="field" style="margin-bottom:16px">
-          <label class="label">Destino</label>
-          <input class="input" placeholder="Ramal, fila ou número externo" value="1010">
+          <label class="label" for="spDestTransf">Destino</label>
+          <input class="input" id="spDestTransf" placeholder="Ramal, fila ou número externo"
+                 inputmode="tel" autocomplete="off">
+          <p class="tiny muted" style="margin-top:6px">
+            <b>Transferir agora</b> passa a chamada e você sai na hora.
+            <b>Falar antes</b> põe quem está na linha em espera, liga para o destino
+            e só une as duas pontas quando você confirmar.</p>
         </div>
+        <div id="spConsulta"></div>
         <div class="label" style="margin-bottom:8px">Ramais cadastrados</div>
         <div id="spRamais"><p class="small muted">Carregando…</p></div>`,
       rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
-               <button class="btn btn-primary" id="spDoTransf">Transferir</button>`,
+               <button class="btn btn-outline" id="spConsultar">Falar antes</button>
+               <button class="btn btn-primary" id="spDoTransf">Transferir agora</button>`,
       aoAbrir: async dw => {
+        this._dwTransf = dw;
+        const campo = dw.querySelector('#spDestTransf');
+        const limpo = () => campo.value.trim().replace(/[^0-9*#+]/g, '');
+
         dw.querySelector('#spDoTransf').onclick = () => {
-          const destino = dw.querySelector('.input').value.trim();
+          const destino = limpo();
           if (!destino) { toast('Informe o destino.', 'warn'); return; }
-          if (!SipLink.transferir(destino.replace(/[^0-9*#+]/g, ''))) {
-            toast('Não foi possível transferir.', 'err');
-            return;
-          }
+          if (!SipLink.transferir(destino)) { toast('Não foi possível transferir.', 'err'); return; }
           Drawer.close();
-          toast(`Transferindo para ${destino}…`, 'ok');
+          toast(`Transferindo para ${destino}…`);
         };
+
+        dw.querySelector('#spConsultar').onclick = () => {
+          const destino = limpo();
+          if (!destino) { toast('Informe o destino.', 'warn'); return; }
+          if (!SipLink.consultar(destino)) { toast('Não foi possível chamar o destino.', 'err'); return; }
+          this.consulta = { estado: 'chamando', numero: destino };
+          this.pintarConsulta();
+        };
+
         const lista = dw.querySelector('#spRamais');
         try {
           const r = await Api.get('/ramais', { limite: 200 });
@@ -506,13 +547,70 @@ const Softphone = {
                 </div>`).join('')
             : '<p class="small muted">Nenhum ramal cadastrado.</p>';
           lista.querySelectorAll('[data-ramal]').forEach(el => el.onclick = () => {
-            dw.querySelector('input.input').value = el.dataset.ramal;
+            campo.value = el.dataset.ramal;
+            campo.focus();
           });
         } catch (e) {
           lista.innerHTML = `<p class="small" style="color:var(--danger)">${e.message}</p>`;
         }
+      },
+      aoFechar: () => {
+        // Fechar a gaveta no meio de uma consulta deixaria a segunda
+        // chamada viva sem nenhum botão para encerrá-la.
+        if (SipLink.consultando()) SipLink.cancelarConsulta();
+        this.consulta = null;
+        this._dwTransf = null;
       }
     });
+  },
+
+  /** O trecho da gaveta que mostra a segunda perna da transferência. */
+  pintarConsulta() {
+    const dw = this._dwTransf;
+    const alvo = dw?.querySelector('#spConsulta');
+    if (!alvo) return;
+
+    const c = this.consulta;
+    const consultar = dw.querySelector('#spConsultar');
+    const transferir = dw.querySelector('#spDoTransf');
+    const campo = dw.querySelector('#spDestTransf');
+
+    if (!c) {
+      alvo.innerHTML = '';
+      if (consultar) { consultar.hidden = false; consultar.disabled = false; }
+      if (transferir) transferir.hidden = false;
+      if (campo) campo.disabled = false;
+      return;
+    }
+
+    if (consultar) consultar.hidden = true;
+    if (transferir) transferir.hidden = true;
+    if (campo) campo.disabled = true;
+
+    const pronta = c.estado === 'atendida';
+    alvo.innerHTML = `
+      <div class="ura-node" style="margin-bottom:16px">
+        <span class="avatar avatar-sm">${(c.numero || '?').slice(0, 2).toUpperCase()}</span>
+        <div class="grow"><b>${c.numero}</b>
+          <div class="tiny muted">${pronta
+            ? 'Atendeu. Fale e confirme quando quiser passar a chamada.'
+            : 'Chamando… quem estava na linha está em espera.'}</div></div>
+      </div>
+      <div class="sp-actions" style="margin-bottom:16px">
+        <button class="btn btn-outline" id="spVoltar">Voltar para a chamada</button>
+        <button class="btn btn-primary" id="spConcluir" ${pronta ? '' : 'disabled'}>Concluir transferência</button>
+      </div>`;
+
+    alvo.querySelector('#spVoltar').onclick = () => {
+      SipLink.cancelarConsulta();
+      this.consulta = null;
+      this.pintarConsulta();
+    };
+    alvo.querySelector('#spConcluir').onclick = () => {
+      if (!SipLink.completarTransferencia()) { toast('Não foi possível concluir a transferência.', 'err'); return; }
+      this.consulta = null;
+      Drawer.close();
+    };
   }
 };
 

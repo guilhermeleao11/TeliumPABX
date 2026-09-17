@@ -5,6 +5,7 @@ namespace Telium\Http\Controllers;
 
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use Telium\Dominio\Auditoria;
 use Telium\Dominio\Rede;
 use Telium\Dominio\Stun;
 use Telium\Suporte\Ambiente;
@@ -69,6 +70,7 @@ final class Diagnostico
         foreach ($ramais as &$r) {
             $r['registrado'] = str_contains($contatos, "{$r['numero']}/sip:");
             $r['transporte_contato'] = self::transporteDoContato($contatos, (string) $r['numero']);
+            $r['contato_alcancavel'] = self::contatoAlcancavel($contatos, (string) $r['numero']);
 
             // Ramal marcado como WebRTC exige DTLS, ICE e AVPF. Um
             // softphone comum, por UDP, não faz nada disso: o Asterisk
@@ -104,8 +106,31 @@ final class Diagnostico
             $servidoresIce[] = $exame;
         }
 
+        // Onde o transporte wss está amarrado. Não é detalhe: é dele que o
+        // Asterisk tira o endereço do soquete de RTP. Preso em 127.0.0.1,
+        // o RTP nasce no loopback, não responde a um único teste de
+        // conectividade do ICE e a chamada conecta sem áudio — com o SDP
+        // anunciando, sem ironia, o endereço certo da placa.
+        $bindWss = '';
+        $achado = [];
+        if (preg_match('/^Transport:\s+transport-wss\s+\S+\s+\d+\s+\d+\s+(\S+)/mi',
+                       self::semEnvelope($transportes), $achado) === 1) {
+            $bindWss = (string) $achado[1];
+        }
+        $enderecoWss = $bindWss === '' ? '' : explode(':', $bindWss)[0];
+
+        $dominio = trim((string) Ambiente::get('SIP_DOMINIO', ''));
+
         return Resposta::json($res, [
             'transporte_wss' => str_contains($transportes, 'transport-wss'),
+            'wss_bind'       => $bindWss,
+            'wss_no_loopback' => $enderecoWss !== '' && !str_starts_with($enderecoWss, '127.'),
+            // O JsSIP segue a gramática do RFC 3261: nome de máquina
+            // começa por letra. Com um domínio que ele não analisa, o
+            // navegador descarta em silêncio TUDO que a central envia —
+            // inclusive o INVITE da chamada que deveria tocar.
+            'dominio'        => $dominio,
+            'dominio_ok'     => Rede::dominioValidoNoNavegador($dominio),
             'websocket'      => str_contains($http, '/ws'),
             'http_ligado'    => str_contains($http, 'Server Enabled'),
             'stun'           => trim((string) Ambiente::get('SOFTPHONE_STUN', '')),
@@ -122,6 +147,101 @@ final class Diagnostico
             )),
             'ramais_total'   => count($ramais),
         ]);
+    }
+
+    /**
+     * GET /api/diagnostico/banidos — quem o firewall está bloqueando.
+     *
+     * O fail2ban bane por 24 horas quem erra a senha cinco vezes. É o
+     * certo — e também é o que derruba o IP do próprio escritório
+     * quando alguém configura um ramal errado ou testa um softphone.
+     * Sem esta lista, o console mostrava as tentativas e não dizia quem
+     * já estava bloqueado nem como soltar.
+     */
+    public function banidos(Request $req, Response $res): Response
+    {
+        $r = self::fail2ban(['listar']);
+
+        if (!$r['ok']) {
+            return Resposta::json($res, [
+                'disponivel' => false,
+                'motivo' => $r['erro'],
+                'jaulas' => [],
+            ]);
+        }
+
+        $dados = json_decode($r['saida'], true);
+
+        return Resposta::json($res, [
+            'disponivel' => is_array($dados),
+            'motivo' => is_array($dados) ? '' : 'O fail2ban respondeu algo que não dá para ler.',
+            'jaulas' => is_array($dados) ? ($dados['jaulas'] ?? []) : [],
+        ]);
+    }
+
+    /** POST /api/diagnostico/desbanir — solta um IP de uma cadeia. */
+    public function desbanir(Request $req, Response $res): Response
+    {
+        $corpo = (array) $req->getParsedBody();
+        $jaula = trim((string) ($corpo['jaula'] ?? ''));
+        $ip = trim((string) ($corpo['ip'] ?? ''));
+
+        if (filter_var($ip, FILTER_VALIDATE_IP) === false) {
+            return Resposta::erro($res, 'Endereço inválido.', 422, ['campo' => 'ip']);
+        }
+        if (preg_match('/^[A-Za-z0-9_-]{1,40}$/', $jaula) !== 1) {
+            return Resposta::erro($res, 'Cadeia inválida.', 422, ['campo' => 'jaula']);
+        }
+
+        $r = self::fail2ban(['desbanir', $jaula, $ip]);
+        if (!$r['ok']) {
+            return Resposta::erro($res, $r['erro'], 502);
+        }
+
+        Auditoria::registrar($req->getAttribute('usuario'), 'editar', 'conn.firewall', $ip, [
+            'jaula' => $jaula,
+            'acao' => 'desbanir',
+        ]);
+
+        return Resposta::json($res, [
+            'desbanido' => true,
+            'detalhe' => "{$ip} liberado na cadeia {$jaula}.",
+        ]);
+    }
+
+    /**
+     * Chama a ponte do fail2ban, que roda como root.
+     *
+     * @param list<string> $args
+     * @return array{ok:bool, saida:string, erro:string}
+     */
+    private static function fail2ban(array $args): array
+    {
+        $script = '/usr/local/sbin/telium-fail2ban';
+
+        if (!is_file($script)) {
+            return ['ok' => false, 'saida' => '', 'erro' =>
+                'A ponte com o fail2ban não está instalada neste servidor. '
+                . 'Rode o playbook de instalação para publicá-la.'];
+        }
+
+        $comando = 'sudo -n ' . escapeshellarg($script);
+        foreach ($args as $a) {
+            $comando .= ' ' . escapeshellarg($a);
+        }
+
+        $saida = [];
+        $rc = 0;
+        @exec($comando . ' 2>&1', $saida, $rc);
+        $texto = trim(implode("\n", $saida));
+
+        if ($rc !== 0) {
+            return ['ok' => false, 'saida' => $texto, 'erro' => $texto !== ''
+                ? $texto
+                : 'O fail2ban não respondeu. Confira se o serviço está no ar.'];
+        }
+
+        return ['ok' => true, 'saida' => $texto, 'erro' => ''];
     }
 
     /**
@@ -503,6 +623,31 @@ final class Diagnostico
      * Vem do fim da URI do contato, em "pjsip show contacts". Quando não
      * há parâmetro, o registro é UDP: é o padrão do SIP.
      */
+    /**
+     * O Asterisk consegue falar com este contato?
+     *
+     * "Unavail" é o que se vê quando o qualify não é respondido, e é
+     * fatal: um contato inalcançável é ignorado na hora de discar, e a
+     * chamada morre em "Could not create dialog to invalid URI" antes de
+     * o telefone tocar. Devolve null quando não há contato registrado.
+     */
+    public static function contatoAlcancavel(string $saida, string $numero): ?bool
+    {
+        $achado = [];
+        $tem = preg_match(
+            '/^\s*Contact:\s+' . preg_quote($numero, '/') . '\/\S+\s+\S+\s+(\S+)/mi',
+            self::semEnvelope($saida),
+            $achado
+        ) === 1;
+
+        if (!$tem) {
+            return null;
+        }
+
+        // "NonQual" é contato sem verificação pedida: não é falha.
+        return !str_starts_with(strtolower((string) $achado[1]), 'unavail');
+    }
+
     public static function transporteDoContato(string $saida, string $numero): string
     {
         $achado = [];

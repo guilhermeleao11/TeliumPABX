@@ -79,8 +79,13 @@ db_root_socket: true                         # root via unix_socket (padrão Mar
 # ---------- rede / portas ----------
 sip_porta: 5060
 sip_tls_porta: 5061
+# Faixa de RTP. Cada chamada ocupa duas portas, então 10000-20000 dá
+# folga para cinco mil chamadas ao mesmo tempo — muito além do que a
+# central aguenta, e é assim de propósito: faixa apertada não dá erro
+# claro, dá chamada sem áudio quando o pico passa do teto. É a mesma
+# faixa que o firewall abre e que precisa estar liberada no NAT.
 ast_rtp_inicio: 10000
-ast_rtp_fim: 10200
+ast_rtp_fim: 20000
 udptl_inicio: 4000                           # T.38, usado na recepção de fax
 udptl_fim: 4999
 ast_http_porta: 8090                         # ARI/HTTP do Asterisk (8088 é do Janus)

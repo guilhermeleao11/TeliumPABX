@@ -374,16 +374,24 @@ PAGES['dash.sistema'] = {
     try { s = await Api.get('/sistema/estatisticas'); }
     catch (e) { return pageHead('Estatísticas do Sistema', '') + blocoErro(e); }
 
+    const carga = Array.isArray(s.carga) ? s.carga : [];
     const linhas = [
       ['Sistema', s.sistema], ['Kernel', s.kernel], ['Uptime', s.uptime],
+      // A carga não é uso de CPU: é quanta coisa está na fila para rodar.
+      // Acima do número de núcleos, há processo esperando a vez.
+      ['Carga (1/5/15 min)', carga.length
+        ? `${carga.map(c => c.toFixed(2)).join('  ')}  ·  ${s.nucleos} núcleo${s.nucleos === 1 ? '' : 's'}`
+        : '—'],
       ['PHP', s.php], ['Banco', s.banco],
       ['Asterisk', s.asterisk.ok ? s.asterisk.versao : 'indisponível'],
       ['Canais ativos', s.asterisk.ok ? s.asterisk.canais_ativos : '—'],
       ['Chamadas ativas', s.asterisk.ok ? s.asterisk.chamadas_ativas : '—'],
     ];
 
-    return pageHead('Estatísticas do Sistema', 'Recursos do servidor, medidos agora.',
-      `<button class="btn btn-outline btn-sm" onclick="App.route()">${icon('refresh','ico ico-sm')} Atualizar</button>`) + `
+    return pageHead('Estatísticas do Sistema',
+      'Recursos do servidor, medidos agora. A tela se atualiza a cada 5 segundos.',
+      `<span class="badge badge-ok"><i class="dot dot-pulse"></i>Ao vivo</span>
+       <button class="btn btn-outline btn-sm" onclick="App.route()">${icon('refresh','ico ico-sm')} Atualizar</button>`) + `
       <div class="grid g-2-1">
         <div class="card">
           <div class="card-head"><div class="card-title">Recursos</div></div>
@@ -403,6 +411,15 @@ PAGES['dash.sistema'] = {
           </div></div>
         </div>
       </div>`;
+  },
+  // "Medidos agora" só é verdade se a tela voltar a medir: antes ela
+  // desenhava uma vez e congelava, e o único jeito de ver o servidor
+  // mudar era clicar em Atualizar.
+  mount() {
+    clearInterval(this._t);
+    this._t = setInterval(() => {
+      if (location.hash.includes('dash.sistema')) App.route(); else clearInterval(this._t);
+    }, 5000);
   }
 };
 

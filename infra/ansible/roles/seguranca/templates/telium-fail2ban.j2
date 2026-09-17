@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# =========================================================
+# {{ ansible_managed }}
+# Telium PABX — ponte entre o console e o fail2ban
+#
+# O fail2ban bane por IP e só o root fala com ele. Sem esta ponte, um
+# ramal que errou a senha cinco vezes — ou o técnico que testou o
+# softphone errado — ficava fora do ar por 24 horas, e desbanir exigia
+# SSH. Agora o console lista e desbane.
+#
+# Aceita dois comandos e mais nada:
+#   listar                    quem está banido, em JSON
+#   desbanir <jail> <ip>      tira UM ip de UMA cadeia
+#
+# O jail e o IP são validados aqui, e não no sudoers: é o que permite a
+# regra de sudo apontar para um único programa, sem curinga.
+# =========================================================
+set -uo pipefail
+
+cliente() { fail2ban-client "$@" 2>/dev/null; }
+
+jaulas() {
+  cliente status \
+    | sed -n 's/.*Jail list:[[:space:]]*//p' \
+    | tr ',' '\n' \
+    | sed 's/[[:space:]]//g' \
+    | grep -v '^$'
+}
+
+case "${1:-}" in
+  listar)
+    primeiro=1
+    printf '{"jaulas":['
+    while read -r jaula; do
+      [ -z "$jaula" ] && continue
+      linha=$(cliente status "$jaula" | sed -n 's/.*Banned IP list:[[:space:]]*//p')
+      total=$(cliente status "$jaula" | sed -n 's/.*Currently banned:[[:space:]]*//p' | tr -d '[:space:]')
+      [ $primeiro -eq 0 ] && printf ','
+      primeiro=0
+      printf '{"nome":"%s","banidos":%s,"ips":[' "$jaula" "${total:-0}"
+      pip=1
+      for ip in $linha; do
+        [ $pip -eq 0 ] && printf ','
+        pip=0
+        printf '"%s"' "$ip"
+      done
+      printf ']}'
+    done <<< "$(jaulas)"
+    printf ']}\n'
+    ;;
+
+  desbanir)
+    jaula="${2:-}"
+    ip="${3:-}"
+
+    # Nome de jaula é palavra simples; IP é IPv4 ou IPv6. Qualquer coisa
+    # fora disso não chega ao fail2ban-client.
+    if ! printf '%s' "$jaula" | grep -Eq '^[A-Za-z0-9_-]{1,40}$'; then
+      echo "jaula inválida" >&2; exit 2
+    fi
+    if ! printf '%s' "$ip" | grep -Eq '^[0-9a-fA-F.:]{3,45}$'; then
+      echo "endereço inválido" >&2; exit 2
+    fi
+    if ! jaulas | grep -qx "$jaula"; then
+      echo "a cadeia $jaula não existe neste servidor" >&2; exit 3
+    fi
+
+    saida=$(cliente set "$jaula" unbanip "$ip")
+    rc=$?
+    # O fail2ban devolve 0 e a contagem quando desbaniu; quando o IP não
+    # estava na lista, ele avisa — e isso não é falha para quem clicou.
+    if [ $rc -ne 0 ]; then
+      echo "${saida:-o fail2ban recusou o desbanimento}" >&2
+      exit 1
+    fi
+    echo "${saida:-ok}"
+    ;;
+
+  *)
+    echo "uso: $(basename "$0") listar | desbanir <jaula> <ip>" >&2
+    exit 64
+    ;;
+esac

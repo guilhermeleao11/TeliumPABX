@@ -6,6 +6,7 @@ namespace Telium\Http\Controllers;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Telium\Dominio\Auditoria;
+use Telium\Dominio\BackupRemoto;
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Bd;
 use Telium\Suporte\Resposta;
@@ -24,15 +25,24 @@ final class Backup
     {
         $dir = (string) Ambiente::get('BACKUP_DIR', '/var/backup/pabx-telium');
 
+        $historico = Bd::todos(
+            'SELECT b.*, r.nome AS rotina_nome, u.nome AS usuario_nome
+               FROM backups b
+          LEFT JOIN backup_rotinas r ON r.id = b.rotina_id
+          LEFT JOIN usuarios u ON u.id = b.usuario_id
+           ORDER BY b.id DESC LIMIT 30'
+        );
+
+        // A retenção apaga os antigos: sem conferir o disco, a tela
+        // ofereceria baixar um arquivo que não existe mais.
+        foreach ($historico as &$b) {
+            $b['baixavel'] = $b['estado'] === 'concluido' && $this->arquivoDoBackup($b) !== null;
+        }
+        unset($b);
+
         return Resposta::json($res, [
             'rotinas'   => Bd::todos('SELECT * FROM backup_rotinas ORDER BY id'),
-            'historico' => Bd::todos(
-                'SELECT b.*, r.nome AS rotina_nome, u.nome AS usuario_nome
-                   FROM backups b
-              LEFT JOIN backup_rotinas r ON r.id = b.rotina_id
-              LEFT JOIN usuarios u ON u.id = b.usuario_id
-               ORDER BY b.id DESC LIMIT 30'
-            ),
+            'historico' => $historico,
             'destino'   => $dir,
             'disco'     => $this->disco($dir),
             'executando' => (int) Bd::valor(
@@ -83,6 +93,168 @@ final class Backup
             'disparado' => $disparo['ok'],
             'detalhe' => $disparo['detalhe'],
         ], 202);
+    }
+
+    /** GET /api/backup/destino — para onde o backup vai depois de pronto. */
+    public function destino(Request $req, Response $res): Response
+    {
+        $d = BackupRemoto::destino();
+        // A senha nunca volta para a tela; o campo em branco quer dizer
+        // "mantenha a que está", igual ao resto do console.
+        $d['senha'] = null;
+        $d['tem_senha'] = trim((string) (BackupRemoto::destino()['senha'] ?? '')) !== '';
+        $d['curl'] = function_exists('curl_init');
+
+        return Resposta::json($res, $d);
+    }
+
+    /** PUT /api/backup/destino */
+    public function salvarDestino(Request $req, Response $res): Response
+    {
+        $c = (array) $req->getParsedBody();
+        $atual = BackupRemoto::destino();
+
+        $tipo = in_array($c['tipo'] ?? '', ['ftp', 'ftps', 'sftp'], true) ? $c['tipo'] : 'ftps';
+        $host = trim((string) ($c['host'] ?? ''));
+        $porta = (int) ($c['porta'] ?? 0);
+        if ($porta < 1 || $porta > 65535) {
+            $porta = $tipo === 'sftp' ? 22 : 21;
+        }
+
+        // Senha em branco mantém a que está: a tela nunca a recebe de
+        // volta, então enviá-la vazia é "não mexi", e não "apague".
+        $senha = array_key_exists('senha', $c) && $c['senha'] !== null && $c['senha'] !== ''
+            ? (string) $c['senha']
+            : (string) ($atual['senha'] ?? '');
+
+        Bd::executar(
+            "UPDATE backup_destino_remoto
+                SET ativo = ?, tipo = ?, host = ?, porta = ?, usuario = ?, senha = ?,
+                    caminho = ?, passivo = ?, aceitar_cert_invalido = ?
+              WHERE id = 1",
+            [
+                (int) !empty($c['ativo']),
+                $tipo,
+                $host,
+                $porta,
+                trim((string) ($c['usuario'] ?? '')),
+                $senha,
+                trim((string) ($c['caminho'] ?? '/')) ?: '/',
+                (int) !empty($c['passivo']),
+                (int) !empty($c['aceitar_cert_invalido']),
+            ]
+        );
+
+        Auditoria::registrar($req->getAttribute('usuario'), 'editar', 'admin.backup', 'destino remoto', [
+            'tipo' => $tipo, 'host' => $host, 'ativo' => !empty($c['ativo']),
+        ]);
+
+        return $this->destino($req, $res);
+    }
+
+    /** POST /api/backup/destino/testar — grava um arquivinho e apaga. */
+    public function testarDestino(Request $req, Response $res): Response
+    {
+        $r = BackupRemoto::testar(BackupRemoto::destino());
+
+        return Resposta::json($res, ['ok' => $r['ok'], 'detalhe' => $r['detalhe']], $r['ok'] ? 200 : 502);
+    }
+
+    /** POST /api/backup/{id}/enviar — manda um backup específico agora. */
+    public function enviar(Request $req, Response $res, array $args): Response
+    {
+        $b = Bd::um('SELECT * FROM backups WHERE id = ?', [(int) $args['id']]);
+        if ($b === null) {
+            return Resposta::erro($res, 'Backup não encontrado.', 404);
+        }
+
+        $caminho = $this->arquivoDoBackup($b);
+        if ($caminho === null) {
+            return Resposta::erro($res, 'O arquivo deste backup não está mais no servidor.', 404);
+        }
+
+        $d = BackupRemoto::destino();
+        if (!BackupRemoto::utilizavel($d)) {
+            return Resposta::erro(
+                $res,
+                'Nenhum destino remoto configurado e ligado. Preencha o destino nesta mesma tela.',
+                422
+            );
+        }
+
+        $r = BackupRemoto::enviar($caminho, $d);
+        BackupRemoto::registrar($r['ok'], $r['detalhe']);
+
+        Auditoria::registrar($req->getAttribute('usuario'), 'exportar', 'admin.backup', basename($caminho), [
+            'destino' => $d['host'], 'ok' => $r['ok'],
+        ]);
+
+        return Resposta::json($res, $r, $r['ok'] ? 200 : 502);
+    }
+
+    /**
+     * GET /api/backup/{id}/baixar — leva o arquivo para fora do servidor.
+     *
+     * Backup que só existe dentro da máquina que ele deveria salvar não
+     * é backup: perdido o servidor, perde-se junto. Faltava qualquer
+     * caminho para tirar o arquivo de lá pelo console — só sobrava o
+     * scp, que quem administra a central nem sempre tem.
+     */
+    public function baixar(Request $req, Response $res, array $args): Response
+    {
+        $b = Bd::um('SELECT * FROM backups WHERE id = ?', [(int) $args['id']]);
+        if ($b === null) {
+            return Resposta::erro($res, 'Backup não encontrado.', 404);
+        }
+        if ($b['estado'] !== 'concluido') {
+            return Resposta::erro(
+                $res,
+                'Este backup não terminou' . ($b['estado'] === 'falha' ? ' — ele falhou.' : ' ainda.'),
+                409
+            );
+        }
+
+        $caminho = $this->arquivoDoBackup($b);
+        if ($caminho === null) {
+            return Resposta::erro(
+                $res,
+                'O arquivo deste backup não está mais no servidor. '
+                . 'A retenção pode tê-lo apagado para abrir espaço.',
+                404
+            );
+        }
+
+        Auditoria::registrar($req->getAttribute('usuario'), 'exportar', 'admin.backup', basename($caminho), [
+            'tamanho' => filesize($caminho),
+        ]);
+
+        return Resposta::arquivo($req, $res, $caminho, 'application/gzip', true);
+    }
+
+    /**
+     * O arquivo de um backup, conferido contra o diretório de destino.
+     *
+     * O nome vem do banco, e o banco é alimentado por um script: mesmo
+     * assim o caminho é resolvido e comparado com a base, porque "..'
+     * num nome de arquivo é a diferença entre baixar um backup e baixar
+     * /etc/shadow.
+     */
+    private function arquivoDoBackup(array $b): ?string
+    {
+        $nome = trim((string) ($b['arquivo'] ?? ''));
+        if ($nome === '' || str_contains($nome, "\0")) {
+            return null;
+        }
+
+        $base = realpath((string) Ambiente::get('BACKUP_DIR', '/var/backup/pabx-telium'));
+        // O script grava ora o caminho completo, ora só o nome.
+        $alvo = realpath(str_starts_with($nome, '/') ? $nome : $base . '/' . ltrim($nome, '/'));
+
+        if ($base === false || $alvo === false || !is_file($alvo)) {
+            return null;
+        }
+
+        return str_starts_with($alvo, $base . DIRECTORY_SEPARATOR) ? $alvo : null;
     }
 
     /** POST /api/backup/{id}/restaurar */

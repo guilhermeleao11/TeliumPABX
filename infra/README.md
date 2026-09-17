@@ -29,6 +29,42 @@ WebSocket direto com o Asterisk, pelo `/ws` do nginx, com o mesmo
 certificado do console. O Janus continua instalável, fora do caminho da
 chamada, para um módulo futuro de sala de vídeo.
 
+### Duas coisas de que o softphone do navegador depende
+
+Ambas já vêm certas de fábrica; estão aqui porque, quando quebram, a
+falha é sempre a mesma — *"a chamada conecta e ninguém ouve"* — e não
+aparece erro em lugar nenhum.
+
+- **O transporte `wss` não pode ficar no loopback.** É dele que o
+  Asterisk tira o endereço do soquete de RTP: preso em `127.0.0.1`, ele
+  anuncia no SDP um endereço correto que não consegue usar, não responde
+  a um único teste de conexão do navegador e enche o log de *"Error
+  sending STUN request: Invalid argument"*. Isso não expõe o WebSocket:
+  quem escuta a 8090 continua sendo o `http.conf`, em `127.0.0.1`.
+- **`pabx_hostname` precisa ser um nome válido de RFC 3261** — começar
+  por letra, sem `_`. O softphone segue a gramática à risca e **descarta
+  em silêncio** tudo que a central assinar com um nome fora dela:
+  a verificação de presença não é respondida, o contato vira
+  inalcançável e nenhuma chamada entra no ramal do navegador.
+
+A tela **Conectividade → WebRTC / Softphone** confere as duas, e o botão
+*Testar agora* diz, do navegador de quem está olhando, se existe caminho
+de áudio até a central.
+
+## Portas que precisam chegar no servidor
+
+| Porta | Protocolo | Para quê |
+|---|---|---|
+| 443 | TCP | console e o WebSocket do softphone (`/ws`) |
+| 5060 | UDP/TCP | SIP dos telefones e do tronco |
+| 5061 | TCP | SIP sobre TLS |
+| 3478 / 5349 | UDP/TCP | TURN e STUN, para o softphone do navegador |
+| **10000–20000** | **UDP** | **áudio (RTP)** |
+
+A faixa de RTP é a que mais esquece de abrir, e a falha dela não dá erro:
+a chamada conecta e ninguém ouve. Em NAT, ela precisa estar redirecionada
+para a central — o firewall do próprio servidor já é aberto pelo playbook.
+
 ## Antes de rodar
 
 Ajuste `ansible/group_vars/all/main.yml`. O mínimo é uma linha:

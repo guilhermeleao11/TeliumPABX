@@ -1012,6 +1012,12 @@ PAGES['cfg.empresa'] = {
       { campo: 'razao_social', label: 'Razão social' },
       { campo: 'cnpj', label: 'CNPJ', mono: true },
       { campo: 'telefone', label: 'Telefone principal', mono: true },
+      // Os dois números do contrato, do sistema de quem revende. Quem dá
+      // suporte usa para casar a central com o cliente sem perguntar.
+      { campo: 'service_id', label: 'Service ID', mono: true,
+        ajuda: 'Identificador do serviço contratado, no sistema da operadora.' },
+      { campo: 'client_id', label: 'Client ID', mono: true,
+        ajuda: 'Identificador do cliente, no sistema da operadora.' },
       { campo: 'endereco', label: 'Endereço', largura: 'full' },
       { campo: 'fuso', label: 'Fuso horário', tipo: 'select',
         opcoes: ['America/Sao_Paulo','America/Manaus','America/Belem','America/Cuiaba'] },
@@ -1058,7 +1064,7 @@ PAGES['cfg.empresa'] = {
 };
 
 /* ------------------------- Registro de atividades ------------------------- */
-PAGES['rel.logs'] = {
+PAGES['admin.auditoria'] = {
   async render() {
     let r;
     try { r = await Api.get('/auditoria'); }
@@ -1185,6 +1191,11 @@ PAGES['admin.backup'] = {
     catch (e) { return pageHead('Backup e Restauração', '') + blocoErro(e); }
     this._d = d;
 
+    // Para onde o arquivo vai depois de pronto. Sem isto, o backup fica
+    // guardado na mesma máquina que ele deveria salvar.
+    const remoto = await Api.get('/backup/destino').catch(() => null);
+    this._remoto = remoto;
+
     const rotinas = d.rotinas.map(r => {
       const quando = r.periodicidade === 'diaria' ? `todo dia às ${String(r.hora).slice(0,5)}`
         : r.periodicidade === 'semanal' ? `${['domingo','segunda','terça','quarta','quinta','sexta','sábado'][r.dia_semana ?? 0]} às ${String(r.hora).slice(0,5)}`
@@ -1238,6 +1249,12 @@ PAGES['admin.backup'] = {
             <td>${estado}</td>
             <td class="col-actions"><span class="row-actions">
               ${b.saida ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Ver detalhes" data-saida="${b.id}">${icon('file','ico ico-sm')}</button>` : ''}
+              ${b.baixavel && ctx.can('exportar')
+                ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Baixar o arquivo"
+                     data-baixar-bkp="${b.id}">${icon('download','ico ico-sm')}</button>` : ''}
+              ${b.baixavel && ctx.can('exportar') && remoto && Number(remoto.ativo)
+                ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Enviar para o destino remoto"
+                     data-enviar-bkp="${b.id}">${icon('upload','ico ico-sm')}</button>` : ''}
               ${b.arquivo && b.estado === 'concluido' && ctx.can('reiniciar')
                 ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Restaurar" data-restaurar="${b.id}">${icon('refresh','ico ico-sm')}</button>` : ''}
               ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-excluir-bkp="${b.id}">${icon('trash','ico ico-sm')}</button>` : ''}
@@ -1268,6 +1285,68 @@ PAGES['admin.backup'] = {
       <div class="card-head"><div><div class="card-title">Histórico</div>
         <div class="card-sub">A retenção apaga os mais antigos automaticamente.</div></div></div>
       <div class="card-body tight">${historico}</div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-head row-between">
+        <div><div class="card-title">Cópia para fora do servidor</div>
+          <div class="card-sub">Backup guardado só aqui some junto com o servidor.
+            Ligado, cada backup concluído sai por FTP logo depois de pronto.</div></div>
+        ${remoto && Number(remoto.ativo)
+          ? `<span class="badge ${remoto.ultimo_estado === 'falha' ? 'badge-danger'
+              : remoto.ultimo_estado === 'ok' ? 'badge-ok' : ''}">${
+              remoto.ultimo_estado === 'ok' ? 'último envio: ok'
+              : remoto.ultimo_estado === 'falha' ? 'último envio: falhou' : 'ainda não enviou'}</span>`
+          : '<span class="badge">desligado</span>'}
+      </div>
+      <div class="card-body">
+        ${!remoto ? '<p class="small muted">Não foi possível ler a configuração do destino.</p>' : `
+          ${remoto.curl ? '' : `<div class="aviso" style="margin-bottom:14px">${icon('alert','ico ico-sm')}
+            <div>O PHP deste servidor está sem a extensão <span class="mono">curl</span>, e é ela que
+              fala FTP. Instale <span class="mono">php8.4-curl</span> e recarregue o PHP-FPM.</div></div>`}
+          <div class="form-grid">
+            ${campoHtml({ campo: 'ativo', label: 'Enviar para fora depois de cada backup', tipo: 'switch',
+                          somenteLeitura: !ctx.can('editar') }, remoto)}
+            ${campoHtml({ campo: 'tipo', label: 'Protocolo', tipo: 'select',
+                          opcoes: [{ valor: 'ftps', rotulo: 'FTP com TLS (recomendado)' },
+                                   { valor: 'ftp', rotulo: 'FTP simples' },
+                                   { valor: 'sftp', rotulo: 'SFTP (sobre SSH)' }],
+                          ajuda: 'FTP simples manda usuário e senha em texto claro pela rede.',
+                          somenteLeitura: !ctx.can('editar') }, remoto)}
+            ${campoHtml({ campo: 'host', label: 'Endereço do servidor', mono: true,
+                          placeholder: 'backup.suaempresa.com.br',
+                          somenteLeitura: !ctx.can('editar') }, remoto)}
+            ${campoHtml({ campo: 'porta', label: 'Porta', tipo: 'number',
+                          somenteLeitura: !ctx.can('editar') }, remoto)}
+            ${campoHtml({ campo: 'usuario', label: 'Usuário', mono: true,
+                          somenteLeitura: !ctx.can('editar') }, remoto)}
+            ${campoHtml({ campo: 'senha', label: 'Senha', tipo: 'password',
+                          placeholder: remoto.tem_senha ? 'guardada — em branco mantém' : '',
+                          ajuda: 'Em branco, a senha que já está guardada continua valendo.',
+                          somenteLeitura: !ctx.can('editar') }, { ...remoto, senha: '' })}
+            ${campoHtml({ campo: 'caminho', label: 'Pasta no servidor remoto', mono: true, largura: 'full',
+                          ajuda: 'A pasta é criada se não existir.',
+                          somenteLeitura: !ctx.can('editar') }, remoto)}
+            ${campoHtml({ campo: 'passivo', label: 'Modo passivo', tipo: 'switch',
+                          ajuda: 'Desligue só se o servidor remoto exigir modo ativo.',
+                          somenteLeitura: !ctx.can('editar') }, remoto)}
+            ${campoHtml({ campo: 'aceitar_cert_invalido', label: 'Aceitar certificado autoassinado',
+                          tipo: 'switch',
+                          ajuda: 'Só para servidor interno. Com isto ligado, ninguém garante com quem se está falando.',
+                          somenteLeitura: !ctx.can('editar') }, remoto)}
+          </div>
+          ${remoto.ultima_saida ? `<div class="aviso-form" style="margin-top:12px">
+            ${icon(remoto.ultimo_estado === 'falha' ? 'alert' : 'info','ico')}
+            <div><b>Último envio${remoto.ultimo_envio ? ` — ${dataHora(remoto.ultimo_envio)}` : ''}</b>
+              <div class="tiny">${esc(remoto.ultima_saida)}</div></div></div>` : ''}
+          ${ctx.can('editar') ? `<div class="row gap-8" style="margin-top:14px">
+            <button class="btn btn-primary btn-sm" id="salvarRemoto">
+              ${icon('check','ico ico-sm')} Salvar destino</button>
+            <button class="btn btn-outline btn-sm" id="testarRemoto">
+              ${icon('activity','ico ico-sm')} Testar agora</button>
+          </div>` : ''}
+        `}
+      </div>
     </div>`;
   },
 
@@ -1378,6 +1457,75 @@ PAGES['admin.backup'] = {
         const r = await Api.post(`/backup/${bk.id}/restaurar`);
         toast(r.detalhe || 'Restauração iniciada.', 'warn');
       } catch (e) { toast(e.message, 'err'); }
+    });
+
+    // ---------- destino remoto ----------
+    const lerRemoto = () => {
+      const v = c => document.querySelector(`[name="${c}"]`);
+      const liga = c => { const el = v(c); return el ? (el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value) : undefined; };
+      return {
+        ativo: liga('ativo'), tipo: liga('tipo'), host: (liga('host') || '').trim(),
+        porta: Number(liga('porta')) || 21, usuario: (liga('usuario') || '').trim(),
+        // Em branco quer dizer "mantenha a que está": a tela nunca recebe
+        // a senha guardada de volta, então não teria como reenviá-la.
+        senha: liga('senha'),
+        caminho: (liga('caminho') || '/').trim() || '/',
+        passivo: liga('passivo'), aceitar_cert_invalido: liga('aceitar_cert_invalido')
+      };
+    };
+
+    document.getElementById('salvarRemoto')?.addEventListener('click', async ev => {
+      const b = ev.currentTarget;
+      b.disabled = true;
+      try {
+        await Api.put('/backup/destino', lerRemoto());
+        toast('Destino salvo.', 'ok');
+        App.route();
+      } catch (e) { toast(e.message, 'err'); b.disabled = false; }
+    });
+
+    document.getElementById('testarRemoto')?.addEventListener('click', async ev => {
+      const b = ev.currentTarget;
+      const antes = b.innerHTML;
+      b.disabled = true;
+      b.innerHTML = '<span class="spin"></span> Testando…';
+      try {
+        // Salva antes: testar com o que está na tela, e não com o que
+        // está gravado, é o que evita "testei e deu certo" sobre uma
+        // configuração que ninguém salvou.
+        await Api.put('/backup/destino', lerRemoto());
+        const r = await Api.post('/backup/destino/testar');
+        toast(r.detalhe, 'ok');
+      } catch (e) { toast(e.message, 'err'); }
+      b.disabled = false;
+      b.innerHTML = antes;
+      App.route();
+    });
+
+    // Backup que só existe no servidor que ele deveria salvar não é
+    // backup. O arquivo vem em fluxo, então um pacote de vários GB não
+    // depende de caber na memória do PHP nem da aba.
+    document.querySelectorAll('[data-baixar-bkp]').forEach(b => b.onclick = async () => {
+      const antes = b.innerHTML;
+      b.disabled = true;
+      b.innerHTML = '<span class="spin"></span>';
+      try {
+        await Api.salvarArquivo(`/backup/${b.dataset.baixarBkp}/baixar`);
+      } catch (e) { toast(e.message, 'err'); }
+      b.disabled = false;
+      b.innerHTML = antes;
+    });
+
+    document.querySelectorAll('[data-enviar-bkp]').forEach(b => b.onclick = async () => {
+      const antes = b.innerHTML;
+      b.disabled = true;
+      b.innerHTML = '<span class="spin"></span>';
+      try {
+        const r = await Api.post(`/backup/${b.dataset.enviarBkp}/enviar`);
+        toast(r.detalhe, 'ok');
+      } catch (e) { toast(e.message, 'err'); }
+      b.disabled = false;
+      b.innerHTML = antes;
     });
 
     document.querySelectorAll('[data-excluir-bkp]').forEach(b => b.onclick = async () => {
@@ -1859,7 +2007,7 @@ const ESTADO_SERVICO = {
   falha:    '<span class="badge badge-danger">Falhou</span>'
 };
 
-const ICO_SERVICO = { web: 'globe', asterisk: 'phone', janus: 'wifi' };
+const ICO_SERVICO = { web: 'globe', asterisk: 'phone', turn: 'network', janus: 'wifi' };
 
 PAGES['admin.certificados'] = {
   async render(ctx) {
@@ -1929,7 +2077,7 @@ PAGES['admin.certificados'] = {
     const linhas = d.dados.map(c => {
       const aguardando = c.estado === 'aguardando_assinatura';
       const usos = (c.servicos || []).map(s =>
-        `<span class="chip">${esc({ web: 'web', asterisk: 'SIP TLS', janus: 'Janus' }[s] || s)}</span>`).join(' ');
+        `<span class="chip">${esc({ web: 'web', asterisk: 'SIP TLS', turn: 'TURN', janus: 'Janus' }[s] || s)}</span>`).join(' ');
 
       return `<tr>
         <td><b>${esc(c.nome)}</b>
@@ -2051,7 +2199,30 @@ PAGES['admin.certificados'] = {
       try {
         const r = await Api.post('/certificados/aplicar', { servicos });
         toast(r.detalhe || 'Aplicando.', r.aplicado ? 'ok' : 'warn');
-        setTimeout(() => App.route(), 4000);
+        // Recarregar uma vez, quatro segundos depois, era um chute: se o
+        // coturn e o Asterisk ainda estivessem subindo, a tela voltava
+        // dizendo "Aplicando" e parava por aí, sem nunca contar o
+        // resultado. Agora ela pergunta até o servidor parar de dizer
+        // "pendente", e desiste com um aviso em vez de fingir.
+        const esperaFim = async () => {
+          for (let i = 0; i < 20; i++) {
+            await new Promise(res => setTimeout(res, 1500));
+            let atual;
+            try { atual = await Api.get('/certificados'); } catch { continue; }
+            if (!atual.aplicando) {
+              const falhou = (atual.servicos || []).filter(x => x.estado === 'falha');
+              toast(falhou.length
+                ? `${falhou.map(x => x.rotulo).join(', ')}: a aplicação falhou — veja o detalhe no cartão.`
+                : 'Certificado aplicado nos serviços escolhidos.', falhou.length ? 'err' : 'ok');
+              App.route();
+              return;
+            }
+          }
+          toast('Os serviços ainda estão como "aplicando" depois de 30 segundos. '
+              + 'Veja o detalhe em cada cartão.', 'warn');
+          App.route();
+        };
+        esperaFim();
       } catch (e) {
         botao.disabled = false;
         botao.textContent = 'Aplicar nos serviços';
@@ -2979,6 +3150,94 @@ const DIAS_MES = [{ valor: '', rotulo: '—' },
   ...Array.from({ length: 31 }, (_, i) => ({ valor: i + 1, rotulo: String(i + 1) }))];
 
 /** "seg a sex, 08:00 às 18:00" — a faixa em português, para a lista. */
+/* Dias da semana como o Asterisk os nomeia, na ordem da semana dele. */
+const DIAS_ASTERISK = [
+  { v: 'sun', curto: 'dom', longo: 'domingo' },
+  { v: 'mon', curto: 'seg', longo: 'segunda' },
+  { v: 'tue', curto: 'ter', longo: 'terça' },
+  { v: 'wed', curto: 'qua', longo: 'quarta' },
+  { v: 'thu', curto: 'qui', longo: 'quinta' },
+  { v: 'fri', curto: 'sex', longo: 'sexta' },
+  { v: 'sat', curto: 'sáb', longo: 'sábado' }
+];
+
+/* Os três atalhos que cobrem quase todo cadastro real. */
+const PRESETS_DIAS = [
+  { chave: 'todos',   rotulo: 'Todos os dias',       dias: ['sun','mon','tue','wed','thu','fri','sat'] },
+  { chave: 'semana',  rotulo: 'Segunda a sexta',     dias: ['mon','tue','wed','thu','fri'] },
+  { chave: 'fds',     rotulo: 'Sábado e domingo',    dias: ['sat','sun'] },
+  { chave: 'escolha', rotulo: 'Dias escolhidos…',    dias: null }
+];
+
+/** A lista de dias que veio do banco, normalizada. */
+function lerDias(bruto) {
+  const texto = String(bruto ?? '').trim();
+  if (texto === '' || texto === '*') return DIAS_ASTERISK.map(d => d.v);
+  const validos = DIAS_ASTERISK.map(d => d.v);
+  return texto.split(/[,&]/).map(d => d.trim().toLowerCase()).filter(d => validos.includes(d));
+}
+
+/** Qual atalho corresponde a esta lista — ou 'escolha'. */
+function presetDeDias(dias) {
+  const igual = (a, b) => a.length === b.length && a.every(x => b.includes(x));
+  return (PRESETS_DIAS.find(p => p.dias && igual(p.dias, dias)) || { chave: 'escolha' }).chave;
+}
+
+/** Frase curta para a lista de dias, ou null quando não há lista. */
+function descreveDias(bruto) {
+  if (bruto === null || bruto === undefined || String(bruto).trim() === '') return null;
+  const dias = lerDias(bruto);
+  if (dias.length === 7) return 'todos os dias';
+  const preset = PRESETS_DIAS.find(p => p.dias && p.dias.length === dias.length
+    && p.dias.every(x => dias.includes(x)));
+  if (preset) return preset.rotulo.toLowerCase();
+  return DIAS_ASTERISK.filter(d => dias.includes(d.v)).map(d => d.curto).join(', ');
+}
+
+/**
+ * A célula de dias da semana de uma faixa.
+ *
+ * Eram dois seletores, "dia da semana início" e "dia da semana fim", e
+ * eles só sabem dizer intervalo contínuo: "sábado e domingo" não dá,
+ * porque a semana começa no domingo, e "segunda, quarta e sexta"
+ * também não. Agora são três atalhos que cobrem quase tudo e, para o
+ * resto, os sete dias para marcar.
+ */
+function celulaDias(f = {}) {
+  const dias = lerDias(f.dias ?? (f.dia_semana_inicio === null || f.dia_semana_inicio === undefined ? '' : null));
+  const escolhidos = f.dias !== undefined && f.dias !== null
+    ? lerDias(f.dias)
+    : DIAS_ASTERISK.map(d => d.v);
+  const preset = presetDeDias(escolhidos);
+
+  return `<div data-dias>
+    <select class="select" data-preset>
+      ${PRESETS_DIAS.map(p => `<option value="${p.chave}" ${p.chave === preset ? 'selected' : ''}>
+        ${esc(p.rotulo)}</option>`).join('')}
+    </select>
+    <div class="row gap-6" data-dias-escolha style="flex-wrap:wrap;margin-top:8px" ${preset === 'escolha' ? '' : 'hidden'}>
+      ${DIAS_ASTERISK.map(d => `<label class="chip-check">
+        <input type="checkbox" value="${d.v}" ${escolhidos.includes(d.v) ? 'checked' : ''}>
+        <span>${esc(d.curto)}</span></label>`).join('')}
+    </div>
+  </div>`;
+}
+
+/** Lê uma célula de dias de volta para a lista que o servidor guarda. */
+function lerCelulaDias(tr) {
+  const caixa = tr.querySelector('[data-dias]');
+  if (!caixa) return '*';
+
+  const preset = caixa.querySelector('[data-preset]').value;
+  const atalho = PRESETS_DIAS.find(p => p.chave === preset);
+  if (atalho && atalho.dias) return atalho.dias.length === 7 ? '*' : atalho.dias.join(',');
+
+  const marcados = [...caixa.querySelectorAll('[data-dias-escolha] input:checked')].map(i => i.value);
+  // Nenhum dia marcado seria uma faixa que nunca vale: vale mais tratar
+  // como "todos" e deixar o usuário perceber pelo texto do cartão.
+  return (marcados.length === 0 || marcados.length === 7) ? '*' : marcados.join(',');
+}
+
 function descreveFaixa(f) {
   const curto = ['dom','seg','ter','qua','qui','sex','sáb'];
   const mes = ['', 'jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
@@ -2990,7 +3249,8 @@ function descreveFaixa(f) {
   };
 
   const partes = [];
-  const semana = par(f.dia_semana_inicio, f.dia_semana_fim, curto);
+  // "dias" é a lista; o par início/fim ficou para faixas antigas.
+  const semana = descreveDias(f.dias) ?? par(f.dia_semana_inicio, f.dia_semana_fim, curto);
   const dia = par(f.dia_mes_inicio, f.dia_mes_fim, null);
   const m = par(f.mes_inicio, f.mes_fim, mes);
 
@@ -3075,10 +3335,7 @@ PAGES['apps.grupohorario'] = {
           <input class="input" type="time" name="hora_fim" style="width:120px"
                  value="${esc(String(f.hora_fim || '').slice(0, 5))}">
         </div><span class="hint">Em branco: o dia inteiro.</span></td>
-        <td><div class="row gap-6">
-          ${sel('dia_semana_inicio', DIAS_SEMANA, f.dia_semana_inicio)}
-          ${sel('dia_semana_fim', DIAS_SEMANA, f.dia_semana_fim)}
-        </div></td>
+        <td>${celulaDias(f)}</td>
         <td><div class="row gap-6">
           ${sel('dia_mes_inicio', DIAS_MES, f.dia_mes_inicio)}
           ${sel('dia_mes_fim', DIAS_MES, f.dia_mes_fim)}
@@ -3124,8 +3381,15 @@ PAGES['apps.grupohorario'] = {
                  <button class="btn btn-primary" data-ok>${novo ? 'Criar grupo' : 'Salvar'}</button>`,
         aoAbrir: dw => {
           const corpo = dw.querySelector('#tabelaFaixas tbody');
-          const ligar = () => dw.querySelectorAll('[data-tirar-faixa]').forEach(b =>
-            b.onclick = () => b.closest('tr').remove());
+          const ligar = () => {
+            dw.querySelectorAll('[data-tirar-faixa]').forEach(b =>
+              b.onclick = () => b.closest('tr').remove());
+            // Os sete dias só aparecem quando o atalho não dá conta.
+            dw.querySelectorAll('[data-dias] [data-preset]').forEach(sel => sel.onchange = () => {
+              const escolha = sel.closest('[data-dias]').querySelector('[data-dias-escolha]');
+              escolha.hidden = sel.value !== 'escolha';
+            });
+          };
           ligar();
 
           dw.querySelector('#addFaixa').onclick = () => {
@@ -3144,7 +3408,7 @@ PAGES['apps.grupohorario'] = {
               const v = n => tr.querySelector(`[name="${n}"]`).value;
               return {
                 hora_inicio: v('hora_inicio'), hora_fim: v('hora_fim'),
-                dia_semana_inicio: v('dia_semana_inicio'), dia_semana_fim: v('dia_semana_fim'),
+                dias: lerCelulaDias(tr),
                 dia_mes_inicio: v('dia_mes_inicio'), dia_mes_fim: v('dia_mes_fim'),
                 mes_inicio: v('mes_inicio'), mes_fim: v('mes_fim')
               };
@@ -5211,6 +5475,25 @@ PAGES['conn.webrtc'] = {
         </p>
       </div>` : '';
 
+    // Contato registrado que o Asterisk não consegue alcançar é ignorado
+    // na hora de discar: a chamada morre antes de o telefone tocar.
+    const mudos = (d.ramais || []).filter(r => r.contato_alcancavel === false);
+    const alertaMudo = mudos.length ? `
+      <div class="card" style="margin-bottom:16px;padding:18px;border-left:3px solid var(--danger)">
+        <span class="badge badge-danger">o ramal registra mas a chamada não entra</span>
+        <p class="small" style="margin:10px 0 0">
+          ${mudos.map(r => `<b class="mono">${esc(r.numero)}</b>`).join(', ')} —
+          o navegador está registrado, mas não responde à verificação que a central envia.
+          Contato sem resposta é contato ignorado na hora de discar: a chamada termina em
+          <i>“Could not create dialog to invalid URI”</i> e o telefone nunca toca.
+        </p>
+        <p class="small muted" style="margin:8px 0 0">
+          A causa quase sempre é o domínio SIP: o navegador descarta sem avisar qualquer mensagem
+          assinada com um nome que ele não consegue analisar. Confira
+          <span class="mono">pabx_hostname</span> no instalador.
+        </p>
+      </div>` : '';
+
     const alerta = incompativeis.length ? `
       <div class="card" style="margin-bottom:16px;padding:18px;border-left:3px solid var(--danger)">
         <span class="badge badge-danger">chamada conecta e fica muda</span>
@@ -5231,7 +5514,7 @@ PAGES['conn.webrtc'] = {
       </div>` : '';
 
     return pageHead('WebRTC / Softphone',
-      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + alertaIce + avisoCorrigido + alerta + `
+      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + alertaIce + avisoCorrigido + alertaMudo + alerta + `
       <div class="card" style="margin-bottom:16px">
         <div class="card-head row-between">
           <b>Este computador consegue fazer WebRTC?</b>
@@ -5253,6 +5536,19 @@ PAGES['conn.webrtc'] = {
           <div style="margin-top:8px">
             ${item(d.transporte_wss, 'Transporte WSS carregado',
               'O Asterisk aceita SIP sobre WebSocket.')}
+            ${item(d.wss_no_loopback, 'Áudio sai pela rede, não pelo loopback',
+              d.wss_no_loopback
+                ? `O transporte wss está em <span class="mono">${esc(d.wss_bind || '')}</span>, e é daí `
+                  + 'que sai o áudio.'
+                : `O transporte wss está preso em <span class="mono">${esc(d.wss_bind || '—')}</span>. `
+                  + 'É de onde o Asterisk tira o endereço do áudio: preso no loopback, ele não '
+                  + 'responde a nenhum teste de conexão do navegador e a chamada fica muda.')}
+            ${item(d.dominio_ok, 'Domínio SIP que o navegador entende',
+              d.dominio_ok
+                ? `<span class="mono">${esc(d.dominio || '')}</span>`
+                : `<span class="mono">${esc(d.dominio || '(vazio)')}</span> — o navegador segue o `
+                  + 'RFC 3261 à risca e descarta em silêncio tudo que a central assinar com um nome '
+                  + 'assim. Nenhuma chamada entra no ramal do navegador.')}
             ${item(d.http_ligado && d.websocket, 'WebSocket publicado',
               'O Asterisk responde em <span class="mono">/asterisk/ws</span>, '
               + 'que o nginx expõe como <span class="mono">/ws</span>.')}
@@ -5380,10 +5676,17 @@ PAGES['conn.webrtc'] = {
 
 /* ------------------------- Conectividade · Firewall e segurança ------------------------- */
 PAGES['conn.firewall'] = {
-  async render() {
+  async render(ctx) {
     let d;
     try { d = await Api.get('/diagnostico/seguranca'); }
     catch (e) { return pageHead('Firewall e Segurança', '') + blocoErro(e); }
+
+    // Quem o fail2ban está bloqueando agora. Sem isto a tela mostrava as
+    // tentativas e não dizia quem já tinha sido banido — nem dava como
+    // soltar o IP do próprio escritório depois de um ramal mal
+    // configurado errar a senha cinco vezes.
+    const bloqueio = await Api.get('/diagnostico/banidos').catch(() => ({ disponivel: false, jaulas: [] }));
+    const banidos = (bloqueio.jaulas || []).flatMap(j => (j.ips || []).map(ip => ({ jaula: j.nome, ip })));
 
     const origens = (d.origens || []).map(o => `<tr>
       <td class="mono"><b>${esc(o.ip)}</b></td>
@@ -5437,6 +5740,30 @@ PAGES['conn.firewall'] = {
       </div>
 
       <div class="card" style="margin-top:16px">
+        <div class="card-head row-between">
+          <b>Bloqueados agora pelo firewall</b>
+          <span class="badge ${banidos.length ? 'badge-warn' : ''}">${banidos.length} endereço${banidos.length === 1 ? '' : 's'}</span>
+        </div>
+        ${!bloqueio.disponivel
+          ? `<div style="padding:20px" class="small muted">${esc(bloqueio.motivo
+              || 'Não foi possível falar com o fail2ban neste servidor.')}</div>`
+          : banidos.length
+            ? `<div class="table-wrap"><table class="table">
+                <thead><tr><th>Endereço</th><th>Cadeia</th><th class="col-actions"></th></tr></thead>
+                <tbody>${banidos.map(b => `<tr>
+                  <td class="mono"><b>${esc(b.ip)}</b></td>
+                  <td><span class="badge">${esc(b.jaula)}</span></td>
+                  <td class="col-actions">${ctx.can('editar')
+                    ? `<button class="btn btn-outline btn-sm" data-desbanir="${esc(b.ip)}"
+                         data-jaula="${esc(b.jaula)}">Desbloquear</button>`
+                    : ''}</td>
+                </tr>`).join('')}</tbody></table></div>`
+            : `<div style="padding:20px" class="small muted">
+                Nenhum endereço bloqueado. O firewall bane por 24 horas quem erra a senha cinco
+                vezes em dez minutos — inclusive um ramal mal configurado aqui dentro.</div>`}
+      </div>
+
+      <div class="card" style="margin-top:16px">
         <div class="card-head"><b>O que a central bloqueou</b></div>
         ${eventos ? `<div class="table-wrap"><table class="table">
           <thead><tr><th>Quando</th><th>Evento</th><th>Conta tentada</th><th>Origem</th></tr></thead>
@@ -5445,6 +5772,29 @@ PAGES['conn.firewall'] = {
       </div>
 
       <div style="margin-top:16px">${blocoCli('Restrição de rede dos ramais', d.acl)}</div>`;
+  },
+
+  mount() {
+    document.querySelectorAll('[data-desbanir]').forEach(b => b.onclick = async () => {
+      const ip = b.dataset.desbanir;
+      const ok = await Modal.confirm({
+        titulo: `Desbloquear ${ip}?`,
+        texto: 'O endereço volta a poder falar com a central agora. Se as tentativas que o '
+             + 'bloquearam continuarem, ele é banido de novo.',
+        ok: 'Desbloquear', tone: 'primary', ico: 'checkCirc'
+      });
+      if (!ok) return;
+
+      b.disabled = true;
+      try {
+        const r = await Api.post('/diagnostico/desbanir', { ip, jaula: b.dataset.jaula });
+        toast(r.detalhe || 'Endereço liberado.', 'ok');
+        App.route();
+      } catch (e) {
+        b.disabled = false;
+        toast(e.message, 'err');
+      }
+    });
   }
 };
 

@@ -201,7 +201,8 @@ final class Cadastros
     /** PUT /api/empresa */
     public function salvarEmpresa(Request $req, Response $res): Response
     {
-        $permitidas = ['nome', 'razao_social', 'cnpj', 'endereco', 'telefone',
+        $permitidas = ['nome', 'razao_social', 'cnpj', 'service_id', 'client_id',
+                       'endereco', 'telefone',
                        'fuso', 'idioma', 'plano', 'ramais_contratados', 'tema_padrao'];
         $corpo = (array) $req->getParsedBody();
         $dados = array_intersect_key($corpo, array_flip($permitidas));

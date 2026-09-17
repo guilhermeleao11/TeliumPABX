@@ -142,6 +142,10 @@ const App = {
       </div>`;
 
     document.getElementById('ddSair').onclick = async () => {
+      // Sair sem derrubar o ramal deixava o contato registrado no
+      // Asterisk: a chamada continuava tocando numa aba que já não tem
+      // sessão, até o registro vencer.
+      SipLink.encerrar();
       await Auth.logout();
       location.replace('index.html');
     };

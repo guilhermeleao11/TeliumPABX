@@ -237,13 +237,10 @@ final class Portal
             return Resposta::erro($res, 'Mensagem não encontrada', 404);
         }
 
-        $corpo = $res->getBody();
-        $corpo->write((string) file_get_contents($arquivo));
-
-        return $res->withBody($corpo)
-            ->withHeader('Content-Type', 'audio/wav')
-            ->withHeader('Content-Disposition',
-                'inline; filename="' . basename($arquivo) . '"');
+        // Em fluxo e com Range: o <audio> pede pedaços para poder
+        // arrastar a barra, e sem isso o recado toca do começo ao fim
+        // ou não toca.
+        return Resposta::arquivo($req, $res, $arquivo, 'audio/wav');
     }
 
     /** DELETE /api/me/correiovoz — apaga uma mensagem da própria caixa. */

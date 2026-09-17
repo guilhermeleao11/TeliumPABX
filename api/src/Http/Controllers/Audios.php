@@ -220,12 +220,14 @@ final class Audios
                 continue;
             }
 
-            $corpo = $res->getBody();
-            $corpo->write((string) file_get_contents($caminho));
-
-            return $res->withBody($corpo)
-                ->withHeader('Content-Type', $ext === 'wav' ? 'audio/wav' : 'audio/gsm')
-                ->withHeader('Content-Disposition', 'inline; filename="' . $base . '.' . $ext . '"');
+            return Resposta::arquivo(
+                $req,
+                $res,
+                $caminho,
+                $ext === 'wav' ? 'audio/wav' : 'audio/gsm',
+                false,
+                "{$base}.{$ext}"
+            );
         }
 
         return Resposta::erro(

@@ -185,9 +185,29 @@ $recursos = [
                 // fecha a porta para esse engano.
                 foreach (['dtls' => 1, 'avpf' => 1, 'ice' => 1, 'rtcp_mux' => 1,
                           'transporte' => 'wss', 'srtp' => 1,
-                          'max_contatos' => 1] as $campo => $valor) {
+                          'max_contatos' => 1,
+                          // O navegador apresenta certificado autoassinado:
+                          // a confiança do DTLS vem da impressão digital no
+                          // SDP. Exigir o certificado derruba o handshake e
+                          // a chamada conecta muda.
+                          'dtls_verificar' => 'fingerprint',
+                          'dtls_setup' => 'actpass',
+                          // Mídia direta obrigaria a outra ponta a falar
+                          // DTLS-SRTP e fechar ICE com o navegador.
+                          'direct_media' => 0] as $campo => $valor) {
                     $dados[$campo] = $valor;
                 }
+
+                // Codec que o navegador não fala é codec que não existe:
+                // a chamada é aceita e não sobra nada em comum. Sobra o
+                // que Chrome, Firefox, Safari e Edge oferecem de fato.
+                $navegador = ['opus', 'g722', 'ulaw', 'alaw'];
+                $escolhidos = array_values(array_intersect(
+                    array_map('trim', explode(',', strtolower((string) ($dados['codecs'] ?? $atual['codecs'] ?? '')))),
+                    $navegador
+                ));
+                $dados['codecs'] = implode(',', $escolhidos ?: ['opus', 'ulaw', 'alaw']);
+                $dados['codecs_negados'] = null;
 
                 return $dados;
             },
@@ -701,7 +721,10 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/gravacoes/arquivo', [Gravacoes::class, 'arquivo'])->add(new Permissao('apps.gravacao'));
     $g->post('/gravacoes/pacote', [Gravacoes::class, 'pacote'])
       ->add(new Permissao('apps.gravacao', 'exportar'));
-    $g->get('/auditoria', [Relatorios::class, 'auditoria'])->add(new Permissao('rel.logs'));
+    // Auditoria é só do administrador: a trilha diz quem mexeu em quê, com
+    // IP e horário, e sob a chave 'rel.logs' ela era alcançada pelo
+    // curinga 'rel.*' que supervisor e auditor têm.
+    $g->get('/auditoria', [Relatorios::class, 'auditoria'])->add(new Permissao('admin.auditoria'));
 
     // ---- cadastros especiais ----
     $g->get('/perfis', [Cadastros::class, 'perfis'])
@@ -722,6 +745,10 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/diagnostico/webrtc', [Diagnostico::class, 'webrtc'])->add(new Permissao('conn.webrtc'));
     $g->get('/diagnostico/seguranca', [Diagnostico::class, 'seguranca'])
       ->add(new Permissao('conn.firewall'));
+    $g->get('/diagnostico/banidos', [Diagnostico::class, 'banidos'])
+      ->add(new Permissao('conn.firewall'));
+    $g->post('/diagnostico/desbanir', [Diagnostico::class, 'desbanir'])
+      ->add(new Permissao('conn.firewall', 'editar'));
     $g->get('/diagnostico/sip', [Diagnostico::class, 'sip'])->add(new Permissao('cfg.sip'));
     $g->get('/diagnostico/dids', [Diagnostico::class, 'dids'])->add(new Permissao('conn.did'));
     $g->get('/diagnostico/troncos', [Diagnostico::class, 'troncos'])
@@ -748,6 +775,15 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/backup', [Backup::class, 'estado'])->add(new Permissao('admin.backup'));
     $g->post('/backup/executar', [Backup::class, 'executar'])
       ->add(new Permissao('admin.backup', 'criar'));
+    $g->get('/backup/destino', [Backup::class, 'destino'])->add(new Permissao('admin.backup'));
+    $g->put('/backup/destino', [Backup::class, 'salvarDestino'])
+      ->add(new Permissao('admin.backup', 'editar'));
+    $g->post('/backup/destino/testar', [Backup::class, 'testarDestino'])
+      ->add(new Permissao('admin.backup', 'editar'));
+    $g->post('/backup/{id}/enviar', [Backup::class, 'enviar'])
+      ->add(new Permissao('admin.backup', 'exportar'));
+    $g->get('/backup/{id}/baixar', [Backup::class, 'baixar'])
+      ->add(new Permissao('admin.backup', 'exportar'));
     $g->post('/backup/{id}/restaurar', [Backup::class, 'restaurar'])
       ->add(new Permissao('admin.backup', 'reiniciar'));
     $g->delete('/backup/{id}', [Backup::class, 'remover'])

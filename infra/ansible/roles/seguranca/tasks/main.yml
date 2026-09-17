@@ -67,6 +67,34 @@
     mode: "0644"
   notify: reiniciar fail2ban
 
+# ------------------------------------------------------------------
+# Ponte do console com o fail2ban.
+#
+# Bloquear tentativa errada é o certo; não ter como desfazer, não. Um
+# ramal mal configurado ou um teste de softphone derruba o IP do próprio
+# escritório por 24 horas, e sem esta ponte só o SSH resolvia.
+# ------------------------------------------------------------------
+- name: Instalar a ponte do console com o fail2ban
+  ansible.builtin.template:
+    src: telium-fail2ban.j2
+    dest: /usr/local/sbin/telium-fail2ban
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Permitir que a API liste e desbane pelo fail2ban
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/telium-fail2ban
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+    content: |
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão.
+      # O programa valida a jaula e o IP: por isso a regra aponta para
+      # ele e não para o fail2ban-client, que aceita qualquer comando.
+      {{ telium_user }} ALL=(root) NOPASSWD: /usr/local/sbin/telium-fail2ban
+
 - name: Habilitar e iniciar o fail2ban
   ansible.builtin.service:
     name: fail2ban

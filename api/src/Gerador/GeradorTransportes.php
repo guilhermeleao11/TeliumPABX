@@ -116,16 +116,30 @@ final class GeradorTransportes
 
         // WebRTC: o navegador fala direto com o Asterisk.
         //
-        // Fica preso em 127.0.0.1 porque quem atende o navegador é o
-        // nginx, que já termina TLS com o certificado do console e
-        // repassa em /ws. A sinalização chega por ali, mas a mídia sai
-        // daqui direto para o navegador: sem o endereço público no SDP,
-        // o áudio some quando o servidor está atrás de NAT.
+        // Quem atende o navegador é o nginx, que termina TLS com o
+        // certificado do console e repassa em /ws para o servidor HTTP do
+        // Asterisk — esse sim preso em 127.0.0.1, no http.conf. Este
+        // bloco NÃO abre soquete nenhum: transporte ws/wss no PJSIP é
+        // criado por conexão, pelo res_pjsip_transport_websocket.
+        //
+        // O que o "bind" daqui decide é outra coisa, e é onde o WebRTC
+        // morria: na falta de media_address, o Asterisk amarra o soquete
+        // de RTP ao endereço deste bind. Com 127.0.0.1 o RTP nascia no
+        // loopback e não conseguia mandar nada para fora — nem os testes
+        // de conectividade do ICE. O SDP saía correndo bonito, com o
+        // endereço da placa, porque os candidatos ICE são levantados das
+        // interfaces e não do soquete: a chamada conectava, o navegador
+        // mandava dezenas de binding requests e não recebia um único de
+        // volta, e o Asterisk enchia o log de "Error sending STUN
+        // request: Invalid argument". Conferido no Asterisk 22: com
+        // 0.0.0.0 o áudio fecha nos dois sentidos em menos de meio
+        // segundo, e continua existindo um único ouvinte na 8090 — o do
+        // http.conf, em 127.0.0.1.
         $this->transporte(
             $b,
             'transport-wss',
             'wss',
-            '127.0.0.1:' . Rede::portaWs(),
+            '0.0.0.0:' . Rede::portaWs(),
             $publico,
             $locais
         );

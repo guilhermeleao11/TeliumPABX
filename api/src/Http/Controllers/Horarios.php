@@ -74,8 +74,15 @@ final class Horarios
                         $this->numero($f['mes_inicio'] ?? null),
                         $this->numero($f['mes_fim'] ?? null),
                         ($i + 1) * 10,
-                        // Colunas da primeira versão: ainda existem no banco.
-                        '*', '*', '*',
+                        // Os dias da semana como LISTA. O par
+                        // início/fim só sabe dizer faixa contínua, e
+                        // "segunda, quarta e sexta" ou "sábado e
+                        // domingo" não são contínuos — este último nem
+                        // como "sáb-dom", porque a semana começa no
+                        // domingo. O GotoIfTime aceita "sat,sun" sem
+                        // problema; o formulário é que não deixava.
+                        $this->diasDaSemana($f['dias'] ?? null),
+                        '*', '*',
                     ]
                 );
             }
@@ -266,6 +273,32 @@ final class Horarios
         return preg_match('/^(\d{1,2}):(\d{2})/', $v, $m) === 1
             ? sprintf('%02d:%02d:00', (int) $m[1], (int) $m[2])
             : null;
+    }
+
+    /**
+     * A lista de dias da semana no formato do GotoIfTime.
+     *
+     * Aceita "*" (todo dia) ou uma lista de três letras em inglês, que
+     * é o que o Asterisk entende. O que vier fora disso é descartado em
+     * vez de virar dialplan: nome de dia é coisa que o formulário
+     * escolhe, não que o usuário digita.
+     */
+    private function diasDaSemana(mixed $bruto): string
+    {
+        $validos = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+        $lista = is_array($bruto) ? $bruto : explode(',', (string) $bruto);
+        $lista = array_values(array_unique(array_filter(
+            array_map(static fn ($d): string => strtolower(trim((string) $d)), $lista),
+            static fn (string $d): bool => in_array($d, $validos, true)
+        )));
+
+        // Ordem da semana, e não a que o usuário clicou: "mon,sun" e
+        // "sun,mon" são a mesma faixa e devem sair iguais no arquivo.
+        usort($lista, static fn (string $a, string $b): int
+            => array_search($a, $validos, true) <=> array_search($b, $validos, true));
+
+        return ($lista === [] || count($lista) === 7) ? '*' : implode(',', $lista);
     }
 
     private function numero(mixed $v): ?int

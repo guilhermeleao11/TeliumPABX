@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Telium\Gerador;
 
+use Telium\Dominio\Rede;
 use Telium\Suporte\Bd;
 
 /** Gera pjsip.endpoints.conf e pjsip.trunks.conf. */
@@ -26,6 +27,14 @@ final class GeradorPjsip
             'pjsip.trunks.conf'    => $this->troncos(),
             'pjsip.acl.conf'       => $this->acls(),
         ];
+    }
+
+    /** Domínio SIP da central; null enquanto ninguém perguntou. */
+    private ?string $dominio = null;
+
+    private function dominio(): string
+    {
+        return $this->dominio ??= Rede::dominioSip();
     }
 
     private function endpoints(): string
@@ -68,7 +77,9 @@ final class GeradorPjsip
           ->crua("transport = {$transporte}")
           ->crua('context = ' . ($r['contexto_custom'] ?: $r['contexto']))
           ->crua('disallow = all')
-          ->crua('allow = ' . $this->lista((string) $r['codecs']))
+          ->crua('allow = ' . $this->lista($webrtc
+              ? self::codecsDoNavegador((string) $r['codecs'])
+              : (string) $r['codecs']))
           ->crua("auth = {$n}")
           ->crua("aors = {$n}")
           ->crua(sprintf('callerid = "%s" <%s>', $this->limpar((string) $r['nome']), $n))
@@ -101,9 +112,23 @@ final class GeradorPjsip
             $b->crua('disallow = ' . $this->lista((string) $r['codecs_negados']));
         }
 
+        // O domínio que a central assina no que ELA envia: OPTIONS de
+        // qualify, NOTIFY de recado, INVITE de chamada recebida. Sem
+        // isto o Asterisk usa o hostname da máquina, e um hostname que
+        // não seja nome válido de RFC 3261 — começar por dígito basta —
+        // faz o softphone do navegador descartar a mensagem inteira em
+        // silêncio: o qualify não é respondido, o contato vira
+        // inalcançável e nenhuma chamada entra no ramal do navegador.
+        if ($this->dominio() !== '') {
+            $b->crua('from_domain = ' . $this->dominio());
+        }
+
         // ---------- sinalização ----------
         $b->crua('dtmf_mode = ' . $this->dtmf((string) $r['dtmf_modo']))
-          ->crua('direct_media = ' . $sim($r['direct_media']))
+          // Mídia direta entre pontas é incompatível com WebRTC: o
+          // outro lado teria de falar DTLS-SRTP e fechar ICE com o
+          // navegador. Ligada por engano, a chamada conecta e fica muda.
+          ->crua('direct_media = ' . ($webrtc ? 'no' : $sim($r['direct_media'])))
           ->crua('force_rport = ' . $sim($r['forcar_rport']))
           ->crua('rewrite_contact = ' . $sim($r['reescrever_contato']))
           ->crua('rtp_symmetric = ' . $sim($r['rtp_simetrico']))
@@ -170,8 +195,14 @@ final class GeradorPjsip
             } else {
                 $b->crua('dtls_auto_generate_cert = yes');
             }
-            $b->crua("dtls_verify = {$r['dtls_verificar']}")
-              ->crua("dtls_setup = {$r['dtls_setup']}");
+            // No WebRTC estes dois não são gosto. O navegador apresenta
+            // certificado autoassinado e a confiança do DTLS vem da
+            // impressão digital que viaja no SDP: pedir verificação de
+            // CERTIFICADO derruba o handshake e a chamada fica muda. E o
+            // papel tem de ser actpass — é o navegador quem escolhe quem
+            // inicia. Fora do WebRTC, vale o que estiver no cadastro.
+            $b->crua('dtls_verify = ' . ($webrtc ? 'fingerprint' : (string) $r['dtls_verificar']))
+              ->crua('dtls_setup = ' . ($webrtc ? 'actpass' : (string) $r['dtls_setup']));
         } elseif ((int) $r['srtp'] === 1) {
             $b->crua('media_encryption = sdes');
         }
@@ -305,6 +336,27 @@ final class GeradorPjsip
     }
 
     /** "opus, alaw ,ulaw" vira "opus,alaw,ulaw". */
+    /**
+     * Os codecs que o navegador realmente sabe falar.
+     *
+     * Um ramal WebRTC com g729 (ou qualquer coisa que o navegador não
+     * ofereça) fecha a negociação sem codec em comum: a chamada é aceita
+     * e ninguém ouve nada. Tudo que o navegador não fala é retirado, e
+     * se não sobrar nada entra o mínimo que todo navegador tem.
+     */
+    private static function codecsDoNavegador(string $codecs): string
+    {
+        /* Chrome, Firefox, Safari e Edge oferecem estes e mais nada. */
+        $sabidos = ['opus', 'g722', 'ulaw', 'alaw'];
+
+        $lista = array_values(array_filter(
+            array_map('trim', explode(',', strtolower($codecs))),
+            static fn (string $c): bool => in_array($c, $sabidos, true)
+        ));
+
+        return $lista === [] ? 'opus,ulaw,alaw' : implode(',', $lista);
+    }
+
     private function lista(string $bruto): string
     {
         $itens = array_filter(array_map('trim', explode(',', $bruto)), static fn ($x) => $x !== '');

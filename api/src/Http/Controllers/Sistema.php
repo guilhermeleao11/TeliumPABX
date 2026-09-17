@@ -16,8 +16,15 @@ final class Sistema
     /** GET /api/sistema/estatisticas */
     public function estatisticas(Request $req, Response $res): Response
     {
+        $carga = sys_getloadavg() ?: [0.0, 0.0, 0.0];
+
         return Resposta::json($res, [
             'cpu'      => $this->cpu(),
+            'nucleos'  => $this->nucleos(),
+            // A carga é outra medida, e útil: acima do número de núcleos
+            // quer dizer que há processo esperando a vez. Fica com o
+            // nome dela em vez de ser apresentada como uso de CPU.
+            'carga'    => array_map(static fn ($c): float => round((float) $c, 2), array_values($carga)),
             'memoria'  => $this->memoria(),
             'disco'    => $this->disco(),
             'uptime'   => $this->uptime(),
@@ -96,12 +103,69 @@ final class Sistema
     }
 
     // ------------------------------------------------------------------
+    /**
+     * Uso real de CPU, em porcentagem.
+     *
+     * Antes isto era a média de carga de um minuto dividida pelo número
+     * de núcleos, e a tela chamava o resultado de "CPU". São coisas
+     * diferentes: a carga conta também processo parado esperando disco,
+     * e ela leva um minuto para subir e outro para descer. O efeito era
+     * uma tela que dizia "medidos agora" e não batia com o htop — 60%
+     * numa máquina ociosa logo depois de um backup, 5% numa máquina que
+     * estava a mil.
+     *
+     * Aqui é a conta que o top faz: duas leituras de /proc/stat com um
+     * intervalo curto, e o que sobra depois de tirar ocioso e espera de
+     * disco. A carga continua sendo devolvida — com o nome dela.
+     */
     private function cpu(): int
     {
-        $carga = sys_getloadavg()[0] ?? 0.0;
-        $nucleos = max(1, (int) shell_exec('nproc 2>/dev/null') ?: 1);
+        $a = $this->amostraCpu();
+        if ($a === null) {
+            return 0;
+        }
 
-        return (int) min(100, round($carga / $nucleos * 100));
+        usleep(200000);
+        $b = $this->amostraCpu();
+        if ($b === null) {
+            return 0;
+        }
+
+        $total = $b['total'] - $a['total'];
+        $parado = $b['parado'] - $a['parado'];
+        if ($total <= 0) {
+            return 0;
+        }
+
+        return (int) max(0, min(100, round(($total - $parado) / $total * 100)));
+    }
+
+    /** @return array{total:int, parado:int}|null */
+    private function amostraCpu(): ?array
+    {
+        $linha = strtok((string) @file_get_contents('/proc/stat'), "\n");
+        if (!is_string($linha) || !str_starts_with($linha, 'cpu ')) {
+            return null;
+        }
+
+        $campos = array_map('intval', preg_split('/\s+/', trim(substr($linha, 4))) ?: []);
+        if (count($campos) < 5) {
+            return null;
+        }
+
+        // Ordem do /proc/stat: user nice system idle iowait irq softirq ...
+        // "Parado" é ocioso mais espera de disco: a CPU não estava
+        // trabalhando em nenhum dos dois.
+        return ['total' => array_sum($campos), 'parado' => $campos[3] + $campos[4]];
+    }
+
+    /** Quantos núcleos a máquina tem, sem depender de nproc no PATH. */
+    private function nucleos(): int
+    {
+        $info = (string) @file_get_contents('/proc/cpuinfo');
+        $n = preg_match_all('/^processor\s*:/m', $info);
+
+        return $n > 0 ? $n : 1;
     }
 
     private function memoria(): array

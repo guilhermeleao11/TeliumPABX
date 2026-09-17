@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Telium\Suporte;
 
+use Telium\Dominio\BackupRemoto;
+use Telium\Dominio\Certificado;
 use Telium\Dominio\Permissoes;
 use Telium\Dominio\Rede;
 use Telium\Dominio\Senha;
@@ -12,6 +14,7 @@ use Telium\Gerador\Aplicador;
 use Telium\Gerador\Bloco;
 use Telium\Gerador\Conferencia;
 use Telium\Gerador\Destino;
+use Telium\Gerador\GeradorDialplan;
 use Telium\Gerador\GeradorPjsip;
 use Telium\Gerador\GeradorTransportes;
 use Telium\Http\Middleware\Permissao;
@@ -48,10 +51,16 @@ final class Testes
         $this->grupo('Codecs', $this->codecs(...));
         $this->grupo('Áudios que o dialplan toca', $this->sons(...));
         $this->grupo('Diretórios de gravação e recado', $this->spool(...));
+        $this->grupo('Softphone do navegador', $this->webrtc(...));
 
         if ($comBanco) {
             $this->grupo('Banco e esquema', $this->banco(...));
             $this->grupo('Conferência do cadastro', $this->conferencia(...));
+            $this->grupo('Ramais WebRTC gerados', $this->webrtcGerado(...));
+            $this->grupo('Perfis de fábrica', $this->perfisDeFabrica(...));
+            $this->grupo('Faixas de horário', $this->horarios(...));
+            $this->grupo('Saída do backup', $this->backup(...));
+            $this->grupo('Certificados TLS', $this->certificados(...));
             $this->grupo('Portas da API', $this->rotas(...));
         }
 
@@ -778,6 +787,34 @@ final class Testes
         $this->ok(Permissoes::podeAcao(['editar'], 'editar'), 'a ação declarada passa');
         $this->ok(!Permissoes::podeAcao(['editar'], 'excluir'), 'a ação não declarada não passa');
         $this->ok(!Permissoes::podeAcao(['*'], 'excluir'), 'ação não aceita curinga');
+
+        // A trilha de auditoria diz quem mexeu em quê, com IP e horário.
+        // Sob a chave antiga ("rel.logs") ela caía dentro do curinga
+        // "rel.*" que supervisor e auditor têm — dois perfis liam o
+        // registro das próprias ações. Agora é módulo do administrador.
+        $this->ok(
+            !Permissoes::podeModulo(['rel.*'], 'admin.auditoria'),
+            'a auditoria não é alcançada pelo curinga de relatórios'
+        );
+        $this->ok(
+            Permissoes::podeModulo(['*'], 'admin.auditoria'),
+            'o administrador alcança a auditoria'
+        );
+
+        // O operador tem "pcu.*", que resolve o ramal pela sessão. As
+        // telas apps.correiovoz e apps.sigame são as de administração e
+        // listam TODOS os ramais, com senha de caixa postal e desvio
+        // editáveis: não podem estar no alcance de um atendente.
+        foreach (['apps.correiovoz', 'apps.sigame'] as $modulo) {
+            $this->ok(
+                !Permissoes::podeModulo(['dash.visaogeral', 'pcu.*'], $modulo),
+                "o operador não alcança {$modulo}, que lista todos os ramais"
+            );
+        }
+        $this->ok(
+            Permissoes::podeModulo(['pcu.*'], 'pcu.correiovoz'),
+            'o operador alcança o próprio correio de voz'
+        );
     }
 
     /**
@@ -999,6 +1036,291 @@ final class Testes
         }
     }
 
+
+    /**
+     * O que o softphone do navegador precisa para ter áudio.
+     *
+     * Os dois casos aqui nasceram de defeitos que só apareciam como
+     * "a chamada conecta e ninguém ouve", sem erro em lugar nenhum.
+     */
+    private function webrtc(): void
+    {
+        // 1) O transporte wss preso no loopback prendia JUNTO o soquete
+        // de RTP: o Asterisk anunciava o endereço da placa no SDP, mas
+        // não conseguia responder a um único teste de conectividade do
+        // ICE. O ouvinte do WebSocket continua sendo o do http.conf, em
+        // 127.0.0.1 — este bind não abre porta nenhuma.
+        $transportes = (new GeradorTransportes())->gerar()['pjsip.transports.conf'];
+        $achado = [];
+        $tem = preg_match('/\[transport-wss\][^\[]*?bind\s*=\s*(\S+)/s', $transportes, $achado) === 1;
+        $endereco = $tem ? explode(':', (string) $achado[1])[0] : '';
+
+        $this->ok($tem, 'o transporte wss é gerado');
+        $this->ok(
+            $tem && $endereco !== '127.0.0.1' && !str_starts_with($endereco, '127.'),
+            'o transporte wss não fica no loopback — com 127.0.0.1 o RTP nasce lá e o '
+            . "áudio do navegador nunca passa (está \"{$endereco}\")"
+        );
+
+        // 1b) Música em espera. O MOH-OPSOUND é pedido ao menuselect com
+        // "falha aqui não interrompe": sem saída para a internet na hora
+        // de compilar, o diretório fica vazio, a classe [default]
+        // continua existindo apontando para nada, e quem espera na fila
+        // ouve silêncio — sem um erro sequer.
+        $moh = '/var/lib/asterisk/moh';
+        if (!is_dir($moh)) {
+            echo "    \033[33m!\033[0m {$moh} não existe nesta máquina — "
+               . "música em espera conferida só no servidor\n";
+        } else {
+            $tocaveis = glob($moh . '/*.{wav,gsm,ulaw,alaw,sln,g722,WAV}', GLOB_BRACE) ?: [];
+            $this->ok(
+                $tocaveis !== [],
+                sprintf('a música em espera padrão está instalada (%d arquivo(s) em %s) — '
+                      . 'sem ela a fila toca silêncio', count($tocaveis), $moh)
+            );
+        }
+
+        // 2) O JsSIP segue a gramática do RFC 3261: nome de máquina
+        // começa por letra. Com um domínio que ele não consegue
+        // analisar, o navegador DESCARTA em silêncio o OPTIONS, o
+        // NOTIFY e o INVITE que a central manda — o contato vira
+        // inalcançável e nenhuma chamada entra no ramal.
+        foreach ([
+            'pabx.cliente.com.br' => true,
+            'pabx'                => true,
+            'pabx-01.local'       => true,
+            '200.170.198.144'     => true,
+            '9195cd758909'        => false,   // hostname de contêiner: começa por dígito
+            // Só o último rótulo precisa começar por letra — conferido
+            // contra a gramática do próprio JsSIP, no navegador.
+            '4pabx.cliente.com'   => true,
+            'a.b.9'               => false,
+            ''                    => false,
+            'com ponto e vírgula' => false,
+        ] as $host => $vale) {
+            $this->ok(
+                Rede::dominioValidoNoNavegador((string) $host) === $vale,
+                sprintf('"%s" %s domínio que o navegador consegue analisar',
+                    $host === '' ? '(vazio)' : $host, $vale ? 'é' : 'não é')
+            );
+        }
+    }
+
+    /**
+     * Cada ramal WebRTC, do jeito que ele saiu no arquivo.
+     *
+     * Uma opção incoerente aqui não dá erro no Asterisk: a chamada é
+     * aceita, o cronômetro corre e ninguém ouve nada. É o pior modo de
+     * falhar, e é por isso que a conferência é sobre o arquivo gerado e
+     * não sobre o cadastro.
+     */
+    private function webrtcGerado(): void
+    {
+        $arquivo = (new GeradorPjsip())->gerar()['pjsip.endpoints.conf'];
+        $ramais = Bd::todos('SELECT numero FROM ramais WHERE ativo = 1 AND webrtc = 1 ORDER BY numero');
+
+        if ($ramais === []) {
+            $this->ok(true, 'nenhum ramal WebRTC cadastrado — nada a conferir');
+
+            return;
+        }
+
+        $dominio = Rede::dominioSip();
+        $navegador = ['opus', 'g722', 'ulaw', 'alaw'];
+
+        foreach ($ramais as $r) {
+            $n = (string) $r['numero'];
+            $bloco = $this->blocoDoEndpoint($arquivo, $n);
+
+            if ($bloco === '') {
+                $this->ok(false, "ramal {$n}: o endpoint não foi gerado");
+                continue;
+            }
+
+            $tem = static fn (string $opcao, string $valor): bool
+                => preg_match('/^\s*' . preg_quote($opcao, '/') . '\s*=\s*' . preg_quote($valor, '/') . '\s*$/mi', $bloco) === 1;
+
+            foreach ([
+                'media_encryption' => 'dtls',
+                'use_avpf'         => 'yes',
+                'ice_support'      => 'yes',
+                'rtcp_mux'         => 'yes',
+                // O navegador apresenta certificado autoassinado: a
+                // confiança vem da impressão digital do SDP. Exigir o
+                // certificado derruba o DTLS e a chamada fica muda.
+                'dtls_verify'      => 'fingerprint',
+                'dtls_setup'       => 'actpass',
+                // Mídia direta obrigaria a outra ponta a falar DTLS-SRTP
+                // e fechar ICE com o navegador.
+                'direct_media'     => 'no',
+            ] as $opcao => $valor) {
+                $this->ok($tem($opcao, $valor), "ramal {$n}: {$opcao} = {$valor}");
+            }
+
+            $codecs = [];
+            preg_match('/^\s*allow\s*=\s*(.+)$/mi', $bloco, $codecs);
+            $lista = Conferencia::listaCodecs((string) ($codecs[1] ?? ''));
+            $this->ok(
+                array_intersect($lista, $navegador) !== [],
+                sprintf('ramal %s: tem codec que o navegador fala (tem "%s")', $n, implode(',', $lista))
+            );
+
+            if ($dominio !== '') {
+                $this->ok(
+                    $tem('from_domain', $dominio),
+                    "ramal {$n}: from_domain = {$dominio} — sem isso a central assina com o "
+                    . 'hostname da máquina e o navegador descarta a chamada'
+                );
+            }
+        }
+    }
+
+
+    /**
+     * O backup consegue sair do servidor?
+     *
+     * Backup guardado só na máquina que ele deveria salvar não é
+     * backup. São duas saídas: baixar pelo console e mandar para um
+     * destino remoto — e a segunda depende do curl do PHP, que é fácil
+     * de faltar numa instalação enxuta.
+     */
+    private function backup(): void
+    {
+        $this->ok(
+            Bd::um('SELECT id FROM backup_destino_remoto WHERE id = 1') !== null,
+            'a linha de destino remoto existe — sem ela a tela de backup não abre a configuração'
+        );
+
+        $d = BackupRemoto::destino();
+        $this->ok(
+            !BackupRemoto::utilizavel(['ativo' => 1, 'host' => '', 'usuario' => 'x']),
+            'destino sem endereço não é considerado utilizável'
+        );
+        $this->ok(
+            !BackupRemoto::utilizavel(['ativo' => 0, 'host' => 'h', 'usuario' => 'u']),
+            'destino desligado não é usado mesmo preenchido'
+        );
+
+        // Só cobra o curl de quem realmente ligou o envio: numa central
+        // que guarda o backup localmente, a extensão não faz falta.
+        if (BackupRemoto::utilizavel($d)) {
+            $this->ok(
+                function_exists('curl_init'),
+                'o PHP tem a extensão curl — é ela que fala FTP, e o destino remoto está ligado'
+            );
+        }
+    }
+
+    /**
+     * As faixas de horário, do jeito que saem no GotoIfTime.
+     *
+     * O campo de dia da semana aceita lista, mas com "&" — a vírgula é
+     * o que separa os QUATRO campos do GotoIfTime. Escrever "mon,tue"
+     * empurra tudo uma casa: "tue" vira dia do mês, "wed" vira mês, e a
+     * condição deixa de valer em qualquer dia sem um aviso sequer.
+     * Conferido no Asterisk 22 com chamada de verdade.
+     */
+    private function horarios(): void
+    {
+        $faixas = Bd::todos('SELECT * FROM grupo_horario_faixas');
+        if ($faixas === []) {
+            $this->ok(true, 'nenhuma faixa de horário cadastrada — nada a conferir');
+
+            return;
+        }
+
+        $dialplan = (new GeradorDialplan())->gerar();
+        $texto = $dialplan['extensions.condicoes.conf'] ?? '';
+
+        $linhas = [];
+        preg_match_all('/GotoIfTime\(([^?]*)\?/', $texto, $linhas);
+
+        foreach ($linhas[1] ?? [] as $regra) {
+            $campos = explode(',', $regra);
+            $this->ok(
+                count($campos) === 4,
+                sprintf('GotoIfTime(%s) tem os quatro campos — lista de dias usa "&", não vírgula', $regra)
+            );
+        }
+
+        // A lista com vírgula nunca pode chegar ao arquivo.
+        $this->ok(
+            !preg_match('/GotoIfTime\([^?]*,(sun|mon|tue|wed|thu|fri|sat),(sun|mon|tue|wed|thu|fri|sat)/', $texto),
+            'nenhuma regra de horário separa dias por vírgula'
+        );
+    }
+
+    /**
+     * O caminho do certificado até os serviços.
+     *
+     * Enviar um certificado e ele não chegar em algum serviço é a falha
+     * mais silenciosa deste módulo: a tela diz "aplicado", o serviço
+     * segue com o autoassinado de fábrica e só o navegador de quem tenta
+     * usar reclama — no caso do TURN, recusando "turns:" e deixando a
+     * chamada sem caminho de áudio.
+     */
+    private function certificados(): void
+    {
+        // O coturn tem escuta TLS e lê o próprio par. Sem esta entrada,
+        // o certificado enviado pelo console nunca chegava nele.
+        $this->ok(
+            in_array('turn', Certificado::SERVICOS, true),
+            'o TURN está entre os serviços que recebem certificado'
+        );
+
+        // Uma linha por serviço, sempre: é dela que a tela lê o estado.
+        // Serviço na constante e ausente do banco = migração que não
+        // rodou, e a atribuição some sem erro.
+        $noBanco = array_column(Bd::todos('SELECT servico FROM certificado_servicos'), 'servico');
+        foreach (Certificado::SERVICOS as $servico) {
+            $this->ok(
+                in_array($servico, $noBanco, true),
+                "o serviço \"{$servico}\" tem linha em certificado_servicos"
+            );
+        }
+
+        // O aplicador roda como root e é publicado pelo instalador. Sem
+        // ele — ou sem a regra de sudo — a atribuição fica "pendente"
+        // para sempre, e antes disto o console respondia "aplicando".
+        $script = '/usr/local/sbin/telium-certificados';
+        if (!is_file($script)) {
+            echo "    \033[33m!\033[0m o aplicador não está nesta máquina "
+               . "({$script}) — grupo conferido só no servidor\n";
+
+            return;
+        }
+
+        $conteudo = (string) @file_get_contents($script);
+        foreach (Certificado::SERVICOS as $servico) {
+            $this->ok(
+                preg_match('/^\s*' . preg_quote($servico, '/') . '\)\s/m', $conteudo) === 1,
+                "o aplicador sabe instalar o certificado do serviço \"{$servico}\""
+            );
+        }
+
+        $saida = [];
+        $rc = 0;
+        @exec('sudo -n -l ' . escapeshellarg($script) . ' 2>&1', $saida, $rc);
+        $this->ok(
+            $rc === 0,
+            'o console pode acionar o aplicador por sudo — sem a regra em '
+            . '/etc/sudoers.d/telium-certificados, aplicar certificado não faz nada'
+        );
+    }
+
+    /** O trecho do arquivo entre [numero] type=endpoint e o próximo [. */
+    private function blocoDoEndpoint(string $arquivo, string $numero): string
+    {
+        $achado = [];
+        $ok = preg_match(
+            '/^\[' . preg_quote($numero, '/') . '\]\s*\n(?=(?:[^\[]*?type\s*=\s*endpoint))([^\[]*)/m',
+            $arquivo,
+            $achado
+        ) === 1;
+
+        return $ok ? (string) $achado[1] : '';
+    }
+
     private function resumo(string $bruto): string
     {
         $linhas = [];
@@ -1071,6 +1393,49 @@ final class Testes
                 $erros
             )))
         );
+    }
+
+    /**
+     * Os perfis de fábrica, do jeito que estão no banco.
+     *
+     * A conferência acima é sobre a regra; esta é sobre os dados. Um
+     * módulo a mais num perfil é uma porta aberta que ninguém vê, porque
+     * ela aparece como um item de menu comum.
+     */
+    private function perfisDeFabrica(): void
+    {
+        $modulos = static function (string $chave): array {
+            $linhas = Bd::todos(
+                'SELECT pm.modulo FROM perfil_modulos pm
+                   JOIN perfis p ON p.id = pm.perfil_id
+                  WHERE p.chave = ?',
+                [$chave]
+            );
+
+            return array_column($linhas, 'modulo');
+        };
+
+        foreach (['supervisor', 'operador', 'auditor'] as $perfil) {
+            $lista = $modulos($perfil);
+            if ($lista === []) {
+                continue;       // perfil apagado pelo cliente: escolha dele
+            }
+
+            $this->ok(
+                !Permissoes::podeModulo($lista, 'admin.auditoria'),
+                "o perfil {$perfil} não alcança a auditoria"
+            );
+        }
+
+        $operador = $modulos('operador');
+        if ($operador !== []) {
+            foreach (['apps.correiovoz', 'apps.sigame'] as $modulo) {
+                $this->ok(
+                    !Permissoes::podeModulo($operador, $modulo),
+                    "o perfil operador não alcança {$modulo} — ela lista todos os ramais"
+                );
+            }
+        }
     }
 
     /**

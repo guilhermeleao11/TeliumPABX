@@ -34,6 +34,7 @@ try {
         'doctor'         => doctor(),
         'senha'          => trocarSenha($argv[2] ?? ''),
         'testar'         => testar(),
+        'backup-enviar'  => backupEnviar($argv[2] ?? ''),
         default          => ajuda(),
     };
 } catch (Throwable $e) {
@@ -265,8 +266,58 @@ function ajuda(): void
       php bin/telium aplicar-config    gera e recarrega o Asterisk
       php bin/telium doctor            testa banco, AMI, Janus e permissões
       php bin/telium senha <usuario>   define uma nova senha (aceita pipe)
+      php bin/telium backup-enviar <id> manda o backup para o destino remoto
 
     TXT;
+}
+
+/**
+ * Manda um backup para o destino remoto configurado.
+ *
+ * Chamado pelo executor logo depois de cada backup concluído, e é por
+ * isso que ele existe: a lógica de FTP mora num lugar só, em PHP, em
+ * vez de ser repetida em bash com outro jogo de opções do curl.
+ *
+ * Sai com 0 quando enviou, 1 quando falhou e 0 quando não há destino
+ * configurado — não ter para onde mandar é escolha, não erro.
+ */
+function backupEnviar(string $id): void
+{
+    global $verde, $vermelho, $amarelo, $zero;
+
+    $id = (int) $id;
+    if ($id < 1) {
+        fwrite(STDERR, "uso: php bin/telium backup-enviar <id>\n");
+        exit(64);
+    }
+
+    $destino = \Telium\Dominio\BackupRemoto::destino();
+    if (!\Telium\Dominio\BackupRemoto::utilizavel($destino)) {
+        echo "{$amarelo}! nenhum destino remoto ligado — o backup fica só no servidor{$zero}\n";
+        exit(0);
+    }
+
+    $b = Bd::um('SELECT * FROM backups WHERE id = ?', [$id]);
+    if ($b === null || ($b['arquivo'] ?? '') === '') {
+        fwrite(STDERR, "{$vermelho}✗ backup {$id} não encontrado{$zero}\n");
+        exit(1);
+    }
+
+    $base = rtrim((string) \Telium\Suporte\Ambiente::get('BACKUP_DIR', '/var/backup/pabx-telium'), '/');
+    $caminho = str_starts_with((string) $b['arquivo'], '/')
+        ? (string) $b['arquivo']
+        : $base . '/' . ltrim((string) $b['arquivo'], '/');
+
+    $r = \Telium\Dominio\BackupRemoto::enviar($caminho, $destino);
+    \Telium\Dominio\BackupRemoto::registrar($r['ok'], $r['detalhe']);
+
+    if ($r['ok']) {
+        echo "{$verde}✓ {$r['detalhe']}{$zero}\n";
+        exit(0);
+    }
+
+    fwrite(STDERR, "{$vermelho}✗ {$r['detalhe']}{$zero}\n");
+    exit(1);
 }
 
 /**

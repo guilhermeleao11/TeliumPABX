@@ -12,7 +12,17 @@ namespace Telium\Dominio;
  */
 final class Certificado
 {
-    public const SERVICOS = ['web', 'asterisk', 'janus'];
+    /**
+     * Os serviços que recebem certificado.
+     *
+     * O TURN está aqui porque o coturn tem escuta TLS na 5349 e lê o
+     * próprio par em /etc/coturn/. O instalador o copia do Asterisk uma
+     * vez e não volta mais: sem esta entrada, quem enviasse um
+     * certificado de verdade trocava o console e o SIP TLS, e o TURN
+     * seguia servindo o autoassinado — que é justamente o que faz o
+     * navegador recusar "turns:" e ficar sem caminho de áudio.
+     */
+    public const SERVICOS = ['web', 'asterisk', 'turn', 'janus'];
 
     public static function disponivel(): bool
     {
@@ -25,6 +35,7 @@ final class Certificado
         return match ($servico) {
             'web'      => 'Interface web (nginx)',
             'asterisk' => 'SIP TLS (Asterisk)',
+            'turn'     => 'TURN / STUN (coturn)',
             'janus'    => 'WebRTC (Janus)',
             default    => $servico,
         };

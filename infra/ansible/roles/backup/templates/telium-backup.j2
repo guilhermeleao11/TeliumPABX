@@ -20,6 +20,8 @@ DIR_TELIUM={{ telium_etc }}
 DIR_AUDIOS={{ audios_dir }}
 DIR_GRAVACOES={{ gravacoes_dir }}
 JANUS_ETC={{ janus_prefix }}/etc/janus
+API_DIR={{ telium_api }}
+API_USER={{ telium_user }}
 
 mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1" 2>/dev/null; }
 escapar() { printf '%s' "$1" | sed "s/'/''/g"; }
@@ -117,6 +119,17 @@ MANIFESTO
     saida+="arquivo: ${nome} ($(du -h "$DESTINO/$nome" | cut -f1))"
     [ "$rc" -eq 0 ] && concluir "$id" concluido "$nome" "$tam" "$saida" \
                     || concluir "$id" falha "$nome" "$tam" "$saida"
+
+    # Backup guardado só na máquina que ele deveria salvar não é backup.
+    # Quando há destino remoto ligado, o arquivo sai daqui agora — e o
+    # resultado fica registrado no banco, que é o que a tela mostra.
+    # A lógica de FTP mora no PHP, num lugar só: repeti-la aqui em bash
+    # seria manter dois jogos de opção de curl em sincronia para sempre.
+    if [ "$rc" -eq 0 ] && [ -x /usr/bin/php ] && [ -f "$API_DIR/bin/telium" ]; then
+      log "enviando para o destino remoto, se houver"
+      runuser -u "$API_USER" -- php "$API_DIR/bin/telium" backup-enviar "$id" 2>&1 | while read -r l; do log "  $l"; done
+    fi
+
     podar "$reter"
     log "pronto: $nome"
   else
