@@ -690,6 +690,11 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->put('/me/ramal', [Portal::class, 'salvarRamal'])
       ->add(new Permissao('pcu.meuramal', null, ['pcu.sigame']));
     $g->get('/me/chamadas', [Portal::class, 'chamadas'])->add(new Permissao('pcu.chamadas'));
+    // O softphone do navegador deixa aqui o resumo do áudio de cada
+    // chamada. Exige só "ter um ramal": é o próprio dono relatando a
+    // própria ligação, e o ramal vem da sessão.
+    $g->post('/me/webrtc/chamada', [Portal::class, 'registrarChamadaWebrtc'])
+      ->add(new Permissao('pcu.meuramal'));
     $g->get('/me/correiovoz', [Portal::class, 'correioVoz'])->add(new Permissao('pcu.correiovoz'));
     $g->get('/me/correiovoz/audio', [Portal::class, 'audioCorreio'])
       ->add(new Permissao('pcu.correiovoz'));

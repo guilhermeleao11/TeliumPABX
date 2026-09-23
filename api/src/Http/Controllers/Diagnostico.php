@@ -121,7 +121,25 @@ final class Diagnostico
 
         $dominio = trim((string) Ambiente::get('SIP_DOMINIO', ''));
 
+        // As últimas chamadas do softphone, com o veredito que o próprio
+        // navegador mediu. É o que responde "por que a chamada de ontem
+        // às 15h não tinha áudio" sem pedir captura de rede a ninguém.
+        $chamadas = Bd::todos(
+            'SELECT * FROM webrtc_chamadas ORDER BY inicio DESC, id DESC LIMIT 20'
+        );
+        $ruins = (int) Bd::valor(
+            "SELECT COUNT(*) FROM webrtc_chamadas
+              WHERE inicio >= NOW() - INTERVAL 7 DAY
+                AND veredito IN ('mudo','so_ouviu','so_falou','nao_fechou')"
+        );
+        $total7 = (int) Bd::valor(
+            'SELECT COUNT(*) FROM webrtc_chamadas WHERE inicio >= NOW() - INTERVAL 7 DAY'
+        );
+
         return Resposta::json($res, [
+            'chamadas'        => $chamadas,
+            'chamadas_ruins'  => $ruins,
+            'chamadas_total'  => $total7,
             'transporte_wss' => str_contains($transportes, 'transport-wss'),
             'wss_bind'       => $bindWss,
             'wss_no_loopback' => $enderecoWss !== '' && !str_starts_with($enderecoWss, '127.'),

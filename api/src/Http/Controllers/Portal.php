@@ -219,6 +219,102 @@ final class Portal
         ]);
     }
 
+    /**
+     * POST /api/me/webrtc/chamada — o resumo do áudio da chamada que acabou.
+     *
+     * Quem manda é o próprio softphone, do navegador, quando a chamada
+     * termina. É o único lugar onde se sabe por qual caminho o áudio
+     * passou e quantos pacotes entraram e saíram — o Asterisk vê a perna
+     * dele, não o que chegou no fone de quem falou.
+     *
+     * Serve para o suporte responder "a chamada de ontem às 15h não
+     * tinha áudio porque o ICE não fechou" sem pedir captura de rede a
+     * ninguém. O ramal vem da sessão, nunca do corpo: uma conta só
+     * registra as próprias chamadas.
+     */
+    public function registrarChamadaWebrtc(Request $req, Response $res): Response
+    {
+        $r = $this->meuRamal($req);
+        if ($r === null) {
+            return $this->semRamal($res);
+        }
+
+        $c = (array) $req->getParsedBody();
+        $eu = (array) $req->getAttribute('usuario');
+
+        $inteiro = static fn (string $campo, int $teto): int
+            => max(0, min($teto, (int) ($c[$campo] ?? 0)));
+
+        $caminho = static function (mixed $v): ?string {
+            $v = strtolower(trim((string) $v));
+
+            return in_array($v, ['host', 'srflx', 'prflx', 'relay'], true) ? $v : null;
+        };
+
+        $entrada = $inteiro('entrada', 100000000);
+        $saida = $inteiro('saida', 100000000);
+        $local = $caminho($c['local'] ?? null);
+
+        Bd::executar(
+            'INSERT INTO webrtc_chamadas
+               (ramal, usuario_id, direcao, numero, inicio, duracao,
+                caminho_local, caminho_remoto, ice_estado,
+                pacotes_entrada, pacotes_saida, perdidos, jitter_ms, rtt_ms, codec,
+                veredito, motivo_fim, navegador)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                (string) $r['numero'],
+                $eu['id'] ?? null,
+                ($c['direcao'] ?? '') === 'entrada' ? 'entrada' : 'saida',
+                // O destino é digitado por quem liga: só dígitos e teclas.
+                substr(preg_replace('/[^0-9*#+]/', '', (string) ($c['numero'] ?? '')) ?? '', 0, 40) ?: null,
+                date('Y-m-d H:i:s', time() - $inteiro('duracao', 86400)),
+                $inteiro('duracao', 86400),
+                $local,
+                $caminho($c['remoto'] ?? null),
+                substr(preg_replace('/[^a-z]/', '', strtolower((string) ($c['ice'] ?? ''))) ?? '', 0, 16) ?: null,
+                $entrada,
+                $saida,
+                $inteiro('perdidos', 100000000),
+                $inteiro('jitter', 60000) ?: null,
+                $inteiro('rtt', 60000) ?: null,
+                substr(preg_replace('/[^A-Za-z0-9\/.-]/', '', (string) ($c['codec'] ?? '')) ?? '', 0, 20) ?: null,
+                self::veredito($entrada, $saida, $local, $inteiro('perdidos', 100000000)),
+                substr(trim((string) ($c['motivo'] ?? '')), 0, 80) ?: null,
+                substr(trim((string) $req->getHeaderLine('User-Agent')), 0, 120) ?: null,
+            ]
+        );
+
+        return Resposta::json($res, ['registrado' => true], 201);
+    }
+
+    /**
+     * O que aconteceu com o áudio, em uma palavra.
+     *
+     * Fica no servidor, e não na tela, para o suporte e o cliente lerem
+     * exatamente a mesma conclusão sobre a mesma chamada.
+     */
+    public static function veredito(int $entrada, int $saida, ?string $caminho, int $perdidos): string
+    {
+        // Sem par de candidatos vencedor, o ICE não fechou: a chamada
+        // ficou de pé na sinalização e a mídia nunca teve por onde ir.
+        if ($caminho === null && $entrada === 0 && $saida === 0) {
+            return 'nao_fechou';
+        }
+        if ($entrada === 0 && $saida === 0) {
+            return 'mudo';
+        }
+        if ($entrada === 0) {
+            return 'so_falou';      // mandou áudio e não recebeu nenhum
+        }
+        if ($saida === 0) {
+            return 'so_ouviu';      // recebeu áudio e não mandou nenhum
+        }
+
+        // Acima de 5% de perda a conversa já fica picotada.
+        return $perdidos > 0 && $perdidos > ($entrada + $perdidos) * 0.05 ? 'instavel' : 'ok';
+    }
+
     /** GET /api/me/correiovoz/audio?pasta=INBOX&id=msg0000 */
     public function audioCorreio(Request $req, Response $res): Response
     {

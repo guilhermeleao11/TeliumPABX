@@ -19,6 +19,7 @@ use Telium\Gerador\GeradorPjsip;
 use Telium\Gerador\GeradorTransportes;
 use Telium\Http\Middleware\Permissao;
 use Telium\Http\Controllers\Diagnostico;
+use Telium\Http\Controllers\Portal;
 
 /**
  * Bateria de testes do Telium, sem depender de nada instalado.
@@ -1061,6 +1062,28 @@ final class Testes
             'o transporte wss não fica no loopback — com 127.0.0.1 o RTP nasce lá e o '
             . "áudio do navegador nunca passa (está \"{$endereco}\")"
         );
+
+        // 1a) O veredito de cada chamada do navegador. É a frase que o
+        // suporte e o cliente leem sobre a MESMA chamada, então ela não
+        // pode depender de quem está olhando.
+        foreach ([
+            // entrada, saída, caminho, perdidos => veredito
+            [500, 500, 'host',  0,   'ok'],
+            [0,   0,   null,    0,   'nao_fechou'],
+            [0,   0,   'relay', 0,   'mudo'],
+            [0,   800, 'srflx', 0,   'so_falou'],
+            [800, 0,   'relay', 0,   'so_ouviu'],
+            [100, 100, 'host',  400, 'instavel'],
+            [100, 100, 'host',  2,   'ok'],
+        ] as [$entrada, $saida, $caminho, $perdidos, $esperado]) {
+            $obtido = Portal::veredito($entrada, $saida, $caminho, $perdidos);
+            $this->ok(
+                $obtido === $esperado,
+                sprintf('chamada com %d de entrada e %d de saída (%s, %d perdidos) é "%s"%s',
+                    $entrada, $saida, $caminho ?? 'sem caminho', $perdidos, $esperado,
+                    $obtido === $esperado ? '' : " — devolveu \"{$obtido}\"")
+            );
+        }
 
         // 1b) Música em espera. O MOH-OPSOUND é pedido ao menuselect com
         // "falha aqui não interrompe": sem saída para a internet na hora

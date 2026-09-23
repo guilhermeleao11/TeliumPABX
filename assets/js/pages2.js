@@ -5513,8 +5513,95 @@ PAGES['conn.webrtc'] = {
         </p>
       </div>` : '';
 
+    // ---------- o veredito, em uma linha ----------
+    // Antes esta tela abria com dez cartões e deixava a conclusão para
+    // quem lia. Suporte não tem tempo para isso, e cliente não tem como.
+    const bloqueios = [
+      !d.transporte_wss && 'o transporte WSS não está carregado no Asterisk',
+      !d.wss_no_loopback && `o áudio está preso no loopback (${esc(d.wss_bind || '—')})`,
+      !d.dominio_ok && `o domínio SIP "${esc(d.dominio || '(vazio)')}" não serve para o navegador`,
+      !(d.http_ligado && d.websocket) && 'o Asterisk não está publicando o WebSocket',
+      iceRuins.length && 'o navegador não alcança o servidor de ICE',
+      mudos.length && `o ramal ${mudos.map(r => r.numero).join(', ')} registra mas não recebe chamada`
+    ].filter(Boolean);
+
+    const semTurn = !d.turn.length;
+    const veredito = bloqueios.length
+      ? { cor: 'danger', ico: 'alert', titulo: 'O softphone do navegador não vai funcionar',
+          texto: `${bloqueios.length === 1 ? 'Falta resolver isto' : 'Faltam resolver estes pontos'}: `
+               + bloqueios.join('; ') + '.' }
+      : semTurn
+        ? { cor: 'warn', ico: 'alert', titulo: 'Funciona, menos em rede que bloqueia UDP',
+            texto: 'O caminho está montado, mas não há TURN configurado. De dentro do escritório e '
+                 + 'na maioria das redes domésticas a chamada tem áudio; atrás de firewall corporativo '
+                 + 'restritivo ela conecta e fica muda.' }
+        : { cor: 'ok', ico: 'checkCirc', titulo: 'O caminho do softphone está montado',
+            texto: 'Transporte, WebSocket, domínio e servidores de ICE conferidos. '
+                 + 'Para saber se ESTE computador tem caminho de áudio, use o teste abaixo.' };
+
+    // ---------- últimas chamadas medidas pelo navegador ----------
+    const VEREDITO = {
+      ok:         { r: 'áudio nos dois sentidos', b: 'badge-ok' },
+      instavel:   { r: 'áudio picotado', b: 'badge-warn' },
+      so_ouviu:   { r: 'ouviu, mas não falou', b: 'badge-danger' },
+      so_falou:   { r: 'falou, mas não ouviu', b: 'badge-danger' },
+      mudo:       { r: 'sem áudio nos dois sentidos', b: 'badge-danger' },
+      nao_fechou: { r: 'a mídia não fechou', b: 'badge-danger' }
+    };
+    const CAMINHO = {
+      host:  'rede local',
+      srflx: 'endereço público',
+      prflx: 'endereço descoberto',
+      relay: 'pelo TURN'
+    };
+
+    const chamadas = (d.chamadas || []).map(c => {
+      const v = VEREDITO[c.veredito] || VEREDITO.ok;
+      return `<tr>
+        <td class="small dim">${dataHora(c.inicio)}</td>
+        <td><b class="mono">${esc(c.ramal)}</b></td>
+        <td>${c.direcao === 'entrada' ? '↓ recebida' : '↑ feita'}
+            ${c.numero ? `<span class="mono dim">${esc(c.numero)}</span>` : ''}</td>
+        <td class="num">${duracao(c.duracao)}</td>
+        <td><span class="badge ${v.b}">${esc(v.r)}</span></td>
+        <td class="small dim">${c.caminho_local
+            ? esc(CAMINHO[c.caminho_local] || c.caminho_local)
+            : '<span class="muted">não fechou</span>'}</td>
+        <td class="small dim mono">${num(c.pacotes_entrada)} ↓ · ${num(c.pacotes_saida)} ↑${
+            Number(c.perdidos) ? ` · ${num(c.perdidos)} perdidos` : ''}</td>
+      </tr>`;
+    }).join('');
+
+    const cartaoChamadas = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head row-between">
+          <div><div class="card-title">Últimas chamadas pelo navegador</div>
+            <div class="card-sub">Medido pelo próprio navegador de quem falou, no fim de cada chamada.
+              É o que o Asterisk não consegue ver.</div></div>
+          ${d.chamadas_total
+            ? `<span class="badge ${d.chamadas_ruins ? 'badge-danger' : 'badge-ok'}">${
+                d.chamadas_ruins ? `${d.chamadas_ruins} de ${d.chamadas_total} com problema`
+                                 : `${d.chamadas_total} sem problema`} · 7 dias</span>`
+            : ''}
+        </div>
+        ${chamadas ? `<div class="table-wrap"><table class="table">
+            <thead><tr><th>Quando</th><th>Ramal</th><th>Chamada</th><th class="num">Duração</th>
+                       <th>Áudio</th><th>Caminho</th><th>Pacotes</th></tr></thead>
+            <tbody>${chamadas}</tbody></table></div>`
+          : `<div style="padding:20px" class="small muted">
+              Nenhuma chamada pelo softphone ainda. Assim que alguém ligar pelo navegador, o resultado
+              do áudio aparece aqui — inclusive o de chamadas que já terminaram.</div>`}
+      </div>`;
+
     return pageHead('WebRTC / Softphone',
-      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + alertaIce + avisoCorrigido + alertaMudo + alerta + `
+      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + `
+      <div class="card" style="margin-bottom:16px;padding:18px;border-left:3px solid var(--${veredito.cor})">
+        <div class="row gap-12" style="align-items:flex-start">
+          <span style="color:var(--${veredito.cor});flex:none">${icon(veredito.ico,'ico ico-lg')}</span>
+          <div><b style="font-size:15px">${esc(veredito.titulo)}</b>
+            <p class="small" style="margin:6px 0 0">${veredito.texto}</p></div>
+        </div>
+      </div>` + cartaoChamadas + alertaIce + avisoCorrigido + alertaMudo + alerta + `
       <div class="card" style="margin-bottom:16px">
         <div class="card-head row-between">
           <b>Este computador consegue fazer WebRTC?</b>

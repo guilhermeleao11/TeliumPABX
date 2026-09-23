@@ -332,14 +332,19 @@ const SipLink = {
     session.on('accepted', atender);
     session.on('confirmed', atender);
 
-    session.on('failed', e => {
+    const encerrou = motivo => {
+      clearInterval(session._teliumRelogio);
+      // Uma última foto antes de a conexão fechar; se já fechou, vale a
+      // penúltima, tirada há no máximo três segundos.
+      this._fotografar(session.connection)
+        .then(foto => { if (foto) session._teliumFoto = foto; })
+        .finally(() => this._relatar(session, papel));
       this._soltar(session);
-      avisar('encerrada', { motivo: this.explicar(e?.cause) });
-    });
-    session.on('ended', () => {
-      this._soltar(session);
-      avisar('encerrada');
-    });
+      avisar('encerrada', motivo ? { motivo } : {});
+    };
+
+    session.on('failed', e => encerrou(this.explicar(e?.cause)));
+    session.on('ended', () => encerrou(null));
 
     // Teto para a coleta de candidatos: ver PRAZO_ICE.
     let prazo = null;
@@ -368,6 +373,17 @@ const SipLink = {
     const avisar = (evento, dados) => consulta
       ? this._avisar('consulta', { estado: evento, ...dados })
       : this._avisar(evento, dados);
+
+    // Uma foto a cada três segundos. A última vale como o resumo da
+    // chamada: no fim, o navegador já pode ter fechado a conexão, e aí
+    // getStats não devolve mais nada.
+    session._teliumInicio = Date.now();
+    clearInterval(session._teliumRelogio);
+    session._teliumRelogio = setInterval(async () => {
+      const foto = await this._fotografar(pc);
+      if (foto) session._teliumFoto = foto;
+    }, 3000);
+    this._fotografar(pc).then(foto => { if (foto) session._teliumFoto = foto; });
 
     pc.addEventListener('track', e => {
       if (e.track.kind !== 'audio') return;
@@ -420,8 +436,72 @@ const SipLink = {
     } catch { /* sessão já encerrada do outro lado */ }
   },
 
+  /**
+   * Fotografa o estado da mídia, para o relatório do fim da chamada.
+   *
+   * O navegador é o único que sabe por onde o áudio passou e quantos
+   * pacotes entraram e saíram. Sem isto, "conectou e não ouvi nada" só
+   * se investiga pedindo ao cliente que rode captura de rede — coisa
+   * que não acontece. Aqui o resumo é tirado durante a chamada e
+   * enviado quando ela acaba.
+   *
+   * Só números de transporte: nada de áudio, nada de conteúdo.
+   */
+  async _fotografar(pc) {
+    if (!pc || pc.connectionState === 'closed') return null;
+
+    let rel;
+    try { rel = await pc.getStats(); } catch { return null; }
+
+    const f = { entrada: 0, saida: 0, perdidos: 0, jitter: null, rtt: null,
+                codec: null, local: null, remoto: null, ice: pc.iceConnectionState };
+    const cands = {};
+    const codecs = {};
+
+    rel.forEach(x => {
+      if (x.type === 'local-candidate' || x.type === 'remote-candidate') cands[x.id] = x.candidateType;
+      if (x.type === 'codec') codecs[x.id] = x.mimeType;
+    });
+    rel.forEach(x => {
+      if (x.type === 'inbound-rtp' && x.kind === 'audio') {
+        f.entrada += x.packetsReceived || 0;
+        f.perdidos += Math.max(0, x.packetsLost || 0);
+        if (x.jitter != null) f.jitter = Math.round(x.jitter * 1000);
+        if (codecs[x.codecId]) f.codec = String(codecs[x.codecId]).replace(/^audio\//, '');
+      }
+      if (x.type === 'outbound-rtp' && x.kind === 'audio') f.saida += x.packetsSent || 0;
+      // Só o par que venceu: é por ele que o áudio realmente passou.
+      if (x.type === 'candidate-pair' && x.state === 'succeeded' && x.nominated) {
+        f.local = cands[x.localCandidateId] || null;
+        f.remoto = cands[x.remoteCandidateId] || null;
+        if (x.currentRoundTripTime != null) f.rtt = Math.round(x.currentRoundTripTime * 1000);
+      }
+    });
+
+    return f;
+  },
+
+  /** Manda o resumo da chamada que acabou. Falha aqui não incomoda ninguém. */
+  _relatar(session, papel) {
+    if (papel === 'consulta') return;              // a perna de consulta não vira registro
+    const f = session._teliumFoto;
+    if (!f || typeof Api === 'undefined') return;
+
+    const inicio = session._teliumInicio || Date.now();
+    Api.post('/me/webrtc/chamada', {
+      direcao: session.direction === 'incoming' ? 'entrada' : 'saida',
+      numero: session.remote_identity?.uri?.user || null,
+      duracao: Math.round((Date.now() - inicio) / 1000),
+      ...f
+    }).catch(() => { /* o relatório é cortesia, nunca atrapalha a ligação */ });
+  },
+
   /** Tira a sessão encerrada de onde ela estiver guardada. */
   _soltar(session) {
+    // O amostrador de mídia morre com a sessão, sempre: um relógio
+    // sobrevivente ficaria pedindo getStats de uma conexão fechada.
+    clearInterval(session._teliumRelogio);
+
     if (this.consulta === session) { this.consulta = null; this.audioConsulta.srcObject = null; return; }
     if (this.sessao === session) {
       this.sessao = null;
