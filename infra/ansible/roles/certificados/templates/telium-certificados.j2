@@ -46,7 +46,12 @@ if [ "${1:-}" = "servicos" ]; then
   exit 0
 fi
 
-mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1" 2>/dev/null; }
+# O 2>/dev/null que ficava aqui era o pior detalhe deste programa:
+# qualquer falha de banco virava resposta vazia, "nada pendente" e saída
+# zero. O console mostrava "pendente" para sempre, o temporizador
+# repetia o silêncio a cada minuto, e não havia onde olhar. Agora o erro
+# aparece no log e derruba a execução.
+mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1"; }
 escapar() { printf '%s' "$1" | sed "s/'/''/g"; }
 log() { echo "[$(date '+%F %T')] $*"; }
 
@@ -209,7 +214,17 @@ aplicar_janus() {
 }
 
 # ---------------------------------------------------------
-pendentes=$(mysql "SELECT s.servico, IFNULL(c.base,''), IFNULL(s.certificado_id,0)
+if ! mysql "SELECT 1" >/dev/null; then
+  log "FALHA: não foi possível ler o banco $BANCO. Nada foi aplicado."
+  exit 1
+fi
+
+# O separador é o traço, e não o vazio: com "IFNULL(c.base,'')" a linha
+# de um serviço voltando para o certificado de fábrica sai com dois
+# tabuladores seguidos, e o "read" os trata como UM só — o que empurrava
+# o id para a coluna da base. O efeito era que voltar ao certificado de
+# fábrica SEMPRE falhava, procurando um arquivo chamado "0" no cofre.
+pendentes=$(mysql "SELECT s.servico, IFNULL(c.base,'-'), IFNULL(s.certificado_id,0)
                      FROM certificado_servicos s
                 LEFT JOIN certificados c ON c.id = s.certificado_id
                     WHERE s.estado = 'pendente';")
@@ -218,6 +233,7 @@ pendentes=$(mysql "SELECT s.servico, IFNULL(c.base,''), IFNULL(s.certificado_id,
 
 while read -r servico base cert_id; do
   [ -z "$servico" ] && continue
+  [ "$base" = "-" ] && base=""
 
   if [ "$cert_id" = "0" ] || [ -z "$base" ]; then
     origem_crt="$FABRICA_CRT"

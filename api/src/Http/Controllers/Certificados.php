@@ -429,11 +429,31 @@ final class Certificados
 
         $disparo = $this->dispararAplicador();
 
+        // Lido DEPOIS de o aplicador terminar: é o que cada serviço
+        // realmente ficou, e não o que se pediu.
+        $estados = [];
+        foreach (Bd::todos('SELECT servico, estado, saida FROM certificado_servicos') as $s) {
+            if (in_array($s['servico'], $mudou, true)) {
+                $estados[] = $s;
+            }
+        }
+        $falhou = array_values(array_filter(
+            $estados,
+            static fn (array $s): bool => $s['estado'] === 'falha'
+        ));
+
         return Resposta::json($res, [
-            'aplicado' => $disparo['ok'],
+            'aplicado' => $disparo['ok'] && $falhou === [],
             'servicos' => $mudou,
-            'detalhe' => $disparo['detalhe'],
-        ], 202);
+            'estados'  => $estados,
+            'detalhe'  => $falhou !== []
+                ? implode(' ', array_map(
+                    static fn (array $s): string
+                        => Certificado::rotuloServico((string) $s['servico']) . ': ' . $s['saida'],
+                    $falhou
+                ))
+                : $disparo['detalhe'],
+        ], $falhou !== [] ? 200 : 202);
     }
 
     // ------------------------------------------------------------------
@@ -634,11 +654,28 @@ final class Certificados
             ];
         }
 
-        @exec('sudo -n ' . escapeshellarg($script) . ' > /dev/null 2>&1 &');
+        // Em primeiro plano, e não em segundo. Recarregar nginx, Asterisk
+        // e coturn leva uns segundos — e são exatamente os segundos em
+        // que quem clicou quer saber se deu certo. Mandar para trás
+        // significava responder "aplicando" e deixar a pessoa
+        // descobrir sozinha, olhando o certificado do serviço, que nada
+        // tinha acontecido.
+        $saida = [];
+        $rc = 0;
+        @exec('sudo -n ' . escapeshellarg($script) . ' 2>&1', $saida, $rc);
+
+        if ($rc !== 0) {
+            return [
+                'ok' => false,
+                'detalhe' => 'O aplicador terminou com erro: '
+                           . (trim(implode(' ', array_slice($saida, -3))) ?: "código {$rc}")
+                           . '. Veja o detalhe em cada serviço.',
+            ];
+        }
 
         return [
             'ok' => true,
-            'detalhe' => 'Aplicando nos serviços. A tela acompanha e mostra o resultado de cada um.',
+            'detalhe' => 'Aplicado. O resultado de cada serviço está no cartão dele.',
         ];
     }
 }

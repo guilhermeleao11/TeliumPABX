@@ -2198,7 +2198,7 @@ PAGES['admin.certificados'] = {
       botao.innerHTML = '<span class="spin"></span> Aplicando…';
       try {
         const r = await Api.post('/certificados/aplicar', { servicos });
-        toast(r.detalhe || 'Aplicando.', r.aplicado ? 'ok' : 'warn');
+        toast(r.detalhe || 'Aplicado.', r.aplicado ? 'ok' : 'err');
         // Recarregar uma vez, quatro segundos depois, era um chute: se o
         // coturn e o Asterisk ainda estivessem subindo, a tela voltava
         // dizendo "Aplicando" e parava por aí, sem nunca contar o
