@@ -6,8 +6,10 @@ namespace Telium\Suporte;
 use Telium\Dominio\BackupRemoto;
 use Telium\Dominio\Certificado;
 use Telium\Dominio\Permissoes;
+use Telium\Dominio\Provisionamento;
 use Telium\Dominio\Rede;
 use Telium\Dominio\Senha;
+use Telium\Dominio\Tarifa;
 use Telium\Dominio\Stun;
 use Telium\Dominio\Totp;
 use Telium\Gerador\Aplicador;
@@ -60,9 +62,12 @@ final class Testes
             $this->grupo('Ramais WebRTC gerados', $this->webrtcGerado(...));
             $this->grupo('Perfis de fábrica', $this->perfisDeFabrica(...));
             $this->grupo('Faixas de horário', $this->horarios(...));
+            $this->grupo('Tarifação', $this->tarifacao(...));
+            $this->grupo('Provisionamento de telefones', $this->provisionamento(...));
             $this->grupo('Saída do backup', $this->backup(...));
             $this->grupo('Certificados TLS', $this->certificados(...));
             $this->grupo('Portas da API', $this->rotas(...));
+            $this->grupo('Porta do provisionamento', $this->portaDoProvisionamento(...));
         }
 
         if (Ami::tentarComando('core show version') !== null) {
@@ -1213,6 +1218,185 @@ final class Testes
 
 
     /**
+     * O telefone consegue buscar a própria configuração?
+     *
+     * Instalar trinta ramais era configurar trinta aparelhos à mão. O
+     * cadastro existia e ninguém lia: faltava o endereço que o aparelho
+     * consulta no boot. É uma porta SEM sessão que entrega senha SIP —
+     * por isso cada conferência aqui é sobre o que a protege.
+     */
+    private function provisionamento(): void
+    {
+        // O nome do arquivo é montado pelo próprio aparelho, e cada
+        // fabricante monta o seu.
+        foreach ([
+            ['001122334455.cfg',    '001122334455'],
+            ['cfg001122334455.xml', '001122334455'],
+            ['CFGAABBCCDDEEFF.XML', 'aabbccddeeff'],
+            ['00:11:22:33:44:55',   '001122334455'],
+            ['AA-BB-CC-DD-EE-FF',   'aabbccddeeff'],
+        ] as [$arquivo, $esperado]) {
+            $obtido = Provisionamento::macDoArquivo($arquivo);
+            $this->ok(
+                $obtido === $esperado,
+                sprintf('"%s" é o aparelho %s%s', $arquivo, $esperado,
+                    $obtido === $esperado ? '' : " — leu \"{$obtido}\"")
+            );
+        }
+
+        // "cfg" tem dois dígitos hexadecimais dentro, e limpar só o que
+        // não é hexadecimal deslocava o MAC inteiro: todo aparelho
+        // Grandstream ficava desconhecido. O caso existe por isso.
+        $this->ok(
+            Provisionamento::macDoArquivo('cfgaabbccddeeff.xml') === 'aabbccddeeff',
+            'o "cfg" da Grandstream não é confundido com dígitos do MAC'
+        );
+
+        foreach ([
+            ['001122334455', true],
+            ['00112233445',  false],
+            ['00112233445g', false],
+            ['',             false],
+        ] as [$mac, $vale]) {
+            $this->ok(
+                Provisionamento::macValido($mac) === $vale,
+                sprintf('"%s" %s um MAC', $mac === '' ? '(vazio)' : $mac, $vale ? 'é' : 'não é')
+            );
+        }
+
+        // A trava de rede é o que impede a senha SIP de sair pela
+        // internet para quem adivinhar um MAC.
+        foreach ([
+            ['192.168.1.50', true],
+            ['10.20.30.40',  true],
+            ['127.0.0.1',    true],
+            ['8.8.8.8',      false],
+            ['200.170.198.144', false],
+            ['',             false],
+        ] as [$ip, $interno]) {
+            $this->ok(
+                Provisionamento::daRedeLocal($ip) === $interno,
+                sprintf('%s %s da rede interna', $ip === '' ? '(vazio)' : $ip, $interno ? 'é' : 'não é')
+            );
+        }
+
+        // O arquivo precisa sair com a senha certa e sem quebra de linha
+        // injetada pelo nome do ramal, que é campo digitado.
+        $dispositivo = ['mac' => '00:11:22:33:44:55', 'fabricante' => 'yealink'];
+        $ramal = ['numero' => '1001', 'senha_sip' => 'S3nh4Forte!', 'nome' => "Recepção\nmalicioso = 1"];
+
+        $cfg = Provisionamento::gerar($dispositivo, $ramal);
+        $this->ok(str_contains($cfg, 'account.1.password = S3nh4Forte!'), 'o arquivo leva a senha SIP do ramal');
+        $this->ok(str_contains($cfg, 'account.1.user_name = 1001'), 'o arquivo leva o número do ramal');
+        $this->ok(
+            !str_contains($cfg, "\nmalicioso = 1"),
+            'quebra de linha no nome do ramal não vira linha de configuração no aparelho'
+        );
+
+        $xml = Provisionamento::gerar(['mac' => 'aabbccddeeff', 'fabricante' => 'grandstream'], $ramal);
+        $this->ok(str_contains($xml, '<P34>S3nh4Forte!</P34>'), 'a Grandstream recebe a senha no P34');
+        $this->ok(str_starts_with(trim($xml), '<?xml'), 'o arquivo da Grandstream é XML');
+
+        // O segredo do caminho não pode nascer vazio: vazio, a porta
+        // ficaria aberta para qualquer um que soubesse um MAC.
+        $this->ok(
+            strlen(Provisionamento::segredo()) >= 16,
+            'o segredo do endereço de provisionamento tem tamanho de segredo'
+        );
+    }
+
+    /**
+     * A conta de cada chamada.
+     *
+     * Esta tela somava cdr.custo desde sempre, e nada escrevia a coluna:
+     * R$ 0,00 para todo mês, sem erro nenhum. A matemática não é
+     * "minutos vezes preço" — a operadora cobra em frações, e um total
+     * que não bate com a fatura é pior do que nenhum total.
+     */
+    private function tarifacao(): void
+    {
+        // Frações, do jeito que a operadora cobra. Mínimo de 30 s e
+        // depois de 6 em 6: 5 s custam 30 s, 31 s custam 36 s.
+        $celular = ['custo_minuto' => 0.35, 'taxa_fixa' => 0,
+                    'primeiro_incremento_seg' => 30, 'incremento_seg' => 6];
+
+        foreach ([
+            [0,   0.0,    'chamada não atendida não custa nada'],
+            [5,   0.175,  'cinco segundos custam o mínimo de trinta'],
+            [30,  0.175,  'trinta segundos custam trinta'],
+            [31,  0.21,   'trinta e um segundos passam para a fração seguinte'],
+            [60,  0.35,   'um minuto custa um minuto'],
+        ] as [$billsec, $esperado, $porque]) {
+            $obtido = Tarifa::custo($celular, $billsec);
+            $this->ok(
+                abs($obtido - $esperado) < 0.00005,
+                sprintf('%s (%ds = R$ %.4f)%s', $porque, $billsec, $esperado,
+                    abs($obtido - $esperado) < 0.00005 ? '' : sprintf(' — deu R$ %.4f', $obtido))
+            );
+        }
+
+        // Minuto cheio e por segundo saem do mesmo par de campos.
+        $this->ok(
+            abs(Tarifa::custo(['custo_minuto' => 1, 'primeiro_incremento_seg' => 0,
+                               'incremento_seg' => 60], 61) - 2.0) < 0.00005,
+            'com incremento de 60 s, 61 segundos custam dois minutos'
+        );
+
+        // A gramática dos padrões é a mesma das rotas de saída.
+        foreach ([
+            ['_0800.',        '08007771234', true],
+            ['_0800.',        '32651234',    false],
+            ['_0XX9XXXXXXXX', '0XX911999998888', false],
+            ['_11N',          '119',         true],
+            ['_11N',          '111',         false],
+            ['_[147]X',       '41',          true],
+            ['_[147]X',       '21',          false],
+            ['3265',          '32651234',    false],
+            ['3265',          '3265',        true],
+        ] as [$padrao, $numero, $esperado]) {
+            $this->ok(
+                Tarifa::casa($padrao, $numero) === $esperado,
+                sprintf('"%s" %s com %s', $padrao, $esperado ? 'casa' : 'não casa', $numero)
+            );
+        }
+
+        // A escolha: com padrão vence a da classe inteira. É o que faz
+        // "0800 é grátis" ganhar de "local custa X" sem depender de
+        // quem foi cadastrado primeiro.
+        $tarifas = [
+            ['id' => 1, 'classe' => 'local',    'padrao' => null,     'ordem' => 30, 'ativo' => 1],
+            ['id' => 2, 'classe' => 'qualquer', 'padrao' => '_0800.', 'ordem' => 20, 'ativo' => 1],
+            ['id' => 3, 'classe' => 'celular',  'padrao' => null,     'ordem' => 40, 'ativo' => 0],
+        ];
+        $this->ok(
+            (Tarifa::escolher($tarifas, 'local', '08007771234')['id'] ?? 0) === 2,
+            'o 0800 pega a tarifa do padrão, e não a da classe local'
+        );
+        $this->ok(
+            (Tarifa::escolher($tarifas, 'local', '32651234')['id'] ?? 0) === 1,
+            'destino comum pega a tarifa da classe'
+        );
+        $this->ok(
+            Tarifa::escolher($tarifas, 'celular', '11999998888') === null,
+            'tarifa desativada não é escolhida'
+        );
+        $this->ok(
+            Tarifa::escolher($tarifas, null, '11999998888') === null,
+            'chamada sem classe não pega tarifa de classe nenhuma'
+        );
+
+        // O dialplan precisa gravar a classe, senão nada disso se aplica.
+        $dialplan = (new GeradorDialplan())->gerar();
+        $saida = $dialplan['extensions.saida.conf'] ?? '';
+        if (str_contains($saida, 'Rota de saída')) {
+            $this->ok(
+                str_contains($saida, 'Set(CDR(classe)='),
+                'a rota de saída grava a classe no CDR — é ela que decide a tarifa'
+            );
+        }
+    }
+
+    /**
      * O backup consegue sair do servidor?
      *
      * Backup guardado só na máquina que ele deveria salvar não é
@@ -1375,6 +1559,71 @@ final class Testes
         return $ok ? (string) $achado[1] : '';
     }
 
+    /**
+     * A única porta sem sessão que entrega senha: ela recusa?
+     *
+     * O teste de rotas a deixa passar de propósito — um telefone de mesa
+     * não faz login. O que sobra é conferir aqui, com o aplicativo de
+     * verdade, que ela não abre para quem não tem o segredo.
+     */
+    private function portaDoProvisionamento(): void
+    {
+        $app = $this->aplicativo();
+        if ($app === null) {
+            return;
+        }
+
+        $pedir = static function (string $caminho) use ($app): int {
+            $req = (new \Slim\Psr7\Factory\ServerRequestFactory())
+                ->createServerRequest('GET', $caminho);
+
+            try {
+                return $app->handle($req)->getStatusCode();
+            } catch (\Throwable) {
+                return 0;
+            }
+        };
+
+        $this->ok(
+            $pedir('/prov/segredo-errado/001122334455.cfg') === 404,
+            'o provisionamento recusa quem não tem o segredo do endereço'
+        );
+        $this->ok(
+            $pedir('/prov/' . Provisionamento::segredo() . '/aaaaaaaaaaaa.cfg') === 404,
+            'o provisionamento recusa um MAC que não está cadastrado'
+        );
+    }
+
+    /**
+     * O aplicativo da API, montado uma vez só.
+     *
+     * O index.php define constantes no topo. Carregá-lo duas vezes — um
+     * grupo de teste para as rotas, outro para a porta pública — rende
+     * "Constant already defined" no meio da bateria, que assusta quem lê
+     * a saída e não é defeito nenhum.
+     */
+    private ?\Slim\App $app = null;
+
+    private function aplicativo(): ?\Slim\App
+    {
+        if ($this->app !== null) {
+            return $this->app;
+        }
+
+        $indice = __DIR__ . '/../../public/index.php';
+        if (!is_file($indice)) {
+            return null;
+        }
+
+        if (!defined('TELIUM_SEM_RUN')) {
+            define('TELIUM_SEM_RUN', true);
+        }
+
+        $app = require $indice;
+
+        return $this->app = $app instanceof \Slim\App ? $app : null;
+    }
+
     private function resumo(string $bruto): string
     {
         $linhas = [];
@@ -1508,14 +1757,20 @@ final class Testes
             return;
         }
 
-        if (!defined('TELIUM_SEM_RUN')) {
-            define('TELIUM_SEM_RUN', true);
+        $app = $this->aplicativo();
+        if ($app === null) {
+            $this->ok(false, 'não foi possível montar o aplicativo da API');
+
+            return;
         }
 
-        /** @var \Slim\App $app */
-        $app = require $indice;
-
-        $publicas = ['GET /api/health', 'POST /api/auth/login'];
+        // As três portas sem sessão, e cada uma por um motivo. O
+        // provisionamento é a mais delicada: entrega senha SIP, e quem
+        // busca é um telefone de mesa, que não tem como fazer login. O
+        // que a protege é conferido logo abaixo, caso a caso.
+        // A chave é montada trocando cada {parâmetro} por "1", então é
+        // assim que a rota de provisionamento aparece aqui.
+        $publicas = ['GET /api/health', 'POST /api/auth/login', 'GET /api/prov/1/1'];
         $abertas = [];
         $conferidas = 0;
 

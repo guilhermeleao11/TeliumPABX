@@ -6,6 +6,7 @@ use Slim\Routing\RouteCollectorProxy;
 use Telium\Http\Controllers\Autenticacao as CtrlAuth;
 use Telium\Http\Controllers\Cadastros;
 use Telium\Http\Controllers\Certificados;
+use Telium\Http\Controllers\Provisionar;
 use Telium\Http\Controllers\Conferencias;
 use Telium\Http\Controllers\Contatos;
 use Telium\Http\Controllers\Destinos;
@@ -36,7 +37,13 @@ require __DIR__ . '/../vendor/autoload.php';
 Ambiente::carregar(__DIR__ . '/../.env');
 
 $app = AppFactory::create();
-$app->setBasePath('/api');
+
+// Tudo mora sob /api, menos o provisionamento de telefones. A URL dele é
+// digitada à mão no teclado de um aparelho, por quem está instalando, e
+// cada segmento a mais é uma chance a mais de erro — ela já carrega um
+// segredo de 32 caracteres.
+$caminhoPedido = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$app->setBasePath(str_starts_with($caminhoPedido, '/prov/') ? '' : '/api');
 $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
 $app->add(new Seguranca());
@@ -464,10 +471,26 @@ $recursos = [
         'modulo' => 'conn.provisionamento',
         'recurso' => new Recurso(
             tabela: 'dispositivos',
-            colunas: ['mac','modelo','fabricante','ramal_id','firmware','ip','estado'],
+            // "ip", "firmware", "estado", "visto_em" e "vezes" são
+            // escritos pelo próprio aparelho quando ele busca a
+            // configuração: não entram no formulário, senão um valor
+            // digitado à mão passaria por medição.
+            colunas: ['mac','modelo','fabricante','ramal_id','observacao'],
             ordem: 'mac',
             busca: ['mac','modelo','ip'],
             filtros: ['estado'],
+            unicas: ['mac'],
+            regras: [
+                // O MAC é a chave que o aparelho usa para se
+                // identificar: errado, ele nunca acha a configuração e
+                // ninguém entende por quê.
+                'mac' => ['rotulo' => 'MAC address',
+                          'padrao' => '/^[0-9A-Fa-f]{2}([:.-]?[0-9A-Fa-f]{2}){5}$/',
+                          'mensagem' => 'O MAC tem doze dígitos hexadecimais, com ou sem separador. '
+                                      . 'Ex.: 00:11:22:33:44:55'],
+                'fabricante' => ['rotulo' => 'fabricante',
+                                 'em' => ['grandstream', 'yealink', 'fanvil']],
+            ],
             modulo: 'conn.provisionamento',
         ),
     ],
@@ -587,8 +610,9 @@ $recursos = [
         'referencia' => ['cfg.tarifas'],
         'recurso' => new Recurso(
             tabela: 'tarifas',
-            colunas: ['nome','padrao','custo_minuto','taxa_fixa','incremento_seg','ativo'],
-            ordem: 'nome',
+            colunas: ['nome','classe','padrao','custo_minuto','taxa_fixa','incremento_seg',
+                      'primeiro_incremento_seg','ordem','ativo'],
+            ordem: 'ordem, id',
             busca: ['nome','padrao'],
             modulo: 'telium.tarifacao',
         ),
@@ -663,6 +687,12 @@ $recursos = [
    Rotas públicas
    --------------------------------------------------------- */
 $app->get('/health', Saude::class);
+
+// A única porta sem sessão além do login e do health, e é assim porque
+// tem de ser: um telefone de mesa não faz login. O que protege é o
+// conjunto — segredo no caminho, MAC precisar estar cadastrado e rede de
+// origem conferida. Cada pedido, atendido ou não, fica registrado.
+$app->get('/prov/{segredo}/{arquivo}', [Provisionar::class, 'entregar']);
 $app->post('/auth/login', [CtrlAuth::class, 'login']);
 
 /* ---------------------------------------------------------
@@ -719,6 +749,8 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/relatorios/troncos', [Relatorios::class, 'troncos'])->add(new Permissao('rel.troncos'));
     $g->get('/relatorios/eventos', [Relatorios::class, 'eventos'])->add(new Permissao('rel.cel'));
     $g->get('/relatorios/tarifacao', [Relatorios::class, 'tarifacao'])->add(new Permissao('telium.tarifacao'));
+    $g->post('/relatorios/tarifacao', [Relatorios::class, 'tarifar'])
+      ->add(new Permissao('telium.tarifacao', 'editar'));
     // ---- arquivo de gravações ----
     // Não há rota de exclusão, de propósito: gravação é prova de
     // atendimento. Quem limpa o disco é a retenção do backup.
@@ -806,6 +838,14 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('admin.gravacoes', 'editar'));
     $g->delete('/audios/{id}', [Audios::class, 'remover'])
       ->add(new Permissao('admin.gravacoes', 'excluir'));
+
+    // ---- provisionamento de telefones ----
+    $g->get('/provisionamento', [Provisionar::class, 'estado'])
+      ->add(new Permissao('conn.provisionamento'));
+    $g->put('/provisionamento', [Provisionar::class, 'salvar'])
+      ->add(new Permissao('conn.provisionamento', 'editar'));
+    $g->get('/provisionamento/{id}/previa', [Provisionar::class, 'previa'])
+      ->add(new Permissao('conn.provisionamento', 'editar'));
 
     // ---- certificados TLS ----
     $g->get('/certificados', [Certificados::class, 'listar'])->add(new Permissao('admin.certificados'));

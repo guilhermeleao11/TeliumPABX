@@ -54,6 +54,17 @@ server {
         try_files $uri /api/index.php$is_args$args;
     }
 
+    # ---------- provisionamento de telefones ----------
+    # O aparelho busca a própria configuração aqui no boot. Não passa
+    # pelo /api/ de propósito: o limite de requisições de lá é pensado
+    # para um humano no console, e trinta telefones subindo juntos
+    # depois de uma queda de energia estourariam esse limite — todos ao
+    # mesmo tempo, que é justamente quando não se pode falhar.
+    location /prov/ {
+        limit_req  zone=telium_api burst=120 nodelay;
+        try_files $uri /api/index.php$is_args$args;
+    }
+
     # O login é o alvo da varredura de senha e o mais caro de processar.
     # burst=5 deixa passar o erro de digitação sem deixar passar o robô.
     location = /api/auth/login {

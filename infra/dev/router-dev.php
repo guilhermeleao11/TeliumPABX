@@ -11,7 +11,7 @@ declare(strict_types=1);
 $raiz = '/w';                                    // o repositório, montado no contêiner
 $caminho = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 
-if (str_starts_with($caminho, '/api')) {
+if (str_starts_with($caminho, '/api') || str_starts_with($caminho, '/prov/')) {
     $_SERVER['SCRIPT_NAME'] = '/api/index.php';
     require $raiz . '/api/public/index.php';
 

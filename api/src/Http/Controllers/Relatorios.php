@@ -5,6 +5,7 @@ namespace Telium\Http\Controllers;
 
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use Telium\Dominio\Tarifa;
 use Telium\Suporte\Bd;
 use Telium\Suporte\Resposta;
 
@@ -315,11 +316,60 @@ final class Relatorios
             [$mes]
         ) ?? [];
 
+        // Chamada de saída que ainda não passou pela tarifação, e
+        // chamada que passou e não achou tarifa: as duas fazem o total
+        // do mês ficar menor do que a fatura, e a tela precisa dizer
+        // isso em vez de deixar o número passar por resposta.
+        $pendentes = (int) Bd::valor(
+            "SELECT COUNT(*) FROM cdr
+              WHERE direcao = 'saida' AND custo IS NULL AND billsec > 0
+                AND DATE_FORMAT(calldate, '%Y-%m') = ?",
+            [$mes]
+        );
+
+        $semClasse = (int) Bd::valor(
+            "SELECT COUNT(*) FROM cdr
+              WHERE direcao = 'saida' AND billsec > 0 AND (classe IS NULL OR classe = '')
+                AND DATE_FORMAT(calldate, '%Y-%m') = ?",
+            [$mes]
+        );
+
         return Resposta::json($res, [
-            'mes'      => $mes,
-            'totais'   => $totais,
-            'porSetor' => $porSetor,
-            'tarifas'  => Bd::todos('SELECT * FROM tarifas WHERE ativo = 1 ORDER BY nome'),
+            'mes'        => $mes,
+            'totais'     => $totais,
+            'porSetor'   => $porSetor,
+            'tarifas'    => Bd::todos('SELECT * FROM tarifas WHERE ativo = 1 ORDER BY ordem, id'),
+            'zerado'     => Tarifa::tudoZerado(),
+            'pendentes'  => $pendentes,
+            'sem_classe' => $semClasse,
+        ]);
+    }
+
+    /**
+     * POST /api/relatorios/tarifacao — recalcula o mês agora.
+     *
+     * A tarifação roda sozinha pelo temporizador, mas quem acabou de
+     * digitar o preço da operadora quer ver o mês fechado na hora, e não
+     * no próximo ciclo.
+     */
+    public function tarifar(Request $req, Response $res): Response
+    {
+        $c = (array) $req->getParsedBody();
+        $mes = (string) ($c['mes'] ?? '');
+        if ($mes !== '' && preg_match('/^\d{4}-\d{2}$/', $mes) !== 1) {
+            return Resposta::erro($res, 'Mês inválido.', 422, ['campo' => 'mes']);
+        }
+
+        $r = Tarifa::aplicar($mes === '' ? null : $mes);
+
+        return Resposta::json($res, $r + [
+            'detalhe' => $r['tarifadas'] === 0 && $r['sem_tarifa'] === 0
+                ? 'Nenhuma chamada nova para tarifar neste mês.'
+                : sprintf('%d chamada(s) tarifada(s).%s', $r['tarifadas'],
+                    $r['sem_tarifa'] > 0
+                        ? " {$r['sem_tarifa']} ficaram sem tarifa que se aplique — falta uma linha "
+                        . 'para a classe delas na Tabela de Tarifas.'
+                        : ''),
         ]);
     }
 

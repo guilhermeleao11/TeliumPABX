@@ -462,8 +462,12 @@ function paginaCrud(cfg) {
         ? `<button class="btn btn-primary btn-sm" data-novo>${icon('plus','ico ico-sm')} ${cfg.rotuloNovo || 'Adicionar'}</button>`
         : '';
 
+      // Um bloco antes da lista, para a tela que precisa explicar algo
+      // que a lista não explica — a URL que o telefone busca, por
+      // exemplo, sem a qual o cadastro inteiro não serve para nada.
       const cabecalho = pageHead(cfg.titulo, cfg.sub,
-        `${readOnlyNote(ctx)}${cfg.acoesExtra ? cfg.acoesExtra(ctx) : ''}${botaoNovo}`);
+        `${readOnlyNote(ctx)}${cfg.acoesExtra ? cfg.acoesExtra(ctx) : ''}${botaoNovo}`)
+        + (cfg.antesDaLista ? cfg.antesDaLista(this, ctx) : '');
 
       if (!this._itens.length) {
         return cabecalho + `<div class="card">${vazio(

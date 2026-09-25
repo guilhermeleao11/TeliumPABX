@@ -851,11 +851,37 @@ PAGES['telium.tarifacao'] = {
 
     const cabecalho = pageHead('Tarifação e Custos',
       `Consumo de chamadas saintes em ${d.mes}.`,
-      `<input class="input" type="month" id="mesTarifa" value="${d.mes}" style="width:170px">`);
+      `<input class="input" type="month" id="mesTarifa" value="${d.mes}" style="width:170px">
+       ${ctx.can('editar')
+         ? `<button class="btn btn-outline btn-sm" id="recalcTarifa">
+              ${icon('refresh','ico ico-sm')} Recalcular o mês</button>` : ''}`);
 
     const semCusto = !Number(d.totais?.chamadas);
 
-    return cabecalho + `
+    // Um total em R$ 0,00 tem três causas muito diferentes, e a tela
+    // precisa separá-las: ninguém digitou os preços, há chamadas que
+    // ainda não passaram pela tarifação, ou há chamadas que saíram sem
+    // classe — e nesse caso nenhuma tarifa se aplica a elas. Deixar o
+    // zero passar por resposta foi o que fez este módulo parecer pronto
+    // enquanto não escrevia um centavo.
+    const avisos = [
+      d.zerado && `<div class="aviso-form" style="margin-bottom:14px">${icon('alert','ico')}
+        <div><b>As tarifas estão todas com preço zero</b>
+          <div class="tiny">A conta vai fechar em R$ 0,00 até você digitar os valores da sua
+            operadora em <a href="#/cfg.tarifas">Tabela de Tarifas</a>. As linhas por classe já
+            existem — falta só o preço.</div></div></div>`,
+      Number(d.pendentes) && `<div class="aviso-form" style="margin-bottom:14px">${icon('info','ico')}
+        <div><b>${num(d.pendentes)} chamada(s) ainda não tarifada(s) neste mês</b>
+          <div class="tiny">A tarifação roda sozinha de hora em hora. Para ver o mês fechado agora,
+            use <b>Recalcular o mês</b>.</div></div></div>`,
+      Number(d.sem_classe) && `<div class="aviso-form" style="margin-bottom:14px">${icon('alert','ico')}
+        <div><b>${num(d.sem_classe)} chamada(s) saíram sem classificação</b>
+          <div class="tiny">Elas não passaram por uma rota de saída — chamadas anteriores a esta
+            versão, ou originadas por fora do dialplan. Nenhuma tarifa se aplica a elas, e por isso
+            ficam de fora do total.</div></div></div>`
+    ].filter(Boolean).join('');
+
+    return cabecalho + avisos + `
     <div class="grid g-4" style="margin-bottom:16px">
       ${[['Custo total', semCusto ? '—' : moeda(d.totais.custo), 'creditCard', 'brand'],
          ['Minutos falados', semCusto ? '—' : num(d.totais.minutos), 'clock', 'info'],
@@ -876,14 +902,18 @@ PAGES['telium.tarifacao'] = {
 
     <div class="card">
       <div class="card-head"><div><div class="card-title">Tabela de tarifas</div>
-        <div class="card-sub">Custo por minuto aplicado a cada padrão de destino</div></div>
-        <a class="btn btn-outline btn-sm" href="#/telium.tarifacao">${icon('edit','ico ico-sm')} Gerenciar</a></div>
+        <div class="card-sub">O que a operadora cobra por cada tipo de chamada</div></div>
+        <a class="btn btn-outline btn-sm" href="#/cfg.tarifas">${icon('edit','ico ico-sm')} Gerenciar</a></div>
       ${d.tarifas.length ? `<div class="table-wrap"><table class="table">
-        <thead><tr><th>Nome</th><th>Padrão</th><th>Custo/min</th><th>Taxa fixa</th><th>Incremento</th></tr></thead>
+        <thead><tr><th>Nome</th><th>Aplica-se a</th><th>Custo/min</th><th>Taxa fixa</th><th>Fração</th></tr></thead>
         <tbody>${d.tarifas.map(t => `
-          <tr><td><b>${esc(t.nome)}</b></td><td><span class="badge mono">${esc(t.padrao)}</span></td>
+          <tr><td><b>${esc(t.nome)}</b>${Number(t.custo_minuto) || Number(t.taxa_fixa) ? ''
+                : ' <span class="badge badge-warn">sem preço</span>'}</td>
+            <td><span class="badge">${esc(CLASSES_TARIFA[t.classe] || t.classe)}</span>${
+              t.padrao ? ` <span class="badge mono">${esc(t.padrao)}</span>` : ''}</td>
             <td class="num">${moeda(t.custo_minuto)}</td><td class="num">${moeda(t.taxa_fixa)}</td>
-            <td class="num">${t.incremento_seg}s</td></tr>`).join('')}
+            <td class="small dim">${Number(t.primeiro_incremento_seg)
+              ? `mínimo ${t.primeiro_incremento_seg}s, ` : ''}de ${t.incremento_seg}s em ${t.incremento_seg}s</td></tr>`).join('')}
         </tbody></table></div>`
         : vazio('creditCard', 'Nenhuma tarifa cadastrada',
                 'Sem tarifas o custo das chamadas não é calculado.')}
@@ -892,6 +922,21 @@ PAGES['telium.tarifacao'] = {
   mount() {
     document.getElementById('mesTarifa')?.addEventListener('change', e => {
       this._mes = e.target.value; App.route();
+    });
+
+    document.getElementById('recalcTarifa')?.addEventListener('click', async ev => {
+      const b = ev.currentTarget;
+      const antes = b.innerHTML;
+      b.disabled = true;
+      b.innerHTML = '<span class="spin"></span> Calculando…';
+      try {
+        const r = await Api.post('/relatorios/tarifacao', { mes: this._mes || '' });
+        toast(r.detalhe, r.sem_tarifa ? 'warn' : 'ok');
+        App.route();
+      } catch (e) {
+        b.disabled = false; b.innerHTML = antes;
+        toast(e.message, 'err');
+      }
     });
   }
 };
@@ -911,28 +956,146 @@ PAGES['conn.provisionamento'] = paginaCrud({
   textoBusca: d => `${d.mac} ${d.modelo || ''} ${d.ip || ''}`,
   tituloEditar: d => `Aparelho ${d.mac}`,
   colunas: [
-    { label: 'MAC', render: d => `<span class="mono">${esc(d.mac)}</span>` },
-    { label: 'Modelo', render: d => `<b>${esc(d.modelo || '—')}</b>` },
-    { label: 'Ramal', render: d => `<span class="mono">${esc(d.ramal_id || '—')}</span>` },
-    { label: 'Firmware', render: d => `<span class="mono small dim">${esc(d.firmware || '—')}</span>` },
-    { label: 'IP', render: d => `<span class="mono small dim">${esc(d.ip || '—')}</span>` },
+    { label: 'MAC', render: d => `<span class="mono">${esc(d.mac)}</span>${
+        d.observacao ? `<div class="tiny muted">${esc(d.observacao)}</div>` : ''}` },
+    { label: 'Aparelho', render: d => `<b>${esc(d.modelo || '—')}</b>
+        <div class="tiny muted">${esc(d.fabricante || 'sem fabricante')}</div>` },
+    { label: 'Ramal', render: d => d.ramal_id
+        ? `<span class="mono">${esc(d.ramal_numero || d.ramal_id)}</span>`
+        : '<span class="badge badge-warn">sem ramal</span>' },
+    { label: 'Buscou a configuração', render: d => d.visto_em
+        ? `<span class="small">${dataHora(d.visto_em)}</span>
+           <div class="tiny muted">${esc(d.ip || '')} · ${num(d.vezes || 0)}×</div>`
+        : '<span class="small muted">nunca</span>' },
     { label: 'Estado', render: d => d.estado === 'provisionado'
         ? '<span class="badge badge-ok"><i class="dot"></i>Provisionado</span>'
-        : d.estado === 'pendente' ? '<span class="badge badge-warn"><i class="dot"></i>Pendente</span>'
-        : '<span class="badge badge-danger"><i class="dot"></i>Erro</span>' }
+        : d.estado === 'pendente' ? '<span class="badge badge-warn"><i class="dot"></i>Aguardando</span>'
+        : '<span class="badge badge-danger"><i class="dot"></i>Erro</span>' },
+    { label: '', render: d => d.ramal_id
+        ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Ver a configuração"
+             data-previa="${d.id}">${icon('eye','ico ico-sm')}</button>` : '' }
   ],
   aoCarregar: async (pagina) => {
     pagina._ramais = (await Api.get('/ramais', { limite: 500 }).catch(() => ({ dados: [] }))).dados;
+    pagina._prov = await Api.get('/provisionamento').catch(() => null);
+    // A lista traz ramal_id; quem lê a tela quer o número.
+    const porId = Object.fromEntries((pagina._ramais || []).map(r => [String(r.id), r.numero]));
+    (pagina._itens || []).forEach(d => { d.ramal_numero = porId[String(d.ramal_id)] || null; });
+  },
+
+  // Sem este endereço, o cadastro de aparelhos não serve para nada: é
+  // ele que se digita no telefone (ou na opção 66 do DHCP) para o
+  // aparelho buscar a própria configuração ao ligar.
+  antesDaLista: (pagina, ctx) => {
+    const p = pagina._prov;
+    if (!p) return '';
+
+    return `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head row-between">
+          <div><div class="card-title">Endereço que o telefone busca</div>
+            <div class="card-sub">Configure este endereço no aparelho, em "servidor de
+              provisionamento", ou entregue-o pela opção 66 do DHCP. O telefone monta o nome do
+              arquivo sozinho, a partir do próprio MAC.</div></div>
+          ${Number(p.recusados)
+            ? `<span class="badge badge-warn">${num(p.recusados)} pedido(s) recusado(s) · 7 dias</span>`
+            : ''}
+        </div>
+        <div class="card-body">
+          <div class="row gap-8" style="align-items:center">
+            <input class="input mono grow" id="provUrl" readonly value="${esc(p.url)}">
+            <button class="btn btn-outline btn-sm" id="copiarProvUrl">
+              ${icon('copy','ico ico-sm')} Copiar</button>
+          </div>
+          <p class="tiny muted" style="margin:10px 0 0">
+            O endereço carrega um segredo: é ele que impede alguém de baixar a senha SIP de um ramal
+            só por adivinhar o MAC. ${p.so_rede_local
+              ? `Só vale das faixas internas (<span class="mono">${esc((p.redes_locais || []).join(', '))}</span>) —
+                 se os telefones estiverem em outra faixa, acrescente-a em
+                 <a href="#/conn.rede">Configurações de Rede</a>.`
+              : '<b>Está aberto para qualquer origem</b>, inclusive a internet. Só faz sentido com os telefones fora da rede.'}
+          </p>
+          ${ctx.can('editar') ? `<div class="row gap-8" style="margin-top:12px">
+            <button class="btn btn-outline btn-sm" id="provTrocaRede">
+              ${p.so_rede_local ? 'Permitir de qualquer origem' : 'Voltar a exigir rede interna'}</button>
+            <button class="btn btn-outline btn-sm" id="provNovoSegredo">
+              ${icon('refresh','ico ico-sm')} Gerar novo segredo</button>
+          </div>` : ''}
+        </div>
+      </div>`;
+  },
+
+  aoMontar: (pagina, ctx) => {
+    document.getElementById('copiarProvUrl')?.addEventListener('click', () => {
+      const campo = document.getElementById('provUrl');
+      campo.select();
+      navigator.clipboard?.writeText(campo.value)
+        .then(() => toast('Endereço copiado.', 'ok'))
+        .catch(() => toast('Copie manualmente: o navegador não liberou a área de transferência.', 'warn'));
+    });
+
+    document.getElementById('provTrocaRede')?.addEventListener('click', async () => {
+      const abrindo = pagina._prov?.so_rede_local;
+      if (abrindo) {
+        const ok = await Modal.confirm({
+          titulo: 'Permitir provisionamento de qualquer origem?',
+          texto: 'O arquivo entregue contém a senha SIP do ramal. Aberto para a internet, qualquer '
+               + 'um que descubra o endereço e o MAC de um aparelho recebe essa senha. '
+               + 'Só faça isso com os telefones fora da rede da central.',
+          ok: 'Permitir mesmo assim', tone: 'danger'
+        });
+        if (!ok) return;
+      }
+      try {
+        await Api.put('/provisionamento', { so_rede_local: !abrindo });
+        toast('Restrição de rede atualizada.', 'ok');
+        App.route();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+
+    document.getElementById('provNovoSegredo')?.addEventListener('click', async () => {
+      const ok = await Modal.confirm({
+        titulo: 'Gerar um novo segredo?',
+        texto: 'O endereço muda, e TODOS os aparelhos param de receber configuração até alguém '
+             + 'reconfigurar a URL em cada um. Faça isso se o endereço atual vazou.',
+        ok: 'Gerar novo', tone: 'danger'
+      });
+      if (!ok) return;
+      try {
+        await Api.put('/provisionamento', { novo_segredo: true });
+        toast('Segredo trocado. Reconfigure os aparelhos com o novo endereço.', 'warn');
+        App.route();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+
+    document.querySelectorAll('[data-previa]').forEach(b => b.onclick = async () => {
+      try {
+        const r = await Api.get(`/provisionamento/${b.dataset.previa}/previa`);
+        Drawer.open({
+          titulo: r.arquivo,
+          sub: `O que o aparelho recebe — ramal ${r.ramal}`,
+          wide: true,
+          corpo: `<p class="small muted">Este arquivo carrega a senha SIP do ramal. Ele é entregue
+                    só para o MAC cadastrado, a partir das faixas de rede permitidas.</p>
+                  <div class="code" style="margin-top:12px;white-space:pre-wrap">${esc(r.conteudo)}</div>`,
+          rodape: '<button class="btn btn-outline" data-drawer-close>Fechar</button>'
+        });
+      } catch (e) { toast(e.message, 'err'); }
+    });
   },
   campos: (d, ctx, pagina) => [
     { campo: 'mac', label: 'MAC address', obrigatorio: true, mono: true, placeholder: '00:11:22:33:44:55' },
-    { campo: 'modelo', label: 'Modelo', placeholder: 'Yealink T31' },
-    { campo: 'fabricante', label: 'Fabricante', placeholder: 'Yealink' },
+    { campo: 'fabricante', label: 'Fabricante', tipo: 'select', obrigatorio: true,
+      opcoes: Object.entries((pagina._prov?.fabricantes) || { yealink: 'Yealink' })
+        .map(([valor, rotulo]) => ({ valor, rotulo })),
+      ajuda: 'Decide o formato do arquivo: cada fabricante lê o seu, e não há padrão entre eles.' },
+    { campo: 'modelo', label: 'Modelo', placeholder: 'T31G',
+      ajuda: 'Só para você reconhecer na lista.' },
     { campo: 'ramal_id', label: 'Ramal', tipo: 'select',
       opcoes: [{ valor: '', rotulo: 'nenhum' },
-               ...(pagina._ramais || []).map(r => ({ valor: r.id, rotulo: `${r.numero} — ${r.nome}` }))] },
-    { campo: 'estado', label: 'Estado', tipo: 'select',
-      opcoes: ['pendente','provisionado','erro'], padrao: 'pendente' }
+               ...(pagina._ramais || []).map(r => ({ valor: r.id, rotulo: `${r.numero} — ${r.nome}` }))],
+      ajuda: 'Sem ramal o aparelho não recebe configuração: não há o que entregar a ele.' },
+    { campo: 'observacao', label: 'Onde fica', largura: 'full', placeholder: 'Recepção, mesa 3' }
   ]
 });
 
@@ -972,29 +1135,59 @@ PAGES['telium.integracoes'] = paginaCrud({
 });
 
 /* ------------------------- Tarifas (cadastro) ------------------------- */
+/* As classes que a rota de saída atribui, com o nome que se lê na tela. */
+const CLASSES_TARIFA = {
+  qualquer:   'Qualquer chamada',
+  local:      'Fixo local',
+  celular:    'Celular',
+  ddd:        'Interurbano (DDD)',
+  ddi:        'Internacional (DDI)',
+  emergencia: 'Emergência',
+  especial:   'Especiais'
+};
+
 PAGES['cfg.tarifas'] = paginaCrud({
   recurso: 'tarifas',
   titulo: 'Tabela de Tarifas',
-  sub: 'Custo por minuto aplicado a cada padrão de destino.',
+  sub: `O que a operadora cobra por cada tipo de chamada. A classe vem da rota de saída que
+        atendeu a ligação — não é adivinhada pelo número.`,
   ico: 'creditCard',
   plural: 'tarifas',
   rotuloNovo: 'Nova tarifa',
   vazioTitulo: 'Nenhuma tarifa cadastrada',
-  vazioTexto: 'Sem tarifas o custo das chamadas não é calculado.',
+  vazioTexto: 'Sem tarifas o custo das chamadas não é calculado, e o relatório fecha em R$ 0,00.',
   placeholderBusca: 'Buscar…',
-  textoBusca: t => `${t.nome} ${t.padrao}`,
+  textoBusca: t => `${t.nome} ${t.padrao || ''} ${t.classe}`,
   colunas: [
-    { label: 'Nome', render: t => `<b>${esc(t.nome)}</b>` },
-    { label: 'Padrão', render: t => `<span class="badge mono">${esc(t.padrao)}</span>` },
+    { label: 'Nome', render: t => `<b>${esc(t.nome)}</b>${
+        Number(t.custo_minuto) || Number(t.taxa_fixa) ? ''
+          : ' <span class="badge badge-warn">sem preço</span>'}` },
+    { label: 'Aplica-se a', render: t => `<span class="badge">${esc(CLASSES_TARIFA[t.classe] || t.classe)}</span>${
+        t.padrao ? ` <span class="badge mono">${esc(t.padrao)}</span>` : ''}` },
     { label: 'Custo/min', render: t => `<span class="num">${moeda(t.custo_minuto)}</span>` },
-    { label: 'Taxa fixa', render: t => `<span class="num">${moeda(t.taxa_fixa)}</span>` }
+    { label: 'Taxa fixa', render: t => `<span class="num">${moeda(t.taxa_fixa)}</span>` },
+    { label: 'Fração', render: t => `<span class="small dim">${
+        Number(t.primeiro_incremento_seg) ? `mínimo ${t.primeiro_incremento_seg}s, ` : ''}de ${t.incremento_seg}s em ${t.incremento_seg}s</span>` }
   ],
   campos: () => [
     { campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'Celular' },
-    { campo: 'padrao', label: 'Padrão de destino', obrigatorio: true, mono: true, placeholder: '_09XXXXXXXX' },
-    { campo: 'custo_minuto', label: 'Custo por minuto', tipo: 'number', padrao: 0 },
-    { campo: 'taxa_fixa', label: 'Taxa fixa', tipo: 'number', padrao: 0 },
-    { campo: 'incremento_seg', label: 'Incremento (s)', tipo: 'number', padrao: 6 },
+    { campo: 'classe', label: 'Aplica-se a', tipo: 'select', padrao: 'qualquer',
+      opcoes: Object.entries(CLASSES_TARIFA).map(([valor, rotulo]) => ({ valor, rotulo })),
+      ajuda: 'A classe que a rota de saída atribuiu à chamada. "Qualquer" vale para todas.' },
+    { campo: 'padrao', label: 'Só para destinos assim (opcional)', mono: true, largura: 'full',
+      placeholder: '_0800.',
+      ajuda: 'Em branco, vale para toda a classe. Preenchido, só para os números que casarem — '
+           + 'e vence a tarifa da classe inteira. Mesma escrita das rotas de saída: '
+           + 'X um dígito, N de 2 a 9, Z de 1 a 9, . o resto.' },
+    { campo: 'custo_minuto', label: 'Custo por minuto (R$)', tipo: 'number', padrao: 0, passo: '0.0001' },
+    { campo: 'taxa_fixa', label: 'Taxa fixa por chamada (R$)', tipo: 'number', padrao: 0, passo: '0.0001',
+      ajuda: 'Cobrada uma vez, além do tempo. Zero na maioria dos planos.' },
+    { campo: 'primeiro_incremento_seg', label: 'Mínimo cobrado (s)', tipo: 'number', padrao: 30,
+      ajuda: 'No Brasil costuma ser 30: uma chamada de 5 segundos custa 30. Zero desliga o mínimo.' },
+    { campo: 'incremento_seg', label: 'Depois, de quantos em quantos (s)', tipo: 'number', padrao: 6,
+      ajuda: '6 é o padrão brasileiro. 60 cobra minuto cheio; 1 cobra por segundo.' },
+    { campo: 'ordem', label: 'Ordem', tipo: 'number', padrao: 100,
+      ajuda: 'Desempate entre tarifas que servem à mesma chamada. Menor vem primeiro.' },
     { campo: 'ativo', label: 'Tarifa ativa', tipo: 'switch', padrao: 1 }
   ]
 });

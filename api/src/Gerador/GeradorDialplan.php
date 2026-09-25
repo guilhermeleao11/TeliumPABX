@@ -1005,6 +1005,11 @@ final class GeradorDialplan
               ->same('Set(__TELIUM_DESTINO=${EXTEN})')
               ->same("Set(CDR(tronco)={$r['tronco_nome']})")
               ->same("Set(__TELIUM_CLASSE={$r['classe']})")
+              // A classe vai para o CDR porque é ela que decide a tarifa.
+              // Refazer esse julgamento depois, por expressão regular
+              // sobre o número, seria uma segunda verdade — e as duas
+              // divergiriam no primeiro cadastro novo de rota.
+              ->same("Set(CDR(classe)={$r['classe']})")
               ->same("GoSub(sub-permissao,s,1({$r['classe']}))")
               ->same('GoSub(sub-limite-saida,s,1)');
 

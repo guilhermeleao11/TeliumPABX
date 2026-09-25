@@ -35,6 +35,7 @@ try {
         'senha'          => trocarSenha($argv[2] ?? ''),
         'testar'         => testar(),
         'backup-enviar'  => backupEnviar($argv[2] ?? ''),
+        'tarifar'        => tarifar($argv[2] ?? ''),
         default          => ajuda(),
     };
 } catch (Throwable $e) {
@@ -267,8 +268,43 @@ function ajuda(): void
       php bin/telium doctor            testa banco, AMI, Janus e permissões
       php bin/telium senha <usuario>   define uma nova senha (aceita pipe)
       php bin/telium backup-enviar <id> manda o backup para o destino remoto
+      php bin/telium tarifar [AAAA-MM]  calcula o custo das chamadas do mês
 
     TXT;
+}
+
+/**
+ * Calcula o custo das chamadas que ainda não têm.
+ *
+ * Fica fora da chamada de propósito: tarifar dentro do dialplan seria
+ * consultar o banco no meio da ligação, e um banco lento viraria atraso
+ * no atendimento. Roda pelo temporizador do sistema, e também pelo botão
+ * do console quando alguém quer ver o mês fechado agora.
+ */
+function tarifar(string $mes): void
+{
+    global $verde, $amarelo, $zero;
+
+    if ($mes !== '' && preg_match('/^\d{4}-\d{2}$/', $mes) !== 1) {
+        fwrite(STDERR, "uso: php bin/telium tarifar [AAAA-MM]\n");
+        exit(64);
+    }
+
+    if (\Telium\Dominio\Tarifa::tudoZerado()) {
+        echo "{$amarelo}! todas as tarifas estão com preço zero — "
+           . "a conta vai fechar em R\$ 0,00 até alguém digitar os valores da operadora{$zero}\n";
+    }
+
+    $r = \Telium\Dominio\Tarifa::aplicar($mes === '' ? null : $mes);
+
+    echo "{$verde}✓ {$r['tarifadas']} chamada(s) tarifada(s)"
+       . ($r['total'] > 0 ? sprintf(', R$ %s no total', number_format($r['total'], 2, ',', '.')) : '')
+       . "{$zero}\n";
+
+    if ($r['sem_tarifa'] > 0) {
+        echo "{$amarelo}! {$r['sem_tarifa']} chamada(s) sem tarifa que se aplique — "
+           . "confira se há uma linha para a classe delas em Tabela de Tarifas{$zero}\n";
+    }
 }
 
 /**
