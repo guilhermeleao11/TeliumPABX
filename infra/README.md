@@ -51,6 +51,40 @@ A tela **Conectividade → WebRTC / Softphone** confere as duas, e o botão
 *Testar agora* diz, do navegador de quem está olhando, se existe caminho
 de áudio até a central.
 
+## A chamada que entra
+
+O caminho é sempre o mesmo, e cada passo é configurável no console:
+
+```
+operadora → tronco (normaliza o número) → rota de entrada (casa DID e origem)
+          → lista negra → destino
+```
+
+O **destino** é qualquer coisa que a central alcance: condição de
+horário, URA, fila, ramal, grupo de toque, anúncio, conferência, DISA,
+correio de voz, megafonia, destino personalizado, número externo — ou
+desligar com ocupado.
+
+**Se a chamada não entra, o problema quase sempre é o formato do
+número.** Cada operadora entrega do jeito dela: uma manda
+`+551133255800`, outra `1133255800`, outra só `3255800`. Acerte isso
+**uma vez no tronco**, em *Conectividade → Troncos*:
+
+| Campo | Para quê |
+|---|---|
+| `Tirar do começo do número recebido` | `+55` some quando vier; quem entregar sem ele não é mutilado |
+| `Ficar só com os últimos N dígitos` | com 8, `1133255800` vira `33255800` |
+
+Tronco que **não entrega número nenhum** — muito gateway FXO, E1 e
+alguns SIP — cai na rota com DID em branco (ou `*`), que é a rota
+"qualquer número". Sem uma dessas cadastrada, quem liga ouve o aviso de
+número inexistente em vez de a chamada morrer calada.
+
+Uma rota pode casar também por **quem ligou**, e aí a precedência é a do
+Asterisk: origem exata vence padrão, que vence a rota sem origem. É o
+que permite mandar um cliente específico direto para o gerente e o resto
+do DDD 11 para a fila, no mesmo número.
+
 ## Portas que precisam chegar no servidor
 
 | Porta | Protocolo | Para quê |

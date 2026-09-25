@@ -1120,6 +1120,102 @@ final class GeradorDialplan
     }
 
     // ---------------------------------------------------------------
+    /**
+     * Contextos de entrada dos troncos.
+     *
+     * Um por tronco, e não um só compartilhado, porque é aqui que o
+     * número recebido é normalizado — e cada operadora entrega no
+     * formato dela. Umas mandam o nacional completo, outras só o ramal
+     * final, outras em E.164 com "+55". Sem este passo, cadastrar a rota
+     * exige adivinhar qual é, e descobrir só olhando log.
+     *
+     * É também o único lugar que sabe tratar a chamada SEM número: boa
+     * parte dos gateways FXO, dos E1 e de vários SIP entrega na extensão
+     * "s". Ela não existia em lugar nenhum, e a central respondia 404 —
+     * a chamada morria antes de tocar em alguém, sem uma linha de log
+     * que explicasse.
+     */
+    private function contextosDeTronco(Bloco $b): void
+    {
+        $troncos = Bd::todos('SELECT * FROM troncos WHERE ativo = 1 ORDER BY nome');
+        if ($troncos === []) {
+            return;
+        }
+
+        $b->branco()
+          ->comentario(str_repeat('=', 62))
+          ->comentario('Contextos de entrada dos troncos — normalizam o número recebido')
+          ->comentario(str_repeat('=', 62));
+
+        foreach ($troncos as $t) {
+            $nome = $this->identificador((string) $t['nome']);
+            $remover = trim((string) ($t['did_remover'] ?? ''));
+            $digitos = (int) ($t['did_digitos'] ?? 0);
+
+            $b->branco()
+              ->comentario("Tronco {$t['nome']}")
+              ->contexto("telium-de-{$nome}");
+
+            // Normalização, em linhas reaproveitadas pelos três padrões.
+            $normalizar = function (Bloco $b) use ($remover, $digitos): void {
+                $b->same('Set(TELIUM_DID=${EXTEN})');
+
+                if ($remover !== '') {
+                    $n = strlen($remover);
+                    // Tira o prefixo SÓ quando ele está lá: cortar às
+                    // cegas mutila o número de quem entrega sem ele.
+                    $b->same('Set(TELIUM_DID=${IF($["${TELIUM_DID:0:' . $n . '}" = "'
+                           . $this->semParenteses($remover) . '"]?${TELIUM_DID:' . $n . '}:${TELIUM_DID})})');
+                }
+
+                if ($digitos > 0) {
+                    // Os últimos N dígitos. Número mais curto que isso
+                    // fica como está, senão viraria outro número.
+                    $b->same('Set(TELIUM_DID=${IF($[${LEN(${TELIUM_DID})} > ' . $digitos
+                           . ']?${TELIUM_DID:-' . $digitos . '}:${TELIUM_DID})})');
+                }
+
+                $b->same('Goto(telium-entrada,${TELIUM_DID},1)');
+            };
+
+            // Número comum.
+            $b->exten('_X.', 'NoOp(Entrada por ' . $this->semParenteses((string) $t['nome'])
+                            . ': ${EXTEN} de ${CALLERID(num)})');
+            $normalizar($b);
+
+            // E.164: a operadora entrega "+5511...". Sem este padrão a
+            // chamada não casava nem com a rede de segurança, porque o
+            // "_X." exige dígito no primeiro caractere.
+            $b->exten('_+X.', 'NoOp(Entrada por ' . $this->semParenteses((string) $t['nome'])
+                            . ' em E.164: ${EXTEN})');
+            $normalizar($b);
+
+            // Sem número nenhum: vai para a rota coringa, que é o que
+            // "qualquer DID" quer dizer.
+            $b->exten('s', 'NoOp(Entrada por ' . $this->semParenteses((string) $t['nome'])
+                          . ' sem DID — de ${CALLERID(num)})')
+              ->same('Goto(telium-entrada,s,1)');
+
+            // Qualquer outra coisa que a operadora invente.
+            $b->exten('i', 'NoOp(Entrada por ' . $this->semParenteses((string) $t['nome'])
+                          . ' com destino que o dialplan não reconhece: ${INVALID_EXTEN})')
+              ->same('Goto(telium-entrada,s,1)');
+        }
+    }
+
+    /**
+     * As rotas de entrada: do número recebido até o destino.
+     *
+     * Uma rota casa por DID e, quando quiser, também por QUEM ligou —
+     * que é o recurso que o FreePBX chama de CallerID match e que aqui
+     * existia como coluna no banco sem nada que a lesse.
+     *
+     * Quando um DID tem regras de origem, ele ganha um contexto próprio
+     * e o casamento do CID é feito pelo motor de padrões do próprio
+     * Asterisk. Sai mais legível do que uma escada de GotoIf, e a ordem
+     * de precedência passa a ser a dele: exato vence padrão, que vence
+     * o coringa.
+     */
     private function rotasEntrada(): string
     {
         $b = $this->cabecalho('Contexto: rotas de entrada (DID → destino)')
@@ -1144,75 +1240,265 @@ final class GeradorDialplan
                 'destino_tipo'  => 'ramal',
                 'destino_valor' => $r['numero'],
                 'gravar'        => in_array($r['gravar'] ?? 'nao', ['ambas', 'entrada'], true) ? 1 : 0,
-                'cid_entrada'   => $r['cid_entrada'] ?? null,
+                'prefixo_cid'   => $r['cid_entrada'] ?? null,
+                'cid_origem'    => '',
                 'ordem'         => 500,
             ];
         }
 
-        // A rota coringa atende qualquer DID, então precisa ser a última:
-        // o Asterisk escolhe o padrão mais específico, mas a leitura do
-        // arquivo fica muito mais clara com ela no fim.
-        usort($rotas, fn ($a, $z) => $this->ehCoringa($a['did']) <=> $this->ehCoringa($z['did']));
-
-        // Um DID escrito como padrão (_X.) já pega o que não tem rota
-        // própria; nesse caso a rede de segurança abaixo seria ruído.
-        $temCoringa = false;
-
+        // Agrupa por DID: é o DID que vira extensão, e as rotas que
+        // compartilham um só se distinguem por quem ligou.
+        $porDid = [];
         foreach ($rotas as $r) {
-            $coringa = $this->ehCoringa($r['did']);
-            $temCoringa = $temCoringa || $coringa || str_starts_with(trim((string) $r['did']), '_');
-            // "_X." e não "_.": o próprio Asterisk desaconselha o
-            // segundo, que casa até com o que não é número.
-            $padrao = $coringa ? '_X.' : $r['did'];
-            $titulo = $coringa ? 'qualquer DID' : (string) $r['did'];
-
-            $b->branco()
-              ->comentario("{$titulo} — {$r['descricao']} → "
-                  . $this->destino->descricao($r['destino_tipo'], $r['destino_valor']))
-              ->exten($padrao, "NoOp(Rota de entrada: {$r['descricao']})")
-              ->same('Set(CDR(direcao)=entrada)')
-              ->same('Set(__TELIUM_DESTINO=${EXTEN})')
-              ->same('Set(CDR(tronco)=${TELIUM_TRONCO})')
-              ->same('GoSub(sub-listanegra,s,1)');
-
-            // Rótulo na frente de quem ligou, para o atendente saber por
-            // qual número a chamada entrou antes de tirar o fone do gancho.
-            $rotulo = trim((string) ($r['cid_entrada'] ?? ''));
-            if ($rotulo !== '') {
-                $b->same('Set(CALLERID(name)=' . $this->semParenteses($rotulo)
-                       . ' ${CALLERID(name)})');
-            }
-
-            // Recusar não é atender. Com Answer() antes, o "tom de
-            // ocupado" vira vinte segundos de tom numa chamada já
-            // atendida — e cobrada — em vez de um 486 devolvido à
-            // operadora, que é o que faz o telefone de quem ligou
-            // mostrar ocupado. Gravar uma recusa também não serve para
-            // nada: o arquivo sai com o tom.
-            $recusa = in_array($r['destino_tipo'], ['ocupado', 'congestionado'], true);
-
-            if ((int) $r['gravar'] === 1 && !$recusa) {
-                $b->same('Answer()')
-                  ->same('GoSub(sub-decidir-gravacao,s,1(1,sim,entrada))');
-            }
-
-            $b->apps($this->destino->linhas($r['destino_tipo'], $r['destino_valor']));
+            $chave = $this->ehCoringa($r['did'] ?? '') ? '*' : trim((string) $r['did']);
+            $porDid[$chave][] = $r;
         }
 
-        // Sem isto uma chamada com DID fora da lista morre em silêncio e o
-        // console só diz "invalid extension" — ninguém descobre que a
-        // operadora mudou o formato do número entregue.
-        if (!$temCoringa) {
+        // O coringa atende qualquer número, então fica por último: o
+        // Asterisk escolhe o padrão mais específico de qualquer forma,
+        // mas a leitura do arquivo fica muito mais clara assim.
+        uksort($porDid, static fn (string $a, string $z): int => ($a === '*' ? 1 : 0) <=> ($z === '*' ? 1 : 0));
+
+        $contextosDeCid = [];
+
+        foreach ($porDid as $did => $lista) {
+            // Chave de array que parece número vira int no PHP, e o DID
+            // é justamente um número.
+            $did = (string) $did;
+            $coringa = $did === '*';
+            // "_X." e não "_.": o próprio Asterisk desaconselha o
+            // segundo, que casa até com o que não é número.
+            $padrao = $coringa ? '_X.' : $did;
+            $titulo = $coringa ? 'qualquer DID' : $did;
+
+            // Uma só e sem regra de origem: o caminho direto, que é o
+            // caso de quase todo cadastro.
+            $comCid = array_values(array_filter(
+                $lista,
+                static fn (array $r): bool => trim((string) ($r['cid_origem'] ?? '')) !== ''
+            ));
+
+            if ($comCid === []) {
+                $b->branco()
+                  ->comentario("{$titulo} — {$lista[0]['descricao']} → "
+                      . $this->destino->descricao($lista[0]['destino_tipo'], $lista[0]['destino_valor']));
+                $this->umaRotaEntrada($b, $padrao, $lista[0]);
+
+                if ($coringa) {
+                    $b->branco()
+                      ->comentario('Sem DID: o tronco manda para cá, e vale a mesma rota coringa');
+                    $this->umaRotaEntrada($b, 's', $lista[0]);
+                }
+                continue;
+            }
+
+            // Com regra de origem: o DID vira porta para um contexto que
+            // casa o CID, e quem casa é o Asterisk.
+            $ctx = 'telium-cid-' . ($coringa ? 'coringa' : $this->identificador($did));
+            $contextosDeCid[$ctx] = $lista;
+
+            $b->branco()
+              ->comentario("{$titulo} — " . count($lista) . ' rota(s), escolhidas por quem liga')
+              ->exten($padrao, "NoOp(Entrada {$titulo}: decidindo por quem ligou)")
+              ->same('Set(__TELIUM_DID=${EXTEN})')
+              ->same("Goto({$ctx},\${CALLERID(num)},1)");
+
+            if ($coringa) {
+                $b->exten('s', "NoOp(Entrada sem DID: decidindo por quem ligou)")
+                  ->same('Set(__TELIUM_DID=s)')
+                  ->same("Goto({$ctx},\${CALLERID(num)},1)");
+            }
+        }
+
+        // Rede de segurança: sem nenhuma rota coringa cadastrada, o que
+        // não casa morreria em silêncio e o console só diria "invalid
+        // extension" — ninguém descobre que a operadora mudou o formato
+        // do número entregue.
+        if (!isset($porDid['*'])) {
             $b->branco()
               ->comentario('DID sem rota cadastrada — evita a chamada morrer calada')
               ->exten('_X.', 'NoOp(DID ${EXTEN} chegou pelo tronco ${TELIUM_TRONCO} e não tem rota de entrada)')
               ->same('Answer()')
               ->same('Wait(1)')
               ->same('Playback(ss-noservice)')
+              ->same('Hangup(1)')
+              ->branco()
+              ->comentario('Chamada sem DID e sem rota coringa')
+              ->exten('s', 'NoOp(Chamada sem DID pelo tronco ${TELIUM_TRONCO} e sem rota coringa)')
+              ->same('Answer()')
+              ->same('Wait(1)')
+              ->same('Playback(ss-noservice)')
               ->same('Hangup(1)');
         }
 
+        // Um destino que o dialplan não reconhece nunca deve derrubar a
+        // chamada sem deixar rastro.
+        $b->branco()
+          ->comentario('Destino inesperado dentro do próprio contexto de entrada')
+          ->exten('i', 'NoOp(Entrada com destino inválido: ${INVALID_EXTEN} pelo tronco ${TELIUM_TRONCO})')
+          ->same('Hangup(1)');
+
+        foreach ($contextosDeCid as $ctx => $lista) {
+            $this->contextoDeCid($b, $ctx, $lista);
+        }
+
+        // Os contextos dos troncos saem NESTE arquivo, e não num novo.
+        // Um arquivo novo precisaria de um #include no extensions.conf,
+        // que só o playbook reescreve — e quem atualizasse com um "git
+        // pull" e um "aplicar-config" ficaria com o tronco apontando
+        // para um contexto que não existe. Toda chamada que entra pararia
+        // de funcionar, de uma vez, numa atualização.
+        $this->contextosDeTronco($b);
+
         return $b->texto();
+    }
+
+    /**
+     * O contexto que escolhe a rota por quem ligou.
+     *
+     * Cada regra de origem vira uma extensão, e o casamento fica com o
+     * Asterisk: número exato vence padrão, padrão vence o coringa. As
+     * rotas sem regra de origem viram o coringa — é a rota "para os
+     * demais".
+     *
+     * @param list<array<string,mixed>> $lista
+     */
+    private function contextoDeCid(Bloco $b, string $ctx, array $lista): void
+    {
+        $b->branco()
+          ->comentario(str_repeat('-', 62))
+          ->comentario("Quem ligou decide o destino — {$ctx}")
+          ->comentario(str_repeat('-', 62))
+          ->contexto($ctx);
+
+        $semRegra = null;
+
+        foreach ($lista as $r) {
+            $cid = trim((string) ($r['cid_origem'] ?? ''));
+            if ($cid === '') {
+                $semRegra ??= $r;       // a primeira vira "os demais"
+                continue;
+            }
+
+            $b->branco()
+              ->comentario("de {$cid} — {$r['descricao']} → "
+                  . $this->destino->descricao($r['destino_tipo'], $r['destino_valor']));
+            $this->umaRotaEntrada($b, $cid, $r);
+        }
+
+        $b->branco();
+
+        if ($semRegra !== null) {
+            $b->comentario("os demais — {$semRegra['descricao']} → "
+                . $this->destino->descricao($semRegra['destino_tipo'], $semRegra['destino_valor']));
+            $this->umaRotaEntrada($b, '_.', $semRegra);
+            // Número oculto não casa com "_." porque não há número: a
+            // chamada chega aqui com a extensão vazia, que o Asterisk
+            // trata como "s".
+            $this->umaRotaEntrada($b, 's', $semRegra);
+
+            return;
+        }
+
+        // Todas as rotas deste DID exigem origem: quem não casar não tem
+        // destino, e precisa ouvir isso em vez de cair no silêncio.
+        $b->comentario('Nenhuma rota para esta origem')
+          ->exten('_.', 'NoOp(${CALLERID(num)} ligou para ${TELIUM_DID} e nenhuma rota de origem casou)')
+          ->same('Answer()')
+          ->same('Wait(1)')
+          ->same('Playback(ss-noservice)')
+          ->same('Hangup(1)')
+          ->exten('s', 'NoOp(Chamada sem número de origem para ${TELIUM_DID}, e nenhuma rota coringa)')
+          ->same('Answer()')
+          ->same('Wait(1)')
+          ->same('Playback(ss-noservice)')
+          ->same('Hangup(1)');
+    }
+
+    /**
+     * As linhas de uma rota de entrada, da chegada ao destino.
+     *
+     * @param array<string,mixed> $r
+     */
+    private function umaRotaEntrada(Bloco $b, string $exten, array $r): void
+    {
+        $b->exten($exten, "NoOp(Rota de entrada: {$r['descricao']})")
+          ->same('Set(CDR(direcao)=entrada)')
+          ->same('Set(__TELIUM_DESTINO=${EXTEN})')
+          ->same('Set(CDR(tronco)=${TELIUM_TRONCO})')
+          ->same('Set(CDR(did)=${IF($["${TELIUM_DID}" != ""]?${TELIUM_DID}:${EXTEN})})');
+
+        // Número oculto. Recusar com 486 é diferente de atender e
+        // desligar: quem ligou ouve ocupado e a chamada não é cobrada.
+        if ((int) ($r['bloquear_anonimo'] ?? 0) === 1) {
+            // Número oculto quase nunca chega vazio. A operadora manda
+            // "anonymous", "unknown", "restricted" ou "private" no lugar
+            // do número, e sinaliza a restrição em CALLERID(pres).
+            // Conferir só o vazio deixava passar todas essas.
+            $b->same('Set(TELIUM_ORIG=${TOLOWER(${CALLERID(num)})})')
+              ->same('GotoIf($[${ISNULL(${CALLERID(num)})} | "${TELIUM_ORIG}" = "anonymous"'
+                   . ' | "${TELIUM_ORIG}" = "unknown" | "${TELIUM_ORIG}" = "restricted"'
+                   . ' | "${TELIUM_ORIG}" = "private" | "${TELIUM_ORIG}" = "unavailable"'
+                   . ' | ${REGEX("prohib" ${CALLERID(pres)})}]?anonima)')
+              ->same('Goto(identificada)')
+              ->same('NoOp(Chamada sem identificação recusada por esta rota)', 'anonima')
+              // 486 devolvido à operadora, e não atender para desligar:
+              // quem ligou ouve ocupado e a chamada não é cobrada.
+              ->same('Busy(5)')
+              ->same('Hangup()')
+              ->same('NoOp(Origem identificada: ${CALLERID(num)})', 'identificada');
+        }
+
+        $b->same('GoSub(sub-listanegra,s,1)');
+
+        // Rótulo na frente de quem ligou, para o atendente saber por
+        // qual número a chamada entrou antes de tirar o fone do gancho.
+        $rotulo = trim((string) ($r['prefixo_cid'] ?? ''));
+        if ($rotulo !== '') {
+            $b->same('Set(CALLERID(name)=' . $this->semParenteses($rotulo) . ' ${CALLERID(name)})');
+        }
+
+        // Toque distintivo: o telefone toca diferente para este número.
+        $alerta = trim((string) ($r['alertinfo'] ?? ''));
+        if ($alerta !== '') {
+            $b->same('Set(__SIPADDHEADER=Alert-Info: ' . $this->semParenteses($alerta) . ')')
+              ->same('Set(PJSIP_HEADER(add,Alert-Info)=' . $this->semParenteses($alerta) . ')');
+        }
+
+        $mus = trim((string) ($r['musica_espera'] ?? ''));
+        if ($mus !== '') {
+            $b->same('Set(CHANNEL(musicclass)=' . $this->semParenteses($mus) . ')');
+        }
+
+        // Recusar não é atender. Com Answer() antes, o "tom de ocupado"
+        // vira vinte segundos de tom numa chamada já atendida — e
+        // cobrada — em vez de um 486 devolvido à operadora, que é o que
+        // faz o telefone de quem ligou mostrar ocupado. Gravar uma
+        // recusa também não serve para nada: o arquivo sai com o tom.
+        $recusa = in_array($r['destino_tipo'], ['ocupado', 'congestionado'], true);
+
+        if (!$recusa && (int) ($r['tocar_antes'] ?? 0) === 1) {
+            // Quem ligou ouve chamando em vez de silêncio enquanto a
+            // central decide para onde mandar.
+            $b->same('Ringing()');
+        }
+
+        if (!$recusa && ((int) ($r['atender_antes'] ?? 0) === 1 || (int) $r['gravar'] === 1)) {
+            $b->same('Answer()');
+        }
+
+        $pausa = (int) ($r['pausa_seg'] ?? 0);
+        if (!$recusa && $pausa > 0) {
+            // Tronco que entrega o áudio com atraso corta o começo da
+            // saudação da URA sem esta espera.
+            $b->same('Wait(' . min(10, $pausa) . ')');
+        }
+
+        if ((int) $r['gravar'] === 1 && !$recusa) {
+            $b->same('GoSub(sub-decidir-gravacao,s,1(1,sim,entrada))');
+        }
+
+        $b->apps($this->destino->linhas($r['destino_tipo'], $r['destino_valor']));
     }
 
     /** DID em branco, "*" ou "qualquer" quer dizer: vale para todos. */

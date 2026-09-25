@@ -226,7 +226,8 @@ $recursos = [
         'recurso' => new Recurso(
             tabela: 'troncos',
             colunas: ['nome','tipo','host','porta','transporte','usuario','senha','registrar','from_user',
-                      'from_domain','contexto_entrada','codecs','canais_max','cid_saida','ativo'],
+                      'from_domain','contexto_entrada','did_remover','did_digitos',
+                      'codecs','canais_max','cid_saida','ativo'],
             ordem: 'nome',
             busca: ['nome','host'],
             filtros: ['tipo','ativo'],
@@ -385,7 +386,9 @@ $recursos = [
         'modulo' => 'conn.rotasentrada',
         'recurso' => new Recurso(
             tabela: 'rotas_entrada',
-            colunas: ['did','descricao','cid_origem','destino_tipo','destino_valor','gravar','ordem','ativo'],
+            colunas: ['did','descricao','cid_origem','prefixo_cid','alertinfo','atender_antes',
+                      'tocar_antes','pausa_seg','bloquear_anonimo','musica_espera',
+                      'destino_tipo','destino_valor','gravar','ordem','ativo'],
             ordem: 'ordem, id',
             busca: ['did','descricao'],
             afetaAsterisk: true,

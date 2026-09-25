@@ -399,6 +399,29 @@ final class GeradorPjsip
      *
      * @param array<string,mixed> $t
      */
+    /**
+     * O contexto onde a chamada deste tronco entra.
+     *
+     * O padrão passou a ser um contexto POR tronco, gerado junto com o
+     * dialplan: é lá que o número recebido é normalizado — cada
+     * operadora entrega no formato dela — e é lá que a chamada sem
+     * número deixa de virar 404.
+     *
+     * Quem tiver apontado o tronco para um contexto próprio continua
+     * mandando: a escolha dele é respeitada, e é a saída para casos que
+     * o cadastro não cobre.
+     */
+    public static function contextoDeEntrada(array $t): string
+    {
+        $escolhido = trim((string) ($t['contexto_entrada'] ?? ''));
+
+        if ($escolhido !== '' && $escolhido !== 'de-tronco') {
+            return $escolhido;
+        }
+
+        return 'telium-de-' . (preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $t['nome']) ?? 'tronco');
+    }
+
     public function tronco(Bloco $b, array $t): void
     {
         $nome   = $this->identificador((string) $t['nome']);
@@ -421,7 +444,7 @@ final class GeradorPjsip
           ->crua("[{$nome}]")
           ->crua('type = endpoint')
           ->crua("transport = transport-{$t['transporte']}")
-          ->crua("context = {$t['contexto_entrada']}")
+          ->crua('context = ' . self::contextoDeEntrada($t))
           ->crua('disallow = all')
           ->crua("allow = {$codecs}")
           ->crua("aors = {$nome}")

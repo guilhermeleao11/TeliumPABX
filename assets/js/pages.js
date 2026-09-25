@@ -1290,7 +1290,23 @@ PAGES['conn.troncos'] = paginaCrud({
       ajuda: 'O Asterisk não transcodifica g729 — ele só passa adiante. Com g729 aqui e '
            + 'um ramal em opus ou alaw, a operadora atende e a chamada cai na hora. '
            + 'Só acrescente se a central inteira falar g729.' },
-    { campo: 'contexto_entrada', label: 'Contexto de entrada', mono: true, padrao: 'de-tronco', largura: 'full' }
+    // Como a operadora entrega o número chamado. Acertar aqui, uma vez,
+    // evita cadastrar a mesma rota em três formatos diferentes — e evita
+    // a descoberta por tentativa, olhando log.
+    { campo: 'did_remover', label: 'Tirar do começo do número recebido', mono: true,
+      placeholder: '+55',
+      ajuda: 'A operadora entrega "+551133255800" e a sua rota está como "1133255800"? '
+           + 'Ponha +55 aqui. Só é retirado quando está lá — quem entregar sem o prefixo '
+           + 'não é mutilado.' },
+    { campo: 'did_digitos', label: 'Ficar só com os últimos N dígitos', tipo: 'number', padrao: 0,
+      ajuda: 'Zero desliga. Com 8, "1133255800" vira "33255800" — útil quando a operadora '
+           + 'manda o DDD e as rotas estão cadastradas sem ele. Número mais curto que N fica '
+           + 'como está.' },
+    { campo: 'contexto_entrada', label: 'Contexto de entrada', mono: true, padrao: 'de-tronco',
+      largura: 'full',
+      ajuda: 'Deixe como está. "de-tronco" quer dizer "use o contexto que a central gera para '
+           + 'este tronco", que é onde a normalização acima acontece. Só mude para mandar as '
+           + 'chamadas deste tronco a um contexto seu, escrito à mão.' }
   ]
 });
 

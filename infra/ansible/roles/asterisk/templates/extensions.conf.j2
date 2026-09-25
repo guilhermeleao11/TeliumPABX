@@ -362,6 +362,10 @@ exten => _X.,1,Answer()
 #include "telium/extensions.estacionamento.conf"
 #include "telium/extensions.ura.conf"
 #include "telium/extensions.saida.conf"
+; Traz também os contextos de entrada de cada tronco, que é onde o
+; número recebido é normalizado e onde a chamada SEM número deixa de
+; virar 404. Ficam no mesmo arquivo de propósito: um arquivo novo
+; exigiria mexer aqui, e este aqui só o playbook reescreve.
 #include "telium/extensions.entrada.conf"
 #include "telium/extensions.paging.conf"
 #include "telium/extensions.disa.conf"

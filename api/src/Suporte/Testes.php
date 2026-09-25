@@ -62,6 +62,7 @@ final class Testes
             $this->grupo('Conferência do cadastro', $this->conferencia(...));
             $this->grupo('Ramais WebRTC gerados', $this->webrtcGerado(...));
             $this->grupo('Perfis de fábrica', $this->perfisDeFabrica(...));
+            $this->grupo('Rota de entrada', $this->rotaDeEntrada(...));
             $this->grupo('Faixas de horário', $this->horarios(...));
             $this->grupo('Tarifação', $this->tarifacao(...));
             $this->grupo('Provisionamento de telefones', $this->provisionamento(...));
@@ -1503,6 +1504,111 @@ final class Testes
             $this->ok(
                 function_exists('curl_init'),
                 'o PHP tem a extensão curl — é ela que fala FTP, e o destino remoto está ligado'
+            );
+        }
+    }
+
+    /**
+     * A chamada que chega: do que a operadora entrega até o destino.
+     *
+     * Três coisas derrubavam a chamada em silêncio, e as três só
+     * aparecem com uma ligação de verdade entrando pelo tronco.
+     */
+    private function rotaDeEntrada(): void
+    {
+        $arquivos = (new GeradorDialplan())->gerar();
+        // Os contextos dos troncos saem no MESMO arquivo das rotas: um
+        // arquivo novo precisaria de um #include que só o playbook
+        // reescreve, e quem atualizasse sem ele ficaria com o tronco
+        // apontando para um contexto inexistente.
+        $entrada = $arquivos['extensions.entrada.conf'] ?? '';
+        $troncos = $entrada;
+
+        $temTronco = (int) Bd::valor('SELECT COUNT(*) FROM troncos WHERE ativo = 1') > 0;
+
+        if ($temTronco) {
+            // Sem número nenhum. Boa parte dos gateways FXO, dos E1 e de
+            // vários SIP entrega a chamada na extensão "s". Ela não
+            // existia, e a central respondia 404: a chamada morria antes
+            // de tocar em alguém, sem uma linha de log que explicasse.
+            $this->ok(
+                preg_match('/^exten => s,1,/m', $troncos) === 1,
+                'o tronco sabe receber chamada SEM número — senão a central responde 404'
+            );
+
+            // E.164. O "_X." exige dígito no primeiro caractere, então
+            // "+5511..." não casava nem com a rede de segurança.
+            $this->ok(
+                preg_match('/^exten => _\+X\.,1,/m', $troncos) === 1,
+                'o tronco sabe receber número em E.164, com "+" na frente'
+            );
+
+            $this->ok(
+                str_contains($troncos, 'Goto(telium-entrada,'),
+                'o contexto do tronco entrega a chamada às rotas de entrada'
+            );
+        }
+
+        // Nada pode morrer calado: nem DID sem rota, nem chamada sem
+        // DID, nem destino que o dialplan não reconheça.
+        foreach (['s' => 'chamada sem número', 'i' => 'destino que o dialplan não reconhece'] as $ext => $oque) {
+            $this->ok(
+                preg_match('/^exten => ' . $ext . ',1,/m', $entrada) === 1,
+                "as rotas de entrada tratam {$oque} — nada morre em silêncio"
+            );
+        }
+
+        // O contexto para onde o tronco aponta precisa EXISTIR no
+        // dialplan carregado. Apontar para um contexto ausente derruba
+        // toda a entrada de uma vez, e o único sintoma é 404 na
+        // operadora — a central não registra nada.
+        $carregado = Ami::tentarComando('dialplan show');
+        if ($carregado !== null && $temTronco) {
+            foreach (Bd::todos('SELECT * FROM troncos WHERE ativo = 1') as $t) {
+                $ctx = GeradorPjsip::contextoDeEntrada($t);
+                $this->ok(
+                    str_contains($carregado, "[ Context '{$ctx}'"),
+                    "o contexto de entrada do tronco {$t['nome']} existe no dialplan ({$ctx}) — "
+                    . 'sem ele a operadora recebe 404 em toda chamada'
+                );
+            }
+        }
+
+        // O DID normalizado vai para o CDR. O "dst" muda no caminho da
+        // chamada; o DID é o que responde por qual linha ela entrou.
+        $this->ok(
+            str_contains($entrada, 'Set(CDR(did)='),
+            'a rota grava no CDR o número pelo qual a chamada entrou'
+        );
+
+        // Quem liga decide: era coluna no banco que o gerador nunca lia.
+        $comCid = (int) Bd::valor(
+            "SELECT COUNT(*) FROM rotas_entrada WHERE ativo = 1 AND cid_origem <> ''"
+        );
+        if ($comCid > 0) {
+            $this->ok(
+                str_contains($entrada, 'telium-cid-'),
+                'rota com regra de origem gera o contexto que escolhe por quem ligou'
+            );
+            $this->ok(
+                str_contains($entrada, 'Goto(telium-cid-'),
+                'o DID com regras de origem manda a chamada para esse contexto'
+            );
+        }
+
+        // Barrar número oculto: conferir só o vazio deixava passar
+        // "anonymous", que é como a operadora entrega na prática.
+        $barra = (int) Bd::valor(
+            'SELECT COUNT(*) FROM rotas_entrada WHERE ativo = 1 AND bloquear_anonimo = 1'
+        );
+        if ($barra > 0) {
+            $this->ok(
+                str_contains($entrada, '"${TELIUM_ORIG}" = "anonymous"'),
+                'barrar oculto reconhece "anonymous", e não só o número vazio'
+            );
+            $this->ok(
+                str_contains($entrada, 'Busy(5)'),
+                'a chamada oculta é recusada com ocupado, sem atender — logo sem ser cobrada'
             );
         }
     }

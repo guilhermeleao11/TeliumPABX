@@ -149,26 +149,92 @@ PAGES['conn.rotasentrada'] = paginaCrud({
 
   colunas: [
     { label: 'Ordem', render: r => `<b class="num">${r.ordem}</b>` },
-    { label: 'DID', render: r => `<b class="mono">${esc(r.did)}</b>` },
-    { label: 'Descrição', render: r => `<span class="dim">${esc(r.descricao || '—')}</span>` },
+    { label: 'Número chamado', render: r => `<b class="mono">${esc(r.did) || '<span class="badge">qualquer</span>'}</b>
+        ${r.descricao ? `<div class="tiny muted">${esc(r.descricao)}</div>` : ''}` },
+    { label: 'De quem liga', render: r => r.cid_origem
+        ? `<span class="badge mono">${esc(r.cid_origem)}</span>`
+        : '<span class="muted">qualquer origem</span>' },
     { label: 'Destino', render: r => `<span class="ura-dest">${icon('branch','ico ico-sm')}${esc(r.destino_tipo)} ${esc(r.destino_valor)}</span>` },
-    { label: 'Gravar', render: r => Number(r.gravar) ? '<span class="badge badge-brand">Sim</span>' : '<span class="muted">—</span>' }
+    { label: 'Opções', render: r => [
+        Number(r.gravar) && '<span class="badge badge-brand">grava</span>',
+        Number(r.bloquear_anonimo) && '<span class="badge badge-warn">barra oculto</span>',
+        r.prefixo_cid && `<span class="badge">prefixo ${esc(r.prefixo_cid)}</span>`,
+        r.alertinfo && '<span class="badge">toque próprio</span>',
+        Number(r.pausa_seg) && `<span class="badge">pausa ${r.pausa_seg}s</span>`
+      ].filter(Boolean).join(' ') || '<span class="muted">—</span>' }
   ],
 
-  aoCarregar: async (pagina) => { pagina._destinos = await opcoesDestino(); },
+  aoCarregar: async (pagina) => {
+    pagina._destinos = await opcoesDestino();
+    pagina._musicas = (await Api.get('/audios', { limite: 200 }).catch(() => ({ dados: [] })))
+      .dados.filter(a => a.categoria === 'espera');
+  },
+
+  antesDaLista: () => `
+    <div class="card" style="margin-bottom:16px;padding:16px">
+      <div class="row gap-12" style="align-items:flex-start">
+        <span class="dim" style="flex:none">${icon('info','ico')}</span>
+        <div class="small">
+          A rota casa primeiro pelo <b>número chamado</b> e depois por <b>quem ligou</b>. Entre
+          rotas do mesmo número, a de origem exata vence a de padrão, que vence a que serve a
+          qualquer origem — quem escolhe é o próprio Asterisk, pela mesma regra das rotas de saída.
+          <div class="tiny muted" style="margin-top:6px">
+            Se a operadora entrega o número em outro formato — com <span class="mono">+55</span>,
+            com o DDD, ou só os quatro últimos dígitos — acerte isso <b>uma vez no tronco</b>,
+            em <a href="#/conn.troncos">Troncos</a>, em vez de cadastrar cada variação aqui.
+          </div>
+        </div>
+      </div>
+    </div>`,
 
   campos: (r, ctx, pagina) => [
-    { campo: 'did', label: 'DID / Número', obrigatorio: true, mono: true, placeholder: '1133255800',
-      ajuda: 'Aceita padrão do dialplan, por exemplo _X. para qualquer número. '
-           + 'Um asterisco sozinho vale como "qualquer DID" e é sempre avaliado por último.' },
-    { campo: 'descricao', label: 'Descrição', placeholder: 'Comercial 0800' },
-    { campo: 'destino', tipo: 'destino', label: 'Para onde vai a chamada', obrigatorio: true,
+    { aba: 'Rota', campo: 'did', label: 'Número chamado (DID)', mono: true, placeholder: '1133255800',
+      ajuda: 'O número que a operadora entrega. Em branco, ou um asterisco, vale para QUALQUER '
+           + 'número — inclusive para tronco que não entrega número nenhum. Aceita padrão do '
+           + 'dialplan, como _113325XXXX.' },
+    { aba: 'Rota', campo: 'descricao', label: 'Descrição', placeholder: 'Comercial 0800' },
+    { aba: 'Rota', campo: 'cid_origem', label: 'Só quando quem liga for', mono: true,
+      placeholder: '11999998888',
+      ajuda: 'Em branco, a rota vale para qualquer origem. Preenchida, só para esse número — e '
+           + 'ela vence a rota sem origem do mesmo DID. Aceita padrão: _11XXXXXXXXX pega São Paulo.' },
+    { aba: 'Rota', campo: 'destino', tipo: 'destino', label: 'Para onde vai a chamada', obrigatorio: true,
       largura: 'full', destinos: pagina._destinos,
-      ajuda: 'Todo destino que a central sabe alcançar. "Número externo" passa pelas rotas de '
-           + 'saída, então use o mesmo formato que um ramal discaria.' },
-    { campo: 'ordem', label: 'Ordem de avaliação', tipo: 'number', padrao: 10 },
-    { campo: 'gravar', label: 'Gravar chamadas desta rota', tipo: 'switch' },
-    { campo: 'ativo', label: 'Rota ativa', tipo: 'switch', padrao: 1 }
+      ajuda: 'Todo destino que a central alcança: condição de horário, URA, fila, ramal, grupo, '
+           + 'anúncio, conferência, DISA, correio de voz, megafonia ou número externo.' },
+    { aba: 'Rota', campo: 'ordem', label: 'Ordem de avaliação', tipo: 'number', padrao: 10,
+      ajuda: 'Só desempata entre rotas que servem à mesma chamada. Menor vem primeiro.' },
+    { aba: 'Rota', campo: 'ativo', label: 'Rota ativa', tipo: 'switch', padrao: 1 },
+
+    { aba: 'Atendimento', campo: 'prefixo_cid', label: 'Prefixo no nome de quem liga',
+      placeholder: 'SAC',
+      ajuda: 'Aparece antes do nome no visor: "SAC João Silva". É como o atendente sabe por qual '
+           + 'número a chamada entrou antes de tirar o fone do gancho.' },
+    { aba: 'Atendimento', campo: 'alertinfo', label: 'Toque distintivo (Alert-Info)', mono: true,
+      placeholder: 'Bellcore-r2',
+      ajuda: 'O telefone toca diferente para este número. O valor depende do aparelho — '
+           + 'Grandstream, Yealink e Fanvil aceitam Bellcore-r2 a r8.' },
+    { aba: 'Atendimento', campo: 'musica_espera', label: 'Música em espera desta rota', tipo: 'select',
+      opcoes: [{ valor: '', rotulo: 'a padrão do sistema' },
+               ...(pagina._musicas || []).map(a => ({ valor: a.arquivo, rotulo: a.nome }))],
+      ajuda: 'Vale para toda a chamada, inclusive na fila e na espera.' },
+    { aba: 'Atendimento', campo: 'gravar', label: 'Gravar chamadas desta rota', tipo: 'switch',
+      ajuda: 'Grava sempre, independente do que o ramal que atender pedir.' },
+
+    { aba: 'Tronco difícil', campo: 'tocar_antes', label: 'Sinalizar chamando antes de encaminhar',
+      tipo: 'switch',
+      ajuda: 'Quem ligou ouve o telefone chamando em vez de silêncio enquanto a central decide. '
+           + 'Não atende a chamada, então não custa nada.' },
+    { aba: 'Tronco difícil', campo: 'atender_antes', label: 'Atender antes de encaminhar', tipo: 'switch',
+      ajuda: 'Alguns troncos só entregam áudio depois do atendimento. A partir daqui a chamada '
+           + 'é atendida — e cobrada — mesmo que ninguém fale.' },
+    { aba: 'Tronco difícil', campo: 'pausa_seg', label: 'Esperar antes de encaminhar (s)',
+      tipo: 'number', padrao: 0,
+      ajuda: 'Tronco que entrega o áudio com atraso corta o começo da saudação da URA. '
+           + 'Um ou dois segundos resolvem. Máximo de dez.' },
+    { aba: 'Tronco difícil', campo: 'bloquear_anonimo', label: 'Recusar quem esconde o número',
+      tipo: 'switch',
+      ajuda: 'Devolve ocupado sem atender, então a chamada não é cobrada. Reconhece número vazio '
+           + 'e também "anonymous", "unknown", "restricted" e "private".' }
   ]
 });
 
