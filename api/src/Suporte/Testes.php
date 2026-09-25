@@ -18,6 +18,7 @@ use Telium\Gerador\Conferencia;
 use Telium\Gerador\Destino;
 use Telium\Gerador\GeradorDialplan;
 use Telium\Gerador\GeradorPjsip;
+use Telium\Gerador\GeradorVoicemail;
 use Telium\Gerador\GeradorTransportes;
 use Telium\Http\Middleware\Permissao;
 use Telium\Http\Controllers\Diagnostico;
@@ -64,6 +65,7 @@ final class Testes
             $this->grupo('Faixas de horário', $this->horarios(...));
             $this->grupo('Tarifação', $this->tarifacao(...));
             $this->grupo('Provisionamento de telefones', $this->provisionamento(...));
+            $this->grupo('Envio de e-mail', $this->email(...));
             $this->grupo('Saída do backup', $this->backup(...));
             $this->grupo('Certificados TLS', $this->certificados(...));
             $this->grupo('Portas da API', $this->rotas(...));
@@ -1216,6 +1218,80 @@ final class Testes
         }
     }
 
+
+    /**
+     * O e-mail sai — e sai com o remetente certo.
+     *
+     * Era o módulo nunca provado. Duas coisas quebravam nele, e as duas
+     * de um jeito que passa despercebido: a leitura da configuração
+     * escorregava quando não havia autenticação, e o recado do correio
+     * de voz saía com um remetente diferente do que o console testa.
+     */
+    private function email(): void
+    {
+        $c = Bd::um('SELECT * FROM smtp WHERE id = 1');
+        if ($c === null) {
+            $this->ok(false, 'a linha de configuração de e-mail não existe no banco');
+
+            return;
+        }
+
+        // O correio de voz precisa sair com o MESMO remetente que o
+        // console testa. Com Gmail ou Microsoft 365, enviar com outro
+        // endereço é recusado na hora — e o teste do console continuava
+        // passando, porque ele usa o certo.
+        $geral = (new GeradorVoicemail())->gerar()['voicemail.geral.conf'] ?? '';
+        $remetente = trim((string) $c['remetente']);
+
+        if ((int) $c['ativo'] === 1 && $remetente !== '') {
+            $this->ok(
+                str_contains($geral, "serveremail = {$remetente}"),
+                "o correio de voz envia como {$remetente}, o mesmo remetente que o console testa"
+            );
+        } else {
+            $this->ok(
+                str_contains($geral, 'serveremail ='),
+                'mesmo sem envio configurado, o remetente é escrito — o arquivo gerado é o dono dele'
+            );
+        }
+
+        // O remetente não pode estar em DOIS lugares. O app_voicemail
+        // fica com a PRIMEIRA ocorrência dentro do [general], e o
+        // arquivo gerado é incluído depois: enquanto o voicemail.conf
+        // estático também trazia a linha, era a dele que valia — e o
+        // recado saía com um endereço que ninguém configurou. Com Gmail
+        // ou Microsoft 365 isso é recusado na hora, e o teste do console
+        // continuava passando, porque ele usa o remetente certo.
+        if (!is_file('/etc/asterisk/voicemail.conf')) {
+            echo "    \033[33m!\033[0m /etc/asterisk/voicemail.conf não existe nesta máquina — "
+               . "o dono do remetente é conferido só no servidor\n";
+        } else {
+            $estatico = (string) @file_get_contents('/etc/asterisk/voicemail.conf');
+            $semComentario = preg_replace('/^\s*;.*$/m', '', $estatico) ?? $estatico;
+
+            foreach (['serveremail', 'fromstring'] as $opcao) {
+                $this->ok(
+                    preg_match('/^\s*' . $opcao . '\s*=/m', $semComentario) !== 1,
+                    "o voicemail.conf estático não define {$opcao} — quem manda é o arquivo gerado, "
+                    . 'senão o valor dele vence o do console em silêncio'
+                );
+            }
+        }
+
+        // O msmtp-mta é quem fornece /usr/sbin/sendmail, que é o que o
+        // voicemail.conf chama. Sem ele, o recado não sai e a única
+        // pista é uma linha no log do Asterisk.
+        if (is_file('/etc/asterisk/voicemail.conf')) {
+            $vm = (string) @file_get_contents('/etc/asterisk/voicemail.conf');
+            if (preg_match('/^\s*mailcmd\s*=\s*(\S+)/m', $vm, $m) === 1) {
+                $this->ok(
+                    is_executable($m[1]),
+                    "o programa que envia o e-mail do recado existe ({$m[1]}) — "
+                    . 'sem ele o recado nunca sai, e só o log do Asterisk avisa'
+                );
+            }
+        }
+    }
 
     /**
      * O telefone consegue buscar a própria configuração?

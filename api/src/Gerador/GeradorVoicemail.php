@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Telium\Gerador;
 
+use Telium\Dominio\Rede;
 use Telium\Suporte\Bd;
 
 /** Gera voicemail.conf (contexto [telium]) e os parâmetros gerais. */
@@ -37,11 +38,40 @@ final class GeradorVoicemail
             . $empresa
         );
 
-        return (new Bloco())
+        $b = (new Bloco())
             ->comentario('Gerado pelo Telium PABX — NÃO EDITE À MÃO')
             ->comentario('Gerado em ' . date('d/m/Y H:i:s'))
             ->branco()
-            ->comentario('Incluído dentro do [general] do voicemail.conf estático')
+            ->comentario('Incluído dentro do [general] do voicemail.conf estático');
+
+        // O remetente do recado é o MESMO que o console testa.
+        //
+        // O voicemail.conf estático traz "pabx@<hostname>", que nunca foi
+        // configurado por ninguém. Com Gmail ou Microsoft 365 isso é
+        // recusado na hora — o servidor só aceita enviar com o endereço
+        // da conta autenticada —, e o efeito era o pior possível: o teste
+        // do console passava, porque ele usa o remetente certo, e o
+        // recado do correio de voz não chegava nunca, falhando só no log
+        // do Asterisk. Como este arquivo é incluído DEPOIS, o que está
+        // aqui prevalece.
+        $smtp = Bd::um('SELECT ativo, remetente, nome_remetente FROM smtp WHERE id = 1');
+        $remetente = trim((string) ($smtp['remetente'] ?? ''));
+
+        // Escrito SEMPRE, e só aqui. Enquanto o voicemail.conf estático
+        // também trazia estas duas linhas, era o valor de lá que valia —
+        // o app_voicemail fica com a primeira ocorrência dentro do
+        // [general], e o include vem depois.
+        if ((int) ($smtp['ativo'] ?? 0) !== 1 || $remetente === '') {
+            // Sem envio configurado, o endereço não vai a lugar nenhum:
+            // vale o nome da central, que é o que o Asterisk fazia antes.
+            $dominio = Rede::dominioSip() ?: 'localhost';
+            $remetente = "pabx@{$dominio}";
+        }
+
+        $b->crua("serveremail = {$remetente}")
+          ->crua('fromstring = ' . (trim((string) ($smtp['nome_remetente'] ?? '')) ?: $empresa));
+
+        return $b
             ->crua('format = ' . ($c['formato'] ?? 'wav49|gsm|wav'))
             ->crua('attach = ' . $sim($c['anexar'] ?? 1))
             ->crua('maxmsg = ' . (int) ($c['max_mensagens'] ?? 100))

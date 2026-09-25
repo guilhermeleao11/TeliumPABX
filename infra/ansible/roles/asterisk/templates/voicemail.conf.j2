@@ -6,8 +6,13 @@
 [general]
 skipms        = 3000
 emaildateformat = %d/%m/%Y às %H:%M:%S
-serveremail   = pabx@{{ pabx_hostname }}
-fromstring    = {{ pabx_empresa }} — PABX
+; serveremail e fromstring saem do arquivo incluído logo abaixo, e não
+; daqui. Estavam nos dois lugares, e o app_voicemail fica com a PRIMEIRA
+; ocorrência dentro do [general] — o valor daqui vencia o do console
+; silenciosamente. Com Gmail ou Microsoft 365 isso é fatal: enviar com um
+; endereço que não é o da conta autenticada é recusado na hora, e o
+; efeito era o pior possível — o teste do console passava, porque ele usa
+; o remetente certo, e o recado do correio de voz não chegava nunca.
 mailcmd       = /usr/sbin/sendmail -t
 #include "telium/voicemail.geral.conf"
 

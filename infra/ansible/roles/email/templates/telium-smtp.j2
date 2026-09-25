@@ -17,9 +17,33 @@
 set -uo pipefail
 
 BANCO={{ db_nome }}
-mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1" 2>/dev/null; }
+# Sem 2>/dev/null: erro de banco escondido vira "sem configuração de
+# e-mail", que manda procurar no lugar errado.
+mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1"; }
 
-linha=$(mysql "SELECT ativo, servidor, porta, seguranca, usuario, senha, remetente, nome_remetente
+if ! mysql "SELECT 1" >/dev/null; then
+  echo "FALHA: não foi possível ler o banco $BANCO. Nada foi publicado." >&2
+  exit 1
+fi
+
+# O traço no lugar do vazio é o que faz esta leitura funcionar.
+#
+# O "read" trata uma sequência de tabuladores como UM só — tabulador é
+# espaço em branco, e isso vale mesmo com IFS=$'\t'. Numa configuração
+# sem autenticação, que é o caso normal de relay interno, usuário e senha
+# vêm vazios: dois tabuladores seguidos, e TODOS os campos seguintes
+# escorregam uma casa. O remetente ia parar no usuário, a senha ficava
+# com o nome da empresa, e o "from" saía vazio — e-mail sem autenticação
+# simplesmente não funcionava, falhando com erro de autenticação contra
+# um servidor que nem pede autenticação.
+linha=$(mysql "SELECT ativo,
+                      IFNULL(NULLIF(servidor, ''), '-'),
+                      porta,
+                      seguranca,
+                      IFNULL(NULLIF(usuario, ''), '-'),
+                      IFNULL(NULLIF(senha, ''), '-'),
+                      IFNULL(NULLIF(remetente, ''), '-'),
+                      IFNULL(NULLIF(nome_remetente, ''), '-')
                  FROM smtp WHERE id = 1")
 
 if [[ -z "$linha" ]]; then
@@ -28,6 +52,10 @@ if [[ -z "$linha" ]]; then
 fi
 
 IFS=$'\t' read -r ativo servidor porta seguranca usuario senha remetente nome <<< "$linha"
+
+for v in servidor usuario senha remetente nome; do
+  [[ "${!v}" == "-" ]] && declare "$v="
+done
 
 gerar() {
   echo "# Gerado pelo Telium PABX — NÃO EDITE À MÃO"

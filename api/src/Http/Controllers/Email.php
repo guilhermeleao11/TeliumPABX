@@ -111,7 +111,21 @@ final class Email
             return Resposta::erro($res, 'Ligue o envio de e-mail antes de testar', 409);
         }
 
-        $this->publicar();
+        // Publicar ANTES de testar, e conferir que publicou. Sem esta
+        // conferência, quem trocasse o servidor e clicasse em testar
+        // estaria testando a configuração ANTERIOR, que continua no
+        // disco — e um teste que passa sobre o servidor errado é pior
+        // do que um teste que falha.
+        if (!$this->publicar()) {
+            return Resposta::erro(
+                $res,
+                'Não foi possível publicar a configuração de envio no servidor. '
+                . 'O teste mediria a configuração anterior, então ele não foi feito. '
+                . 'Rode o playbook de instalação para publicar /usr/local/sbin/telium-smtp '
+                . 'e a regra de sudo dele.',
+                502
+            );
+        }
 
         $de = (string) $c['remetente'];
         $nome = (string) $c['nome_remetente'] ?: 'Telium PABX';
@@ -149,7 +163,14 @@ final class Email
     /** Pede ao script com sudo que reescreva a configuração do msmtp. */
     private function publicar(): bool
     {
-        exec('sudo -n /usr/local/sbin/telium-smtp 2>&1', $saida, $rc);
+        $script = '/usr/local/sbin/telium-smtp';
+        if (!is_file($script)) {
+            return false;
+        }
+
+        $saida = [];
+        $rc = 0;
+        @exec('sudo -n ' . escapeshellarg($script) . ' 2>&1', $saida, $rc);
 
         return $rc === 0;
     }
