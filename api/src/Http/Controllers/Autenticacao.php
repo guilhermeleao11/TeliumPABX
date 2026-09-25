@@ -354,10 +354,30 @@ final class Autenticacao
      */
     private function softphone(array $usuario): array
     {
-        $fora = ['disponivel' => false, 'motivo' => 'Este usuário não tem ramal WebRTC.'];
+        // "modo" diz ao console o que oferecer quando o softphone não
+        // está disponível: com um ramal vinculado, o discador continua
+        // servindo — ele liga pelo telefone de mesa, pela central.
+        $semNavegador = static fn (string $motivo, bool $temRamal): array => [
+            'disponivel' => false,
+            'modo'       => $temRamal ? 'aparelho' : 'nenhum',
+            'motivo'     => $motivo,
+        ];
 
-        if (($usuario['ramal'] ?? '') === '') {
-            return $fora;
+        $temRamal = ($usuario['ramal'] ?? '') !== '';
+
+        if (!$temRamal) {
+            return $semNavegador('A sua conta não está vinculada a nenhum ramal.', false);
+        }
+
+        // Desligado na central: nem tenta registrar. Registrar e falhar
+        // enche a tela de erro em toda visita, por uma função que o
+        // administrador escolheu não usar.
+        if (!Rede::softphoneNoNavegador()) {
+            return $semNavegador(
+                'O telefone pelo navegador está desligado nesta central. '
+                . 'O discador liga pelo seu telefone de mesa.',
+                true
+            );
         }
 
         $r = Bd::um(
@@ -366,12 +386,14 @@ final class Autenticacao
         );
 
         if ($r === null || (int) $r['ativo'] !== 1) {
-            return ['disponivel' => false, 'motivo' => 'O ramal deste usuário não existe ou está inativo.'];
+            return $semNavegador('O ramal desta conta não existe ou está inativo.', false);
         }
         if ((int) $r['webrtc'] !== 1) {
-            return ['disponivel' => false,
-                    'motivo' => "O ramal {$r['numero']} não está marcado como WebRTC. "
-                              . 'Ligue a opção no cadastro do ramal para usar o softphone do navegador.'];
+            return $semNavegador(
+                "O ramal {$r['numero']} não está marcado como WebRTC. "
+                . 'O discador liga pelo seu telefone de mesa.',
+                true
+            );
         }
 
         // O endereço do WebSocket é resolvido no navegador, pela origem da
@@ -380,6 +402,7 @@ final class Autenticacao
         // daqui é só o rumo de quem preferir fixar outro endereço.
         return [
             'disponivel' => true,
+            'modo'       => 'navegador',
             'ws'         => (string) Ambiente::get('SOFTPHONE_WS', ''),
             'ramal'      => (string) $r['numero'],
             'nome'       => (string) $r['nome'],

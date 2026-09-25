@@ -147,6 +147,35 @@ final class Rede
         return preg_match('/^[A-Za-z]([A-Za-z0-9-]*[A-Za-z0-9])?$/', end($rotulos)) === 1;
     }
 
+    /**
+     * O softphone do navegador está ligado nesta central?
+     *
+     * Ele nasce desligado, e não por preguiça: depende do NAT da rede de
+     * quem usa, de um TURN alcançável e de um certificado que o navegador
+     * aceite — três coisas que ficam fora da central e que falham todas
+     * do mesmo jeito, com a chamada conectando sem áudio. Com ele
+     * desligado, o discador do console liga pelo telefone de mesa da
+     * pessoa, pela própria central: caminho que não depende de nada disso.
+     *
+     * A escolha mora no banco, como o endereço público: trocá-la é um
+     * clique, não uma reinstalação.
+     */
+    public static function softphoneNoNavegador(): bool
+    {
+        $guardado = self::guardado('webrtc_ativo');
+        if ($guardado !== null && $guardado !== '') {
+            return $guardado === '1';
+        }
+
+        return trim((string) Ambiente::get('WEBRTC_HABILITADO', '0')) === '1';
+    }
+
+    /** Liga ou desliga o softphone do navegador. */
+    public static function guardarSoftphone(bool $ativo): void
+    {
+        self::gravar('webrtc_ativo', $ativo ? '1' : '0');
+    }
+
     /** Porta de cada transporte, como o instalador deixou. */
     public static function portaSip(): int
     {

@@ -186,8 +186,12 @@ const Softphone = {
   montar() {
     if (!document.getElementById('spFab')) {
       const fab = document.createElement('button');
-      fab.id = 'spFab'; fab.className = 'sp-fab'; fab.title = 'Softphone (WebRTC)';
-      fab.setAttribute('aria-label', 'Abrir softphone');
+      fab.id = 'spFab'; fab.className = 'sp-fab';
+      // O rótulo depende do que ele vai realmente fazer: com o telefone
+      // pelo navegador desligado, este botão liga pelo aparelho de mesa.
+      const peloNavegador = Auth.sessao?.softphone?.modo === 'navegador';
+      fab.title = peloNavegador ? 'Telefone pelo navegador' : 'Discador — liga pelo seu telefone';
+      fab.setAttribute('aria-label', 'Abrir o discador');
       fab.innerHTML = icon('headset');
       fab.onclick = () => this.abrir();
       document.body.appendChild(fab);
@@ -201,10 +205,16 @@ const Softphone = {
   /** Registra o ramal do usuário, se ele tiver um marcado como WebRTC. */
   conectar() {
     const cfg = Auth.sessao?.softphone;
+    this.modo = cfg?.modo || (cfg?.disponivel ? 'navegador' : 'nenhum');
+
     this.registro = cfg?.disponivel
       ? { estado: 'registrando', motivo: '' }
-      : { estado: 'indisponivel', motivo: cfg?.motivo || 'Nenhum ramal WebRTC vinculado à sua conta.' };
+      : { estado: this.modo === 'aparelho' ? 'aparelho' : 'indisponivel',
+          motivo: cfg?.motivo || 'A sua conta não está vinculada a nenhum ramal.' };
 
+    // Sem softphone no navegador não há nada a registrar — e nada de
+    // errado: o discador liga pelo telefone de mesa, que é o caminho que
+    // não depende de NAT, de TURN nem de certificado.
     if (!cfg?.disponivel) { this.pintar(); return; }
 
     SipLink.ao((evento, dados) => this.doSip(evento, dados));
@@ -390,8 +400,10 @@ const Softphone = {
       case 'pronto':       return `Ramal ${ramal} registrado`;
       case 'registrando':  return `Registrando o ramal ${ramal}…`;
       case 'erro':         return r.motivo || 'Falha no registro';
+      // Não é falha: é o modo normal de quem usa telefone de mesa.
+      case 'aparelho':     return 'Disca pelo seu telefone de mesa';
       case 'indisponivel': return r.motivo;
-      default:             return 'Softphone desconectado';
+      default:             return 'Discador desconectado';
     }
   },
 
@@ -413,11 +425,15 @@ const Softphone = {
       corpo = `
         <div class="sp-display">
           <input class="sp-num" id="spNum" value="${this.numero}" placeholder="Digite o número" aria-label="Número">
-          <div class="sp-state">${this.textoRegistro()}</div>
+          <div class="sp-state">${this.modo === 'aparelho'
+            ? 'A central chama o seu ramal e completa a ligação quando você atender.'
+            : this.textoRegistro()}</div>
         </div>
         ${teclado}
         <div class="sp-actions">
-          <button class="sp-call" id="spCall">${icon('phone','ico ico-sm')} Ligar</button>
+          <button class="sp-call" id="spCall">${icon('phone','ico ico-sm')}
+            ${this.modo === 'navegador' && this.registro?.estado === 'pronto'
+              ? 'Ligar' : 'Ligar pelo meu telefone'}</button>
         </div>`;
     } else if (this.estado === 'recebendo') {
       corpo = `
@@ -456,10 +472,10 @@ const Softphone = {
     }
 
     dock.innerHTML = `
-      <section class="softphone${animar ? ' sp-enter' : ''}" aria-label="Softphone">
+      <section class="softphone${animar ? ' sp-enter' : ''}" aria-label="Discador">
         <div class="sp-head">
           ${icon('headset','ico')}
-          <div class="grow"><div class="sp-title">Softphone</div>
+          <div class="grow"><div class="sp-title">${this.modo === 'navegador' ? 'Softphone' : 'Discador'}</div>
             <div class="sp-sub">${this.textoRegistro()}</div></div>
           <button class="icon-btn" id="spClose" title="Fechar">${icon('x','ico ico-sm')}</button>
         </div>

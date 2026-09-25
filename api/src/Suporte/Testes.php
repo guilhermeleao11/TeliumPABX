@@ -1063,6 +1063,19 @@ final class Testes
             . "áudio do navegador nunca passa (está \"{$endereco}\")"
         );
 
+        // 1) O telefone pelo navegador está ligado? A resposta manda em
+        // tudo o que vem abaixo, e ela mora no banco — o console troca
+        // com um clique, sem reinstalar nada.
+        $ligado = Rede::softphoneNoNavegador();
+        $guardado = Bd::valor("SELECT valor FROM sistema WHERE chave = 'webrtc_ativo'");
+        if (is_string($guardado)) {
+            $this->ok(
+                $ligado === ($guardado === '1'),
+                sprintf('o estado do telefone pelo navegador confere com o banco (está %s)',
+                    $ligado ? 'ligado' : 'desligado')
+            );
+        }
+
         // 1a) O veredito de cada chamada do navegador. É a frase que o
         // suporte e o cliente leem sobre a MESMA chamada, então ela não
         // pode depender de quem está olhando.

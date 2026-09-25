@@ -748,6 +748,8 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/diagnostico/rede/descobrir', [Diagnostico::class, 'descobrirIp'])
       ->add(new Permissao('conn.rede'));
     $g->get('/diagnostico/webrtc', [Diagnostico::class, 'webrtc'])->add(new Permissao('conn.webrtc'));
+    $g->post('/diagnostico/webrtc', [Diagnostico::class, 'ligarWebrtc'])
+      ->add(new Permissao('conn.webrtc', 'editar'));
     $g->get('/diagnostico/seguranca', [Diagnostico::class, 'seguranca'])
       ->add(new Permissao('conn.firewall'));
     $g->get('/diagnostico/banidos', [Diagnostico::class, 'banidos'])

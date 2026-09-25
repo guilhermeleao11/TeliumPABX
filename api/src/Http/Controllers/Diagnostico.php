@@ -137,6 +137,7 @@ final class Diagnostico
         );
 
         return Resposta::json($res, [
+            'ativo'           => Rede::softphoneNoNavegador(),
             'chamadas'        => $chamadas,
             'chamadas_ruins'  => $ruins,
             'chamadas_total'  => $total7,
@@ -164,6 +165,32 @@ final class Diagnostico
                 static fn (array $r): bool => (int) $r['webrtc'] === 1
             )),
             'ramais_total'   => count($ramais),
+        ]);
+    }
+
+    /**
+     * POST /api/diagnostico/webrtc — liga ou desliga o telefone do navegador.
+     *
+     * Desligado é o padrão. Ele depende do NAT da rede de quem usa, de um
+     * TURN alcançável e de um certificado que o navegador aceite: três
+     * coisas fora da central, que falham todas do mesmo jeito. Com ele
+     * desligado, o discador do console liga pelo telefone de mesa.
+     */
+    public function ligarWebrtc(Request $req, Response $res): Response
+    {
+        $c = (array) $req->getParsedBody();
+        $ativo = !empty($c['ativo']);
+
+        Rede::guardarSoftphone($ativo);
+        Auditoria::registrar($req->getAttribute('usuario'), 'editar', 'conn.webrtc',
+                             $ativo ? 'ligado' : 'desligado');
+
+        return Resposta::json($res, [
+            'ativo' => $ativo,
+            'detalhe' => $ativo
+                ? 'Telefone pelo navegador ligado. Cada usuário precisa recarregar o console, '
+                . 'e o ramal dele precisa estar marcado como WebRTC.'
+                : 'Telefone pelo navegador desligado. O discador passa a ligar pelo telefone de mesa.',
         ]);
     }
 

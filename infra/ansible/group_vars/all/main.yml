@@ -149,6 +149,14 @@ asterisk_max_carga: "{{ (ansible_facts.processor_vcpus | default(2) | int * 1.5)
 # Retransmite a mídia do softphone do navegador onde o caminho direto
 # não passa: rede que bloqueia UDP de saída, NAT simétrico, hotel,
 # 4G corporativo. Sem ele a chamada conecta e fica muda.
+# Telefone pelo navegador (WebRTC). Nasce DESLIGADO: ele depende do NAT
+# da rede de quem usa, de um TURN alcançável e de um certificado que o
+# navegador aceite — três coisas fora da central, e todas falham do
+# mesmo jeito, com a chamada conectando sem áudio. Desligado, o discador
+# do console liga pelo telefone de mesa da pessoa, pela própria central.
+# Liga-se pelo console, em Conectividade > WebRTC / Softphone.
+webrtc_habilitado: false
+
 instalar_turn: true
 turn_porta: 3478
 turn_porta_tls: 5349

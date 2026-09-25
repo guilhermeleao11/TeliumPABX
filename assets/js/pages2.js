@@ -5410,8 +5410,73 @@ PAGES['conn.rede'] = {
 };
 
 /* ------------------------- Conectividade · WebRTC ------------------------- */
+/**
+ * As últimas chamadas do softphone, medidas pelo próprio navegador.
+ *
+ * Vale ligado e desligado: com o telefone do navegador desligado agora,
+ * o histórico do que aconteceu antes continua sendo o que explica um
+ * chamado antigo de "conectou e não ouvi nada".
+ */
+function cartaoChamadasWebrtc(d) {
+  const VEREDITO = {
+    ok:         { r: 'áudio nos dois sentidos', b: 'badge-ok' },
+    instavel:   { r: 'áudio picotado', b: 'badge-warn' },
+    so_ouviu:   { r: 'ouviu, mas não falou', b: 'badge-danger' },
+    so_falou:   { r: 'falou, mas não ouviu', b: 'badge-danger' },
+    mudo:       { r: 'sem áudio nos dois sentidos', b: 'badge-danger' },
+    nao_fechou: { r: 'a mídia não fechou', b: 'badge-danger' }
+  };
+  const CAMINHO = {
+    host:  'rede local',
+    srflx: 'endereço público',
+    prflx: 'endereço descoberto',
+    relay: 'pelo TURN'
+  };
+
+  // Sem histórico e com a função desligada não há o que mostrar.
+  if (!(d.chamadas || []).length && !d.ativo) return '';
+
+  const chamadas = (d.chamadas || []).map(c => {
+    const v = VEREDITO[c.veredito] || VEREDITO.ok;
+    return `<tr>
+      <td class="small dim">${dataHora(c.inicio)}</td>
+      <td><b class="mono">${esc(c.ramal)}</b></td>
+      <td>${c.direcao === 'entrada' ? '↓ recebida' : '↑ feita'}
+          ${c.numero ? `<span class="mono dim">${esc(c.numero)}</span>` : ''}</td>
+      <td class="num">${duracao(c.duracao)}</td>
+      <td><span class="badge ${v.b}">${esc(v.r)}</span></td>
+      <td class="small dim">${c.caminho_local
+          ? esc(CAMINHO[c.caminho_local] || c.caminho_local)
+          : '<span class="muted">não fechou</span>'}</td>
+      <td class="small dim mono">${num(c.pacotes_entrada)} ↓ · ${num(c.pacotes_saida)} ↑${
+          Number(c.perdidos) ? ` · ${num(c.perdidos)} perdidos` : ''}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head row-between">
+        <div><div class="card-title">Últimas chamadas pelo navegador</div>
+          <div class="card-sub">Medido pelo próprio navegador de quem falou, no fim de cada chamada.
+            É o que o Asterisk não consegue ver.</div></div>
+        ${d.chamadas_total
+          ? `<span class="badge ${d.chamadas_ruins ? 'badge-danger' : 'badge-ok'}">${
+              d.chamadas_ruins ? `${d.chamadas_ruins} de ${d.chamadas_total} com problema`
+                               : `${d.chamadas_total} sem problema`} · 7 dias</span>`
+          : ''}
+      </div>
+      ${chamadas ? `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Quando</th><th>Ramal</th><th>Chamada</th><th class="num">Duração</th>
+                     <th>Áudio</th><th>Caminho</th><th>Pacotes</th></tr></thead>
+          <tbody>${chamadas}</tbody></table></div>`
+        : `<div style="padding:20px" class="small muted">
+            Nenhuma chamada pelo softphone ainda. Assim que alguém ligar pelo navegador, o resultado
+            do áudio aparece aqui — inclusive o de chamadas que já terminaram.</div>`}
+    </div>`;
+}
+
 PAGES['conn.webrtc'] = {
-  async render() {
+  async render(ctx) {
     let d;
     try { d = await Api.get('/diagnostico/webrtc'); }
     catch (e) { return pageHead('WebRTC / Softphone', '') + blocoErro(e); }
@@ -5513,6 +5578,37 @@ PAGES['conn.webrtc'] = {
         </p>
       </div>` : '';
 
+    // ---------- desligado: nada a alarmar ----------
+    // Com o telefone pelo navegador desligado, toda a conferência abaixo
+    // é sobre uma função que ninguém está usando. Mostrar dez avisos
+    // vermelhos sobre isso é assustar à toa quem abre a tela.
+    if (!d.ativo) {
+      return pageHead('WebRTC / Softphone',
+        'O telefone pelo navegador — desligado nesta central.') + `
+        <div class="card" style="margin-bottom:16px;padding:18px;border-left:3px solid var(--border)">
+          <div class="row gap-12" style="align-items:flex-start">
+            <span class="dim" style="flex:none">${icon('info','ico ico-lg')}</span>
+            <div class="grow">
+              <b style="font-size:15px">O telefone pelo navegador está desligado</b>
+              <p class="small" style="margin:6px 0 0">
+                O discador do console continua funcionando: ele liga pelo <b>telefone de mesa</b> de
+                quem clicou — a central chama o ramal e, quando a pessoa atende, completa a chamada.
+                É o caminho que não depende do NAT da rede dela, de um servidor TURN alcançável nem
+                de um certificado que o navegador aceite.
+              </p>
+              <p class="small muted" style="margin:8px 0 0">
+                Ligue quando quiser usar o navegador como telefone — e conte com um TURN de pé:
+                em rede que bloqueia UDP, sem ele a chamada conecta e ninguém ouve.
+              </p>
+            </div>
+            ${ctx.can('editar')
+              ? `<button class="btn btn-outline btn-sm" id="ligarWebrtc" style="flex:none">
+                   ${icon('power','ico ico-sm')} Ligar o telefone pelo navegador</button>`
+              : ''}
+          </div>
+        </div>` + cartaoChamadasWebrtc(d);
+    }
+
     // ---------- o veredito, em uma linha ----------
     // Antes esta tela abria com dez cartões e deixava a conclusão para
     // quem lia. Suporte não tem tempo para isso, e cliente não tem como.
@@ -5539,62 +5635,13 @@ PAGES['conn.webrtc'] = {
             texto: 'Transporte, WebSocket, domínio e servidores de ICE conferidos. '
                  + 'Para saber se ESTE computador tem caminho de áudio, use o teste abaixo.' };
 
-    // ---------- últimas chamadas medidas pelo navegador ----------
-    const VEREDITO = {
-      ok:         { r: 'áudio nos dois sentidos', b: 'badge-ok' },
-      instavel:   { r: 'áudio picotado', b: 'badge-warn' },
-      so_ouviu:   { r: 'ouviu, mas não falou', b: 'badge-danger' },
-      so_falou:   { r: 'falou, mas não ouviu', b: 'badge-danger' },
-      mudo:       { r: 'sem áudio nos dois sentidos', b: 'badge-danger' },
-      nao_fechou: { r: 'a mídia não fechou', b: 'badge-danger' }
-    };
-    const CAMINHO = {
-      host:  'rede local',
-      srflx: 'endereço público',
-      prflx: 'endereço descoberto',
-      relay: 'pelo TURN'
-    };
-
-    const chamadas = (d.chamadas || []).map(c => {
-      const v = VEREDITO[c.veredito] || VEREDITO.ok;
-      return `<tr>
-        <td class="small dim">${dataHora(c.inicio)}</td>
-        <td><b class="mono">${esc(c.ramal)}</b></td>
-        <td>${c.direcao === 'entrada' ? '↓ recebida' : '↑ feita'}
-            ${c.numero ? `<span class="mono dim">${esc(c.numero)}</span>` : ''}</td>
-        <td class="num">${duracao(c.duracao)}</td>
-        <td><span class="badge ${v.b}">${esc(v.r)}</span></td>
-        <td class="small dim">${c.caminho_local
-            ? esc(CAMINHO[c.caminho_local] || c.caminho_local)
-            : '<span class="muted">não fechou</span>'}</td>
-        <td class="small dim mono">${num(c.pacotes_entrada)} ↓ · ${num(c.pacotes_saida)} ↑${
-            Number(c.perdidos) ? ` · ${num(c.perdidos)} perdidos` : ''}</td>
-      </tr>`;
-    }).join('');
-
-    const cartaoChamadas = `
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-head row-between">
-          <div><div class="card-title">Últimas chamadas pelo navegador</div>
-            <div class="card-sub">Medido pelo próprio navegador de quem falou, no fim de cada chamada.
-              É o que o Asterisk não consegue ver.</div></div>
-          ${d.chamadas_total
-            ? `<span class="badge ${d.chamadas_ruins ? 'badge-danger' : 'badge-ok'}">${
-                d.chamadas_ruins ? `${d.chamadas_ruins} de ${d.chamadas_total} com problema`
-                                 : `${d.chamadas_total} sem problema`} · 7 dias</span>`
-            : ''}
-        </div>
-        ${chamadas ? `<div class="table-wrap"><table class="table">
-            <thead><tr><th>Quando</th><th>Ramal</th><th>Chamada</th><th class="num">Duração</th>
-                       <th>Áudio</th><th>Caminho</th><th>Pacotes</th></tr></thead>
-            <tbody>${chamadas}</tbody></table></div>`
-          : `<div style="padding:20px" class="small muted">
-              Nenhuma chamada pelo softphone ainda. Assim que alguém ligar pelo navegador, o resultado
-              do áudio aparece aqui — inclusive o de chamadas que já terminaram.</div>`}
-      </div>`;
-
+    const cartaoChamadas = cartaoChamadasWebrtc(d);
     return pageHead('WebRTC / Softphone',
-      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.') + `
+      'O caminho que o telefone do navegador percorre. Quando ele falha, é um destes.',
+      ctx?.can('editar')
+        ? `<button class="btn btn-outline btn-sm" id="desligarWebrtc">
+             ${icon('power','ico ico-sm')} Desligar</button>`
+        : '') + `
       <div class="card" style="margin-bottom:16px;padding:18px;border-left:3px solid var(--${veredito.cor})">
         <div class="row gap-12" style="align-items:flex-start">
           <span style="color:var(--${veredito.cor});flex:none">${icon(veredito.ico,'ico ico-lg')}</span>
@@ -5693,6 +5740,35 @@ PAGES['conn.webrtc'] = {
    * mesmo enxerga — e o problema mora justamente do outro lado.
    */
   mount(ctx) {
+    // O interruptor aparece nos dois estados: desligado, para ligar;
+    // ligado, no rodapé da tela, para desligar sem procurar onde.
+    document.getElementById('ligarWebrtc')?.addEventListener('click', async ev => {
+      const b = ev.currentTarget;
+      b.disabled = true;
+      try {
+        const r = await Api.post('/diagnostico/webrtc', { ativo: true });
+        toast(r.detalhe, 'ok');
+        App.route();
+      } catch (e) { b.disabled = false; toast(e.message, 'err'); }
+    });
+
+    document.getElementById('desligarWebrtc')?.addEventListener('click', async ev => {
+      const ok = await Modal.confirm({
+        titulo: 'Desligar o telefone pelo navegador?',
+        texto: 'Quem usa o softphone passa a discar pelo telefone de mesa: a central chama o ramal '
+             + 'e completa a chamada quando a pessoa atende. Chamadas em curso não caem.',
+        ok: 'Desligar', tone: 'danger', ico: 'power'
+      });
+      if (!ok) return;
+      const b = ev.currentTarget;
+      b.disabled = true;
+      try {
+        const r = await Api.post('/diagnostico/webrtc', { ativo: false });
+        toast(r.detalhe, 'ok');
+        App.route();
+      } catch (e) { b.disabled = false; toast(e.message, 'err'); }
+    });
+
     const botao = document.querySelector('[data-testar-ice]');
     const saida = document.getElementById('resultadoIce');
     if (!botao || !saida) return;

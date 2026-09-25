@@ -404,6 +404,34 @@ final class Portal
         $numero = (string) $r['numero'];
         $contexto = (string) ($r['contexto_custom'] ?: $r['contexto']);
 
+        // Conferir ANTES de originar. Com Async o AMI responde "Success"
+        // no instante em que aceita o pedido, mesmo quando o canal não
+        // pode ser criado — e o console dizia "seu ramal vai tocar" para
+        // um telefone que não estava registrado. Quem clicou ficava
+        // olhando para um aparelho mudo sem nenhuma explicação.
+        $contatos = Ami::tentarComando('pjsip show contacts');
+        if ($contatos !== null) {
+            $alcancavel = Diagnostico::contatoAlcancavel($contatos, $numero);
+
+            if ($alcancavel === null) {
+                return Resposta::erro(
+                    $res,
+                    "O seu telefone (ramal {$numero}) não está registrado na central agora. "
+                    . 'Confira se o aparelho está ligado e conectado à rede.',
+                    409
+                );
+            }
+            if ($alcancavel === false) {
+                return Resposta::erro(
+                    $res,
+                    "A central não consegue falar com o seu telefone (ramal {$numero}): ele está "
+                    . 'registrado, mas não responde. Costuma ser o aparelho fora da rede ou um '
+                    . 'firewall no caminho.',
+                    409
+                );
+            }
+        }
+
         try {
             // doAmbiente(), não new Ami(): o construtor nu usa
             // credenciais vazias e o AMI recusa a autenticação.
