@@ -2567,7 +2567,11 @@ PAGES['admin.certificados'] = {
       const servicos = {};
       m.forEach(s => { servicos[s.dataset.servico] = s.value === 'fabrica' ? null : Number(s.value); });
 
-      const botao = ev.currentTarget;
+      // O botão guardado antes do await do modal, e não ev.currentTarget:
+      // o navegador zera currentTarget quando o clique termina, e depois
+      // da confirmação ele valia null. "botao.disabled" estourava calado,
+      // e o pedido nunca saía — "Aplicar nos serviços" não fazia nada.
+      const botao = botaoAplicar;
       botao.disabled = true;
       botao.innerHTML = '<span class="spin"></span> Aplicando…';
       try {
@@ -6127,6 +6131,8 @@ PAGES['conn.webrtc'] = {
     });
 
     document.getElementById('desligarWebrtc')?.addEventListener('click', async ev => {
+      // Antes do await: depois dele, ev.currentTarget é null.
+      const b = ev.currentTarget;
       const ok = await Modal.confirm({
         titulo: 'Desligar o telefone pelo navegador?',
         texto: 'Quem usa o softphone passa a discar pelo telefone de mesa: a central chama o ramal '
@@ -6134,7 +6140,6 @@ PAGES['conn.webrtc'] = {
         ok: 'Desligar', tone: 'danger', ico: 'power'
       });
       if (!ok) return;
-      const b = ev.currentTarget;
       b.disabled = true;
       try {
         const r = await Api.post('/diagnostico/webrtc', { ativo: false });
