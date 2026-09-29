@@ -572,6 +572,11 @@
     - { arquivo: "extensions.estacionamento.conf", conteudo: "; gerado pela API" }
     - { arquivo: "extensions.paging.conf",  conteudo: "[telium-paging]\n; gerado pela API" }
     - { arquivo: "extensions.disa.conf",    conteudo: "[telium-disa]\n; gerado pela API" }
+    # Call center. Sem estes dois, a primeira passada do playbook — antes
+    # de a API gerar qualquer coisa — deixava o Asterisk sem dialplan: um
+    # #include de arquivo que não existe derruba o pbx_config inteiro.
+    - { arquivo: "extensions.callcenter.conf", conteudo: "; gerado pela API" }
+    - { arquivo: "queuerules.conf",         conteudo: "; gerado pela API" }
     - { arquivo: "musicaespera.conf",       conteudo: "; gerado pela API" }
     - { arquivo: "queues.conf",             conteudo: "; gerado pela API" }
     - { arquivo: "voicemail.conf",          conteudo: "[telium]\n; gerado pela API" }
