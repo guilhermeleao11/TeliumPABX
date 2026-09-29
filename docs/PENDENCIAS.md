@@ -32,8 +32,8 @@ Estes têm cadastro completo, tela bonita e **nenhum efeito**. São o
 mesmo tipo de defeito que a auditoria vinha limpando; ficaram por
 último porque cada um é um módulo, não um ajuste.
 
-Eram quatro. Tarifação e Provisionamento saíram daqui — estão na
-seção 5.
+Eram quatro. Tarifação, Provisionamento e Call Center saíram daqui —
+estão na seção 5.
 
 ### 2.1 Integrações e API — o webhook não dispara
 
@@ -41,18 +41,8 @@ O cadastro guarda webhooks e chaves. Nenhum código chama nenhuma URL
 quando uma chamada começa ou termina.
 
 Falta decidir o formato do evento e quem o dispara — o candidato natural
-é um ouvinte de AMI, que hoje não existe (a central é consultada sob
-demanda, não escutada).
-
-### 2.2 Módulo de call center — a fila fica sem agente
-
-A fila tem a marca "call center" e o vínculo de agente por origem. Ao
-marcar, a tela avisa que os agentes "são atribuídos pelo módulo de call
-center". **Esse módulo não existe.** Na prática, marcar a fila a deixa
-permanentemente sem agente.
-
-Enquanto não existir, a saída honesta é não marcar a fila como call
-center e montar os agentes à mão, que funciona.
+é um ouvinte de AMI. O do call center (telium-cc) já existe e escuta os
+eventos de fila; o webhook pode nascer dele.
 
 ---
 
@@ -140,6 +130,17 @@ em hora casa o número com o padrão da tarifa e grava `cdr.custo`, com as
 frações que a operadora cobra (30 s de mínimo e depois de 6 em 6, no
 padrão brasileiro). Chamada já tarifada não é recalculada: o preço
 congela no que valia quando ela aconteceu.
+
+**Call Center** — o módulo que a fila "call center" prometia e não
+existia. O agente é uma pessoa (conta do console, matrícula e PIN) que
+entra no ramal em que está, pelo painel ou por *40 no telefone, com os
+áudios em português; pausa com motivo, tabulação obrigatória, monitor
+ao vivo do supervisor (pausar, tirar, escutar, sussurrar, intervir),
+retorno pedido na espera, ampliação de habilidade por tempo de espera e
+relatórios tirados do queue_log (SLA de verdade, TME, TMA, abandono,
+tempo logado e em pausa por motivo, CSV). O serviço telium-cc escuta o
+AMI e empurra o estado ao navegador. Falta provar com agentes e
+telefones de verdade (caderno, bloco P).
 
 **Provisionamento** — o aparelho tem de onde baixar. Grandstream (XML),
 Yealink e Fanvil (chave = valor), servidos num endereço com segredo no

@@ -54,6 +54,21 @@ const MENU = [
     ]
   },
   {
+    // O call center: o agente é uma pessoa que entra no ramal em que
+    // está; o supervisor vê e comanda ao vivo.
+    id: 'cc', label: 'Call Center', icon: 'headset',
+    items: [
+      { id: 'cc.agente',     label: 'Meu Atendimento',   icon: 'headset' },
+      { id: 'cc.supervisor', label: 'Monitor ao Vivo',   icon: 'target', pill: 'live' },
+      { id: 'cc.agentes',    label: 'Agentes',           icon: 'users' },
+      { id: 'cc.pausas',     label: 'Motivos de Pausa',  icon: 'clock' },
+      { id: 'cc.tabulacoes', label: 'Tabulações',        icon: 'list' },
+      { id: 'cc.retornos',   label: 'Retornos',          icon: 'phoneIn' },
+      { id: 'cc.relatorios', label: 'Relatórios',        icon: 'chart' },
+      { id: 'cc.config',     label: 'Configurações',     icon: 'settings' }
+    ]
+  },
+  {
     id: 'conn', label: 'Conectividade', icon: 'plug',
     items: [
       { id: 'conn.ramais',        label: 'Ramais',                  icon: 'phone' },

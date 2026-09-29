@@ -69,6 +69,8 @@ final class Testes
             $this->grupo('Tarifação', $this->tarifacao(...));
             $this->grupo('Provisionamento de telefones', $this->provisionamento(...));
             $this->grupo('QR Code do Linphone', $this->linphone(...));
+            $this->grupo('Call center', $this->callCenter(...));
+            $this->grupo('Relatório do call center', $this->relatorioCallCenter(...));
             $this->grupo('Envio de e-mail', $this->email(...));
             $this->grupo('Saída do backup', $this->backup(...));
             $this->grupo('Certificados TLS', $this->certificados(...));
@@ -1463,6 +1465,151 @@ final class Testes
         $this->ok(Provisionamento::decifrarSenha($cifra, $t) === 'S3nh4', 'o próprio token abre a senha');
         $this->ok(Provisionamento::decifrarSenha($cifra, Provisionamento::novoToken()) === null,
                   'outro token não abre a senha');
+    }
+
+    /**
+     * Call center: quem é o agente, o que o gerador escreve e o que cada
+     * painel enxerga.
+     */
+    private function callCenter(): void
+    {
+        $this->ok(\Telium\Dominio\CallCenter::agenteDoMembro('Agente/12') === 12, '"Agente/12" é o agente 12');
+        $this->ok(\Telium\Dominio\CallCenter::agenteDoMembro('Recepção') === null, 'membro fixo de fila não é agente');
+        $this->ok(\Telium\Dominio\CallCenter::ramalDaInterface('PJSIP/1001') === '1001', 'o ramal sai da interface PJSIP');
+        $this->ok(\Telium\Dominio\CallCenter::ramalDaInterface('Local/1001@telium-confirma-3000/n') === '1001',
+                  'o ramal sai também do canal Local de confirmação');
+
+        // O código do telefone numa transação desfeita no fim.
+        $pdo = Bd::conexao();
+        $pdo->beginTransaction();
+        try {
+            $uid = (int) Bd::valor('SELECT id FROM usuarios ORDER BY id LIMIT 1');
+            Bd::executar('DELETE FROM cc_agentes WHERE usuario_id = ? OR matricula IN (?, ?)', [$uid, '98761', '98762']);
+            Bd::executar("INSERT INTO cc_agentes (usuario_id, matricula) VALUES (?, '98761')", [$uid]);
+            $semPin = (int) $pdo->lastInsertId();
+            $this->ok((int) (\Telium\Dominio\CallCenter::agenteDoCodigo('98761')['id'] ?? 0) === $semPin,
+                      'sem PIN no cadastro, só a matrícula entra');
+
+            $pin = \Telium\Dominio\CallCenter::novoPin('4321');
+            Bd::executar('UPDATE cc_agentes SET pin_sal = ?, pin_hash = ? WHERE id = ?', [$pin['sal'], $pin['hash'], $semPin]);
+            $this->ok(\Telium\Dominio\CallCenter::agenteDoCodigo('98761') === null, 'com PIN no cadastro, só a matrícula não entra');
+            $this->ok(\Telium\Dominio\CallCenter::agenteDoCodigo('98761*1111') === null, 'PIN errado não entra');
+            $this->ok((int) (\Telium\Dominio\CallCenter::agenteDoCodigo('98761*4321')['id'] ?? 0) === $semPin,
+                      'matrícula*PIN entra');
+            $this->ok(!str_contains((string) Bd::valor('SELECT pin_hash FROM cc_agentes WHERE id = ?', [$semPin]), '4321'),
+                      'o PIN não fica em claro no banco');
+        } finally {
+            $pdo->rollBack();
+        }
+
+        // O supervisor vê todo mundo; o agente, só a si mesmo.
+        $estado = [
+            'filas' => ['3000' => ['nome' => 'Suporte', 'sla_segundos' => 20, 'esperando' => [
+                ['posicao' => 1, 'numero' => '11999990000', 'nome' => '', 'espera' => 30, 'callid' => 'x', 'prioridade' => 0],
+            ]]],
+            'agentes' => [
+                7 => ['id' => 7, 'ramal' => '1001', 'filas' => ['3000' => 0], 'pausado' => true, 'motivo' => 'Almoço',
+                      'pausa_desde' => time(), 'status' => 'livre', 'em_chamada' => false],
+                8 => ['id' => 8, 'ramal' => '1002', 'filas' => ['3000' => 1], 'pausado' => false, 'motivo' => '',
+                      'pausa_desde' => null, 'status' => 'livre', 'em_chamada' => false],
+            ],
+        ];
+        $motivos = ['Almoço' => ['limite_minutos' => 60]];
+        $sup = \Telium\Servico\TempoReal::visao($estado, ['filas' => [], 'agentes' => []], $motivos, true, null);
+        $ag = \Telium\Servico\TempoReal::visao($estado, ['filas' => [], 'agentes' => []], $motivos, false, 8);
+        $this->ok(count($sup['agentes']) === 2 && isset($sup['filas'][0]['esperando']), 'o supervisor vê todos os agentes e quem espera');
+        $this->ok(count($ag['agentes']) === 1 && $ag['agentes'][0]['id'] === 8, 'o agente vê só a si mesmo');
+        $this->ok(!isset($ag['filas'][0]['esperando']) && $ag['filas'][0]['aguardando'] === 1,
+                  'o agente vê o tamanho da fila, não o número de quem liga');
+        $this->ok($sup['filas'][0]['numero'] === '3000', 'a fila vai como texto, não como número');
+        $this->ok($sup['agentes'][0]['pausa_limite'] === 3600, 'a pausa leva o limite do motivo, em segundos');
+
+        $this->ok(\Telium\Servico\Retornos::temAgenteLivre($estado, '3000'), 'o retorno enxerga o agente livre da fila');
+        $estado['agentes'][8]['em_chamada'] = true;
+        $this->ok(!\Telium\Servico\Retornos::temAgenteLivre($estado, '3000'),
+                  'agente em pausa ou em chamada não recebe retorno');
+
+        // O que o gerador escreve para uma fila de call center.
+        $pdo->beginTransaction();
+        try {
+            Bd::executar("INSERT INTO filas (numero, nome, estrategia, callcenter, ampliar_segundos, ampliar_ate, retorno_tecla)
+                          VALUES ('98799', 'Teste CC', 'rrmemory', 1, 30, 2, '1')");
+            $filaId = (int) $pdo->lastInsertId();
+            $ramal = (int) Bd::valor('SELECT id FROM ramais WHERE ativo = 1 ORDER BY id LIMIT 1');
+            if ($ramal > 0) {
+                Bd::executar("INSERT INTO fila_agentes (fila_id, ramal_id, penalidade, tipo) VALUES (?, ?, 0, 'estatico')",
+                             [$filaId, $ramal]);
+            }
+            $g = (new \Telium\Gerador\GeradorFilas())->gerar();
+            $bloco = (string) strstr($g['queues.conf'], '[98799]');
+            $bloco = substr($bloco, 0, (strpos($bloco, "\n\n") ?: strlen($bloco)));
+            $this->ok(!str_contains($bloco, 'member =>'), 'fila de call center não tem membro fixo no arquivo');
+            $this->ok(str_contains($bloco, 'defaultrule = telium-98799'), 'a ampliação de habilidade liga a regra da fila');
+            $this->ok(str_contains($bloco, 'context = telium-cc-retorno-98799'), 'a tecla de retorno leva ao contexto do retorno');
+            $this->ok(str_contains($g['queuerules.conf'], "[telium-98799]\npenaltychange => 30,1\npenaltychange => 60,2"),
+                      'a regra abre um nível a cada 30 s, até o nível 2');
+
+            $cc = (new \Telium\Gerador\GeradorCallCenter())->gerar()['extensions.callcenter.conf'];
+            $this->ok(str_contains($cc, '[telium-cc-retorno-98799]') && str_contains($cc, 'exten => 1,1,'),
+                      'o dialplan atende a tecla de retorno da fila');
+            $this->ok(str_contains($cc, 'telium-cc/digite-codigo-agente') && str_contains($cc, 'telium-cc/login-realizado'),
+                      'os códigos do agente usam os áudios do call center');
+            $this->ok(str_contains($cc, "exten => _X!,1,NoOp(Retorno"),
+                      'o retorno de id com um dígito casa com a extensão (_X!, não _X.)');
+        } finally {
+            $pdo->rollBack();
+        }
+    }
+
+    /**
+     * Tempo logado e em pausa, reconstruído das transições do queue_log.
+     */
+    private function relatorioCallCenter(): void
+    {
+        $pdo = Bd::conexao();
+        $pdo->beginTransaction();
+        try {
+            $t = static fn (int $s): string => date('Y-m-d H:i:s', strtotime('today 10:00:00') + $s);
+            foreach ([
+                [0,   '98799', 'ADDMEMBER',  ''],
+                [0,   '98798', 'ADDMEMBER',  ''],
+                [600, 'NONE',  'PAUSEALL',   'Almoço'],
+                [600, '98799', 'PAUSE',      'Almoço'],
+                [600, '98798', 'PAUSE',      'Almoço'],
+                [2400, 'NONE', 'UNPAUSEALL', ''],
+                [2400, '98799', 'UNPAUSE',   ''],
+                [2400, '98798', 'UNPAUSE',   ''],
+                [3000, '98799', 'PAUSE',     'Treinamento'],
+                [3600, '98799', 'UNPAUSE',   ''],
+                [3600, '98799', 'REMOVEMEMBER', ''],
+                [3600, '98798', 'REMOVEMEMBER', ''],
+            ] as [$seg, $fila, $evento, $dado]) {
+                Bd::executar("INSERT INTO queue_log (time, callid, queuename, agent, event, data1)
+                              VALUES (?, 'NONE', ?, 'Agente/98799', ?, ?)", [$t($seg), $fila, $evento, $dado]);
+            }
+            Bd::executar("INSERT INTO queue_log (time, callid, queuename, agent, event, data1, data2, data3)
+                          VALUES (?, 'c1', '98799', 'NONE', 'ENTERQUEUE', '', '1199', '1'),
+                                 (?, 'c1', '98799', 'Agente/98799', 'CONNECT', '12', 'c1b', '3'),
+                                 (?, 'c1', '98799', 'Agente/98799', 'COMPLETECALLER', '12', '120', '1'),
+                                 (?, 'c2', '98799', 'NONE', 'ENTERQUEUE', '', '1188', '1'),
+                                 (?, 'c2', '98799', 'NONE', 'ABANDON', '1', '1', '45')",
+                         [$t(100), $t(112), $t(232), $t(300), $t(345)]);
+
+            $r = \Telium\Dominio\RelatorioFilas::doPeriodo(date('Y-m-d'), date('Y-m-d'));
+            $tempos = $r->temposDeSessao()['Agente/98799'] ?? null;
+            $this->ok($tempos !== null && $tempos['logado'] === 3600, 'uma hora logado, em duas filas, conta uma hora');
+            $this->ok(($tempos['pausas']['Almoço'] ?? 0) === 1800, 'meia hora de almoço, pausada nas duas filas, conta meia hora');
+            $this->ok(($tempos['pausas']['Treinamento'] ?? 0) === 600, 'pausa numa fila só também conta');
+            $this->ok(($tempos['produtiva'] ?? -1) === 600, 'treinamento é pausa produtiva; almoço não');
+
+            $fila = array_values(array_filter($r->filas(), static fn ($f) => $f['numero'] === '98799'))[0] ?? [];
+            $this->ok(($fila['recebidas'] ?? 0) === 2 && ($fila['atendidas'] ?? 0) === 1 && ($fila['abandonadas'] ?? 0) === 1,
+                      'duas chamadas: uma atendida e uma abandonada, cada uma contada uma vez');
+            $this->ok(($fila['tme'] ?? 0) === 12 && ($fila['tma'] ?? 0) === 120, 'espera e conversa são as medidas pelo Asterisk');
+            $this->ok(($fila['sla'] ?? null) == 50.0, 'SLA: atendida dentro da meta ÷ chamadas que entraram');
+        } finally {
+            $pdo->rollBack();
+        }
     }
 
     /**

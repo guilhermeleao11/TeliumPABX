@@ -5,6 +5,7 @@ namespace Telium\Http\Controllers;
 
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use Telium\Dominio\RelatorioFilas;
 use Telium\Dominio\Tarifa;
 use Telium\Suporte\Bd;
 use Telium\Suporte\Resposta;
@@ -207,46 +208,35 @@ final class Relatorios
         return [$where === [] ? '' : ' WHERE ' . implode(' AND ', $where), $args];
     }
 
-    /** GET /api/relatorios/filas */
+    /**
+     * GET /api/relatorios/filas
+     *
+     * Do queue_log, não do CDR: o CDR tinha uma linha por agente que a
+     * chamada tocou, e o "SLA" era atendidas ÷ recebidas sem olhar tempo.
+     */
     public function filas(Request $req, Response $res): Response
     {
         $dias = min(90, max(1, (int) ($req->getQueryParams()['dias'] ?? 7)));
+        $r = RelatorioFilas::doPeriodo(date('Y-m-d', strtotime("-{$dias} days + 1 day")), date('Y-m-d'));
 
+        $porNumero = array_column($r->filas(), null, 'numero');
         $filas = Bd::todos(
-            'SELECT f.numero, f.nome, f.sla_segundos,
-                    (SELECT COUNT(*) FROM fila_agentes a WHERE a.fila_id = f.id) AS agentes
+            'SELECT f.numero, f.nome, f.sla_segundos, f.callcenter,
+                    IF(f.callcenter = 1,
+                       (SELECT COUNT(*) FROM cc_agente_filas a WHERE a.fila_id = f.id),
+                       (SELECT COUNT(*) FROM fila_agentes a WHERE a.fila_id = f.id)) AS agentes
                FROM filas f WHERE f.ativo = 1 ORDER BY f.numero'
         );
-
         foreach ($filas as &$f) {
-            $m = Bd::um(
-                "SELECT COUNT(*) AS recebidas,
-                        SUM(disposition = 'ANSWERED') AS atendidas,
-                        AVG(NULLIF(billsec,0)) AS tma
-                   FROM cdr
-                  WHERE fila = ? AND calldate >= DATE_SUB(NOW(), INTERVAL ? DAY)",
-                [$f['numero'], $dias]
-            ) ?? [];
-
-            $recebidas = (int) ($m['recebidas'] ?? 0);
-            $atendidas = (int) ($m['atendidas'] ?? 0);
-            $f['recebidas'] = $recebidas;
-            $f['atendidas'] = $atendidas;
-            $f['abandonadas'] = $recebidas - $atendidas;
-            $f['tma'] = (int) round((float) ($m['tma'] ?? 0));
-            $f['sla'] = $recebidas > 0 ? round($atendidas / $recebidas * 100, 1) : null;
+            $m = $porNumero[(string) $f['numero']] ?? null;
+            foreach (['recebidas', 'atendidas', 'abandonadas', 'estouradas', 'sem_agente', 'no_sla', 'tme', 'tma'] as $k) {
+                $f[$k] = (int) ($m[$k] ?? 0);
+            }
+            $f['sla'] = $m['sla'] ?? null;
         }
         unset($f);
 
-        $serie = Bd::todos(
-            "SELECT DATE(calldate) AS dia,
-                    SUM(disposition = 'ANSWERED') AS dentro,
-                    SUM(disposition <> 'ANSWERED') AS fora
-               FROM cdr
-              WHERE fila IS NOT NULL AND calldate >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-           GROUP BY DATE(calldate) ORDER BY dia",
-            [$dias]
-        );
+        $serie = $r->porDia();
 
         return Resposta::json($res, [
             'filas' => $filas,
@@ -257,9 +247,9 @@ final class Relatorios
                 ),
                 'series' => [
                     ['key' => 'dentro', 'label' => 'Atendidas', 'color' => 'var(--series-1)',
-                     'values' => array_map(static fn ($l) => (int) $l['dentro'], $serie)],
+                     'values' => array_map(static fn ($l) => $l['atendidas'], $serie)],
                     ['key' => 'fora', 'label' => 'Não atendidas', 'color' => 'var(--series-2)',
-                     'values' => array_map(static fn ($l) => (int) $l['fora'], $serie)],
+                     'values' => array_map(static fn ($l) => max(0, $l['recebidas'] - $l['atendidas']), $serie)],
                 ],
                 'vazio' => $serie === [],
             ],
@@ -267,25 +257,26 @@ final class Relatorios
         ]);
     }
 
-    /** GET /api/relatorios/agentes */
+    /**
+     * GET /api/relatorios/agentes
+     *
+     * Quem atendeu chamada de fila, pelo queue_log. Antes contava as
+     * chamadas que o ramal FEZ — o oposto do que o nome dizia.
+     */
     public function agentes(Request $req, Response $res): Response
     {
         $dias = min(90, max(1, (int) ($req->getQueryParams()['dias'] ?? 7)));
+        $r = RelatorioFilas::doPeriodo(date('Y-m-d', strtotime("-{$dias} days + 1 day")), date('Y-m-d'));
 
         return Resposta::json($res, [
-            'dados' => Bd::todos(
-                "SELECT r.numero AS ramal, r.nome,
-                        COUNT(c.id) AS atendidas,
-                        AVG(NULLIF(c.billsec,0)) AS tma
-                   FROM ramais r
-              LEFT JOIN cdr c ON c.src = r.numero
-                            AND c.disposition = 'ANSWERED'
-                            AND c.calldate >= DATE_SUB(NOW(), INTERVAL ? DAY)
-                  WHERE r.ativo = 1
-               GROUP BY r.id, r.numero, r.nome
-               ORDER BY atendidas DESC",
-                [$dias]
-            ),
+            'dados' => array_map(static fn (array $a): array => [
+                'ramal'     => $a['matricula'] ?? $a['agente'],
+                'nome'      => $a['nome'],
+                'atendidas' => $a['atendidas'],
+                'tma'       => $a['tma'],
+                'pausado'   => $a['pausado'],
+                'nota'      => $a['nota'],
+            ], $r->agentes()),
             'dias' => $dias,
         ]);
     }

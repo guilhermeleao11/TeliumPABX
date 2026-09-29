@@ -1433,7 +1433,26 @@ PAGES['apps.filas'] = {
       { aba: 'Geral', campo: 'gravar', label: 'Gravar as chamadas', tipo: 'switch', padrao: 1 },
       { aba: 'Geral', campo: 'ativo', label: 'Fila ativa', tipo: 'switch', padrao: 1 },
       { aba: 'Geral', campo: 'callcenter', label: 'Fila de call center', tipo: 'switch',
-        ajuda: 'Marcando isto, os agentes não são montados aqui: quem atribui é o módulo de call center, na criação do agente.' },
+        ajuda: 'Os agentes não são montados aqui: são as pessoas cadastradas em Call Center → Agentes, que entram e saem pelo console ou por *40 no telefone.' },
+
+      { aba: 'Call center', tipo: 'nota', largura: 'full',
+        texto: 'Estas opções valem só para fila marcada como call center, na aba Geral.' },
+      { aba: 'Call center', campo: 'tabulacao_obrigatoria', label: 'Exigir tabulação', tipo: 'switch',
+        largura: 'full',
+        ajuda: 'Depois de cada atendimento o agente fica em "Pós-atendimento" até dizer o que foi resolvido. As opções ficam em Call Center → Tabulações.' },
+      { aba: 'Call center', campo: 'retorno_tecla', label: 'Tecla de retorno', tipo: 'select',
+        opcoes: [{ valor: '', rotulo: 'Não oferecer retorno' },
+                 ...['1','2','3','4','5','6','7','8','9','0'].map(t => ({ valor: t, rotulo: `Tecla ${t}` }))],
+        ajuda: 'Quem espera aperta esta tecla, desliga e é chamado de volta quando houver agente livre. Avise no anúncio periódico: "aperte 1 para ser chamado de volta".' },
+      { aba: 'Call center', campo: 'retorno_anuncio_id', label: 'Anúncio de confirmação do retorno',
+        tipo: 'select', opcoes: anuncios(),
+        ajuda: 'Toca depois que o cliente pede o retorno. Sem anúncio, a central diz "obrigado".' },
+      { aba: 'Call center', campo: 'retorno_tentativas', label: 'Tentativas de retorno', tipo: 'number', padrao: 3,
+        ajuda: 'Quantas vezes a central tenta falar com o cliente, com 3 minutos entre elas.' },
+      { aba: 'Call center', campo: 'ampliar_segundos', label: 'Ampliar habilidade a cada (s)', tipo: 'number',
+        padrao: 0,
+        ajuda: 'A chamada começa oferecida só aos agentes de nível 0. A cada tantos segundos de espera, entra mais um nível. 0 desliga: todos os níveis recebem, os menores primeiro.' },
+      { aba: 'Call center', campo: 'ampliar_ate', label: 'Até o nível', tipo: 'number', padrao: 3 },
 
       { aba: 'Áudios', campo: 'musica_espera', label: 'Música em espera', tipo: 'select',
         opcoes: [{ valor: 'default', rotulo: 'Padrão do sistema' },
@@ -1645,14 +1664,16 @@ PAGES['apps.filas'] = {
       Drawer.open({
         titulo: `Agentes da fila ${d.fila.numero}`,
         sub: d.fila.callcenter
-          ? 'Esta é uma fila de call center: a lista vem do módulo de call center e não é editada aqui.'
+          ? 'Esta é uma fila de call center: quem atende são os agentes cadastrados no módulo Call Center.'
           : 'Penalidade menor atende primeiro. "Entra por código" não vai para o arquivo: o agente entra e sai com *45.',
         wide: true,
         corpo: `
           ${d.fila.callcenter ? `<div class="aviso-form">${icon('info','ico')}
-            <div><b>Fila de call center</b><div class="tiny">Os agentes são atribuídos quando o
-              agente é criado no módulo de call center. Para montar a lista aqui, desmarque
-              "fila de call center" no cadastro.</div></div></div>` : ''}
+            <div><b>Fila de call center</b><div class="tiny">Os agentes desta fila são pessoas,
+              cadastradas em <a href="#/cc.agentes">Call Center → Agentes</a>, com o nível de habilidade
+              de cada uma. Elas entram e saem pelo console ou por código no telefone, e o que estão
+              fazendo agora aparece no <a href="#/cc.supervisor">Monitor ao Vivo</a>.
+              Para montar ramais fixos aqui, desmarque "fila de call center".</div></div></div>` : ''}
 
           <div class="row gap-8" style="margin-bottom:12px">
             <select class="select grow" id="novoAgente" ${d.fila.callcenter ? 'disabled' : ''}>

@@ -24,12 +24,16 @@ final class Esquema
         'grupos_horario', 'grupo_horario_faixas', 'condicoes_horarias',
         'estacionamentos', 'despertadores',
         'provisionamento_convite',
+        // call center
+        'cc_agentes', 'cc_agente_filas', 'cc_pausas_motivos', 'cc_tabulacoes',
+        'cc_atendimentos', 'cc_retornos', 'queue_log',
     ];
 
     /** Colunas acrescentadas depois, por tabela. */
     private const COLUNAS = [
         'ramais' => ['webrtc', 'siga_me_ativo', 'dtmf_modo', 'dtls', 'grav_ext_entrada'],
-        'filas'  => ['callcenter', 'anuncio_entrada_id', 'pesquisa_id'],
+        'filas'  => ['callcenter', 'anuncio_entrada_id', 'pesquisa_id',
+                     'tabulacao_obrigatoria', 'retorno_tecla', 'ampliar_segundos'],
         'ura'    => ['anuncio_id'],
         'contatos' => ['empresa', 'discagem_rapida'],
         'codigos_recurso' => ['tipo', 'argumento'],

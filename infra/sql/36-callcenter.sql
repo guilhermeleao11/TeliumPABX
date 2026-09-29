@@ -199,7 +199,7 @@ SELECT id, 'cc.agente' FROM perfis WHERE chave = 'operador';
 -- ---------------------------------------------------------
 INSERT INTO codigos_recurso (chave, nome, codigo, tipo, argumento, categoria, ordem, descricao) VALUES
  ('cc_login',  'Call center: entrar',            '*40', 'dialplan', NULL,
-  'filas', 40, 'Pede a matrícula e o PIN do agente e o põe nas filas dele, neste ramal.'),
+  'filas', 40, 'Pede o código do agente — a matrícula, ou matrícula * PIN para quem tem PIN — e o põe nas filas dele, neste ramal.'),
  ('cc_pausa',  'Call center: pausar com motivo', '*42', 'dialplan', 'motivo',
   'filas', 41, 'Disque o código e o número do motivo (1 almoço, 2 banheiro…). Vale para todas as filas.'),
  ('cc_volta',  'Call center: voltar da pausa',   '*49', 'dialplan', NULL,

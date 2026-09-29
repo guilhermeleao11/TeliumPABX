@@ -235,6 +235,11 @@ Password    = r
 Charset     = utf8mb4
 INI'
 
+  # O fuso do servidor, não o UTC do contêiner. O Asterisk carimba o
+  # queue_log com a hora local (lê /etc/localtime, não a variável TZ), e o
+  # banco conta em -03:00: em UTC, todo evento da bancada ficava três
+  # horas "no futuro" e o relatório zerava tempo logado e em pausa.
+  docker exec v-ast ln -sf /usr/share/zoneinfo/America/Sao_Paulo /etc/localtime
   docker exec -d v-ast asterisk -f -vvv
   sleep 6
 

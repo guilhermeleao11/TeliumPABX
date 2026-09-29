@@ -405,7 +405,8 @@ final class TempoReal
         foreach ($estado['filas'] as $numero => $f) {
             $espera = array_column($f['esperando'], 'espera');
             $resumo = [
-                'numero'       => $numero,
+                // Chave numérica de array vira int no PHP; a fila é texto.
+                'numero'       => (string) $numero,
                 'nome'         => $f['nome'],
                 'sla_segundos' => $f['sla_segundos'],
                 'aguardando'   => count($f['esperando']),
@@ -521,7 +522,8 @@ final class TempoReal
         parse_str((string) parse_url($alvo, PHP_URL_QUERY), $q);
 
         if ($metodo === 'GET' && $caminho === '/eventos') {
-            $this->abrirFluxo($id, $cabecalhos['authorization'] ?? '');
+            $this->abrirFluxo($id, $cabecalhos['authorization'] ?? '', $cabecalhos['cookie'] ?? '',
+                              ($q['visao'] ?? '') === 'agente');
 
             return;
         }
@@ -534,9 +536,11 @@ final class TempoReal
         $this->responder($id, 404, 'nada aqui');
     }
 
-    private function abrirFluxo(int $id, string $autorizacao): void
+    private function abrirFluxo(int $id, string $autorizacao, string $cookie, bool $soAgente = false): void
     {
-        $token = preg_match('/^Bearer\s+(\S+)$/i', $autorizacao, $m) === 1 ? $m[1] : '';
+        // Como a API: o cabeçalho Authorization, ou o cookie da sessão.
+        $token = preg_match('/^Bearer\s+(\S+)$/i', $autorizacao, $m) === 1 ? $m[1]
+            : (preg_match('/(?:^|;\s*)telium_sessao=([^;\s]+)/', $cookie, $c) === 1 ? rawurldecode($c[1]) : '');
         $usuario = $token === '' ? null : $this->comBanco(fn () => Sessao::usuarioDoToken($token));
         if ($usuario === null) {
             $this->responder($id, 401, 'sessão inválida');
@@ -545,10 +549,13 @@ final class TempoReal
         }
 
         $allow = $this->comBanco(fn () => Permissoes::doPerfil((int) $usuario['perfil_id'])['allow']) ?? [];
-        $supervisor = Permissoes::podeModulo($allow, 'cc.supervisor');
+        // O painel do agente pede ?visao=agente: quem também é supervisor
+        // recebe ali só a si mesmo, e não o time inteiro.
+        $supervisor = Permissoes::podeModulo($allow, 'cc.supervisor') && !$soAgente;
         $agente = $this->comBanco(fn () => CallCenter::agenteDoUsuario((int) $usuario['id']));
 
-        if (!$supervisor && ($agente === null || !Permissoes::podeModulo($allow, 'cc.agente'))) {
+        if (!$supervisor && ($agente === null
+            || (!Permissoes::podeModulo($allow, 'cc.agente') && !Permissoes::podeModulo($allow, 'cc.supervisor')))) {
             $this->responder($id, 403, 'sem acesso ao call center');
 
             return;

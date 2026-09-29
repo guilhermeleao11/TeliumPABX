@@ -390,6 +390,24 @@ módulos. Quando elas mudam, o playbook agenda um reinício para quando a
 central estiver sem chamada e avisa no final. Para conferir se já
 aconteceu: `sudo asterisk -rx "core show uptime"`.
 
+## Call center e syslog
+
+O serviço de tempo real do call center roda à parte:
+
+```bash
+systemctl status telium-cc          # ativo, e reinicia sozinho se cair
+journalctl -u telium-cc -f          # o que ele está fazendo
+```
+
+Ele escuta só em `127.0.0.1:8095`; o nginx publica `/api/cc/eventos` e
+nada mais. O `queue_log` das filas vai para o banco (tabela `queue_log`),
+e é de lá que saem os relatórios.
+
+Os logs do Asterisk (facility `local5`), de autenticação e do sistema
+são encaminhados ao syslog central do grupo VoIP (`syslog_central_*` em
+`group_vars/all/main.yml`). Os arquivos locais do Asterisk continuam:
+o fail2ban lê o `security`. `syslog_central: false` desliga.
+
 ## Comandos úteis na VM
 
 ```bash

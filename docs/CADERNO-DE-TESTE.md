@@ -871,6 +871,68 @@ Com o número de ramais que o cliente tem, em horário de pico simulado:
 
 ---
 
+## 16-A. Bloco P — Call center
+
+Com uma fila marcada como "call center", dois agentes cadastrados em
+**Call Center → Agentes** (cada um com a sua conta do console) e dois
+telefones. Um supervisor com ramal vinculado à própria conta.
+
+### P1 🔴 O agente entra, pausa e sai
+
+- [ ] Pelo painel **Meu Atendimento**: entrar no ramal, pausar (Almoço),
+      voltar e sair — o **Monitor ao Vivo** mostra cada mudança na hora
+- [ ] Pelo telefone: *40 (ouve "digite o código do agente"), matrícula e
+      #, ouve "login realizado"; *421 pausa (ouve "pausa ativada"); *49
+      volta; *44 sai
+- [ ] Com PIN no cadastro, só a matrícula é recusada ("agente inválido");
+      matrícula * PIN entra
+- [ ] Dois agentes no mesmo ramal: o segundo é recusado
+- [ ] Reiniciar o Asterisk com agentes logados: eles continuam logados
+
+### P2 🔴 A chamada chega a quem deve
+
+- [ ] Agente de nível 0 livre recebe antes do nível 1
+- [ ] Com "ampliar habilidade a cada 30 s", o nível 1 só toca depois de
+      30 s de espera
+- [ ] Agente em pausa não recebe
+
+### P3 🟡 Tabulação
+
+- [ ] Fila com "Exigir tabulação": ao desligar, o agente fica em
+      "Pós-atendimento" e não recebe chamada
+- [ ] Tabulou no painel: volta a receber sozinho
+- [ ] O atendimento aparece em "Meus atendimentos de hoje" com a tabulação
+
+### P4 🟡 Supervisor
+
+- [ ] Pausar, tirar da pausa e tirar do atendimento um agente pelo monitor
+- [ ] Escutar: o ramal do supervisor toca e ouve a conversa sem ser ouvido
+- [ ] Sussurrar: só o agente ouve o supervisor
+- [ ] Intervir: os dois ouvem
+- [ ] Pausa além do limite do motivo aparece em vermelho
+
+### P5 🟡 Retorno
+
+- [ ] Fila com tecla de retorno 1: quem espera aperta 1, ouve a
+      confirmação e desliga; o pedido aparece em **Retornos**
+- [ ] Com agente livre, o agente toca primeiro com o número do cliente e,
+      ao atender, a central liga para o cliente
+- [ ] Cliente que não atende: nova tentativa em 3 minutos, até o limite
+
+### P6 🔴 Relatório
+
+- [ ] 10 chamadas de teste: recebidas, atendidas e abandonadas batem com
+      o que foi feito (cada chamada contada uma vez)
+- [ ] SLA, espera e conversa conferem com um cronômetro
+- [ ] Tempo logado e em pausa por motivo conferem com o que o agente fez
+- [ ] O CSV abre no Excel com acento e separador certos
+
+> O serviço de tempo real: `systemctl status telium-cc` ativo. Parado,
+> o console segue funcionando (a tela avisa "atualizando a cada 3 s"),
+> mas os códigos do telefone respondem "serviço indisponível".
+
+---
+
 ## 17. O que NÃO entra nesta aceitação
 
 Escreva aqui, e **mostre ao cliente antes de virar a chave**. Prometer o
@@ -879,7 +941,6 @@ que a central não faz é o que transforma entrega em briga.
 | Função | Situação |
 |---|---|
 | **Integrações / API (webhooks)** | A tela guarda webhooks e chaves; **nenhuma URL é chamada**. Não ofereça integração. |
-| **Módulo de call center** | Marcar a fila como "call center" a deixa **permanentemente sem agente**. Não marque — monte os agentes à mão. |
 | **Texto em Voz** | Fora do menu por decisão de produto. |
 | **Softphone no navegador (WebRTC)** | **Desligado de fábrica.** Ligar exige TURN funcionando e um nome que o navegador resolva. Se o cliente quiser, teste à parte com o botão *Testar agora* em Conectividade → WebRTC. |
 | **Fax T.38** | Implementado, **sem prova de ponta a ponta** com aparelho de fax real. |

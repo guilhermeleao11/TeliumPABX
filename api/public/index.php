@@ -7,6 +7,7 @@ use Telium\Http\Controllers\Autenticacao as CtrlAuth;
 use Telium\Http\Controllers\Cadastros;
 use Telium\Http\Controllers\Certificados;
 use Telium\Http\Controllers\Provisionar;
+use Telium\Http\Controllers\CallCenter as CtrlCallCenter;
 use Telium\Http\Controllers\Conferencias;
 use Telium\Http\Controllers\Contatos;
 use Telium\Http\Controllers\Destinos;
@@ -274,7 +275,9 @@ $recursos = [
         'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'filas',
-            colunas: ['numero','nome','descricao','callcenter','estrategia','timeout_agente','retry',
+            colunas: ['numero','nome','descricao','callcenter','tabulacao_obrigatoria','retorno_tecla',
+                      'retorno_anuncio_id','retorno_tentativas','ampliar_segundos','ampliar_ate',
+                      'estrategia','timeout_agente','retry',
                       'wrapuptime','musica_espera','anuncio_entrada_id','anuncio_agente_id',
                       'anuncio_periodico_id','periodico_segundos','anuncio_posicao','anuncio_espera','anuncio_frequencia',
                       'sla_segundos','max_espera','peso','max_chamadas','entrar_vazia','sair_vazia',
@@ -690,6 +693,60 @@ $recursos = [
             modulo: 'admin.backup',
         ),
     ],
+    // ---- call center: motivos de pausa e tabulações ----
+    'cc-pausas' => [
+        'modulo' => 'cc.pausas',
+        // O painel do agente e o monitor leem a lista para montar o menu
+        // de pausa; ler não é administrar.
+        'referencia' => ['cc.agente', 'cc.supervisor'],
+        'recurso' => new Recurso(
+            tabela: 'cc_pausas_motivos',
+            colunas: ['nome', 'codigo', 'limite_minutos', 'produtiva', 'ordem', 'ativo'],
+            ordem: 'ordem, nome',
+            busca: ['nome'],
+            modulo: 'cc.pausas',
+            regras: [
+                'nome'   => ['padrao' => '/^.{2,40}$/u', 'mensagem' => 'O nome tem de 2 a 40 caracteres.'],
+                'codigo' => ['min' => 1, 'max' => 89,
+                             'mensagem' => 'O número vai de 1 a 89: é o que se digita depois do *42. 90 em diante são da central.'],
+            ],
+            unicas: ['nome', 'codigo'],
+            // "Pós-atendimento" e "Não atendeu" são postos pela central, e
+            // o nome é o que o código procura no queue_log. Renomear ou
+            // apagar quebraria a tabulação obrigatória sem erro nenhum.
+            conferir: static function (string $acao, array $dados, array $atual): ?array {
+                if ((int) ($atual['sistema'] ?? 0) !== 1) {
+                    return null;
+                }
+                if ($acao === 'excluir') {
+                    return ['mensagem' => 'Este motivo é da própria central e não pode ser excluído. Desative-o, se não quiser usá-lo.'];
+                }
+                if (isset($dados['nome']) && $dados['nome'] !== $atual['nome']) {
+                    return ['mensagem' => 'O nome deste motivo é usado pela central e não pode mudar.', 'campo' => 'nome'];
+                }
+                if (isset($dados['codigo']) && (int) $dados['codigo'] !== (int) $atual['codigo']) {
+                    return ['mensagem' => 'O número deste motivo é reservado.', 'campo' => 'codigo'];
+                }
+
+                return null;
+            },
+        ),
+    ],
+    'cc-tabulacoes' => [
+        'modulo' => 'cc.tabulacoes',
+        'referencia' => ['cc.agente', 'cc.supervisor'],
+        'recurso' => new Recurso(
+            tabela: 'cc_tabulacoes',
+            colunas: ['nome', 'grupo', 'fila_id', 'ordem', 'ativo'],
+            ordem: 'grupo, ordem, nome',
+            busca: ['nome', 'grupo'],
+            filtros: ['fila_id', 'ativo'],
+            modulo: 'cc.tabulacoes',
+            regras: [
+                'nome' => ['padrao' => '/^.{2,80}$/u', 'mensagem' => 'O nome tem de 2 a 80 caracteres.'],
+            ],
+        ),
+    ],
     'integracoes' => [
         'modulo' => 'telium.integracoes',
         'recurso' => new Recurso(
@@ -867,6 +924,29 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('admin.gravacoes', 'editar'));
     $g->delete('/audios/{id}', [Audios::class, 'remover'])
       ->add(new Permissao('admin.gravacoes', 'excluir'));
+
+    // ---- call center ----
+    $g->get('/cc/estado', [CtrlCallCenter::class, 'estado'])
+      ->add(new Permissao('cc.agente', null, ['cc.supervisor']));
+    $g->get('/cc/eu', [CtrlCallCenter::class, 'eu'])->add(new Permissao('cc.agente'));
+    $g->post('/cc/eu/entrar', [CtrlCallCenter::class, 'entrar'])->add(new Permissao('cc.agente'));
+    $g->post('/cc/eu/sair', [CtrlCallCenter::class, 'sair'])->add(new Permissao('cc.agente'));
+    $g->post('/cc/eu/pausa', [CtrlCallCenter::class, 'pausar'])->add(new Permissao('cc.agente'));
+    $g->post('/cc/eu/volta', [CtrlCallCenter::class, 'voltar'])->add(new Permissao('cc.agente'));
+    $g->post('/cc/atendimentos/{id}/tabular', [CtrlCallCenter::class, 'tabular'])->add(new Permissao('cc.agente'));
+    $g->post('/cc/agentes/{id}/comando', [CtrlCallCenter::class, 'comando'])
+      ->add(new Permissao('cc.supervisor', 'editar'));
+    $g->get('/cc/agentes', [CtrlCallCenter::class, 'listar'])
+      ->add(new Permissao('cc.agentes', null, ['cc.supervisor']));
+    $g->post('/cc/agentes', [CtrlCallCenter::class, 'salvar'])->add(new Permissao('cc.agentes', 'criar'));
+    $g->put('/cc/agentes/{id}', [CtrlCallCenter::class, 'salvar'])->add(new Permissao('cc.agentes', 'editar'));
+    $g->delete('/cc/agentes/{id}', [CtrlCallCenter::class, 'remover'])->add(new Permissao('cc.agentes', 'excluir'));
+    $g->get('/cc/retornos', [CtrlCallCenter::class, 'retornos'])
+      ->add(new Permissao('cc.retornos', null, ['cc.supervisor']));
+    $g->post('/cc/retornos/{id}', [CtrlCallCenter::class, 'retorno'])->add(new Permissao('cc.retornos', 'editar'));
+    $g->get('/cc/config', [CtrlCallCenter::class, 'config'])->add(new Permissao('cc.config'));
+    $g->put('/cc/config', [CtrlCallCenter::class, 'salvarConfig'])->add(new Permissao('cc.config', 'editar'));
+    $g->get('/cc/relatorio', [CtrlCallCenter::class, 'relatorio'])->add(new Permissao('cc.relatorios'));
 
     // ---- provisionamento de telefones ----
     $g->get('/provisionamento', [Provisionar::class, 'estado'])

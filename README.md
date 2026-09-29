@@ -70,6 +70,8 @@ assets/js/data.js           menu, perfis, usuários, empresa e massa de dados de
 assets/js/auth.js           sessão, permissões e tema (com fallback para file://)
 assets/js/ui.js             softphone, drawer, modal, paleta Ctrl+K, player, modo TV
 assets/js/pages.js          telas: painel, ramais, troncos, filas, CDR, usuários, permissões
+assets/js/callcenter.js     call center: painel do agente, monitor do supervisor,
+                            agentes, pausas, tabulações, retornos e relatórios
 assets/js/pages2.js         telas: rotas, URA, gravações, tarifação, provisionamento,
                             firewall, backup, integrações, PCU e dados da empresa
 assets/js/app.js            sidebar, roteador por hash, cabeçalho, atalhos e notificações
@@ -173,11 +175,11 @@ horário comercial, DID e rotas. Nunca em instalação de cliente.
 A lista honesta, com o estrago de cada pendência, está em
 [docs/PENDENCIAS.md](docs/PENDENCIAS.md). O resumo:
 
-- **Quatro módulos têm tela e nenhum efeito:** Tarifação, Tabela de
-  Tarifas, Provisionamento e Integrações/API.
-- Barramento de tempo real (AMI → WebSocket): hoje as telas de estado
-  perguntam ao Asterisk a cada carga e não se atualizam sozinhas.
-- Exportação de relatórios em CSV/PDF.
+- **Um módulo tem tela e nenhum efeito:** Integrações/API.
+- Barramento de tempo real para o resto do console: o call center já
+  recebe os eventos ao vivo (serviço telium-cc), as outras telas de
+  estado ainda perguntam ao Asterisk a cada carga.
+- Exportação de relatórios em PDF (o call center exporta CSV).
 
 O softphone do navegador **não depende mais do Janus**: fala SIP sobre
 WebSocket direto com o Asterisk, pelo `/ws` do nginx.
