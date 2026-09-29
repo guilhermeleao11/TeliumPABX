@@ -227,6 +227,28 @@ final class Provisionar
             return Resposta::erro($res, 'A senha SIP tem de ter até 120 caracteres, sem quebra de linha.', 422);
         }
 
+        // O endereço é o que o administrador digitou no navegador para
+        // abrir o console: numa central instalada sem nome próprio, é o
+        // único que sabidamente chega a ela.
+        $uri = $req->getUri();
+        $host = strtolower($uri->getHost());
+        if (!Provisionamento::enderecoValido($host)) {
+            return Resposta::erro($res, 'Não foi possível saber o endereço desta central. '
+                . 'Abra o console pelo IP ou pelo nome do servidor e gere o QR de novo.', 422);
+        }
+
+        // Console aberto por http, sem nginx na frente (a bancada): o QR
+        // segue o mesmo caminho, porta incluída. Pelo nginx, é https se o
+        // certificado passa na conferência do Linphone, senão http na 80.
+        if ($uri->getScheme() === 'http') {
+            $esquema = 'http';
+            $porta = $uri->getPort();
+        } else {
+            $esquema = Provisionamento::httpsConfiavel($host) ? 'https' : 'http';
+            $porta = $esquema === 'https' ? $uri->getPort() : null;
+        }
+        $base = "{$esquema}://{$host}" . ($porta !== null && !in_array($porta, [80, 443], true) ? ":{$porta}" : '');
+
         Provisionamento::limparConvites();
 
         $token = Provisionamento::novoToken();
@@ -235,12 +257,15 @@ final class Provisionar
         // O prazo é contado pelo relógio do banco, que é o mesmo que
         // confere a validade na entrega.
         Bd::executar(
-            'INSERT INTO provisionamento_convite (token_hash, ramal_id, senha_cifrada, criado_por, expira_em)
-             VALUES (?, ?, ?, ?, NOW() + INTERVAL ? SECOND)',
+            'INSERT INTO provisionamento_convite
+                    (token_hash, ramal_id, senha_cifrada, servidor, esquema, criado_por, expira_em)
+             VALUES (?, ?, ?, ?, ?, ?, NOW() + INTERVAL ? SECOND)',
             [
                 Provisionamento::hashDoToken($token),
                 (int) $ramal['id'],
                 $senha === '' ? null : Provisionamento::cifrarSenha($senha, $token),
+                $host,
+                $esquema,
                 $usuario['id'] ?? null,
                 Provisionamento::LINPHONE_VALIDADE_SEG,
             ]
@@ -253,13 +278,14 @@ final class Provisionar
         Auditoria::registrar($usuario, 'criar', 'conn.provisionamento',
                              "QR do Linphone para o ramal {$ramal['numero']}");
 
-        // O celular busca a URL pela internet, não pela rede da central:
-        // o nome tem de ser o público, com certificado válido.
-        $host = trim((string) Ambiente::get('SIP_DOMINIO', '')) ?: $req->getUri()->getHost();
-        $destino = Provisionamento::destinoLinphone();
+        $destino = Provisionamento::destinoLinphone($host);
 
         return Resposta::json($res, [
-            'url'          => "https://{$host}/p/{$token}",
+            'url'          => "{$base}/p/{$token}",
+            'esquema'      => $esquema,
+            // O celular no 4G não alcança IP de rede privada: só pelo
+            // Wi-Fi da mesma rede. A tela avisa.
+            'privado'      => Provisionamento::enderecoPrivado($host),
             'expira_em'    => $expira,
             'validade_seg' => Provisionamento::LINPHONE_VALIDADE_SEG,
             'ramal'        => (string) $ramal['numero'],
@@ -279,6 +305,11 @@ final class Provisionar
      * Sem sessão, como o /prov/: o aplicativo não faz login. O que
      * protege é o token — 192 bits, dez minutos, uma vez só. A trava de
      * rede interna não vale aqui: o celular costuma estar no 4G.
+     *
+     * Responde também pela porta 80, sem redirecionar para https: é o
+     * caminho da central sem certificado de confiança. Por ali o XML
+     * viaja sem criptografia — o preço de não ter certificado, e a tela
+     * diz isso a quem gera o QR.
      *
      * Token usado ou vencido responde 410, nunca 200 com página de
      * erro: a liblinphone apaga as credenciais que tinha antes de ler
@@ -323,6 +354,14 @@ final class Provisionar
             return self::expirado($res);
         }
 
+        // Convite feito para https não sai por http: o esquema foi
+        // escolhido na geração, e o QR só aponta para ele.
+        if ($convite['esquema'] === 'https' && $req->getUri()->getScheme() !== 'https') {
+            Provisionamento::registrar(null, $ip, $agente, 'token_desconhecido', $numero);
+
+            return self::naoEncontrado($res);
+        }
+
         // Queima o token antes de entregar, e numa condição só: dois
         // pedidos ao mesmo tempo não levam a senha duas vezes.
         $queimou = Bd::executar(
@@ -355,7 +394,8 @@ final class Provisionar
             $senha = $digitada;
         }
 
-        $conteudo = Provisionamento::linphone($ramal, $senha);
+        $conteudo = Provisionamento::linphone($ramal, $senha,
+            Provisionamento::destinoLinphone($convite['servidor'] !== null ? (string) $convite['servidor'] : null));
         Provisionamento::registrar(null, $ip, $agente, 'entregue', $numero);
 
         $corpo = $res->getBody();

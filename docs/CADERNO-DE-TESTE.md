@@ -631,11 +631,14 @@ configure no aparelho o endereço de provisionamento que a tela mostra.
 Em **Conectividade → Provisionamento → Linphone no celular**, escolha o
 ramal (400, por exemplo), deixe a senha em branco e clique em *Gerar QR
 Code*. No Android, com o Linphone instalado, use *Ler QR code* no
-assistente de conta. O celular busca a configuração **pela internet**:
-o nome do console tem de ser público e o certificado, válido — o
-Linphone recusa certificado autoassinado.
+assistente de conta. O QR leva o endereço pelo qual você abriu o
+console: abra-o pelo IP público (ou pelo nome público) da central, e não
+por um IP interno, se o celular estiver no 4G. Com certificado de
+confiança o QR é https; com o autoassinado da instalação, é http — o
+Linphone recusa o autoassinado.
 
 - [ ] A tela mostra ramal, servidor e UDP, e **não** mostra a senha
+- [ ] O servidor mostrado é o endereço da barra do navegador
 - [ ] O Linphone baixa a configuração e a conta aparece: `sip:400@<servidor>`
 - [ ] O ramal registra: `pjsip show contacts` lista o 400 com `transport=udp`
 - [ ] Uma chamada de teste completa, com áudio nos dois sentidos
@@ -648,8 +651,9 @@ Linphone recusa certificado autoassinado.
 - [ ] Ler o mesmo QR de novo devolve **410** (uso único)
 - [ ] Depois de 10 minutos, um QR não lido devolve **410**
 - [ ] Um token inventado em `/p/…` devolve **404**
-- [ ] O conteúdo do QR é só `https://<servidor>/p/<token>` — sem senha,
+- [ ] O conteúdo do QR é só `http(s)://<servidor>/p/<token>` — sem senha,
       sem `sip:` (confira com qualquer leitor de QR)
+- [ ] Em http, só o `/p/` responde: qualquer outro caminho redireciona para https
 - [ ] `grep -r <senha> /var/log/nginx/ /var/log/php*` não encontra nada
 - [ ] `grep '/p/' /var/log/nginx/access.log` mostra `GET /p/…`, sem o token
 

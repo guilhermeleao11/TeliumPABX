@@ -1080,12 +1080,19 @@ function pintarQrLinphone(pagina, r) {
         <div style="margin-top:6px">Vale por <b id="linphoneRestante">10:00</b></div>
         ${r.senha_difere ? `<p class="badge badge-warn" style="margin-top:8px;white-space:normal">A senha digitada é
           diferente da cadastrada no ramal: a central vai recusar o registro.</p>` : ''}
+        ${r.privado ? `<p class="badge badge-warn" style="margin-top:8px;white-space:normal">${esc(r.servidor)} é
+          endereço de rede interna: o celular precisa estar no Wi-Fi dessa rede, não no 4G.
+          Para usar de fora, abra o console pelo IP público e gere de novo.</p>` : ''}
+        ${r.esquema === 'http' && !r.privado ? `<p class="tiny muted" style="margin-top:8px">Sem certificado de confiança
+          nesta central, o QR usa http: a configuração do ramal viaja sem criptografia.
+          Com um certificado válido em Administrador → Certificados, passa a ser https sozinho.</p>` : ''}
       </div>
     </div>
     <p class="small" style="margin:12px 0 0">Abra o Linphone no Android e utilize a opção de leitura de QR Code
       para provisionar este ramal.</p>
     <p class="tiny muted" style="margin:4px 0 0">No assistente de conta, "Ler QR code". O aplicativo aplica a
-      configuração na hora e substitui a primeira conta que já existisse nele.</p>`;
+      configuração na hora e substitui a primeira conta que já existisse nele. O endereço é o mesmo pelo qual
+      você abriu este console.</p>`;
 
   const caixa = document.getElementById('qrLinphone');
   if (typeof qrcode === 'undefined') {

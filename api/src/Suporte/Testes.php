@@ -1435,6 +1435,22 @@ final class Testes
         }
         $this->ok($semOverwrite === 0, 'toda entrada sobrescreve o que o aplicativo já tinha');
 
+        // O endereço vem do cabeçalho Host, que é de quem pediu.
+        foreach ([
+            ['200.170.198.144', true], ['sip-reg-ext.telium.com.br', true], ['localhost', true],
+            ['1.2.3.4/p/x', false], ['a b', false], ['x">&lt;', false], ['', false],
+        ] as [$host, $vale]) {
+            $this->ok(Provisionamento::enderecoValido($host) === $vale,
+                      sprintf('"%s" %s endereço para o QR', $host, $vale ? 'é' : 'não é'));
+        }
+        foreach ([['192.168.0.10', true], ['10.1.2.3', true], ['200.170.198.144', false],
+                  ['sip-reg-ext.telium.com.br', false]] as [$host, $privado]) {
+            $this->ok(Provisionamento::enderecoPrivado($host) === $privado,
+                      sprintf('%s %s de rede interna', $host, $privado ? 'é' : 'não é'));
+        }
+        $this->ok(Provisionamento::destinoLinphone('200.170.198.144')['servidor'] === '200.170.198.144',
+                  'o servidor SIP é o endereço guardado com o convite, não o nome da instalação');
+
         $t = Provisionamento::novoToken();
         $this->ok(Provisionamento::tokenValido($t), 'o token tem 48 hexadecimais (192 bits)');
         $this->ok($t !== Provisionamento::novoToken(), 'dois tokens seguidos não se repetem');
@@ -2008,13 +2024,15 @@ final class Testes
             );
             $ramalId = (int) $pdo->lastInsertId();
 
-            $convite = static function (string $prazo, ?string $senha = null) use ($ramalId): string {
+            $convite = static function (string $prazo, ?string $senha = null, string $esquema = 'http')
+                use ($ramalId): string {
                 $t = Provisionamento::novoToken();
                 Bd::executar(
-                    "INSERT INTO provisionamento_convite (token_hash, ramal_id, senha_cifrada, expira_em)
-                     VALUES (?, ?, ?, NOW() + INTERVAL {$prazo})",
+                    "INSERT INTO provisionamento_convite
+                            (token_hash, ramal_id, senha_cifrada, servidor, esquema, expira_em)
+                     VALUES (?, ?, ?, '203.0.113.7', ?, NOW() + INTERVAL {$prazo})",
                     [Provisionamento::hashDoToken($t), $ramalId,
-                     $senha === null ? null : Provisionamento::cifrarSenha($senha, $t)]
+                     $senha === null ? null : Provisionamento::cifrarSenha($senha, $t), $esquema]
                 );
 
                 return $t;
@@ -2035,9 +2053,14 @@ final class Testes
             $this->ok(str_contains($corpo, '>SenhaDoCadastro</entry>'),
                       'sem senha digitada, vai a senha do cadastro do ramal');
             $this->ok(!str_contains($corpo, $t), 'o token não aparece no XML');
+            $this->ok(str_contains($corpo, '&lt;sip:203.0.113.7:5060;transport=udp&gt;'),
+                      'o servidor SIP é o endereço pelo qual o console foi aberto');
 
             [$codigo] = $buscar($t);
             $this->ok($codigo === 410, "o mesmo token, lido de novo, responde 410 ({$codigo})");
+
+            [$codigo] = $buscar($convite('10 MINUTE', null, 'https'));
+            $this->ok($codigo === 404, "convite gerado para https não sai por http ({$codigo})");
 
             [$codigo] = $buscar($convite('-1 SECOND'));
             $this->ok($codigo === 410, "token vencido responde 410 ({$codigo})");

@@ -38,6 +38,7 @@ final class Esquema
         'cdr' => ['motivo'],
         // O QR do Linphone escreve o ramal no registro de pedidos.
         'provisionamento_log' => ['ramal'],
+        'provisionamento_convite' => ['servidor', 'esquema'],
     ];
 
     /**

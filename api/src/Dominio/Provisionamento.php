@@ -373,15 +373,76 @@ final class Provisionamento
         return hash_hkdf('sha256', $token, 32, 'telium-prov-linphone');
     }
 
-    /** Servidor, porta e transporte que o Linphone vai usar. */
-    public static function destinoLinphone(): array
+    /**
+     * Servidor, porta e transporte que o Linphone vai usar.
+     *
+     * O servidor é o endereço guardado com o convite — aquele pelo qual
+     * o console foi aberto. Sem ele (convite de antes desta coluna), o
+     * nome da instalação.
+     */
+    public static function destinoLinphone(?string $servidor = null): array
     {
-        $servidor = trim((string) Ambiente::get('SIP_DOMINIO', ''));
+        $servidor = trim((string) $servidor);
+        if ($servidor === '') {
+            $servidor = trim((string) Ambiente::get('SIP_DOMINIO', ''));
+        }
         if ($servidor === '') {
             $servidor = Rede::ipPublico() ?: Rede::enderecoLocal();
         }
 
         return ['servidor' => $servidor, 'porta' => Rede::portaSip(), 'transporte' => 'udp'];
+    }
+
+    /**
+     * O endereço vem do cabeçalho Host, que é de quem pediu: só IP ou
+     * nome de verdade, nada que quebre a URL ou o endereço SIP.
+     */
+    public static function enderecoValido(string $host): bool
+    {
+        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+            return true;
+        }
+
+        return strlen($host) <= 253
+            && preg_match('/^(?=.*[a-z])([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/i',
+                          $host) === 1;
+    }
+
+    /** Endereço de rede privada: o celular só chega nele pelo Wi-Fi de dentro. */
+    public static function enderecoPrivado(string $host): bool
+    {
+        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
+            return false;
+        }
+
+        return filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false;
+    }
+
+    /**
+     * O HTTPS da central seria aceito pelo Linphone?
+     *
+     * O Linphone confere o certificado e recusa o autoassinado — que é
+     * o que a instalação sem nome próprio tem. Em vez de adivinhar, a
+     * central pergunta a si mesma: abre o próprio 443 com o nome que
+     * vai no QR e confere a cadeia contra as autoridades do sistema.
+     * Passou, o QR é https; não passou, é http, que o Linphone aceita.
+     */
+    public static function httpsConfiavel(string $host): bool
+    {
+        $ctx = stream_context_create(['ssl' => [
+            'verify_peer'      => true,
+            'verify_peer_name' => true,
+            'peer_name'        => $host,
+            'SNI_enabled'      => true,
+        ]]);
+
+        $s = @stream_socket_client('ssl://127.0.0.1:443', $erro, $msg, 3, STREAM_CLIENT_CONNECT, $ctx);
+        if ($s === false) {
+            return false;
+        }
+        fclose($s);
+
+        return true;
     }
 
     /**
