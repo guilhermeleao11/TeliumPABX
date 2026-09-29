@@ -5,7 +5,10 @@ JavaScript puro (sem build), API em PHP 8.4 e provisionamento por Ansible em
 Debian 13. Toda a configuração do Asterisk é **gerada a partir do banco** —
 ninguém edita `.conf` à mão.
 
-**Está em teste.** O roteiro de validação, módulo a módulo, está em
+**Está em teste.** Para decidir se uma instalação sobe ou não sobe, o
+caderno de aceitação é [docs/CADERNO-DE-TESTE.md](docs/CADERNO-DE-TESTE.md)
+— casos numerados, bloqueadores marcados e termo de aceite. O passeio
+pelas telas, módulo a módulo, está em
 [docs/TESTE-FUNCIONAL.md](docs/TESTE-FUNCIONAL.md); o que ainda não faz
 nada está em [docs/PENDENCIAS.md](docs/PENDENCIAS.md).
 

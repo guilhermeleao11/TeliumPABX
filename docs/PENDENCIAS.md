@@ -4,7 +4,7 @@ Lista honesta do que **não** está pronto. Serve para decidir o que entra
 na próxima versão e, antes disso, para não prometer ao cliente algo que
 a central ainda não faz.
 
-Atualizada em 14/09/2026. O que foi resolvido está no fim, para dar
+Atualizada em 29/09/2026. O que foi resolvido está no fim, para dar
 para conferir o que mudou desde a última leitura.
 
 ---
@@ -32,28 +32,10 @@ Estes têm cadastro completo, tela bonita e **nenhum efeito**. São o
 mesmo tipo de defeito que a auditoria vinha limpando; ficaram por
 último porque cada um é um módulo, não um ajuste.
 
-### 2.1 Tarifação — o custo é sempre zero
+Eram quatro. Tarifação e Provisionamento saíram daqui — estão na
+seção 5.
 
-A tabela de tarifas existe, a tela de tarifas existe, e três relatórios
-somam `cdr.custo`. **Nada nunca escreve esse campo.** Quem cadastrar
-tarifa e abrir o relatório vê R$ 0,00 em tudo.
-
-Falta o cálculo: casar o número discado com o padrão da tarifa, aplicar
-taxa fixa mais custo por minuto com o incremento cadastrado, e gravar
-no CDR ao fim da chamada. É um gancho no dialplan de saída mais uma
-função de tarifação.
-
-### 2.2 Provisionamento — o aparelho não tem de onde baixar
-
-A tela diz "cadastre o MAC do telefone para ele receber a configuração
-automaticamente". O MAC é gravado e mais nada acontece: nenhum arquivo
-de configuração é gerado e nenhum endereço HTTP o serve.
-
-Falta gerar o arquivo por fabricante (Yealink, Grandstream, Fanvil,
-Intelbras têm formatos diferentes) e publicá-lo num caminho que o
-telefone busque, com o MAC no nome.
-
-### 2.3 Integrações e API — o webhook não dispara
+### 2.1 Integrações e API — o webhook não dispara
 
 O cadastro guarda webhooks e chaves. Nenhum código chama nenhuma URL
 quando uma chamada começa ou termina.
@@ -62,7 +44,7 @@ Falta decidir o formato do evento e quem o dispara — o candidato natural
 é um ouvinte de AMI, que hoje não existe (a central é consultada sob
 demanda, não escutada).
 
-### 2.4 Módulo de call center — a fila fica sem agente
+### 2.2 Módulo de call center — a fila fica sem agente
 
 A fila tem a marca "call center" e o vínculo de agente por origem. Ao
 marcar, a tela avisa que os agentes "são atribuídos pelo módulo de call
@@ -152,6 +134,31 @@ Para quem leu a versão anterior desta lista.
   onde digitá-lo.
 - Troca da própria senha, para qualquer perfil.
 
+**Tarifação** — deixou de ser tela vazia. A rota de saída classifica a
+chamada e o dialplan carrega a classe até o CDR; um temporizador de hora
+em hora casa o número com o padrão da tarifa e grava `cdr.custo`, com as
+frações que a operadora cobra (30 s de mínimo e depois de 6 em 6, no
+padrão brasileiro). Chamada já tarifada não é recalculada: o preço
+congela no que valia quando ela aconteceu.
+
+**Provisionamento** — o aparelho tem de onde baixar. Grandstream (XML),
+Yealink e Fanvil (chave = valor), servidos num endereço com segredo no
+caminho, travado à rede local por padrão e com registro de quem pediu o
+quê — inclusive de quem pediu e não devia.
+
+**O gerenciador de usuários não deixa mais o console sem dono** —
+excluir ou desativar a última conta que administra, movê-la para um
+perfil sem acesso ou tirar "Usuários" da matriz desse perfil eram quatro
+caminhos silenciosos para um console em que ninguém entra. E o
+administrador passou a resolver pela tela os dois chamados que só o
+banco resolvia: celular perdido com 2FA ligado e conta travada por senha
+errada.
+
+**A central não é mais entregue muda** — os áudios eram pedidos ao
+menuselect com "falha aqui não interrompe": sem internet na compilação,
+a pasta ficava vazia e `Playback` de arquivo inexistente não dá erro. A
+instalação agora confere o disco e baixa o que faltar.
+
 **Portal do Usuário** — as seis telas existem. Era a maior lacuna: o
 perfil Operador via o menu e nada por trás.
 
@@ -179,7 +186,7 @@ prometia um desempate que o sistema não faz.
 ## 6. Como conferir o que está pronto
 
 ```sh
-php bin/telium testar      # 46 casos, com ou sem banco
+php bin/telium testar      # 272 casos, com ou sem banco
 infra/dev/subir.sh         # central inteira em contêineres, para testar de verdade
 ```
 

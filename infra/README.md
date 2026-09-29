@@ -326,7 +326,10 @@ sudo ansible-playbook verificar.yml
 | API | `https://<ip-da-vm>/api/health` |
 | Login | `admin` / `T3l1um_@2024_@aD1m` |
 
-O roteiro de teste, módulo a módulo, está em
+Antes de virar a chave num cliente, preencha o
+[caderno de aceitação](../docs/CADERNO-DE-TESTE.md): ele separa o que é
+bloqueador do que é combinável, e termina num termo assinado. O passeio
+pelas telas, módulo a módulo, está em
 [../docs/TESTE-FUNCIONAL.md](../docs/TESTE-FUNCIONAL.md).
 
 ## Em que idioma a central fala

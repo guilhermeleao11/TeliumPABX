@@ -15,6 +15,11 @@ Cada módulo traz **como testar** e um **estado**, que significa:
 
 Não confie no estado: a ideia é você derrubar o que estiver errado.
 
+> **Para decidir se a central sobe ou não sobe**, use o
+> [CADERNO-DE-TESTE.md](CADERNO-DE-TESTE.md): casos numerados, com
+> bloqueadores marcados e termo de aceite. Este roteiro aqui é o passeio
+> pelas telas, para encontrar defeito antes daquele.
+
 ---
 
 ## 1. Montar o ambiente
@@ -112,7 +117,12 @@ mesmo caminho pelo navegador ainda falta provar**.
 ### Rotas de entrada — **provado**
 Ligue para o DID 1140041000 de fora: tem de cair na URA.
 
-### WebRTC — **o teste que decide** — **falta provar**
+### WebRTC — **desligado de fábrica** — **falta provar**
+O softphone do navegador **nasce desligado** e não está no caminho de
+nenhuma chamada: quem liga é o cliente, em **Conectividade → WebRTC /
+Softphone**, e só depois de o teste abaixo dar caminho de áudio. Pule
+esta seção se o cliente não vai usar o navegador para falar.
+
 Em **Conectividade → WebRTC / Softphone**, clique em **Testar agora**. O
 teste roda no navegador de quem vai usar, com os mesmos servidores que o
 softphone usa, e diz em três segundos quais caminhos de áudio existem:
@@ -132,8 +142,13 @@ do lado que importa.
 São telas de diagnóstico. Confira que **Rede** mostra os quatro
 transportes e que o aviso de STUN bloqueante **não** aparece.
 
-### Provisionamento — **não faz nada**
-Guarda o MAC e nada mais. Não gaste tempo aqui.
+### Provisionamento — **falta provar**
+Cadastre o MAC, aponte o ramal e ponha no aparelho o endereço que a tela
+mostra: ele tem de baixar a configuração e registrar sozinho, sem
+ninguém digitar senha SIP no teclado do telefone. Grandstream, Yealink e
+Fanvil. Confira também o outro lado: pedir o arquivo sem o segredo do
+endereço, ou com um MAC não cadastrado, tem de devolver 404 — e a
+tentativa tem de aparecer no log da tela.
 
 ---
 
@@ -185,6 +200,10 @@ aparelho abrir o viva-voz.
 ## 5. Administrador
 
 ### Usuários, Perfis e Permissões — **automático**
+Quatro operações rotineiras deixavam o console sem ninguém que
+administrasse, e nenhuma dava erro. Tente as quatro — todas têm de ser
+recusadas com explicação: excluir a própria conta, desativá-la, trocar o
+próprio perfil, e tirar "Usuários" do único perfil que administra.
 Crie um perfil com **um único módulo** marcado, entre com ele e abra a tela
 desse módulo. Ela tem de funcionar inteira — nenhuma chamada pode voltar
 403. Foi assim que se descobriu que 19 telas dependiam da permissão de
@@ -241,14 +260,23 @@ domínio do remetente costumam ser o que barra.
 
 ### Dados da empresa — **falta provar**
 
-### Tabela de tarifas — **não faz nada**
+### Tabela de tarifas — **falta provar**
+Cadastre os valores da operadora e confira em Telium → Tarifação.
 
 ---
 
 ## 8. Telium
 
-### Tarifação — **não faz nada**
-O custo é sempre R$ 0,00. Nada escreve `cdr.custo`.
+### Tarifação — **falta provar**
+`sudo -u telium php /opt/telium/api/bin/telium tarifar` calcula o que
+está pendente; de hora em hora o `telium-tarifar.timer` faz sozinho.
+Faça uma chamada externa de duração conhecida e confira o valor contra a
+conta à mão: `taxa fixa + (segundos cobrados ÷ 60) × custo por minuto`,
+com o mínimo e o incremento cadastrados. Chamada não atendida custa
+zero, e chamada já tarifada não é recalculada.
+
+Com todas as tarifas em zero o relatório fecha em R$ 0,00 — e a tela diz
+que é por isso, em vez de deixar o zero passar por resposta.
 
 ### Integrações / API — **não faz nada**
 Guarda webhooks e chaves; nenhuma URL é chamada.
