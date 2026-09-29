@@ -133,7 +133,7 @@ const MENU = [
    --------------------------------------------------------- */
 
 /** Cor do badge por chave de perfil — o resto vem do banco. */
-const COR_PERFIL = { admin: 'brand', supervisor: 'info', operador: 'ok', auditor: 'warn' };
+const COR_PERFIL = { admin: 'brand', supervisor: 'info', operador: 'ok', auditor: 'warn', callcenter: 'info' };
 
 /** Estados de ramal reportados pelo Asterisk. */
 const ESTADO_RAMAL = {

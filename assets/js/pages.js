@@ -1646,6 +1646,10 @@ PAGES['apps.filas'] = {
       try { d = await Api.get(`/filas/${b.dataset.agentes}/agentes`); }
       catch (e) { toast(e.message, 'err'); return; }
 
+      // Fila de call center: quem atende são pessoas, com nível de
+      // habilidade — não ramais fixos. A gaveta é outra.
+      if (d.fila.callcenter) { agentesCallCenter(d); return; }
+
       const linha = a => `<tr data-ramal="${a.ramal_id}">
         <td><b class="mono">${esc(a.numero)}</b> ${esc(a.nome)}
           ${a.origem === 'callcenter' ? '<span class="badge badge-brand">call center</span>' : ''}
@@ -1735,6 +1739,56 @@ PAGES['apps.filas'] = {
         }
       });
     });
+
+    const agentesCallCenter = d => {
+      const ativos = d.cc_agentes.filter(a => Number(a.ativo) || Number(a.na_fila));
+      Drawer.open({
+        titulo: `Agentes da fila ${esc(d.fila.numero)}`,
+        sub: 'Fila de call center: marque quem atende nela e o nível de cada um. Nível 0 recebe primeiro.',
+        wide: true,
+        corpo: ativos.length ? `
+          <p class="small muted" style="margin:0 0 12px">Quem estiver logado agora entra, sai ou muda de nível
+            na hora, sem precisar sair e entrar de novo — e quem fica sem nenhuma fila sai do atendimento.
+            Para cadastrar uma pessoa nova, use
+            <a href="#/cc.agentes">Call Center → Agentes</a>.</p>
+          <div class="table-wrap"><table class="table" id="tabelaCc">
+            <thead><tr><th style="width:40px"></th><th>Agente</th><th>Matrícula</th><th style="width:150px">Nível</th></tr></thead>
+            <tbody>${ativos.map(a => `<tr data-agente="${a.id}">
+              <td><input type="checkbox" data-na ${Number(a.na_fila) ? 'checked' : ''}></td>
+              <td><b>${esc(a.nome)}</b>${Number(a.ativo) ? '' : ' <span class="badge">inativo</span>'}</td>
+              <td class="mono">${esc(a.matricula)}</td>
+              <td><select class="select" data-nivel>
+                ${[0,1,2,3,4,5,6,7,8,9].map(n => `<option value="${n}" ${Number(a.penalidade ?? 0) === n ? 'selected' : ''}>${n}${n === 0 ? ' — primeiro' : ''}</option>`).join('')}
+              </select></td></tr>`).join('')}</tbody>
+          </table></div>`
+          : vazio('users', 'Nenhum agente cadastrado',
+              'Cadastre as pessoas que atendem em Call Center → Agentes; depois elas aparecem aqui.',
+              '<a class="btn btn-primary btn-sm" href="#/cc.agentes">Cadastrar agentes</a>'),
+        rodape: `<button class="btn btn-outline" data-drawer-close>Fechar</button>
+                 ${ativos.length ? '<button class="btn btn-primary" data-ok-cc>Salvar agentes</button>' : ''}`,
+        aoAbrir: dw => {
+          const ok = dw.querySelector('[data-ok-cc]');
+          if (!ok) return;
+          ok.onclick = async () => {
+            const agentes = [...dw.querySelectorAll('tr[data-agente]')]
+              .filter(tr => tr.querySelector('[data-na]').checked)
+              .map(tr => ({ agente_id: Number(tr.dataset.agente), penalidade: Number(tr.querySelector('[data-nivel]').value) }));
+            ok.disabled = true;
+            ok.innerHTML = '<span class="spin"></span> Salvando…';
+            try {
+              const r = await Api.put(`/filas/${d.fila.id}/cc-agentes`, { agentes });
+              Drawer.close();
+              toast(r.aviso || `${r.agentes} agente(s) nesta fila.`, r.aviso ? 'warn' : 'ok');
+              App.route();
+            } catch (e) {
+              ok.disabled = false;
+              ok.textContent = 'Salvar agentes';
+              toast(e.message, 'err');
+            }
+          };
+        }
+      });
+    };
 
     // ---------- situação ao vivo ----------
     document.querySelectorAll('[data-situacao]').forEach(b => b.onclick = async () => {

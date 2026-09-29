@@ -8,9 +8,11 @@
 # softphone errado — ficava fora do ar por 24 horas, e desbanir exigia
 # SSH. Agora o console lista e desbane.
 #
-# Aceita dois comandos e mais nada:
+# Aceita três comandos e mais nada:
 #   listar                    quem está banido, em JSON
 #   desbanir <jail> <ip>      tira UM ip de UMA cadeia
+#   confiaveis                aplica a lista "nunca bloquear" do console
+#                             (tabela firewall_confiaveis) como ignoreip
 #
 # O jail e o IP são validados aqui, e não no sudoers: é o que permite a
 # regra de sudo apontar para um único programa, sem curinga.
@@ -76,8 +78,73 @@ case "${1:-}" in
     echo "${saida:-ok}"
     ;;
 
+  confiaveis)
+    # A lista vem do banco, e não da linha de comando: a API só manda
+    # "aplique", e o que entra no fail2ban é validado aqui, um a um.
+    lista=$(mariadb --protocol=socket -uroot -N -B {{ db_nome }} \
+              -e "SELECT endereco FROM firewall_confiaveis ORDER BY id" 2>&1)
+    if [ $? -ne 0 ]; then
+      echo "não foi possível ler a lista do banco: $lista" >&2; exit 1
+    fi
+
+    # Validado aqui de novo, e não só na API: este programa roda como
+    # root, e uma faixa /0 no ignoreip é o firewall desligado para a
+    # internet inteira. IPv4 com octetos até 255 e faixa de /8 a /32;
+    # IPv6 com faixa de /16 a /128.
+    valido() {
+      local e="$1" ip mascara
+      ip="${e%%/*}"; mascara=""
+      case "$e" in */*) mascara="${e#*/}" ;; esac
+      if printf '%s' "$ip" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+        printf '%s' "$ip" | awk -F. '{ for (i = 1; i <= 4; i++) if ($i > 255) exit 1 }' || return 1
+        [ -z "$mascara" ] && return 0
+        printf '%s' "$mascara" | grep -Eq '^[0-9]{1,2}$' && [ "$mascara" -ge 8 ] && [ "$mascara" -le 32 ]
+        return
+      fi
+      if printf '%s' "$ip" | grep -Eq '^[0-9a-fA-F:]{2,39}$' && printf '%s' "$ip" | grep -q ':'; then
+        [ -z "$mascara" ] && return 0
+        printf '%s' "$mascara" | grep -Eq '^[0-9]{1,3}$' && [ "$mascara" -ge 16 ] && [ "$mascara" -le 128 ]
+        return
+      fi
+      return 1
+    }
+
+    validos=""
+    for e in $lista; do
+      if valido "$e"; then
+        validos="$validos $e"
+      else
+        echo "ignorado (não é IP nem faixa aceitável): $e" >&2
+      fi
+    done
+
+    destino=/etc/fail2ban/jail.d/telium-confiaveis.local
+    novo=$(mktemp)
+    {
+      echo "# Gerado pela ponte do console (telium-fail2ban confiaveis)."
+      echo "# NÃO EDITE À MÃO: a lista é a de Firewall e Segurança, no console."
+      echo "[DEFAULT]"
+      echo "ignoreip = 127.0.0.1/8 ::1${validos}"
+    } > "$novo"
+    install -o root -g root -m 0644 "$novo" "$destino"
+    rm -f "$novo"
+
+    # reload relê o ignoreip; quem já estava banido e agora é confiável
+    # é solto em todas as cadeias.
+    cliente reload >/dev/null || { echo "o fail2ban não recarregou" >&2; exit 1; }
+    for e in $validos; do
+      case "$e" in */*) continue ;; esac
+      while read -r jaula; do
+        [ -n "$jaula" ] && cliente set "$jaula" unbanip "$e" >/dev/null
+      done <<< "$(jaulas)"
+    done
+
+    total=$(printf '%s' "$validos" | wc -w)
+    echo "${total} endereço(s) que nunca são bloqueados"
+    ;;
+
   *)
-    echo "uso: $(basename "$0") listar | desbanir <jaula> <ip>" >&2
+    echo "uso: $(basename "$0") listar | desbanir <jaula> <ip> | confiaveis" >&2
     exit 64
     ;;
 esac

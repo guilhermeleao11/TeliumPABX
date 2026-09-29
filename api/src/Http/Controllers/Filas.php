@@ -30,6 +30,17 @@ final class Filas
         return Resposta::json($res, [
             'fila' => ['id' => (int) $fila['id'], 'numero' => $fila['numero'],
                        'nome' => $fila['nome'], 'callcenter' => (int) $fila['callcenter']],
+            // Fila de call center: quem atende são pessoas, não ramais. A
+            // lista é de todos os agentes, marcados os que estão nesta fila.
+            'cc_agentes' => (int) $fila['callcenter'] === 1 ? Bd::todos(
+                'SELECT a.id, a.matricula, a.ativo, u.nome, af.penalidade,
+                        (af.agente_id IS NOT NULL) AS na_fila
+                   FROM cc_agentes a
+                   JOIN usuarios u ON u.id = a.usuario_id
+              LEFT JOIN cc_agente_filas af ON af.agente_id = a.id AND af.fila_id = ?
+               ORDER BY na_fila DESC, u.nome',
+                [$fila['id']]
+            ) : [],
             'agentes' => Bd::todos(
                 'SELECT a.ramal_id, a.penalidade, a.tipo, a.origem,
                         r.numero, r.nome, r.setor
@@ -46,6 +57,67 @@ final class Filas
                 [$fila['id']]
             ),
         ]);
+    }
+
+    /**
+     * PUT /api/filas/{id}/cc-agentes {agentes: [{agente_id, penalidade}]}
+     *
+     * Quem atende numa fila de call center, pela tela da fila. É o mesmo
+     * vínculo do cadastro de agentes (cc_agente_filas), visto do outro
+     * lado; quem está logado entra, sai ou muda de nível na hora.
+     */
+    public function salvarAgentesCallCenter(Request $req, Response $res, array $args): Response
+    {
+        $fila = Bd::um('SELECT * FROM filas WHERE id = ?', [$args['id']]);
+        if ($fila === null) {
+            return Resposta::erro($res, 'Fila não encontrada', 404);
+        }
+        if ((int) $fila['callcenter'] !== 1) {
+            return Resposta::erro($res, 'Esta fila não é de call center: monte os ramais dela na lista de agentes.', 409);
+        }
+
+        $novos = [];
+        foreach ((array) (((array) $req->getParsedBody())['agentes'] ?? []) as $a) {
+            $id = (int) ($a['agente_id'] ?? 0);
+            if ($id > 0 && Bd::valor('SELECT id FROM cc_agentes WHERE id = ?', [$id])) {
+                $novos[$id] = max(0, min(9, (int) ($a['penalidade'] ?? 0)));
+            }
+        }
+
+        $antes = array_map('intval', array_column(
+            Bd::todos('SELECT agente_id FROM cc_agente_filas WHERE fila_id = ?', [$fila['id']]), 'agente_id'
+        ));
+
+        $pdo = Bd::conexao();
+        $pdo->beginTransaction();
+        try {
+            Bd::executar('DELETE FROM cc_agente_filas WHERE fila_id = ?', [$fila['id']]);
+            foreach ($novos as $id => $penalidade) {
+                Bd::executar('INSERT INTO cc_agente_filas (agente_id, fila_id, penalidade) VALUES (?, ?, ?)',
+                             [$id, $fila['id'], $penalidade]);
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+
+            return Resposta::erro($res, 'Não foi possível salvar os agentes: ' . $e->getMessage(), 400);
+        }
+
+        // Quem entrou, saiu ou mudou de nível e está logado agora.
+        $aviso = null;
+        try {
+            $cc = \Telium\Dominio\CallCenter::compartilhado();
+            foreach (array_unique([...$antes, ...array_keys($novos)]) as $id) {
+                $cc->sincronizar((int) $id);
+            }
+        } catch (\Throwable) {
+            $aviso = 'Salvo. O Asterisk não respondeu, então quem está logado só vê a mudança no próximo login.';
+        }
+
+        Auditoria::registrar($req->getAttribute('usuario'), 'editar', 'apps.filas',
+                             (string) $fila['numero'], ['agentes_callcenter' => count($novos)]);
+
+        return Resposta::json($res, ['ok' => true, 'agentes' => count($novos), 'aviso' => $aviso]);
     }
 
     /** PUT /api/filas/{id}/agentes — troca a lista inteira */

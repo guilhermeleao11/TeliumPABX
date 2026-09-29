@@ -868,6 +868,12 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('conn.firewall'));
     $g->post('/diagnostico/desbanir', [Diagnostico::class, 'desbanir'])
       ->add(new Permissao('conn.firewall', 'editar'));
+    $g->get('/firewall/confiaveis', [Diagnostico::class, 'confiaveis'])
+      ->add(new Permissao('conn.firewall'));
+    $g->post('/firewall/confiaveis', [Diagnostico::class, 'adicionarConfiavel'])
+      ->add(new Permissao('conn.firewall', 'editar'));
+    $g->delete('/firewall/confiaveis/{id}', [Diagnostico::class, 'removerConfiavel'])
+      ->add(new Permissao('conn.firewall', 'editar'));
     $g->get('/diagnostico/sip', [Diagnostico::class, 'sip'])->add(new Permissao('cfg.sip'));
     $g->get('/diagnostico/dids', [Diagnostico::class, 'dids'])->add(new Permissao('conn.did'));
     $g->get('/diagnostico/troncos', [Diagnostico::class, 'troncos'])
@@ -1001,6 +1007,8 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
 
     // ---- filas: agentes e situação ----
     $g->get('/filas/{id}/agentes', [Filas::class, 'agentes'])->add(new Permissao('apps.filas'));
+    $g->put('/filas/{id}/cc-agentes', [Filas::class, 'salvarAgentesCallCenter'])
+      ->add(new Permissao('apps.filas', 'editar'));
     $g->put('/filas/{id}/agentes', [Filas::class, 'salvarAgentes'])
       ->add(new Permissao('apps.filas', 'editar'));
     $g->get('/filas/{id}/situacao', [Filas::class, 'situacao'])->add(new Permissao('apps.filas'));

@@ -109,17 +109,62 @@ final class CallCenter
                   WHERE ativo = 1 AND sistema = 0 ORDER BY ordem, nome'
             ),
             'tabulacoes' => $tabulacoes,
-            'pendentes'  => self::pendentes($id),
-            'recentes'   => Bd::todos(
+            'pendentes'  => self::comContato(self::pendentes($id)),
+            // Quem está na linha agora: o atendimento aberto mais recente.
+            'atual'      => self::comContato(Bd::todos(
+                'SELECT a.id, a.fila, f.nome AS fila_nome, a.numero, a.nome, a.espera_seg, a.atendido_em,
+                        UNIX_TIMESTAMP(a.atendido_em) AS desde
+                   FROM cc_atendimentos a LEFT JOIN filas f ON f.numero = a.fila
+                  WHERE a.agente_id = ? AND a.encerrado_em IS NULL AND a.atendido_em >= NOW() - INTERVAL 4 HOUR
+               ORDER BY a.atendido_em DESC LIMIT 1',
+                [$id]
+            ))[0] ?? null,
+            'recentes'   => self::comContato(Bd::todos(
                 'SELECT a.id, a.fila, a.numero, a.nome, a.espera_seg, a.atendido_em, a.encerrado_em,
-                        a.tabulado_em, t.nome AS tabulacao, a.observacao
+                        a.tabulado_em, a.tabulacao_id, t.nome AS tabulacao, a.observacao
                    FROM cc_atendimentos a LEFT JOIN cc_tabulacoes t ON t.id = a.tabulacao_id
                   WHERE a.agente_id = ? AND a.atendido_em >= CURDATE()
                ORDER BY a.atendido_em DESC LIMIT 30',
                 [$id]
-            ),
+            )),
             'codigos'    => self::codigosDoTelefone(),
         ]);
+    }
+
+    /**
+     * O contato da agenda de quem ligou, quando o número está nela.
+     *
+     * O agente vê "Maria Souza — Empresa X" em vez de um número solto.
+     * A comparação é pelos dígitos: a agenda guarda "(11) 98765-4321" e
+     * a chamada chega como "11987654321".
+     *
+     * @param list<array<string,mixed>> $linhas
+     * @return list<array<string,mixed>>
+     */
+    private static function comContato(array $linhas): array
+    {
+        foreach ($linhas as &$l) {
+            $digitos = preg_replace('/\D/', '', (string) ($l['numero'] ?? '')) ?? '';
+            $l['contato'] = null;
+            if (strlen($digitos) < 4) {
+                continue;
+            }
+            $c = Bd::um(
+                "SELECT id, nome, empresa FROM contatos
+                  WHERE ativo = 1 AND (
+                        REGEXP_REPLACE(IFNULL(numero,''), '[^0-9]', '') = ?
+                     OR REGEXP_REPLACE(IFNULL(celular,''), '[^0-9]', '') = ?
+                     OR REGEXP_REPLACE(IFNULL(telefone,''), '[^0-9]', '') = ?)
+                  LIMIT 1",
+                [$digitos, $digitos, $digitos]
+            );
+            if ($c !== null) {
+                $l['contato'] = ['nome' => $c['nome'], 'empresa' => $c['empresa']];
+            }
+        }
+        unset($l);
+
+        return $linhas;
     }
 
     /** Atendimentos do agente que pedem tabulação e ainda não têm. */

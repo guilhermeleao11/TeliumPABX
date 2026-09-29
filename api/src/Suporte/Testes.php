@@ -71,6 +71,7 @@ final class Testes
             $this->grupo('QR Code do Linphone', $this->linphone(...));
             $this->grupo('Call center', $this->callCenter(...));
             $this->grupo('Relatório do call center', $this->relatorioCallCenter(...));
+            $this->grupo('Firewall: nunca bloquear', $this->confiaveis(...));
             $this->grupo('Envio de e-mail', $this->email(...));
             $this->grupo('Saída do backup', $this->backup(...));
             $this->grupo('Certificados TLS', $this->certificados(...));
@@ -1558,6 +1559,24 @@ final class Testes
                       'o retorno de id com um dígito casa com a extensão (_X!, não _X.)');
         } finally {
             $pdo->rollBack();
+        }
+    }
+
+    /**
+     * O que entra na lista "nunca bloquear". Uma faixa larga demais é o
+     * firewall desligado sem ninguém perceber.
+     */
+    private function confiaveis(): void
+    {
+        $f = [\Telium\Http\Controllers\Diagnostico::class, 'enderecoConfiavel'];
+        foreach ([
+            ['200.170.201.2', '200.170.201.2'], ['200.170.201.0/24', '200.170.201.0/24'],
+            ['2001:DB8::1', '2001:db8::1'], ['2001:db8::/32', '2001:db8::/32'],
+            ['999.1.1.1', null], ['1.2.3.4/0', null], ['10.0.0.0/7', null], ['1.2.3.4/33', null],
+            ['1.2.3.4; rm -rf /', null], ['', null], ['::/0', null],
+        ] as [$entrada, $esperado]) {
+            $this->ok($f($entrada) === $esperado, sprintf('"%s" %s', $entrada,
+                $esperado === null ? 'é recusado' : "vira {$esperado}"));
         }
     }
 

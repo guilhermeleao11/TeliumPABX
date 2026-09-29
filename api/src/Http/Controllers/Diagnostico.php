@@ -255,6 +255,99 @@ final class Diagnostico
     }
 
     /**
+     * GET /api/firewall/confiaveis — os endereços que nunca são bloqueados.
+     */
+    public function confiaveis(Request $req, Response $res): Response
+    {
+        return Resposta::json($res, ['dados' => Bd::todos(
+            'SELECT c.id, c.endereco, c.descricao, c.criado_em, u.nome AS criado_por
+               FROM firewall_confiaveis c LEFT JOIN usuarios u ON u.id = c.criado_por
+           ORDER BY c.id'
+        )]);
+    }
+
+    /**
+     * POST /api/firewall/confiaveis {endereco, descricao}
+     *
+     * IP ou faixa. Faixa larga demais (/0 a /7) é recusada: "nunca
+     * bloquear a internet inteira" desliga o firewall sem dizer isso.
+     */
+    public function adicionarConfiavel(Request $req, Response $res): Response
+    {
+        $c = (array) $req->getParsedBody();
+        $endereco = trim((string) ($c['endereco'] ?? ''));
+        $descricao = mb_substr(trim((string) ($c['descricao'] ?? '')), 0, 120);
+
+        $normal = self::enderecoConfiavel($endereco);
+        if ($normal === null) {
+            return Resposta::erro($res, 'Use um IP (200.170.201.2) ou uma faixa (200.170.201.0/24). '
+                . 'Faixas maiores que /8 não são aceitas.', 422, ['campo' => 'endereco']);
+        }
+        if (Bd::valor('SELECT id FROM firewall_confiaveis WHERE endereco = ?', [$normal])) {
+            return Resposta::erro($res, "{$normal} já está na lista.", 409, ['campo' => 'endereco']);
+        }
+
+        $usuario = $req->getAttribute('usuario');
+        Bd::executar('INSERT INTO firewall_confiaveis (endereco, descricao, criado_por) VALUES (?, ?, ?)',
+                     [$normal, $descricao === '' ? null : $descricao, $usuario['id'] ?? null]);
+        Auditoria::registrar($usuario, 'criar', 'conn.firewall', $normal, ['acao' => 'nunca bloquear']);
+
+        return $this->aplicarConfiaveis($res, "{$normal} nunca mais é bloqueado.", 201);
+    }
+
+    /** DELETE /api/firewall/confiaveis/{id} */
+    public function removerConfiavel(Request $req, Response $res, array $args): Response
+    {
+        $linha = Bd::um('SELECT * FROM firewall_confiaveis WHERE id = ?', [(int) $args['id']]);
+        if ($linha === null) {
+            return Resposta::erro($res, 'Endereço não encontrado.', 404);
+        }
+
+        Bd::executar('DELETE FROM firewall_confiaveis WHERE id = ?', [(int) $linha['id']]);
+        Auditoria::registrar($req->getAttribute('usuario'), 'excluir', 'conn.firewall', (string) $linha['endereco'],
+                             ['acao' => 'voltar a poder bloquear']);
+
+        return $this->aplicarConfiaveis($res, "{$linha['endereco']} volta a poder ser bloqueado.");
+    }
+
+    /** IP ou faixa em forma canônica, ou null se não serve. */
+    public static function enderecoConfiavel(string $e): ?string
+    {
+        [$ip, $mascara] = array_pad(explode('/', $e, 2), 2, null);
+        $v4 = filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
+        $v6 = !$v4 && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false;
+        if (!$v4 && !$v6) {
+            return null;
+        }
+        if ($mascara === null) {
+            return $v4 ? $ip : strtolower($ip);
+        }
+        if (preg_match('/^\d{1,3}$/', $mascara) !== 1) {
+            return null;
+        }
+        $bits = (int) $mascara;
+        $max = $v4 ? 32 : 128;
+        if ($bits > $max || $bits < ($v4 ? 8 : 16)) {
+            return null;
+        }
+
+        return ($v4 ? $ip : strtolower($ip)) . "/{$bits}";
+    }
+
+    /** Pede à ponte que reescreva o ignoreip do fail2ban. */
+    private function aplicarConfiaveis(Response $res, string $mensagem, int $status = 200): Response
+    {
+        $r = self::fail2ban(['confiaveis']);
+
+        return Resposta::json($res, [
+            'aplicado' => $r['ok'],
+            'detalhe'  => $r['ok'] ? $mensagem
+                : "{$mensagem} Mas o fail2ban não foi atualizado agora ({$r['erro']}); "
+                  . 'a lista vale a partir da próxima execução do playbook.',
+        ], $status);
+    }
+
+    /**
      * Chama a ponte do fail2ban, que roda como root.
      *
      * @param list<string> $args

@@ -6225,6 +6225,12 @@ PAGES['conn.firewall'] = {
     const bloqueio = await Api.get('/diagnostico/banidos').catch(() => ({ disponivel: false, jaulas: [] }));
     const banidos = (bloqueio.jaulas || []).flatMap(j => (j.ips || []).map(ip => ({ jaula: j.nome, ip })));
 
+    // Quem nunca é bloqueado: o escritório, o monitoramento, o syslog
+    // central. Sem isto, desbloquear resolvia só até a próxima vez.
+    const confiaveis = (await Api.get('/firewall/confiaveis').catch(() => ({ dados: [] }))).dados || [];
+    this._confiaveis = confiaveis;
+    const jaConfiavel = ip => confiaveis.some(c => c.endereco === ip);
+
     const origens = (d.origens || []).map(o => `<tr>
       <td class="mono"><b>${esc(o.ip)}</b></td>
       <td class="num">${Number(o.tentativas) > 20
@@ -6292,12 +6298,37 @@ PAGES['conn.firewall'] = {
                   <td><span class="badge">${esc(b.jaula)}</span></td>
                   <td class="col-actions">${ctx.can('editar')
                     ? `<button class="btn btn-outline btn-sm" data-desbanir="${esc(b.ip)}"
-                         data-jaula="${esc(b.jaula)}">Desbloquear</button>`
+                         data-jaula="${esc(b.jaula)}">Desbloquear</button>
+                       ${jaConfiavel(b.ip) ? '' : `<button class="btn btn-ghost btn-sm" data-confiar="${esc(b.ip)}">Nunca bloquear</button>`}`
                     : ''}</td>
                 </tr>`).join('')}</tbody></table></div>`
             : `<div style="padding:20px" class="small muted">
                 Nenhum endereço bloqueado. O firewall bane por 24 horas quem erra a senha cinco
                 vezes em dez minutos — inclusive um ramal mal configurado aqui dentro.</div>`}
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-head"><div><b>Nunca bloquear</b>
+          <div class="card-sub">Endereços que o firewall não bane, por mais que errem a senha: o escritório,
+            o monitoramento, o syslog central. Use com cuidado — um endereço daqui pode tentar senha à vontade.</div></div>
+          <span class="badge">${confiaveis.length}</span></div>
+        ${confiaveis.length ? `<div class="table-wrap"><table class="table">
+          <thead><tr><th>Endereço</th><th>Descrição</th><th>Incluído</th><th class="col-actions"></th></tr></thead>
+          <tbody>${confiaveis.map(c => `<tr>
+            <td class="mono"><b>${esc(c.endereco)}</b></td>
+            <td>${esc(c.descricao || '—')}</td>
+            <td class="small dim">${dataHora(c.criado_em)}${c.criado_por ? ' · ' + esc(c.criado_por) : ''}</td>
+            <td class="col-actions">${ctx.can('editar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Tirar da lista"
+                 data-desconfiar="${c.id}" data-endereco="${esc(c.endereco)}">${icon('trash','ico ico-sm')}</button>` : ''}</td>
+          </tr>`).join('')}</tbody></table></div>`
+          : '<div style="padding:16px 20px 4px" class="small muted">Nenhum endereço na lista.</div>'}
+        ${ctx.can('editar') ? `<form class="row gap-8" id="fConfiavel" style="padding:14px 20px 18px;flex-wrap:wrap;align-items:flex-end">
+          <div class="field" style="margin:0"><label class="label">IP ou faixa</label>
+            <input class="input mono" name="endereco" placeholder="200.170.201.2 ou 200.170.201.0/24" style="width:260px" required></div>
+          <div class="field grow" style="margin:0;min-width:200px"><label class="label">Descrição</label>
+            <input class="input" name="descricao" maxlength="120" placeholder="Escritório, monitoramento…"></div>
+          <button class="btn btn-primary btn-sm" type="submit">${icon('plus','ico ico-sm')} Adicionar</button>
+        </form>` : ''}
       </div>
 
       <div class="card" style="margin-top:16px">
@@ -6312,6 +6343,44 @@ PAGES['conn.firewall'] = {
   },
 
   mount() {
+    const confiar = async (endereco, descricao) => {
+      try {
+        const r = await Api.post('/firewall/confiaveis', { endereco, descricao });
+        toast(r.detalhe, r.aplicado ? 'ok' : 'warn');
+        App.route();
+      } catch (e) { toast(e.message, 'err'); }
+    };
+
+    document.getElementById('fConfiavel')?.addEventListener('submit', ev => {
+      ev.preventDefault();
+      const d = lerFormulario(ev.currentTarget);
+      confiar(d.endereco.trim(), d.descricao);
+    });
+
+    document.querySelectorAll('[data-confiar]').forEach(b => b.onclick = async () => {
+      const ip = b.dataset.confiar;
+      const ok = await Modal.confirm({
+        titulo: `Nunca mais bloquear ${ip}?`,
+        texto: 'Ele é desbloqueado agora e o firewall deixa de bani-lo, mesmo que erre a senha. '
+             + 'Faça isso só para endereços seus — o do escritório, do monitoramento, do syslog.',
+        ok: 'Nunca bloquear', tone: 'warn', ico: 'shield'
+      });
+      if (ok) confiar(ip, 'Incluído a partir da lista de bloqueados');
+    });
+
+    document.querySelectorAll('[data-desconfiar]').forEach(b => b.onclick = async () => {
+      const ok = await Modal.confirm({
+        titulo: `Tirar ${b.dataset.endereco} da lista?`,
+        texto: 'Ele volta a ser bloqueado se errar a senha cinco vezes.', ok: 'Tirar da lista'
+      });
+      if (!ok) return;
+      try {
+        const r = await Api.delete(`/firewall/confiaveis/${b.dataset.desconfiar}`);
+        toast(r.detalhe, r.aplicado ? 'ok' : 'warn');
+        App.route();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+
     document.querySelectorAll('[data-desbanir]').forEach(b => b.onclick = async () => {
       const ip = b.dataset.desbanir;
       const ok = await Modal.confirm({

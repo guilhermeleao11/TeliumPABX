@@ -207,6 +207,11 @@ PAGES['cc.agente'] = {
     if (!this._eu?.agente) return;
     this.pintarTabular();
     this.pintar();
+    // Um clique só para a lista, que é redesenhada a cada atendimento.
+    document.getElementById('ccRecentes')?.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-qualificar]');
+      if (b) this.qualificar(Number(b.dataset.qualificar));
+    });
 
     CCVivo.conectar('cc.agente', foto => {
       const antes = this._foto?.agentes?.[0];
@@ -232,6 +237,7 @@ PAGES['cc.agente'] = {
   async recarregarEu() {
     try {
       this._eu = await Api.get('/cc/eu');
+      this.pintar();
       this.pintarTabular();
       const r = document.getElementById('ccRecentes');
       if (r) r.innerHTML = this.recentes();
@@ -267,7 +273,16 @@ PAGES['cc.agente'] = {
       };
     } else {
       const podeVoltar = a.pausado;
-      alvo.innerHTML = `<div class="card-body">
+      // Quem está na linha: é a primeira coisa que o atendente precisa ver.
+      const at = this._eu.atual;
+      const naLinha = estado === 'falando' && at ? `
+        <div style="margin:0 0 16px;padding:14px 16px;border-radius:12px;background:var(--info-soft)">
+          <div class="tiny muted" style="margin-bottom:4px">Na linha · fila ${esc(at.fila_nome || at.fila)} · esperou ${ccTempo(at.espera_seg)}</div>
+          <div style="font-size:22px;font-weight:700" class="mono">${esc(at.numero || 'número não identificado')}</div>
+          ${at.contato ? `<div class="small"><b>${esc(at.contato.nome)}</b>${at.contato.empresa ? ' · ' + esc(at.contato.empresa) : ''}</div>`
+            : at.nome ? `<div class="small">${esc(at.nome)}</div>` : '<div class="small muted">Não está na agenda de contatos.</div>'}
+        </div>` : '';
+      alvo.innerHTML = `<div class="card-body">${naLinha}
         <div class="row-between" style="align-items:flex-start;gap:12px;flex-wrap:wrap">
           <div>
             <div style="margin-bottom:10px">${ccBadge(estado, estado === 'pausa' ? a.motivo : '')}</div>
@@ -278,7 +293,9 @@ PAGES['cc.agente'] = {
             Logado desde ${a.logado_desde ? new Date((a.logado_desde + this._foto._delta) * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—'}</div>
         </div>
         <div class="row gap-8" style="margin-top:16px;flex-wrap:wrap">
-          ${podeVoltar
+          ${podeVoltar && (this._eu.pendentes || []).length
+            ? `<span class="small" style="align-self:center">${icon('edit','ico ico-sm')} Qualifique ${this._eu.pendentes.length > 1 ? 'os atendimentos' : 'o atendimento'} abaixo para voltar a receber chamadas.</span>`
+            : podeVoltar
             ? `<button class="btn btn-primary" id="ccVolta">${icon('play','ico ico-sm')} Voltar a atender</button>`
             : `<div class="dd" id="ccPausaDd">
                  <button class="btn btn-outline" id="ccPausaBtn">${icon('clock','ico ico-sm')} Pausar ${icon('chevronD','ico ico-sm')}</button>
@@ -336,9 +353,12 @@ PAGES['cc.agente'] = {
     } else if (estado === 'livre' && a.ultima) {
       seg = ccDesde(this._foto, a.ultima);
       texto = 'desde o último atendimento';
+    } else if (estado === 'falando' && this._eu.atual?.desde) {
+      seg = ccDesde(this._foto, Number(this._eu.atual.desde));
+      texto = 'de conversa';
     } else if (a.logado_desde) {
       seg = ccDesde(this._foto, a.logado_desde);
-      texto = estado === 'falando' ? 'Em atendimento' : 'logado';
+      texto = 'logado';
     }
     el.textContent = ccTempo(seg);
     if (sub) sub.innerHTML = texto;
@@ -382,11 +402,11 @@ PAGES['cc.agente'] = {
     const opcoes = fila => this._eu.tabulacoes.filter(t => !t.fila || t.fila === fila);
     el.innerHTML = `<div class="card" style="margin-bottom:16px;border-color:var(--brand)">
       <div class="card-head"><div><div class="card-title">O que foi resolvido?</div>
-        <div class="card-sub">Você volta a receber chamadas quando tabular ${p.length > 1 ? `os ${p.length} atendimentos` : 'o atendimento'}.</div></div></div>
+        <div class="card-sub">Você volta a receber chamadas quando qualificar ${p.length > 1 ? `os ${p.length} atendimentos` : 'o atendimento'}.</div></div></div>
       <div class="card-body">${p.map(at => `
         <form class="row gap-8" data-tabular="${at.id}" style="align-items:flex-end;flex-wrap:wrap;margin-bottom:12px">
           <div style="min-width:180px"><b class="mono">${esc(at.numero || 'sem número')}</b>
-            <div class="tiny muted">${esc(at.nome || '')} · fila ${esc(at.fila)} · ${dataHora(at.atendido_em)}</div></div>
+            <div class="tiny muted">${at.contato ? `<b>${esc(at.contato.nome)}</b>${at.contato.empresa ? ' · ' + esc(at.contato.empresa) : ''}` : esc(at.nome || '')} · fila ${esc(at.fila)} · ${dataHora(at.atendido_em)}</div></div>
           <div class="field grow" style="margin:0;min-width:200px"><label class="label">Tabulação</label>
             <select class="select" name="tabulacao_id" required>
               <option value="">Escolha…</option>
@@ -415,15 +435,55 @@ PAGES['cc.agente'] = {
   recentes() {
     const r = this._eu?.recentes || [];
     return r.length ? `<div class="table-wrap"><table class="table">
-      <thead><tr><th>Hora</th><th>Número</th><th>Fila</th><th>Espera</th><th>Tabulação</th></tr></thead>
+      <thead><tr><th>Hora</th><th>Quem ligou</th><th>Fila</th><th>Espera</th><th>Qualificação</th><th></th></tr></thead>
       <tbody>${r.map(a => `<tr>
         <td class="small">${esc((a.atendido_em || '').slice(11, 16))}</td>
-        <td><b class="mono">${esc(a.numero || '—')}</b> <span class="tiny muted">${esc(a.nome || '')}</span></td>
+        <td><b class="mono">${esc(a.numero || '—')}</b>
+          <div class="tiny muted">${a.contato ? esc(a.contato.nome) + (a.contato.empresa ? ' · ' + esc(a.contato.empresa) : '') : esc(a.nome || '')}</div></td>
         <td class="mono small">${esc(a.fila)}</td>
         <td class="num">${ccTempo(a.espera_seg)}</td>
         <td class="small">${a.tabulacao ? esc(a.tabulacao) : '<span class="muted">—</span>'}${a.observacao ? `<div class="tiny muted">${esc(a.observacao)}</div>` : ''}</td>
+        <td class="col-actions"><button class="btn btn-ghost btn-sm" data-qualificar="${a.id}">
+          ${icon(a.tabulacao ? 'edit' : 'check','ico ico-sm')} ${a.tabulacao ? 'Alterar' : 'Qualificar'}</button></td>
       </tr>`).join('')}</tbody></table></div>`
       : vazio('phone', 'Nenhum atendimento hoje', 'As chamadas que você atender aparecem aqui.');
+  },
+
+  /** Qualificar (tabular) qualquer atendimento do dia — obrigatório ou não. */
+  qualificar(id) {
+    const at = (this._eu.recentes || []).find(x => x.id === id);
+    if (!at) return;
+    const opcoes = this._eu.tabulacoes.filter(t => !t.fila || t.fila === at.fila);
+    Drawer.open({
+      titulo: 'Qualificar a chamada',
+      sub: `${esc(at.numero || 'sem número')} · fila ${esc(at.fila)} · ${esc((at.atendido_em || '').slice(11, 16))}`,
+      corpo: opcoes.length ? `<form id="fQualificar"><div class="form-grid">
+        <div class="field full"><label class="label">O que foi resolvido *</label>
+          <select class="select" name="tabulacao_id" required>
+            <option value="">Escolha…</option>
+            ${opcoes.map(t => `<option value="${t.id}" ${Number(at.tabulacao_id) === Number(t.id) ? 'selected' : ''}>${t.grupo ? esc(t.grupo) + ' — ' : ''}${esc(t.nome)}</option>`).join('')}
+          </select></div>
+        <div class="field full"><label class="label">Observação</label>
+          <textarea class="textarea" name="observacao" maxlength="1000" rows="4">${esc(at.observacao || '')}</textarea></div>
+      </div></form>`
+        : '<p class="small muted">Nenhuma qualificação cadastrada para esta fila. Peça ao supervisor para cadastrar em Call Center → Tabulações.</p>',
+      rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+               ${opcoes.length ? `<button class="btn btn-primary" id="salvarQualif">${icon('check','ico ico-sm')} Salvar</button>` : ''}`,
+      aoAbrir: dw => {
+        const b = dw.querySelector('#salvarQualif');
+        if (!b) return;
+        b.onclick = async () => {
+          const d = lerFormulario(dw.querySelector('#fQualificar'));
+          if (!d.tabulacao_id) { toast('Escolha o que foi resolvido.', 'warn'); return; }
+          try {
+            const r = await Api.post(`/cc/atendimentos/${id}/tabular`, { tabulacao_id: Number(d.tabulacao_id), observacao: d.observacao });
+            Drawer.close();
+            toast(r.voltou ? 'Qualificada. Você voltou a receber chamadas.' : 'Chamada qualificada.', 'ok');
+            this.recarregarEu();
+          } catch (e) { toast(e.message, 'err'); }
+        };
+      }
+    });
   },
 
   async acao(caminho, corpo, sucesso) {

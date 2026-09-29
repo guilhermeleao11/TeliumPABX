@@ -100,3 +100,12 @@
     name: fail2ban
     state: started
     enabled: true
+
+# A lista "nunca bloquear" do console. Reaplicada a cada execução: o
+# arquivo que ela gera mora em jail.d, e uma reinstalação do fail2ban
+# o perderia.
+- name: Aplicar os endereços que nunca são bloqueados
+  ansible.builtin.command: /usr/local/sbin/telium-fail2ban confiaveis
+  register: f2b_confiaveis
+  changed_when: false
+  failed_when: false
