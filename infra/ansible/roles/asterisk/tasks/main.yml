@@ -174,39 +174,12 @@
   failed_when: false
   changed_when: false
 
-# O projeto Asterisk não publica áudios em português — os idiomas
-# oficiais são en, en_AU, en_GB, en_NZ, es, fr, it, ja, ru e sv. A tarefa
-# que ficava aqui pedia CORE-SOUNDS-PT_BR-GSM ao menuselect, opção que
-# não existe, e com failed_when: false nunca reclamou: a central era
-# entregue falando inglês e ninguém via.
-#
-# Um pacote próprio entra por sons_dir. A bateria de testes confere, no
-# fim do provisionamento, se os áudios existem no idioma configurado.
-- name: Instalar o pacote de áudios do idioma configurado
-  when: sons_dir | default('') != ''
-  block:
-    - name: Conferir se o diretório de áudios existe na estação
-      ansible.builtin.stat:
-        path: "{{ sons_dir }}"
-      delegate_to: localhost
-      become: false
-      register: sons_origem
-
-    - name: Avisar quando o diretório de áudios não existe
-      ansible.builtin.fail:
-        msg: >-
-          sons_dir aponta para {{ sons_dir }}, que não existe na máquina de onde
-          o playbook roda. Deixe a variável vazia ou corrija o caminho.
-      when: not sons_origem.stat.exists
-
-    - name: Publicar os áudios em sounds/{{ pabx_idioma }}
-      ansible.builtin.copy:
-        src: "{{ sons_dir }}/"
-        dest: "/var/lib/asterisk/sounds/{{ pabx_idioma }}/"
-        owner: asterisk
-        group: asterisk
-        mode: "0644"
-      notify: recarregar asterisk
+# Os áudios NÃO são instalados aqui. Pedir CORE-SOUNDS ao menuselect
+# entrega o som só quando a compilação acontece E o download dela dá
+# certo — e as duas coisas falham calado: com compilar_asterisk: false
+# nem se tenta, e sem saída para a internet o make termina bem com a
+# pasta de sons vazia. A instalação de verdade está mais abaixo, depois
+# do "make install", e confere o que ficou no disco.
 
 - name: Compilar (pode levar vários minutos)
   ansible.builtin.command:
@@ -259,6 +232,167 @@
     # Sem o diretório, a classe [default] de música em espera some sem
     # avisar e as filas tocam silêncio.
     - /var/lib/asterisk/moh
+    # Quem cria sounds/ é o "make install". Numa máquina com
+    # compilar_asterisk: false ele nunca rodou, e a instalação dos
+    # áudios logo abaixo falhava por não ter onde descompactar — caindo
+    # no aviso e deixando a central muda, que é exatamente o que ela
+    # existe para impedir.
+    - /var/lib/asterisk/sounds
+
+# ------------------------------------------------------------------
+# Áudios do sistema.
+#
+# Playback de arquivo que não existe não é erro para o Asterisk: ele
+# escreve uma linha no log e segue como se tivesse tocado. A URA fica
+# muda, o correio de voz desliga na cara de quem ligou e a fila não diz
+# a posição — e nada disso aparece como falha em lugar nenhum.
+#
+# Por isso não se confia na compilação. Confere-se o que está no disco
+# e, faltando, baixa-se o pacote oficial. Vale para a máquina que nunca
+# compilou (compilar_asterisk: false) e para a que compilou sem rede.
+#
+# O pacote oficial instala na RAIZ de sounds/ — é o idioma de fábrica do
+# Asterisk, e é onde ele procura quando não acha no diretório do idioma.
+# Manter esse conjunto é o que garante que a central sempre FALE alguma
+# coisa, mesmo com um pacote de idioma incompleto por cima.
+# ------------------------------------------------------------------
+- name: Conferir se os dígitos falados estão instalados
+  ansible.builtin.find:
+    paths: /var/lib/asterisk/sounds/digits
+    patterns: "*.gsm,*.wav,*.ulaw,*.alaw,*.sln,*.g722"
+  register: sons_digitos
+
+- name: Conferir se os áudios do correio de voz estão instalados
+  ansible.builtin.find:
+    paths: /var/lib/asterisk/sounds
+    patterns: "vm-*"
+  register: sons_voicemail
+
+- name: Instalar os áudios base do Asterisk
+  # Vinte dígitos é o conjunto mínimo para SayNumber dizer um número de
+  # dois algarismos; abaixo disso a central lê a posição na fila pela
+  # metade. E sem os vm-* o correio de voz atende e desliga.
+  when: sons_digitos.matched | int < 20 or sons_voicemail.matched | int == 0
+  block:
+    - name: Baixar os pacotes de áudio do projeto Asterisk
+      ansible.builtin.get_url:
+        url: "https://downloads.asterisk.org/pub/telephony/sounds/{{ item }}"
+        dest: "{{ src_dir }}/{{ item }}"
+        mode: "0644"
+        timeout: 120
+      loop: "{{ sons_base_pacotes }}"
+      register: sons_baixados
+      retries: 2
+      delay: 5
+      until: sons_baixados is succeeded
+
+    - name: Descompactar os áudios base em sounds/
+      ansible.builtin.unarchive:
+        src: "{{ src_dir }}/{{ item }}"
+        dest: /var/lib/asterisk/sounds
+        remote_src: true
+        owner: asterisk
+        group: asterisk
+      loop: "{{ sons_base_pacotes }}"
+      notify: recarregar asterisk
+
+  rescue:
+    # Sem internet a entrega não pode parar aqui — mas a bateria de
+    # testes reprova a instalação no fim, e é ela que vai contar.
+    - name: Avisar que os áudios base não puderam ser instalados
+      ansible.builtin.debug:
+        msg: >-
+          Não foi possível baixar os áudios do Asterisk. A central vai ficar MUDA:
+          URA sem anúncio, correio de voz que desliga e fila sem posição. Baixe
+          {{ sons_base_pacotes | join(', ') }} de
+          https://downloads.asterisk.org/pub/telephony/sounds/ e descompacte em
+          /var/lib/asterisk/sounds. A bateria de testes reprova esta instalação.
+
+# ------------------------------------------------------------------
+# O idioma da central.
+#
+# O projeto Asterisk NÃO publica áudios em português: os idiomas
+# oficiais são en, en_AU, en_GB, en_NZ, es, fr, it, ja, ru e sv. A
+# tarefa que ficava aqui pedia CORE-SOUNDS-PT_BR-GSM ao menuselect,
+# opção que não existe, e com "falha aqui não interrompe" nunca
+# reclamou: a central era entregue falando inglês e ninguém via.
+#
+# Um pacote em português entra por uma destas duas portas — sons_url,
+# para um .tar.gz publicado em algum lugar, e sons_dir, para uma pasta
+# na máquina de onde o playbook roda. Nenhuma das duas tem rede de
+# proteção de propósito: quem declarou que a central fala português não
+# pode receber uma central que fala inglês em silêncio.
+# ------------------------------------------------------------------
+- name: Preparar o diretório do idioma {{ pabx_idioma }}
+  ansible.builtin.file:
+    path: "/var/lib/asterisk/sounds/{{ pabx_idioma }}"
+    state: directory
+    owner: asterisk
+    group: asterisk
+    mode: "0755"
+  when: sons_url | default([]) | length > 0 or sons_dir | default('') != ''
+
+- name: Instalar os pacotes de áudio do idioma vindos de URL
+  when: sons_url | default([]) | length > 0
+  block:
+    - name: Baixar os pacotes de áudio do idioma
+      ansible.builtin.get_url:
+        url: "{{ item }}"
+        dest: "{{ src_dir }}/idioma-{{ pabx_idioma }}-{{ loop_index }}.tar.gz"
+        mode: "0644"
+        timeout: 120
+      loop: "{{ sons_url }}"
+      loop_control:
+        index_var: loop_index
+
+    - name: Descompactar os áudios em sounds/{{ pabx_idioma }}
+      ansible.builtin.unarchive:
+        src: "{{ src_dir }}/idioma-{{ pabx_idioma }}-{{ loop_index }}.tar.gz"
+        dest: "/var/lib/asterisk/sounds/{{ pabx_idioma }}"
+        remote_src: true
+        owner: asterisk
+        group: asterisk
+      loop: "{{ sons_url }}"
+      loop_control:
+        index_var: loop_index
+      notify: recarregar asterisk
+
+- name: Instalar o pacote de áudios do idioma vindo de uma pasta local
+  when: sons_dir | default('') != ''
+  block:
+    - name: Conferir se a pasta de áudios existe na estação
+      ansible.builtin.stat:
+        path: "{{ sons_dir }}"
+      delegate_to: localhost
+      become: false
+      register: sons_origem
+
+    - name: Avisar quando a pasta de áudios não existe
+      ansible.builtin.fail:
+        msg: >-
+          sons_dir aponta para {{ sons_dir }}, que não existe na máquina de onde
+          o playbook roda. Deixe a variável vazia ou corrija o caminho.
+      when: not sons_origem.stat.exists
+
+    - name: Publicar os áudios em sounds/{{ pabx_idioma }}
+      ansible.builtin.copy:
+        src: "{{ sons_dir }}/"
+        dest: "/var/lib/asterisk/sounds/{{ pabx_idioma }}/"
+        owner: asterisk
+        group: asterisk
+        mode: "0644"
+        # Sem isto as subpastas (digits/, vm-*) herdariam 0644 e ficariam
+        # sem permissão de entrar: o Asterisk não leria nada de dentro.
+        directory_mode: "0755"
+      notify: recarregar asterisk
+
+- name: Garantir o dono dos áudios
+  ansible.builtin.file:
+    path: /var/lib/asterisk/sounds
+    state: directory
+    owner: asterisk
+    group: asterisk
+    recurse: true
 
 # ------------------------------------------------------------------
 # Música em espera.

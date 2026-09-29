@@ -49,7 +49,49 @@ final class Recurso
          * @var (callable(array<string,mixed>, array<string,mixed>): array<string,mixed>)|null
          */
         private $normalizar = null,
+        /**
+         * A última palavra antes de gravar ou apagar.
+         *
+         * As regras declarativas conferem um campo por vez e não
+         * enxergam o resto do sistema. Há impedimentos que só existem
+         * olhando para fora da linha: tirar o último administrador,
+         * apagar a própria conta, vincular um ramal que já é de outra
+         * pessoa. Errar isso não dá erro nenhum — dá um console em que
+         * ninguém mais entra.
+         *
+         * Recebe a ação ("criar", "editar" ou "excluir"), os campos
+         * enviados, a linha como está hoje (vazia na criação) e QUEM
+         * está pedindo. Devolve null quando pode, ou o impedimento.
+         *
+         * @var (callable(string, array<string,mixed>, array<string,mixed>, array<string,mixed>): ?array{mensagem:string, campo?:string, codigo?:int})|null
+         */
+        private $conferir = null,
     ) {
+    }
+
+    /** Roda o gancho de conferência, se a rota declarou um. */
+    private function impedimento(
+        Request $req,
+        Response $res,
+        string $acao,
+        array $dados,
+        array $atual
+    ): ?Response {
+        if ($this->conferir === null) {
+            return null;
+        }
+
+        $problema = ($this->conferir)($acao, $dados, $atual, (array) $req->getAttribute('usuario'));
+        if ($problema === null) {
+            return null;
+        }
+
+        return Resposta::erro(
+            $res,
+            (string) $problema['mensagem'],
+            (int) ($problema['codigo'] ?? 409),
+            isset($problema['campo']) ? ['campo' => $problema['campo']] : []
+        );
     }
 
     /** Marcador interno: este "" deve ir para o banco como veio. */
@@ -123,6 +165,11 @@ final class Recurso
             return Resposta::erro($res, $problema['mensagem'], 422, ['campo' => $problema['campo']]);
         }
 
+        $barrado = $this->impedimento($req, $res, 'criar', $dados, []);
+        if ($barrado !== null) {
+            return $barrado;
+        }
+
         if ($this->normalizar !== null) {
             $dados = ($this->normalizar)($dados, []);
         }
@@ -174,6 +221,11 @@ final class Recurso
             return Resposta::erro($res, $problema['mensagem'], 422, ['campo' => $problema['campo']]);
         }
 
+        $barrado = $this->impedimento($req, $res, 'editar', $dados, $atual);
+        if ($barrado !== null) {
+            return $barrado;
+        }
+
         if ($this->normalizar !== null) {
             $dados = ($this->normalizar)($dados, $atual);
         }
@@ -201,6 +253,11 @@ final class Recurso
         $atual = Bd::um("SELECT * FROM `{$this->tabela}` WHERE id = ?", [$args['id']]);
         if ($atual === null) {
             return Resposta::erro($res, 'Registro não encontrado', 404);
+        }
+
+        $barrado = $this->impedimento($req, $res, 'excluir', [], $atual);
+        if ($barrado !== null) {
+            return $barrado;
         }
 
         try {

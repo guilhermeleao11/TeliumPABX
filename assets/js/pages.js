@@ -1925,6 +1925,11 @@ PAGES['rel.cdr'] = {
 };
 
 /* ------------------------- Administrador · Usuários ------------------------- */
+/* Conta trancada pelas cinco senhas erradas — e ainda dentro do prazo.
+   Sem mostrar isso, a pessoa liga dizendo "minha senha parou de
+   funcionar" e o console mostra a conta ativa, como se nada houvesse. */
+const travado = (u) => !!u.bloqueado_ate && new Date(u.bloqueado_ate.replace(' ', 'T')) > new Date();
+
 PAGES['admin.usuarios'] = {
   async render(ctx) {
     let usuarios, perfis;
@@ -1956,10 +1961,16 @@ PAGES['admin.usuarios'] = {
         <td class="small dim">${u.ultimo_acesso ? dataHora(u.ultimo_acesso) : 'nunca'}</td>
         <td>${u.status === 'ativo' ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
              : u.status === 'inativo' ? '<span class="badge"><i class="dot"></i>Inativo</span>'
-             : '<span class="badge badge-danger"><i class="dot"></i>Bloqueado</span>'}</td>
+             : '<span class="badge badge-danger"><i class="dot"></i>Bloqueado</span>'}
+            ${Number(u.totp_ativo) ? `<span class="badge badge-info" data-tip="Verificação em dois passos ligada">${icon('shield','ico ico-sm')}2FA</span>` : ''}
+            ${travado(u) ? `<span class="badge badge-warn" data-tip="Travada por senha errada até ${esc(dataHora(u.bloqueado_ate))}"><i class="dot"></i>Travada</span>` : ''}</td>
         <td class="col-actions"><span class="row-actions">
           ${ctx.can('editar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" data-editar="${u.id}">${icon('edit','ico ico-sm')}</button>
           <button class="btn btn-ghost btn-sm btn-icon" data-tip="Definir senha" data-senha="${u.id}">${icon('key','ico ico-sm')}</button>` : ''}
+          ${ctx.can('editar') && travado(u)
+            ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Liberar o bloqueio por senha errada" data-destravar="${u.id}">${icon('unlock','ico ico-sm')}</button>` : ''}
+          ${ctx.can('editar') && Number(u.totp_ativo)
+            ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Desligar a verificação em dois passos (celular perdido)" data-doisfatores="${u.id}">${icon('shield','ico ico-sm')}</button>` : ''}
           ${ctx.can('excluir') && u.usuario !== 'admin'
             ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-excluir="${u.id}">${icon('trash','ico ico-sm')}</button>` : ''}
         </span></td>
@@ -2122,6 +2133,30 @@ PAGES['admin.usuarios'] = {
       b.onclick = () => form(this._usuarios.find(u => String(u.id) === b.dataset.editar)));
     document.querySelectorAll('[data-senha]').forEach(b =>
       b.onclick = () => senhaForm(this._usuarios.find(u => String(u.id) === b.dataset.senha)));
+    document.querySelectorAll('[data-destravar]').forEach(b => b.onclick = async () => {
+      const u = this._usuarios.find(x => String(x.id) === b.dataset.destravar);
+      try {
+        const r = await Api.post(`/usuarios/${u.id}/destravar`, {});
+        toast(r.mensagem || 'Bloqueio liberado.', 'ok'); App.route();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+
+    document.querySelectorAll('[data-doisfatores]').forEach(b => b.onclick = async () => {
+      const u = this._usuarios.find(x => String(x.id) === b.dataset.doisfatores);
+      const ok = await Modal.confirm({
+        titulo: `Desligar a verificação em dois passos de ${u.nome}?`,
+        texto: 'Use quando a pessoa perdeu o celular. A conta volta a entrar só com a senha, '
+             + 'as sessões abertas dela caem, e ela precisa ligar a verificação de novo no '
+             + 'próprio painel.',
+        ok: 'Desligar'
+      });
+      if (!ok) return;
+      try {
+        const r = await Api.post(`/usuarios/${u.id}/2fa/desligar`, {});
+        toast(r.mensagem || '2FA desligado.', 'ok'); App.route();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+
     document.querySelectorAll('[data-excluir]').forEach(b => b.onclick = async () => {
       const u = this._usuarios.find(x => String(x.id) === b.dataset.excluir);
       const ok = await Modal.confirm({

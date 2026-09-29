@@ -8,6 +8,7 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Telium\Dominio\Auditoria;
 use Telium\Dominio\Permissoes;
 use Telium\Dominio\Senha;
+use Telium\Dominio\Usuarios;
 use Telium\Suporte\Bd;
 use Telium\Suporte\Resposta;
 
@@ -153,6 +154,22 @@ final class Cadastros
         $modulos = array_values(array_filter((array) ($corpo['allow'] ?? []), 'is_string'));
         $acoes = array_values(array_filter((array) ($corpo['caps'] ?? []), 'is_string'));
 
+        // O mesmo buraco da tela de usuários, pela outra porta: em vez
+        // de mexer na conta, tira-se "Usuários" do perfil em que ela
+        // está. O console fica sem ninguém capaz de criar conta,
+        // redefinir senha ou reativar acesso, e voltar atrás é ir ao
+        // banco pelo terminal do servidor.
+        if (!Usuarios::matrizDeixaAdministrador((int) $perfil['id'], $modulos, $acoes)) {
+            return Resposta::erro(
+                $res,
+                "Salvar assim tiraria o acesso a Usuários do perfil {$perfil['nome']}, e ele é o "
+                . 'único com contas ativas capazes de administrar o console. Ninguém conseguiria '
+                . 'mais criar conta nem redefinir senha. Dê esse acesso a outro perfil antes.',
+                409,
+                ['modulo' => 'admin.usuarios']
+            );
+        }
+
         $pdo = Bd::conexao();
         $pdo->beginTransaction();
         try {
@@ -238,18 +255,24 @@ final class Cadastros
         if ($usuario === '' || $nome === '') {
             return Resposta::erro($res, 'Informe o nome e o usuário de login', 422);
         }
-        if (!preg_match('/^[a-z0-9._-]{3,64}$/i', $usuario)) {
-            return Resposta::erro(
-                $res,
-                'O usuário de login aceita letras, números, ponto, hífen e sublinhado (3 a 64 caracteres)',
-                422
-            );
-        }
         if (Bd::valor('SELECT COUNT(*) FROM usuarios WHERE usuario = ?', [$usuario]) > 0) {
             return Resposta::erro($res, "Já existe uma conta com o usuário {$usuario}", 409);
         }
-        if (Bd::valor('SELECT COUNT(*) FROM perfis WHERE id = ?', [$perfilId]) === 0) {
-            return Resposta::erro($res, 'Escolha um perfil de acesso válido', 422);
+
+        // As MESMAS conferências da edição: formato do login, e-mail,
+        // perfil que existe e ramal livre. Estavam só aqui, e a edição
+        // pelo CRUD genérico passava por cima de todas elas.
+        // O perfil entra explicitamente: sem a chave no corpo, a
+        // conferência pularia o campo e o INSERT estouraria numa chave
+        // estrangeira crua, com 500 e a consulta SQL na tela.
+        $problema = Usuarios::conferirCampos($corpo + ['perfil_id' => $perfilId]);
+        if ($problema !== null) {
+            return Resposta::erro(
+                $res,
+                $problema['mensagem'],
+                (int) ($problema['codigo'] ?? 422),
+                isset($problema['campo']) ? ['campo' => $problema['campo']] : []
+            );
         }
 
         $senha = (string) ($corpo['senha'] ?? '');
@@ -266,9 +289,6 @@ final class Cadastros
         $hash = Senha::criar($semSenha ? bin2hex(random_bytes(24)) : $senha);
 
         $status = (string) ($corpo['status'] ?? 'ativo');
-        if (!in_array($status, ['ativo', 'inativo', 'bloqueado'], true)) {
-            $status = 'ativo';
-        }
 
         Bd::executar(
             'INSERT INTO usuarios (usuario, nome, email, senha_hash, perfil_id, ramal, setor, status)
@@ -335,6 +355,86 @@ final class Cadastros
         );
 
         return Resposta::json($res, ['ok' => true]);
+    }
+
+    /**
+     * POST /api/usuarios/{id}/2fa/desligar — o administrador desliga a
+     * verificação em dois passos de outra pessoa.
+     *
+     * Havia como LIGAR e como desligar a própria, e mais nada. Celular
+     * perdido, trocado ou formatado deixava a conta trancada para
+     * sempre: o login exige o código, o código está no aparelho que não
+     * existe mais, e a única saída era um UPDATE no banco pelo terminal
+     * do servidor. Numa central revendida isso é um chamado que ninguém
+     * consegue atender pelo console.
+     */
+    public function desligar2faDe(Request $req, Response $res, array $args): Response
+    {
+        $usuario = Bd::um('SELECT id, usuario, nome, totp_ativo FROM usuarios WHERE id = ?', [$args['id']]);
+        if ($usuario === null) {
+            return Resposta::erro($res, 'Usuário não encontrado', 404);
+        }
+
+        Bd::executar(
+            'UPDATE usuarios SET totp_ativo = 0, totp_secret = NULL, totp_ultimo_passo = NULL WHERE id = ?',
+            [$usuario['id']]
+        );
+
+        // As sessões abertas caem junto: desligar a segunda barreira de
+        // alguém é o que se faz quando se desconfia do aparelho dela.
+        Bd::executar('DELETE FROM sessoes WHERE usuario_id = ?', [$usuario['id']]);
+
+        Auditoria::registrar(
+            $req->getAttribute('usuario'),
+            'editar',
+            'admin.usuarios',
+            (string) $usuario['usuario'],
+            ['acao' => '2fa desligado pelo administrador'],
+            $req->getServerParams()['REMOTE_ADDR'] ?? null
+        );
+
+        return Resposta::json($res, [
+            'ok' => true,
+            'mensagem' => "A verificação em dois passos de {$usuario['nome']} foi desligada. "
+                        . 'Peça para ela ligar de novo no próprio painel, com o celular novo.',
+        ]);
+    }
+
+    /**
+     * POST /api/usuarios/{id}/destravar — tira o bloqueio por tentativas.
+     *
+     * Cinco senhas erradas trancam a conta por quinze minutos. É o que
+     * deve acontecer — mas quem errou está do outro lado do telefone, e
+     * o console não tinha como liberar sem TROCAR a senha da pessoa.
+     */
+    public function destravar(Request $req, Response $res, array $args): Response
+    {
+        $usuario = Bd::um(
+            'SELECT id, usuario, nome, tentativas_login, bloqueado_ate FROM usuarios WHERE id = ?',
+            [$args['id']]
+        );
+        if ($usuario === null) {
+            return Resposta::erro($res, 'Usuário não encontrado', 404);
+        }
+
+        Bd::executar(
+            'UPDATE usuarios SET tentativas_login = 0, bloqueado_ate = NULL WHERE id = ?',
+            [$usuario['id']]
+        );
+
+        Auditoria::registrar(
+            $req->getAttribute('usuario'),
+            'editar',
+            'admin.usuarios',
+            (string) $usuario['usuario'],
+            ['acao' => 'bloqueio por tentativas liberado'],
+            $req->getServerParams()['REMOTE_ADDR'] ?? null
+        );
+
+        return Resposta::json($res, [
+            'ok' => true,
+            'mensagem' => "{$usuario['nome']} pode tentar entrar de novo agora.",
+        ]);
     }
 
     /** GET /api/ramais/{id}/credenciais — senha SIP, só para quem pode editar */

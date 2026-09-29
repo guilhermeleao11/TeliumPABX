@@ -1,0 +1,11 @@
+---
+# Os pacotes de áudio que toda central precisa ter, venha o idioma que
+# vier. Eles instalam na RAIZ de sounds/, que é onde o Asterisk procura
+# quando não acha o arquivo no diretório do idioma configurado — é a
+# rede de proteção que impede uma central de ficar muda.
+#
+# "current" é o apelido que o projeto mantém apontando para a versão
+# mais nova; é o mesmo endereço que a documentação do Asterisk usa.
+sons_base_pacotes:
+  - asterisk-core-sounds-en-gsm-current.tar.gz
+  - asterisk-extra-sounds-en-gsm-current.tar.gz

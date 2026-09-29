@@ -10,6 +10,7 @@ use Telium\Dominio\Provisionamento;
 use Telium\Dominio\Rede;
 use Telium\Dominio\Senha;
 use Telium\Dominio\Tarifa;
+use Telium\Dominio\Usuarios;
 use Telium\Dominio\Stun;
 use Telium\Dominio\Totp;
 use Telium\Gerador\Aplicador;
@@ -62,6 +63,7 @@ final class Testes
             $this->grupo('Conferência do cadastro', $this->conferencia(...));
             $this->grupo('Ramais WebRTC gerados', $this->webrtcGerado(...));
             $this->grupo('Perfis de fábrica', $this->perfisDeFabrica(...));
+            $this->grupo('Gerenciador de usuários', $this->usuarios(...));
             $this->grupo('Rota de entrada', $this->rotaDeEntrada(...));
             $this->grupo('Faixas de horário', $this->horarios(...));
             $this->grupo('Tarifação', $this->tarifacao(...));
@@ -1509,6 +1511,149 @@ final class Testes
     }
 
     /**
+     * O gerenciador de contas — e as quatro maneiras de ficar sem dono.
+     *
+     * O cadastro de usuários passava pelo CRUD genérico, que confere
+     * campo por campo e não enxerga o resto do sistema. Excluir a conta
+     * que administra, desativá-la, movê-la para um perfil sem acesso ou
+     * tirar "Usuários" da matriz desse perfil: nenhuma das quatro dá
+     * erro, e todas terminam num console em que ninguém mais entra. A
+     * volta é UPDATE no banco pelo terminal do servidor — numa central
+     * revendida, uma visita.
+     *
+     * Conferido por HTTP de verdade na bancada, com duas contas de
+     * administrador; aqui ficam as regras, para não voltarem.
+     */
+    private function usuarios(): void
+    {
+        $eu = ['id' => 1, 'perfil_id' => 1];
+        $conta = ['id' => 1, 'nome' => 'Administrador', 'usuario' => 'admin',
+                  'perfil_id' => 1, 'status' => 'ativo'];
+
+        // ---- a própria conta ----
+        $this->ok(
+            Usuarios::conferir('editar', ['status' => 'inativo'], $conta, $eu) !== null,
+            'ninguém desativa a própria conta — perderia o acesso na hora, e a tela que '
+            . 'desfaria isso é a que acabou de fechar para si'
+        );
+        $this->ok(
+            Usuarios::conferir('editar', ['perfil_id' => 3], $conta, $eu) !== null,
+            'ninguém rebaixa o próprio perfil'
+        );
+        $this->ok(
+            Usuarios::conferir('excluir', [], $conta, $eu) !== null,
+            'ninguém exclui a própria conta'
+        );
+        $this->ok(
+            Usuarios::conferir('editar', ['setor' => 'TI'], $conta, $eu) === null,
+            'editar o resto da própria conta continua liberado'
+        );
+
+        // ---- formato dos campos ----
+        // A criação conferia o login; a edição, não — e é a mesma coluna.
+        // Um PUT com espaço no meio gravava sem reclamar e a conta parava
+        // de entrar, porque o login recusa espaço na porta.
+        foreach (['a b c' => 'espaço', '' => 'vazio', 'ab' => 'curto demais'] as $login => $porque) {
+            $this->ok(
+                !Usuarios::loginValido((string) $login),
+                "login com {$porque} é recusado"
+            );
+        }
+        $this->ok(Usuarios::loginValido('m.duarte-01'), 'login normal passa');
+
+        $este = ['id' => 7, 'nome' => 'Fulano', 'usuario' => 'fulano', 'perfil_id' => 3, 'status' => 'ativo'];
+        $outro = ['id' => 9, 'perfil_id' => 1];
+        $this->ok(
+            Usuarios::conferir('editar', ['email' => 'sem-arroba'], $este, $outro) !== null,
+            'e-mail sem formato é recusado na edição, e não só na criação'
+        );
+        $this->ok(
+            Usuarios::conferir('editar', ['status' => 'ferias'], $este, $outro) !== null,
+            'estado fora de ativo/inativo/bloqueado é recusado antes do banco'
+        );
+        $this->ok(
+            Usuarios::conferir('editar', ['perfil_id' => 999999], $este, $outro) !== null,
+            'perfil que não existe é recusado com nome de campo, e não com erro de chave estrangeira'
+        );
+        // Criar sem escolher perfil devolvia a consulta SQL da chave
+        // estrangeira na tela, com 500: a conferência pula o campo que
+        // não veio, e quem chama precisa colocá-lo lá.
+        $this->ok(
+            Usuarios::conferirCampos(['usuario' => 'novo.fulano', 'perfil_id' => 0]) !== null,
+            'criar sem escolher perfil é recusado antes do banco, e não com erro de SQL na tela'
+        );
+
+        // ---- o ramal vinculado ----
+        // O portal resolve TUDO por esta coluna: as chamadas que a pessoa
+        // vê, o correio de voz que ela ouve, o ramal que o discador faz
+        // tocar. Duas contas no mesmo ramal é uma ouvindo o recado da
+        // outra, e ninguém descobre isso por acaso.
+        $this->ok(
+            Usuarios::conferir('editar', ['ramal' => '999999999'], $este, $outro) !== null,
+            'ramal que não está cadastrado é recusado — senão o portal abre vazio e ninguém sabe por quê'
+        );
+        $this->ok(
+            Usuarios::conferir('editar', ['ramal' => ''], $este, $outro) === null,
+            'conta sem ramal é estado normal (o administrador costuma não ter)'
+        );
+
+        $comRamal = Bd::um("SELECT ramal FROM usuarios WHERE ramal IS NOT NULL AND ramal <> '' LIMIT 1");
+        if ($comRamal !== null) {
+            $this->ok(
+                Usuarios::conferir('editar', ['ramal' => $comRamal['ramal']], $este, $outro) !== null,
+                "o ramal {$comRamal['ramal']} já é de outra conta e não pode ser vinculado duas vezes"
+            );
+        }
+
+        // ---- quem administra ----
+        $admin = (int) Bd::valor("SELECT id FROM perfis WHERE chave = 'admin'");
+        $this->ok(
+            $admin > 0 && Usuarios::perfilAdministra($admin),
+            'o perfil Administrador é reconhecido como capaz de administrar contas'
+        );
+        $operador = (int) Bd::valor("SELECT id FROM perfis WHERE chave = 'operador'");
+        if ($operador > 0) {
+            $this->ok(
+                !Usuarios::perfilAdministra($operador),
+                'o perfil Operador não conta como quem administra'
+            );
+        }
+
+        $this->ok(
+            Usuarios::administradores() > 0,
+            'existe ao menos uma conta ativa capaz de administrar o console'
+        );
+
+        // ---- a matriz de permissões, que é o mesmo buraco pela outra porta ----
+        $this->ok(
+            !Usuarios::matrizDeixaAdministrador($admin, ['dash.*'], ['editar']),
+            'tirar "Usuários" do único perfil que administra é barrado — senão ninguém mais '
+            . 'cria conta nem redefine senha'
+        );
+        $this->ok(
+            !Usuarios::matrizDeixaAdministrador($admin, ['*'], ['criar']),
+            'deixar o módulo e tirar a ação "editar" também tranca: ver a lista sem poder '
+            . 'gravar não reativa ninguém'
+        );
+        $this->ok(
+            Usuarios::matrizDeixaAdministrador($admin, ['*'], ['editar', 'excluir']),
+            'a matriz que mantém o acesso continua podendo ser salva'
+        );
+
+        // ---- socorro do administrador ----
+        // Celular perdido trancava a conta para sempre: o login exige o
+        // código, o código está no aparelho que não existe mais, e a
+        // saída era UPDATE no banco pelo terminal do servidor.
+        $rotas = $this->caminhosDaApi();
+        foreach ([
+            'POST /usuarios/{id}/2fa/desligar' => 'o administrador desliga a verificação em dois passos de quem perdeu o celular',
+            'POST /usuarios/{id}/destravar'    => 'o administrador libera a conta travada por senha errada, sem trocar a senha dela',
+        ] as $rota => $oque) {
+            $this->ok(in_array($rota, $rotas, true), $oque);
+        }
+    }
+
+    /**
      * A chamada que chega: do que a operadora entrega até o destino.
      *
      * Três coisas derrubavam a chamada em silêncio, e as três só
@@ -1576,9 +1721,18 @@ final class Testes
 
         // O DID normalizado vai para o CDR. O "dst" muda no caminho da
         // chamada; o DID é o que responde por qual linha ela entrou.
+        //
+        // Só quando há rota: essa linha nasce de UMA rota cadastrada, e
+        // exigi-la sempre reprovava toda central recém-instalada — que
+        // ainda não tem rota nenhuma. A bateria roda no fim do
+        // provisionamento e ABORTA a entrega, então o cliente novo não
+        // conseguia nem terminar a instalação.
+        $comRota = (int) Bd::valor('SELECT COUNT(*) FROM rotas_entrada WHERE ativo = 1');
         $this->ok(
-            str_contains($entrada, 'Set(CDR(did)='),
-            'a rota grava no CDR o número pelo qual a chamada entrou'
+            $comRota === 0 || str_contains($entrada, 'Set(CDR(did)='),
+            $comRota === 0
+                ? 'nenhuma rota de entrada cadastrada — só a rede de proteção, que existe'
+                : 'a rota grava no CDR o número pelo qual a chamada entrou'
         );
 
         // Quem liga decide: era coluna no banco que o gerador nunca lia.
@@ -1930,6 +2084,34 @@ final class Testes
      * credencial. Só /health e o login podem responder sem 401 — é o
      * teste que pega a rota nova em que alguém esqueceu o middleware.
      */
+    /**
+     * Toda rota da API, como "MÉTODO /caminho".
+     *
+     * Serve para um caso conferir que uma porta EXISTE sem subir
+     * servidor: uma rota removida por engano some da lista e o teste
+     * que dependia dela reprova na hora, em vez de só em produção.
+     *
+     * @return list<string>
+     */
+    private function caminhosDaApi(): array
+    {
+        $app = $this->aplicativo();
+        if ($app === null) {
+            return [];
+        }
+
+        $caminhos = [];
+        foreach ($app->getRouteCollector()->getRoutes() as $rota) {
+            foreach ($rota->getMethods() as $metodo) {
+                if ($metodo !== 'OPTIONS') {
+                    $caminhos[] = "{$metodo} {$rota->getPattern()}";
+                }
+            }
+        }
+
+        return $caminhos;
+    }
+
     private function rotas(): void
     {
         $indice = __DIR__ . '/../../public/index.php';

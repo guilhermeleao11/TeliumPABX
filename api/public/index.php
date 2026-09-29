@@ -28,6 +28,7 @@ use Telium\Http\Controllers\Sistema;
 use Telium\Http\Middleware\Autenticacao as MwAutenticacao;
 use Telium\Http\Middleware\Permissao;
 use Telium\Http\Middleware\Seguranca;
+use Telium\Dominio\Usuarios;
 use Telium\Http\Recurso;
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Resposta;
@@ -455,6 +456,19 @@ $recursos = [
             filtros: ['perfil_id','status'],
             ocultas: ['senha_hash','totp_secret'],
             modulo: 'admin.usuarios',
+            regras: [
+                'nome'    => ['rotulo' => 'Nome completo', 'obrigatorio' => true, 'max' => 120],
+                'usuario' => ['rotulo' => 'Usuário de login', 'obrigatorio' => true],
+                'email'   => ['rotulo' => 'E-mail', 'email' => true, 'max' => 160],
+                'setor'   => ['rotulo' => 'Setor', 'max' => 80],
+            ],
+            unicas: ['usuario'],
+            // O CRUD genérico confere campo por campo e não enxerga o
+            // resto: é aqui que se impede excluir o último administrador,
+            // desativar a própria conta ou vincular um ramal que já é de
+            // outra pessoa. Nada disso dá erro de banco — dá um console
+            // sem dono, ou duas pessoas no mesmo correio de voz.
+            conferir: [Usuarios::class, 'conferir'],
         ),
     ],
     'destinos-personalizados' => [
@@ -809,6 +823,12 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->post('/usuarios', [Cadastros::class, 'criarUsuario'])
       ->add(new Permissao('admin.usuarios', 'criar'));
     $g->post('/usuarios/{id}/senha', [Cadastros::class, 'trocarSenha'])
+      ->add(new Permissao('admin.usuarios', 'editar'));
+    // Celular perdido e conta travada por senha errada são os dois
+    // chamados que o console não sabia atender — a saída era o banco.
+    $g->post('/usuarios/{id}/2fa/desligar', [Cadastros::class, 'desligar2faDe'])
+      ->add(new Permissao('admin.usuarios', 'editar'));
+    $g->post('/usuarios/{id}/destravar', [Cadastros::class, 'destravar'])
       ->add(new Permissao('admin.usuarios', 'editar'));
     $g->get('/ramais/{id}/credenciais', [Cadastros::class, 'credenciaisRamal'])
       ->add(new Permissao('conn.ramais', 'editar'));

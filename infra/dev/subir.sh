@@ -38,6 +38,15 @@ mkdir -p "$TRAB"/{ast/telium,ast/keys,fotos,cofre,audios,backup}
 mkdir -p "$TRAB"/spool/{monitor,voicemail,dictate,fax,tmp}
 ln -sfn "$TRAB/spool/monitor" "$TRAB/gravacoes" 2>/dev/null || true
 
+# Os contêineres escrevem como root nos diretórios compartilhados. Na
+# execução seguinte o script roda como você e esbarra num "Permission
+# denied" ao republicar a configuração base — um erro que não tem nada a
+# ver com o que se estava testando e que já derrubou a bancada duas
+# vezes. Devolver o dono antes de começar resolve de uma vez.
+if [[ -d "$TRAB/ast" ]] && [[ ! -w "$TRAB/ast" || -n "$(find "$TRAB" ! -user "$(id -u)" -print -quit 2>/dev/null)" ]]; then
+  docker run --rm -v "$TRAB":/t "$IMG_PHP" chown -R "$(id -u):$(id -g)" /t >/dev/null 2>&1 || true
+fi
+
 # ---------------------------------------------------------------- banco
 if ! docker ps --format '{{.Names}}' | grep -qx v-db; then
   passo "subindo o MariaDB"
@@ -185,6 +194,13 @@ sed -i 's/^runuser .*/; runuser: na bancada o Asterisk roda como root/; s/^rungr
 : > "$TRAB/ast/telium/queues_custom.conf"
 : > "$TRAB/ast/telium/confbridge_custom.conf"
 
+# Tudo acima é escrito por VOCÊ; a API e o Asterisk rodam como root, e a
+# conferência de permissão do gerador exige que a configuração esteja no
+# grupo de ASTERISK_GRUPO (root, aqui). Sem devolver o dono, todo arquivo
+# que o gerador considerar "inalterado" fica com o seu usuário e a
+# bancada reprova uma permissão que no servidor está certa.
+docker run --rm -v "$TRAB/ast":/a "$IMG_PHP" chown -R 0:0 /a >/dev/null 2>&1 || true
+
 passo "gerando a configuração a partir do banco"
 docker exec v-web sh -c 'cd /w/api && php bin/telium gerar-config' | tail -2
 
@@ -227,42 +243,82 @@ INI'
   # na bancada — está aqui para quem vier depois não penar como eu penei.
   #   docker exec v-ast sh -c 'pkill -f "asterisk -f"; rm -f /var/run/asterisk/asterisk.ctl'
   #   docker exec -d v-ast asterisk -f -vvv
-  # Sem arquivo nenhum, a classe de música em espera some sem avisar e
-  # a fila toca silêncio.
-  # A imagem do Asterisk vem sem nenhum arquivo de som. Dois arquivos de
-  # silêncio bastam para a classe de música em espera existir — sem
-  # nenhum ela some sem avisar e a fila toca vazio. Em produção os sons
-  # vêm do menuselect, na compilação.
-  docker exec v-ast sh -c \
-    'mkdir -p /var/lib/asterisk/moh && for i in 1 2; do head -c 320000 /dev/zero > /var/lib/asterisk/moh/silencio$i.sln; done'
+  # ------------------------------------------------------------- áudios
+  #
+  # A imagem do Asterisk vem SEM nenhum arquivo de som, e Playback de
+  # arquivo que não existe não dá erro: a URA fica muda, o correio de voz
+  # desliga na cara de quem ligou e o dialplan segue como se tivesse
+  # tocado. Uma bancada com silêncio no lugar dos áudios prova o caminho
+  # da chamada e mais nada — não prova que a central FALA.
+  #
+  # Então a bancada baixa os mesmos pacotes oficiais que o playbook
+  # instala no servidor, uma vez só, e guarda em cache. Sem internet,
+  # cai no silêncio de antes e avisa que o teste vale menos.
+  #
+  # Os arquivos vão para $TRAB/ast/sounds porque é o que o contêiner da
+  # API enxerga (ASTERISK_SONS_DIR=/s/ast/sounds) e depois são copiados
+  # para /var/lib/asterisk/sounds, que é onde o Asterisk procura.
+  SONS_CACHE="${TELIUM_DEV_SONS:-$HOME/.cache/telium-pabx/sons}"
+  mkdir -p "$SONS_CACHE"
 
-  # A imagem do Asterisk vem sem os áudios do sistema, e Playback de
-  # arquivo que não existe não dá erro: a URA fica muda e o dialplan
-  # segue como se tivesse tocado. Aqui eles viram silêncio, com a
-  # duração certa — o que interessa na bancada é o caminho da chamada,
-  # não o que se ouve. No servidor de verdade quem instala é o playbook.
-  passo "criando áudios de silêncio (a imagem do Asterisk vem sem sons)"
-  # O pacote oficial em inglês instala na RAIZ de sounds/ — é o idioma de
-  # fábrica do Asterisk. A bancada imita esse desenho para o teste de
-  # áudio valer o mesmo aqui e no servidor. São silêncios com a duração
-  # certa: o que interessa aqui é o caminho da chamada, não o que se ouve.
-  docker exec v-ast sh -c '
-    mkdir -p /etc/asterisk/sounds/digits /var/lib/asterisk/sounds/digits
-    for s in activated de-activated all-circuits-busy-now beep conf-getpin \
-             conf-invalidpin conf-onlyperson demo-echotest dial goodbye hello \
-             invalid pbx-invalid please-enter-your cannot-complete-as-dialed \
-             queue-callswaiting ss-noservice vm-enter-num-to-call agent-loggedoff \
-             agent-loginok demo-congrats vm-goodbye vm-intro auth-thankyou \
-             vm-extension vm-then-pound cannot-complete-as-dialed \
-             pbx-invalidpark parking-lot-full; do
-      head -c 16000 /dev/zero > /etc/asterisk/sounds/$s.sln
-    done
-    for d in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 30 40 50 60 70 80 90 \
-             hundred thousand million minute minutes second seconds oh at; do
-      head -c 8000 /dev/zero > /etc/asterisk/sounds/digits/$d.sln
-    done
-    cp /etc/asterisk/sounds/*.sln /var/lib/asterisk/sounds/ 2>/dev/null
-    cp /etc/asterisk/sounds/digits/*.sln /var/lib/asterisk/sounds/digits/'
+  for pac in asterisk-core-sounds-en-gsm-current.tar.gz \
+             asterisk-extra-sounds-en-gsm-current.tar.gz \
+             asterisk-moh-opsound-wav-current.tar.gz; do
+    if [[ ! -s "$SONS_CACHE/$pac" ]]; then
+      passo "baixando $pac (uma vez só, fica em cache)"
+      curl -fsSL --max-time 300 -o "$SONS_CACHE/.parcial" \
+        "https://downloads.asterisk.org/pub/telephony/sounds/$pac" \
+        && mv "$SONS_CACHE/.parcial" "$SONS_CACHE/$pac" \
+        || rm -f "$SONS_CACHE/.parcial"
+    fi
+  done
+
+  # Do zero: um silêncio de uma execução anterior com o mesmo nome de um
+  # áudio de verdade ganharia dele na escolha de formato do Asterisk, e
+  # a bancada continuaria muda sem ninguém entender por quê.
+  rm -rf "$TRAB/ast/sounds" "$TRAB/ast/moh"
+  mkdir -p "$TRAB/ast/sounds" "$TRAB/ast/moh"
+  for pac in "$SONS_CACHE"/asterisk-core-sounds-*.tar.gz "$SONS_CACHE"/asterisk-extra-sounds-*.tar.gz; do
+    [[ -s "$pac" ]] && tar xzf "$pac" -C "$TRAB/ast/sounds"
+  done
+  for pac in "$SONS_CACHE"/asterisk-moh-*.tar.gz; do
+    [[ -s "$pac" ]] && tar xzf "$pac" -C "$TRAB/ast/moh"
+  done
+
+  if [[ -f "$TRAB/ast/sounds/digits/1.gsm" ]]; then
+    passo "instalando os áudios de verdade do Asterisk"
+    docker exec v-ast sh -c \
+      'mkdir -p /var/lib/asterisk/sounds /var/lib/asterisk/moh
+       # Esvaziar, e não apagar: na imagem estes dois são ponto de
+       # montagem, e "rm -rf" neles falha com "Device or resource busy".
+       find /var/lib/asterisk/sounds /var/lib/asterisk/moh -mindepth 1 -delete
+       cp -r /etc/asterisk/sounds/. /var/lib/asterisk/sounds/
+       cp -r /etc/asterisk/moh/.    /var/lib/asterisk/moh/'
+  else
+    echo "${amarelo}   sem os pacotes de áudio (sem internet?): caindo no silêncio${zero}"
+    # Silêncios com a duração certa, só para o caminho da chamada existir.
+    # O pacote oficial instala na RAIZ de sounds/ — é o idioma de fábrica
+    # do Asterisk; a bancada imita esse desenho para o teste de áudio
+    # valer o mesmo aqui e no servidor.
+    docker exec v-ast sh -c '
+      mkdir -p /etc/asterisk/sounds/digits /var/lib/asterisk/sounds/digits /var/lib/asterisk/moh
+      for s in activated de-activated all-circuits-busy-now beep conf-getpin \
+               conf-invalidpin conf-onlyperson demo-echotest dial goodbye hello \
+               invalid pbx-invalid please-enter-your cannot-complete-as-dialed \
+               queue-callswaiting ss-noservice vm-enter-num-to-call agent-loggedoff \
+               agent-loginok demo-congrats vm-goodbye vm-intro auth-thankyou \
+               vm-extension vm-then-pound pbx-invalidpark parking-lot-full; do
+        head -c 16000 /dev/zero > /etc/asterisk/sounds/$s.sln
+      done
+      for d in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 30 40 50 60 70 80 90 \
+               hundred thousand million minute minutes second seconds oh at; do
+        head -c 8000 /dev/zero > /etc/asterisk/sounds/digits/$d.sln
+      done
+      cp /etc/asterisk/sounds/*.sln /var/lib/asterisk/sounds/ 2>/dev/null
+      cp /etc/asterisk/sounds/digits/*.sln /var/lib/asterisk/sounds/digits/
+      for i in 1 2; do head -c 320000 /dev/zero > /var/lib/asterisk/moh/silencio$i.sln; done'
+  fi
+
 fi
 
 echo

@@ -133,10 +133,29 @@ compilar_asterisk: true                      # false pula a compilação (VM já
 instalar_janus: false
 compilar_janus: true
 instalar_firewall: true
-# Pacote de áudios do idioma, copiado para sounds/<pabx_idioma>/.
-# Caminho na máquina de onde o playbook roda; vazio = não instala nada.
-# Os arquivos vão para o diretório do idioma exatamente como estão —
-# inclusive subpastas (digits/, vm-*, conf-*).
+# ---------- áudios da central ----------
+#
+# O conjunto base (inglês, na raiz de sounds/) é instalado SEMPRE: é o
+# que o Asterisk toca quando não acha o arquivo no idioma configurado, e
+# é o que impede uma central muda. Não há o que configurar aqui.
+#
+# Para a central falar português é preciso trazer o pacote, porque o
+# projeto Asterisk não publica nenhum. Duas portas, use a que tiver:
+#
+#   sons_url  — lista de .tar.gz baixados no servidor e descompactados
+#               em sounds/<pabx_idioma>/. É a saída para quem já tem o
+#               pacote pt_BR de outra central (o SNEP, por exemplo)
+#               publicado em algum lugar que o servidor alcance.
+#
+#   sons_dir  — pasta na máquina de onde o playbook roda, copiada para
+#               sounds/<pabx_idioma>/ como está, inclusive as subpastas
+#               (digits/, vm-*, conf-*).
+#
+# Declarou uma das duas e ela falhou? O playbook PARA. Quem disse que a
+# central fala português não pode receber uma que fala inglês calada.
+# E não se esqueça de mudar pabx_idioma junto: sem isso os arquivos
+# ficam no disco e o Asterisk nunca olha para eles.
+sons_url: []
 sons_dir: ""
 
 # Limites do Asterisk. maxcalls conta canais simultâneos (cada chamada
