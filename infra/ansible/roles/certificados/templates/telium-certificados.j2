@@ -191,6 +191,15 @@ aplicar_turn() {
 aplicar_janus() {
   local crt="$1" key="$2" saida
 
+  # O Janus é opcional e nasce desligado (instalar_janus). Sem ele não há
+  # grupo janus nem /etc/janus/certs, e copiar para lá falhava — o console
+  # acusava falha num serviço que nem existe. O softphone do navegador não
+  # passa pelo Janus: aqui não há nada a fazer, e isso não é erro.
+  if ! getent group janus >/dev/null 2>&1 || [ ! -d "$(dirname "$JANUS_CRT")" ]; then
+    echo "o Janus não está instalado neste servidor (é opcional); nada a aplicar"
+    return 0
+  fi
+
   guardar "$JANUS_CRT" "$JANUS_KEY"
   if ! instalar "$crt" "$key" "$JANUS_CRT" "$JANUS_KEY" janus; then
     devolver "$JANUS_CRT" "$JANUS_KEY"
