@@ -329,6 +329,43 @@ sudo ansible-playbook verificar.yml
 O roteiro de teste, módulo a módulo, está em
 [../docs/TESTE-FUNCIONAL.md](../docs/TESTE-FUNCIONAL.md).
 
+## Em que idioma a central fala
+
+De fábrica, inglês — e é uma escolha, não um esquecimento: **o projeto
+Asterisk não publica áudios em português**. Os idiomas oficiais são `en`,
+`en_AU`, `en_GB`, `en_NZ`, `es`, `fr`, `it`, `ja`, `ru` e `sv`.
+
+O conjunto base é instalado sempre, e o playbook confere no disco em vez
+de confiar na compilação. Isso importa porque a falha antiga era muda:
+`Playback` de arquivo que não existe não é erro para o Asterisk — ele
+escreve uma linha no log e segue. A URA não anuncia nada, o correio de
+voz desliga na cara de quem ligou, a fila não diz a posição, e a única
+pista está no log de quem souber procurar.
+
+Para a central falar português, traga o pacote e diga o idioma. Duas
+portas, em `group_vars/all/main.yml`:
+
+```yaml
+pabx_idioma: "pt_BR"
+
+# um .tar.gz que o SERVIDOR alcance — serve o pacote pt_BR que já roda
+# na central antiga, publicado em qualquer lugar acessível
+sons_url:
+  - "https://arquivos.suaempresa.com.br/asterisk-core-sounds-pt_BR-gsm.tar.gz"
+
+# ou uma pasta na máquina de onde o playbook roda
+sons_dir: "/home/voip/sons-pt-br"
+```
+
+Os arquivos vão para `sounds/pt_BR/` como estão, inclusive as subpastas
+(`digits/`, `vm-*`, `conf-*`). O inglês continua na raiz de `sounds/`: é
+onde o Asterisk procura quando não acha o arquivo no idioma, então um
+pacote incompleto responde em inglês em vez de ficar mudo.
+
+**Mudar `pabx_idioma` sem trazer o pacote não muda nada** além de
+esconder o problema — e a bateria de testes reprova a instalação,
+dizendo quais áudios o dialplan pede e não existem.
+
 ## Atualizar uma instalação existente
 
 ```bash
