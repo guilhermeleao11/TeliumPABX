@@ -134,6 +134,8 @@ const SipLink = {
 
   /** Microfones das chamadas vivas: um por perna. */
   _micros: new Set(),
+  _geracao: 0,
+  _geracaoConsulta: 0,
 
   /**
    * O microfone, passado por um ganho antes de sair.
@@ -165,6 +167,9 @@ const SipLink = {
     if (!Ctx) return { stream: captura, ganho: null, medidor: null, parar: () => captura.getTracks().forEach(t => t.stop()) };
 
     const ctx = new Ctx();
+    // Criado depois de um await, o contexto pode nascer suspenso (Safari,
+    // página sem clique recente) — e aí sai silêncio pelo microfone.
+    ctx.resume?.().catch(() => {});
     const fonte = ctx.createMediaStreamSource(captura);
     const ganho = ctx.createGain();
     ganho.gain.value = this.volume.micro;
@@ -667,10 +672,19 @@ const SipLink = {
       return false;
     }
 
+    // Quem desliga enquanto o navegador ainda pergunta pelo microfone
+    // cancela a discagem: sem esta marca, a chamada saía assim mesmo,
+    // segundos depois, com a tela já dizendo que nada estava acontecendo.
+    const minha = ++this._geracao;
     let mic;
     try { mic = await this._microfone(); }
     catch (e) {
+      if (minha !== this._geracao) return false;
       this._avisar('encerrada', { motivo: this.explicar(e?.name === 'NotAllowedError' ? 'User Denied Media Access' : 'WebRTC Error') });
+      return false;
+    }
+    if (minha !== this._geracao || this.estado !== 'pronto' || this.ocupado()) {
+      mic.parar();
       return false;
     }
 
@@ -693,12 +707,23 @@ const SipLink = {
   async atender() {
     Campainha.parar();
     const s = this.sessao;
-    if (!s) return;
+    // Dois cliques (o aviso do topo e o botão da tela) não abrem dois
+    // microfones para a mesma chamada.
+    if (!s || s._teliumAtendendo || s._teliumMic) return;
+    s._teliumAtendendo = true;
     let mic;
     try { mic = await this._microfone(); }
     catch (e) {
+      s._teliumAtendendo = false;
       this._avisar('midia', { estado: 'falhou', motivo: this.explicar(e?.name === 'NotAllowedError' ? 'User Denied Media Access' : 'WebRTC Error') });
       this._seguro(() => s.terminate({ status_code: 480 }));
+      return;
+    }
+    s._teliumAtendendo = false;
+    // Quem ligou desistiu enquanto o navegador pedia o microfone: a
+    // sessão já morreu, e o microfone recém-aberto não pode ficar aceso.
+    if (this.sessao !== s || s.status === 8 /* TERMINATED */) {
+      mic.parar();
       return;
     }
     s._teliumMic = mic;
@@ -706,6 +731,8 @@ const SipLink = {
   },
 
   desligar() {
+    // Cancela uma discagem que ainda espera o microfone (ver ligar).
+    this._geracao++;
     // Com uma consulta aberta, "desligar" encerra as duas pernas: deixar
     // a consulta viva daria uma chamada sem nenhum botão que a encerre.
     if (this.consultando()) this.cancelarConsulta();
@@ -715,6 +742,11 @@ const SipLink = {
     this._seguro(() => (s.direction === 'incoming' && !s.isEstablished()
       ? s.terminate({ status_code: 486 })
       : s.terminate()));
+    // Soltado aqui, e não só no evento de fim: com this.sessao já nulo,
+    // o _soltar do evento não acha a sessão e o áudio e o microfone
+    // ficavam presos nela.
+    this._soltar(s);
+    if (this.audio) this.audio.srcObject = null;
     this.sessao = null;
     Campainha.parar();
   },
@@ -787,8 +819,15 @@ const SipLink = {
   async consultar(destino) {
     if (!this.sessao || !destino || this.consultando()) return false;
 
+    const minha = ++this._geracaoConsulta;
     let mic;
     try { mic = await this._microfone(); } catch { return false; }
+    // A gaveta fechou, ou a chamada principal acabou, enquanto o
+    // navegador pedia o microfone: a consulta não sai.
+    if (minha !== this._geracaoConsulta || !this.ocupado() || this.consultando()) {
+      mic.parar();
+      return false;
+    }
 
     try {
       this._seguro(() => this.sessao.hold());
@@ -822,6 +861,7 @@ const SipLink = {
 
   /** Desiste da consulta e volta para quem estava esperando. */
   cancelarConsulta() {
+    this._geracaoConsulta++;
     if (this.consulta) {
       const c = this.consulta;
       this._seguro(() => c.terminate());

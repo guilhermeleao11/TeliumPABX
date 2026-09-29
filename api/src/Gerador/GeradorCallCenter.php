@@ -134,6 +134,8 @@ final class GeradorCallCenter
               // Sem número não há para onde retornar: o cliente volta
               // para a fila, no fim dela, em vez de ficar sem nada.
               ->same('GotoIf($["${FILTER(0-9,${CALLERID(num)})}" = ""]?sem-numero)')
+              // O nome vai inteiro em VALUE (e não VAL1): o func_odbc parte o
+              // valor nas vírgulas, e "Silva, João" virava só "Silva".
               ->same("Set(ODBC_TELIUM_CC_RETORNO({$numero},\${FILTER(0-9,\${CALLERID(num)})},\${UNIQUEID})=\${CALLERID(name)})")
               ->same('Playback(' . ((string) ($f['anuncio'] ?? '') !== '' ? $f['anuncio'] : 'auth-thankyou') . ')')
               ->same('Hangup()')
@@ -159,6 +161,7 @@ final class GeradorCallCenter
           // "_X." pede pelo menos dois dígitos: o retorno de id 1 a 9
           // não casaria com nada. "_X!" é um dígito ou mais.
           ->exten('_X!', 'NoOp(Retorno ${EXTEN})')
+          ->same('Set(TELIUM_RETORNO_ID=${EXTEN})')
           ->same('Set(TELIUM_RETORNO_FILA=${ODBC_TELIUM_CC_RETORNO_FILA(${EXTEN})})')
           ->same('GotoIf($["${TELIUM_RETORNO_FILA}" = ""]?fim)')
           ->same('Set(CDR(fila)=${TELIUM_RETORNO_FILA})')
@@ -167,12 +170,20 @@ final class GeradorCallCenter
           ->same('Queue(${TELIUM_RETORNO_FILA},t,,,120)')
           // Voltou da fila sem agente: não é tentativa gasta com o cliente.
           ->same('Set(ODBC_TELIUM_CC_RETORNO_FIM(${EXTEN},SEMAGENTE)=x)', 'fim')
-          ->same('Hangup()');
+          ->same('Hangup()')
+          // Caiu sem voltar ao dialplan (o Originate desistiu, a central
+          // derrubou): o resultado é gravado mesmo assim. Com agente — a
+          // variável MEMBERINTERFACE existe — quem grava é o lado do cliente.
+          ->exten('h', 'ExecIf($["${MEMBERINTERFACE}" = "" & "${TELIUM_RETORNO_ID}" != ""]'
+              . '?Set(ODBC_TELIUM_CC_RETORNO_FIM(${TELIUM_RETORNO_ID},SEMAGENTE)=x))');
 
         $b->branco()
           ->comentario('O agente atendeu: agora o cliente')
           ->contexto('telium-cc-retorno-cliente')
           ->exten('_X!', 'NoOp(Retorno ${TELIUM_RETORNO}: discando ${EXTEN})')
+          // O agente atendeu: a conversa pode passar dos cinco minutos, e o
+          // varredor dos retornos presos não pode religar para o cliente.
+          ->same('Set(ODBC_TELIUM_CC_RETORNO_ATENDEU(${TELIUM_RETORNO})=x)')
           ->same('Set(CDR(direcao)=saida)');
 
         // O cliente vê o número da empresa, se houver um cadastrado — e

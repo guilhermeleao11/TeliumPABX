@@ -42,13 +42,30 @@
     mode: "0640"
   notify: reiniciar coturn
 
+# O diretório antes do par: na instalação nova o pacote não o cria, e a
+# cópia abaixo falhava calada — o coturn subia sem TLS na 5349 até a
+# segunda execução do playbook.
+- name: Garantir o diretório de certificado do TURN
+  ansible.builtin.file:
+    path: /etc/coturn
+    state: directory
+    owner: root
+    group: turnserver
+    mode: "0750"
+
 # O TURN precisa de TLS na 5349 e o par do console já existe. Ele é
 # lido pelo usuário turnserver, que não está no grupo do Asterisk.
+#
+# force: false — o par de partida entra uma vez só. Depois, quem manda é
+# a tela de Certificados (telium-certificados): copiar de novo a cada
+# execução desfazia o certificado que o administrador aplicou no TURN,
+# com o console ainda dizendo "aplicado".
 - name: Publicar o par de certificado do TURN
   ansible.builtin.copy:
     src: "{{ item.origem }}"
     dest: "{{ item.destino }}"
     remote_src: true
+    force: false
     owner: root
     group: turnserver
     mode: "{{ item.modo }}"
@@ -57,14 +74,6 @@
     - { origem: "{{ cert_asterisk_dir }}/asterisk.key", destino: /etc/coturn/turn.key, modo: "0640" }
   failed_when: false
   notify: reiniciar coturn
-
-- name: Garantir o diretório de certificado do TURN
-  ansible.builtin.file:
-    path: /etc/coturn
-    state: directory
-    owner: root
-    group: turnserver
-    mode: "0750"
 
 - name: Habilitar e iniciar o coturn
   ansible.builtin.service:

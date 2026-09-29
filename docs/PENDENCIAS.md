@@ -82,6 +82,34 @@ necessária no ambiente real:
 
 ---
 
+## 3-A. Achados da revisão de 29/09/2026 que ficaram para depois
+
+A revisão geral de código corrigiu o que tinha estrago imediato. Estes
+ficaram, com o motivo:
+
+- **Bloqueio de conta por quem sabe o login.** Cinco senhas erradas
+  travam a conta por 15 minutos, e o bloqueio vale antes da senha certa:
+  alguém de fora pode manter o `admin` travado. Pede decidir o desenho
+  (bloqueio por conta + IP, ou atraso em vez de bloqueio).
+- **Senhas geradas na máquina que roda o Ansible.** Os `lookup('password')`
+  do `group_vars` rodam no controlador. Instalando localmente (o caso da
+  VPS) não faz diferença; pelo inventário remoto (`vm.ini`) falha e deixa
+  as credenciais fora do servidor.
+- **A API é copiada com o que houver em `api/`**, inclusive um `.env` de
+  bancada numa máquina de desenvolvimento. No clone da VPS o `.env` não
+  existe (está no `.gitignore`), então não afeta a instalação normal.
+- **`conn.provisionamento` + editar equivale a ler senha SIP**: gerar o QR
+  do Linphone de qualquer ramal entrega a senha dele. É o desenho do
+  provisionamento, e fica registrado para quem monta perfis.
+- **O agente entra em qualquer ramal livre**, inclusive o de mesa de outra
+  pessoa. Restringir ao ramal habitual é uma decisão de operação.
+- **O retorno conta duas vezes no volume da fila** (a perna do retorno
+  entra na fila como uma chamada) e não passa pela regra de gravação.
+- **Detalhes de instalação:** `listen [::]` do nginx falha em servidor com
+  IPv6 desligado; `tls_autoassinado: false` quebra o playbook; a regra de
+  sudo de `telium-smtp`/`telium-backup` aceita argumentos; `/etc/telium`
+  pertence ao usuário da API.
+
 ## 4. Limitações conhecidas, por decisão
 
 Não são defeitos; ficam registradas para ninguém "corrigir" por engano.

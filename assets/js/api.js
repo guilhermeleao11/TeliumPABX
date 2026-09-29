@@ -58,7 +58,10 @@ const Api = {
     // nenhum até recarregar a página, e concluía que não precisava
     // aplicar. Fica aqui porque é o único ponto por onde toda escrita
     // passa, inclusive a das telas com formulário próprio.
-    if (metodo !== 'GET' && !caminho.startsWith('/auth/')) {
+    // Menos o próprio "Aplicar": a tela desenha nele o resultado de cada
+    // etapa — e a lista do que falhou —, e a releitura de pendência, 900 ms
+    // depois, apagava tudo isso antes de alguém conseguir ler.
+    if (metodo !== 'GET' && !caminho.startsWith('/auth/') && !caminho.startsWith('/config/aplicar')) {
       Api.avisarPendencia();
     }
 

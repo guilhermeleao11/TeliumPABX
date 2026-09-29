@@ -100,9 +100,21 @@ function migrar(): void
         $sql = (string) file_get_contents($caminho);
 
         try {
-            // Os scripts trazem DELIMITER nenhum e várias instruções por
-            // arquivo; o PDO do MySQL aceita isso num exec só.
-            $pdo->exec($sql);
+            // Várias instruções por arquivo, num envio só. O exec() aceitava
+            // e só acusava erro na PRIMEIRA: um ALTER que falhasse mais
+            // adiante saía como ✓. Percorrer cada resultado com nextRowset()
+            // faz o erro da instrução que falhou aparecer — e o comando
+            // sair com código de erro, como deve.
+            $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
+            try {
+                $st = $pdo->query($sql);
+                while ($st !== false && $st->nextRowset()) {
+                    // só avança; o erro, se houver, vem como exceção
+                }
+                $st?->closeCursor();
+            } finally {
+                $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+            }
             printf("  %s✓ %s%s\n", $verde, $nome, $zero);
         } catch (Throwable $e) {
             $falhas++;

@@ -4,7 +4,10 @@ Description=Asterisk PBX (Telium)
 Documentation=https://docs.asterisk.org
 After=network-online.target mariadb.service
 Wants=network-online.target
-Requires=mariadb.service
+# Wants, e não Requires: com Requires, reiniciar o MariaDB (mudança de
+# configuração, atualização do pacote) reiniciava o Asterisk junto — e
+# derrubava todas as chamadas em curso.
+Wants=mariadb.service
 
 [Service]
 Type=simple

@@ -288,12 +288,34 @@ final class RelatorioFilas
 
         $inicio = strtotime($this->de);
         $fim = min(strtotime($this->ate), time());
-        $args = [date('Y-m-d H:i:s', $inicio - 86400), $this->ate];
         $filtroFila = '';
+        $argFila = [];
         if ($this->fila !== null) {
             $filtroFila = ' AND (queuename = ? OR queuename = \'NONE\')';
-            $args[] = $this->fila;
+            $argFila = [$this->fila];
         }
+
+        // O estado de cada agente quando o período começa: a última entrada
+        // ou saída, e a última pausa ou volta, de cada fila — de qualquer
+        // data. Olhar só um dia para trás perdia quem estava logado desde a
+        // semana anterior (o Asterisk guarda o membro entre reinícios), e o
+        // relatório de segunda dava zero horas logado a quem passou o fim de
+        // semana no atendimento.
+        $semente = Bd::todos(
+            "SELECT UNIX_TIMESTAMP(q.time) AS t, q.agent, q.queuename, q.event, q.data1
+               FROM queue_log q
+               JOIN (SELECT MAX(id) AS id FROM queue_log
+                      WHERE time < ? AND agent NOT IN ('NONE','') {$filtroFila}
+                        AND event IN ('ADDMEMBER','REMOVEMEMBER')
+                   GROUP BY agent, queuename
+                  UNION ALL
+                     SELECT MAX(id) FROM queue_log
+                      WHERE time < ? AND agent NOT IN ('NONE','') {$filtroFila}
+                        AND event IN ('PAUSE','UNPAUSE','PAUSEALL','UNPAUSEALL')
+                   GROUP BY agent, queuename) u ON u.id = q.id
+           ORDER BY q.id",
+            [$this->de, ...$argFila, $this->de, ...$argFila]
+        );
 
         $eventos = Bd::todos(
             "SELECT UNIX_TIMESTAMP(time) AS t, agent, queuename, event, data1
@@ -302,8 +324,16 @@ final class RelatorioFilas
                 AND event IN ('ADDMEMBER','REMOVEMEMBER','PAUSE','UNPAUSE','PAUSEALL','UNPAUSEALL')
                 AND agent NOT IN ('NONE','')
            ORDER BY time, id",
-            $args
+            [$this->de, $this->ate, ...$argFila]
         );
+
+        // A semente só monta o estado: nada dela conta tempo, porque tudo
+        // aconteceu antes do período. O relógio de cada um começa no início.
+        foreach ($semente as &$ev) {
+            $ev['t'] = $inicio;
+        }
+        unset($ev);
+        $eventos = [...$semente, ...$eventos];
 
         /** @var array<string, array{filas: array<string,bool>, pausadas: array<string,bool>, motivo: string, desde: float}> $estado */
         $estado = [];

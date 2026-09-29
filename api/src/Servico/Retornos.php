@@ -38,9 +38,17 @@ final class Retornos
     {
         // Um Originate que nunca voltou (central reiniciada no meio, por
         // exemplo) deixaria o retorno preso para sempre.
+        //
+        // O limite de tentativas vale aqui também: sem ele, um retorno cuja
+        // chamada caía sem avisar voltava à fila para sempre. Um retorno em
+        // conversa não entra nesta conta: ao ser atendido pelo agente, o
+        // dialplan empurra o proxima_em para longe (TELIUM_CC_RETORNO_ATENDEU).
         Bd::executar(
-            "UPDATE cc_retornos SET estado = 'pendente', resultado = 'sem resposta da central'
-              WHERE estado = 'discando' AND proxima_em < NOW() - INTERVAL ? MINUTE",
+            "UPDATE cc_retornos r JOIN filas f ON f.numero = r.fila
+                SET r.estado = IF(r.tentativas >= f.retorno_tentativas, 'falhou', 'pendente'),
+                    r.resultado = 'sem resposta da central',
+                    r.concluido_em = IF(r.tentativas >= f.retorno_tentativas, NOW(), NULL)
+              WHERE r.estado = 'discando' AND r.proxima_em < NOW() - INTERVAL ? MINUTE",
             [self::PRESO_MINUTOS]
         );
 
@@ -82,8 +90,10 @@ final class Retornos
                 // O agente vê o número do cliente, não "Local/…".
                 'CallerID' => sprintf('"Retorno %s" <%s>', substr((string) ($r['nome'] ?: ''), 0, 30), $r['numero']),
                 'Variable' => "TELIUM_RETORNO={$r['id']},TELIUM_RETORNO_FILA={$fila}",
-                // O tempo que a fila tem para achar um agente.
-                'Timeout'  => '120000',
+                // Maior que a espera na fila (120 s): se o Originate desistisse
+                // antes, as duas pontas caíam sem passar pelo registro do
+                // resultado, e o retorno ficava preso em "discando".
+                'Timeout'  => '135000',
                 'Async'    => 'true',
             ]);
 

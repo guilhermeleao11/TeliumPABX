@@ -141,22 +141,39 @@ aplicar_asterisk() {
     return 0
   fi
 
-  saida=$(asterisk -rx "module reload res_pjsip.so" 2>&1)
-  sleep 2
-  if ! asterisk -rx "pjsip show transport transport-tls" 2>&1 | grep -qi 'transport-tls'; then
+  # O par precisa fechar: certificado e chave com a mesma chave pública.
+  # Um par trocado derrubaria o SIP TLS no reinício, sem volta automática.
+  local pub_crt pub_key
+  pub_crt=$(openssl x509 -in "$AST_CRT" -noout -pubkey 2>/dev/null | sha256sum)
+  pub_key=$(openssl pkey -in "$AST_KEY" -pubout 2>/dev/null | sha256sum)
+  if [ -z "$pub_crt" ] || [ "$pub_crt" != "$pub_key" ]; then
     devolver "$AST_CRT" "$AST_KEY"
-    asterisk -rx "module reload res_pjsip.so" >/dev/null 2>&1
-    echo "o transporte TLS não subiu com este par e o anterior foi devolvido: $saida"
+    echo "o certificado e a chave não formam um par; o anterior foi devolvido"
     return 1
   fi
 
   descartar "$AST_CRT" "$AST_KEY"
-  echo "res_pjsip recarregado; SIP TLS na porta {{ sip_tls_porta }}"
+
+  # O "module reload res_pjsip.so" NÃO recarrega o transporte TLS: ele
+  # só relê o certificado quando o Asterisk sobe. O console dizia
+  # "aplicado" e o SIP TLS seguia com o par antigo — e a conferência que
+  # ficava aqui nunca falhava, porque casava com a própria mensagem de
+  # erro. Recarregar o transporte a cada "Aplicar" derrubaria todos os
+  # telefones TLS; o reinício fica agendado para quando não houver chamada.
+  asterisk -rx "core restart when convenient" >/dev/null 2>&1
+  echo "par instalado; o SIP TLS (porta {{ sip_tls_porta }}) passa a usá-lo no reinício do Asterisk, agendado para quando não houver chamada em curso"
   return 0
 }
 
 aplicar_turn() {
   local crt="$1" key="$2" saida
+
+  # Sem coturn (instalar_turn: false) não há grupo turnserver nem onde pôr
+  # o par — como o Janus ausente, não é falha: não há o que aplicar.
+  if ! getent group turnserver >/dev/null 2>&1 || [ ! -d "$(dirname "$TURN_CRT")" ]; then
+    echo "o coturn não está instalado neste servidor; nada a aplicar"
+    return 0
+  fi
 
   # O coturn lê o par como usuário turnserver, que não está no grupo do
   # Asterisk: por isso o par é instalado aqui de novo, com o grupo dele.

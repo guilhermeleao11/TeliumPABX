@@ -19,10 +19,10 @@ final class GeradorFilas
      * joinempty / leavewhenempty do Asterisk.
      *
      * joinempty = yes  → o cliente entra mesmo sem ninguém logado
-     * joinempty = no   → não entra
+     * joinempty = no   → não entra (no Asterisk: penalty,paused,invalid)
      * leavewhenempty = yes → quem já está na espera sai se a fila esvaziar
-     * strict → o mesmo que no/yes, mas conta pausado e indisponível
-     *          como ausente, não só quem está deslogado
+     * strict → o mesmo, contando também o indisponível como ausente
+     *          (penalty,paused,invalid,unavailable)
      */
     private const VAZIA = [
         'sim'     => 'yes',
@@ -130,9 +130,28 @@ final class GeradorFilas
               ->crua('periodic-announce-frequency = ' . max(10, (int) $f['periodico_segundos']));
         }
 
-        // Quem entra, quem fica e quantos cabem
-        $b->crua('joinempty = ' . (self::VAZIA[$f['entrar_vazia']] ?? 'no'))
-          ->crua('leavewhenempty = ' . (self::VAZIA[$f['sair_vazia']] ?? 'no'))
+        // Quem entra, quem fica e quantos cabem.
+        //
+        // Com ampliação de habilidade a chamada começa só no nível 0, e o
+        // "no"/"strict" do Asterisk contam como ausente quem está acima do
+        // nível permitido ("penalty"). Com só agentes de nível 1 logados,
+        // toda chamada era recusada como fila vazia — e a ampliação nunca
+        // chegava a acontecer. Aqui as mesmas regras, sem o "penalty".
+        $ampliando = (int) $f['callcenter'] === 1 && (int) ($f['ampliar_segundos'] ?? 0) > 0;
+        $vazia = static function (string $valor) use ($ampliando): string {
+            $v = self::VAZIA[$valor] ?? 'no';
+            if (!$ampliando) {
+                return $v;
+            }
+
+            return match ($v) {
+                'no'     => 'paused,invalid',
+                'strict' => 'paused,invalid,unavailable',
+                default  => $v,
+            };
+        };
+        $b->crua('joinempty = ' . $vazia((string) $f['entrar_vazia']))
+          ->crua('leavewhenempty = ' . $vazia((string) $f['sair_vazia']))
           ->crua('maxlen = ' . (int) $f['max_chamadas'])
           ->crua('weight = ' . (int) $f['peso'])
           ->crua('ringinuse = ' . ((int) $f['tocar_ocupado'] === 1 ? 'yes' : 'no'));
@@ -150,6 +169,10 @@ final class GeradorFilas
         });
 
         if ((int) $f['callcenter'] === 1) {
+            // Grava no canal de quem ligou quem atendeu (MEMBERINTERFACE e
+            // afins). O retorno usa isso para saber, ao cair, se chegou a
+            // falar com um agente — sem ela a variável nunca existia.
+            $b->crua('setinterfacevar = yes');
             if ((int) ($f['ampliar_segundos'] ?? 0) > 0) {
                 $b->crua('defaultrule = ' . self::nomeDaRegra($numero));
             }

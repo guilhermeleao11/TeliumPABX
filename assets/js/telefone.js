@@ -100,17 +100,14 @@ PAGES['fone.webrtc'] = {
     this.ligarContatos();
 
     // O aparelho avisa quando muda; a tela acompanha o que depende dele.
-    const aoEstado = () => {
-      if (!location.hash.includes('fone.webrtc')) { document.removeEventListener('telium:fone-estado', aoEstado); return; }
-      this.pintarEstado();
-      this.pintarContatosAcoes();
-    };
-    const aoHistorico = () => {
-      if (!location.hash.includes('fone.webrtc')) { document.removeEventListener('telium:fone-historico', aoHistorico); return; }
-      this.pintarHistorico();
-    };
-    document.addEventListener('telium:fone-estado', aoEstado);
-    document.addEventListener('telium:fone-historico', aoHistorico);
+    // Os ouvintes são os mesmos objetos a cada visita, e saem antes de
+    // entrar: sair e voltar para a tela empilhava um par novo por vez.
+    this._aoEstado ??= () => { if (document.getElementById('foneTelefone')) { this.pintarEstado(); this.pintarContatosAcoes(); } };
+    this._aoHistorico ??= () => { if (document.getElementById('foneHistorico')) this.pintarHistorico(); };
+    document.removeEventListener('telium:fone-estado', this._aoEstado);
+    document.removeEventListener('telium:fone-historico', this._aoHistorico);
+    document.addEventListener('telium:fone-estado', this._aoEstado);
+    document.addEventListener('telium:fone-historico', this._aoHistorico);
   },
 
   pintarEstado() {
@@ -123,7 +120,9 @@ PAGES['fone.webrtc'] = {
         ? '<span class="badge badge-warn"><i class="dot dot-pulse"></i>Registrando…</span>'
         : r === 'erro'
           ? `<span class="badge badge-danger" title="${esc(Softphone.registro?.motivo || '')}"><i class="dot"></i>Sem registro</span>`
-          : '<span class="badge"><i class="dot"></i>Pelo telefone de mesa</span>';
+          : r === 'aparelho' || r === 'indisponivel'
+            ? '<span class="badge"><i class="dot"></i>Pelo telefone de mesa</span>'
+            : '<span class="badge badge-warn"><i class="dot"></i>Desconectado</span>';
   },
 
   // ------------------------------------------------------------ áudio
@@ -221,6 +220,8 @@ PAGES['fone.webrtc'] = {
     if (!alvo) return;
     alvo.innerHTML = '<p class="small muted" style="padding:16px">Carregando…</p>';
     const q = this._busca;
+    // Trocar de aba ou digitar rápido: só a resposta do último pedido vale.
+    const pedido = this._pedido = (this._pedido || 0) + 1;
 
     try {
       let linhas = [];
@@ -242,9 +243,11 @@ PAGES['fone.webrtc'] = {
           ].filter(Boolean)
         })).filter(c => c.numeros.length);
       }
+      if (pedido !== this._pedido) return;
       this._linhas = linhas;
       this.pintarContatos();
     } catch (e) {
+      if (pedido !== this._pedido) return;
       alvo.innerHTML = `<p class="small" style="padding:16px;color:var(--danger)">${esc(e.message)}</p>`;
     }
   },

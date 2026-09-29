@@ -314,6 +314,11 @@ final class Diagnostico
     public static function enderecoConfiavel(string $e): ?string
     {
         [$ip, $mascara] = array_pad(explode('/', $e, 2), 2, null);
+        // IPv4 escrito como IPv6 ("::ffff:1.2.3.4"): o PHP aceitava e o
+        // fail2ban não, e a tela dizia "nunca bloqueado" sem ser verdade.
+        if (str_contains((string) $ip, '.') && str_contains((string) $ip, ':')) {
+            return null;
+        }
         $v4 = filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
         $v6 = !$v4 && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false;
         if (!$v4 && !$v6) {

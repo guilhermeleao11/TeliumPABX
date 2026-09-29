@@ -39,9 +39,19 @@ final class Permissao implements MiddlewareInterface
         $caps  = $request->getAttribute('caps', []);
 
         $pode = Permissoes::podeModulo($allow, $this->modulo);
-        foreach ($this->tambem as $outro) {
-            $pode = $pode || Permissoes::podeModulo($allow, $outro);
+        // Entrou só por referência (outra tela que precisa ler a lista)? A
+        // resposta pode devolver menos — ler para escolher não é ler tudo —,
+        // e quem responde sabe por qual tela a pessoa entrou.
+        $por = [];
+        if (!$pode) {
+            foreach ($this->tambem as $outro) {
+                if (Permissoes::podeModulo($allow, $outro)) {
+                    $por[] = $outro;
+                }
+            }
         }
+        $request = $request->withAttribute('so_referencia', !$pode)->withAttribute('referencia_por', $por);
+        $pode = $pode || $por !== [];
 
         if (!$pode) {
             return Resposta::erro(

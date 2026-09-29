@@ -207,10 +207,36 @@ final class TempoReal
             case 'AgentComplete':
                 $this->encerrarAtendimento($ev);
                 break;
+            case 'QueueMemberPause':
+                $this->nomearPausaAutomatica($ev);
+                break;
         }
 
         if (str_starts_with($ev['Event'], 'Queue') || str_starts_with($ev['Event'], 'Agent')) {
             $this->sujo = true;
+        }
+    }
+
+    /**
+     * O app_queue pausa sozinho quem não atende ("pausar quem não atende"
+     * na fila) com o motivo cru "Auto-Pause". Renomeado para o motivo da
+     * central, a pausa aparece no painel e no relatório com o nome certo.
+     *
+     * @param array<string,string> $ev
+     */
+    private function nomearPausaAutomatica(array $ev): void
+    {
+        if (($ev['Paused'] ?? '') !== '1' || strcasecmp((string) ($ev['PausedReason'] ?? $ev['Reason'] ?? ''), 'Auto-Pause') !== 0) {
+            return;
+        }
+        $agente = CallCenter::agenteDoMembro((string) ($ev['MemberName'] ?? ''));
+        if ($agente === null || $this->acoes === null) {
+            return;
+        }
+        try {
+            (new CallCenter($this->acoes))->pausar($agente, CallCenter::PAUSA_NAO_ATENDEU);
+        } catch (\Throwable $e) {
+            $this->log("não consegui nomear a pausa automática do agente {$agente}: {$e->getMessage()}");
         }
     }
 
@@ -261,13 +287,25 @@ final class TempoReal
             return;
         }
 
-        $ja = $this->estado['agentes'][$agente] ?? null;
-        if ($ja !== null && $ja['pausado']) {
+        // Quem tabulou durante a chamada (ou antes de este evento chegar)
+        // já disse o que foi resolvido: pausar agora o deixaria parado sem
+        // nada pendente — e nada o tiraria da pausa sozinho.
+        $tabulado = $this->comBanco(fn () => Bd::valor(
+            'SELECT tabulado_em FROM cc_atendimentos WHERE callid = ? AND agente_id = ?',
+            [(string) ($ev['Uniqueid'] ?? ''), $agente]
+        ));
+        if ($tabulado) {
             return;
         }
 
         try {
-            (new CallCenter($this->acoes))->pausar($agente, CallCenter::PAUSA_TABULACAO);
+            $cc = new CallCenter($this->acoes);
+            // A foto guardada pode ter até 20 s: pergunta de novo.
+            $ja = $cc->estado()['agentes'][$agente] ?? null;
+            if ($ja !== null && $ja['pausado']) {
+                return;
+            }
+            $cc->pausar($agente, CallCenter::PAUSA_TABULACAO);
         } catch (\Throwable $e) {
             $this->log("não consegui pausar o agente {$agente} para tabular: {$e->getMessage()}");
         }
@@ -288,6 +326,7 @@ final class TempoReal
                 Bd::todos('SELECT nome, limite_minutos, produtiva, sistema FROM cc_pausas_motivos'),
                 null, 'nome'
             )) ?? $this->motivos;
+            $this->conferirSessoes();
             $this->sujo = true;
         }
 
@@ -326,6 +365,42 @@ final class TempoReal
             if ($c['saida'] !== '') {
                 $this->enviar($id, '');
             }
+        }
+    }
+
+    /**
+     * A sessão de quem está com o painel aberto ainda vale? Conferida só na
+     * abertura, uma aba esquecida seguia recebendo o painel inteiro depois
+     * do logout, da conta desativada ou da permissão retirada — o pulso a
+     * cada 15 s não deixava o proxy fechar a conexão. Aqui a conferência
+     * não renova a sessão: painel aberto não é atividade de ninguém.
+     */
+    private function conferirSessoes(): void
+    {
+        foreach ($this->clientes as $id => $c) {
+            if (!$c['fluxo'] || empty($c['sessao'])) {
+                continue;
+            }
+            $u = $this->comBanco(fn () => Bd::um(
+                "SELECT u.id, u.perfil_id FROM sessoes s JOIN usuarios u ON u.id = s.usuario_id
+                  WHERE s.id = ? AND s.expira_em > NOW() AND u.status = 'ativo'",
+                [$c['sessao']]
+            ));
+            if ($u === null) {
+                // Falha de banco não derruba ninguém: só sessão que acabou.
+                if ($this->comBanco(fn () => 1) !== null) {
+                    $this->fechar($id);
+                }
+                continue;
+            }
+            $allow = $this->comBanco(fn () => Permissoes::doPerfil((int) $u['perfil_id'])['allow']) ?? [];
+            $supervisor = Permissoes::podeModulo($allow, 'cc.supervisor') && empty($c['so_agente']);
+            if (!$supervisor && !Permissoes::podeModulo($allow, 'cc.agente') && !Permissoes::podeModulo($allow, 'cc.supervisor')) {
+                $this->fechar($id);
+                continue;
+            }
+            // Perdeu o supervisor: passa a receber só a visão de agente.
+            $this->clientes[$id]['supervisor'] = $supervisor;
         }
     }
 
@@ -491,7 +566,9 @@ final class TempoReal
         }
 
         // Cliente de fluxo não manda mais nada; o que chegar é descartado.
-        if ($c['fluxo']) {
+        // Nem quem já foi respondido: sem isto, bytes a mais no mesmo
+        // pedido faziam o /interno rodar duas vezes (login ou pausa dobrado).
+        if ($c['fluxo'] || !empty($c['fechar'])) {
             return;
         }
 
@@ -563,6 +640,9 @@ final class TempoReal
 
         $c = &$this->clientes[$id];
         $c['fluxo'] = true;
+        $c['sessao'] = hash('sha256', $token);
+        $c['usuario'] = (int) $usuario['id'];
+        $c['so_agente'] = $soAgente;
         $c['supervisor'] = $supervisor;
         $c['agente'] = $agente !== null ? (int) $agente['id'] : null;
         $c['entrada'] = '';
@@ -617,7 +697,7 @@ final class TempoReal
                 'login'  => $this->loginPeloTelefone($cc, $ramal, (string) ($q['codigo'] ?? '')),
                 'logout' => $cc->deslogar($this->agenteNoRamal($ramal)) > 0 ? 'ok' : 'naologado',
                 'pausa'  => $this->pausaPeloTelefone($cc, $ramal, (int) ($q['motivo'] ?? 0)),
-                'volta'  => (function () use ($cc, $ramal) { $cc->despausar($this->agenteNoRamal($ramal)); return 'ok'; })(),
+                'volta'  => $this->voltaPeloTelefone($cc, $ramal),
                 default  => 'erro',
             };
         } catch (\DomainException $e) {
@@ -633,12 +713,32 @@ final class TempoReal
         $this->responder($id, 200, $resposta);
     }
 
+    /** @var array<string, list<float>> ramal => instantes das últimas falhas */
+    private array $falhasPin = [];
+
     private function loginPeloTelefone(CallCenter $cc, string $ramal, string $codigo): string
     {
-        $agente = CallCenter::agenteDoCodigo($codigo);
-        if ($agente === null) {
+        // Cinco códigos errados em dez minutos no mesmo ramal: o ramal
+        // para de tentar por quinze. Sem isto, um PIN de 4 dígitos se
+        // descobria discando *40 em sequência de qualquer telefone.
+        $agora = microtime(true);
+        $recentes = array_values(array_filter(
+            $this->falhasPin[$ramal] ?? [], static fn (float $t): bool => $agora - $t < 900
+        ));
+        if (count(array_filter($recentes, static fn (float $t): bool => $agora - $t < 600)) >= 5) {
+            $this->log("telefone {$ramal}: login bloqueado por excesso de códigos errados");
+
             return 'pin';
         }
+
+        $agente = CallCenter::agenteDoCodigo($codigo);
+        if ($agente === null) {
+            $recentes[] = $agora;
+            $this->falhasPin[$ramal] = $recentes;
+
+            return 'pin';
+        }
+        unset($this->falhasPin[$ramal]);
         if (CallCenter::filasDoAgente((int) $agente['id']) === []) {
             return 'semfila';
         }
@@ -648,6 +748,27 @@ final class TempoReal
         } catch (\DomainException $e) {
             return str_contains($e->getMessage(), 'já está com') ? 'ocupado' : 'erro';
         }
+
+        return 'ok';
+    }
+
+    /**
+     * *49: a mesma regra do botão do painel — com tabulação pendente numa
+     * fila que a exige, não volta. Pelo telefone ela era pulada.
+     */
+    private function voltaPeloTelefone(CallCenter $cc, string $ramal): string
+    {
+        $agente = $this->agenteNoRamal($ramal);
+        $pendentes = (int) Bd::valor(
+            'SELECT COUNT(*) FROM cc_atendimentos a JOIN filas f ON f.numero = a.fila
+              WHERE a.agente_id = ? AND a.tabulado_em IS NULL AND f.tabulacao_obrigatoria = 1
+                AND a.atendido_em >= NOW() - INTERVAL 1 DAY',
+            [$agente]
+        );
+        if ($pendentes > 0) {
+            return 'pendente';
+        }
+        $cc->despausar($agente);
 
         return 'ok';
     }
@@ -682,12 +803,16 @@ final class TempoReal
     {
         $texto = [200 => 'OK', 401 => 'Unauthorized', 403 => 'Forbidden', 404 => 'Not Found',
                   431 => 'Request Header Fields Too Large'][$codigo] ?? 'Error';
+        if (!isset($this->clientes[$id])) {
+            return;
+        }
+        // A marca vem antes do envio: se o fwrite falhar, enviar() fecha e
+        // tira o cliente — e escrever nele depois recriava uma entrada sem
+        // socket, que no laço seguinte derrubava o serviço inteiro.
+        $this->clientes[$id]['fechar'] = true;
+        $this->clientes[$id]['entrada'] = '';
         $this->enviar($id, "HTTP/1.1 {$codigo} {$texto}\r\nContent-Type: text/plain; charset=utf-8\r\n"
             . 'Content-Length: ' . strlen($corpo) . "\r\nConnection: close\r\n\r\n{$corpo}");
-        $this->clientes[$id]['fechar'] = true;
-        if ($this->clientes[$id]['saida'] === '') {
-            $this->fechar($id);
-        }
     }
 
     /** Escreve sem travar: o que não coube fica para a próxima volta. */

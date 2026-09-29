@@ -85,9 +85,17 @@ writesql=UPDATE ramais SET siga_me = NULLIF('${SQL_ESC(${VAL1})}',''), siga_me_a
 ; Call center — retorno pedido na espera:
 ;   Set(ODBC_TELIUM_CC_RETORNO(<fila>,<número>,<uniqueid>)=<nome>)
 ; ------------------------------------------------------------------
+; O mesmo número com retorno já pendente nesta fila não ganha outro: quem
+; aperta a tecla em duas ligações seguidas não recebe duas chamadas.
 [TELIUM_CC_RETORNO]
 dsn=telium
-writesql=INSERT INTO cc_retornos (fila, numero, nome, callid) VALUES ('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}', NULLIF('${SQL_ESC(${VAL1})}',''), NULLIF('${SQL_ESC(${ARG3})}',''))
+writesql=INSERT INTO cc_retornos (fila, numero, nome, callid) SELECT '${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}', NULLIF('${SQL_ESC(${VALUE})}',''), NULLIF('${SQL_ESC(${ARG3})}','') FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM cc_retornos WHERE fila = '${SQL_ESC(${ARG1})}' AND numero = '${SQL_ESC(${ARG2})}' AND estado IN ('pendente','discando'))
+
+; O agente atendeu o retorno: tira a linha do alcance do varredor de
+; retornos presos, que religaria para um cliente ainda em conversa.
+[TELIUM_CC_RETORNO_ATENDEU]
+dsn=telium
+writesql=UPDATE cc_retornos SET proxima_em = NOW() + INTERVAL 6 HOUR WHERE id = CAST('${SQL_ESC(${ARG1})}' AS UNSIGNED) AND estado = 'discando'
 
 ; A fila de um retorno, para o lado que entra na espera no lugar do cliente.
 [TELIUM_CC_RETORNO_FILA]
@@ -96,6 +104,8 @@ readsql=SELECT fila FROM cc_retornos WHERE id = CAST('${SQL_ESC(${ARG1})}' AS UN
 
 ; Resultado de um retorno: ANSWER conclui; SEMAGENTE não gasta tentativa;
 ; o resto volta para a fila de retornos, até esgotar as tentativas.
+; SEMAGENTE de um retorno que o agente já atendeu (ATENDEU empurrou o
+; proxima_em horas à frente) é ignorado: quem grava é o lado do cliente.
 [TELIUM_CC_RETORNO_FIM]
 dsn=telium
-writesql=UPDATE cc_retornos r JOIN filas f ON f.numero = r.fila SET r.estado = IF('${SQL_ESC(${ARG2})}' = 'ANSWER', 'concluido', IF('${SQL_ESC(${ARG2})}' <> 'SEMAGENTE' AND r.tentativas >= f.retorno_tentativas, 'falhou', 'pendente')), r.resultado = '${SQL_ESC(${ARG2})}', r.proxima_em = NOW() + INTERVAL 3 MINUTE, r.concluido_em = IF('${SQL_ESC(${ARG2})}' = 'ANSWER', NOW(), NULL), r.tentativas = IF('${SQL_ESC(${ARG2})}' = 'SEMAGENTE' AND r.tentativas > 0, r.tentativas - 1, r.tentativas) WHERE r.id = CAST('${SQL_ESC(${ARG1})}' AS UNSIGNED) AND r.estado = 'discando'
+writesql=UPDATE cc_retornos r JOIN filas f ON f.numero = r.fila SET r.estado = IF('${SQL_ESC(${ARG2})}' = 'ANSWER', 'concluido', IF('${SQL_ESC(${ARG2})}' <> 'SEMAGENTE' AND r.tentativas >= f.retorno_tentativas, 'falhou', 'pendente')), r.resultado = '${SQL_ESC(${ARG2})}', r.proxima_em = NOW() + INTERVAL 3 MINUTE, r.concluido_em = IF('${SQL_ESC(${ARG2})}' = 'ANSWER', NOW(), NULL), r.tentativas = IF('${SQL_ESC(${ARG2})}' = 'SEMAGENTE' AND r.tentativas > 0, r.tentativas - 1, r.tentativas) WHERE r.id = CAST('${SQL_ESC(${ARG1})}' AS UNSIGNED) AND r.estado = 'discando' AND ('${SQL_ESC(${ARG2})}' <> 'SEMAGENTE' OR r.proxima_em < NOW() + INTERVAL 1 HOUR)

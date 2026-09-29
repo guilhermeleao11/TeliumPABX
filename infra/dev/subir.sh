@@ -123,7 +123,9 @@ TURN_SEGREDO=
 TURN_VALIDADE_SEGUNDOS=21600
 ENV
 
-  docker run -d --name v-web -p "${PORTA}:80" \
+  # Só nesta máquina: o roteador de bancada serve qualquer arquivo do
+  # repositório, inclusive o que não é para a rede ver.
+  docker run -d --name v-web -p "127.0.0.1:${PORTA}:80" \
     -v "$RAIZ":/w -v "$TRAB":/s \
     -v "$TRAB/fotos":/fotos \
     -v "$TRAB/cofre":/cofre -v "$TRAB/audios":/audios -v "$TRAB/backup":/backup \

@@ -921,7 +921,7 @@ PAGES['conn.ramais'] = paginaCrud({
   vazioTexto: 'Cadastre o primeiro ramal para começar a receber e originar chamadas.',
   placeholderBusca: 'Buscar por número, nome ou setor…',
   textoBusca: r => `${r.numero} ${r.nome} ${r.setor || ''}`,
-  tituloEditar: r => `Ramal ${r.numero} — ${r.nome}`,
+  tituloEditar: r => `Ramal ${esc(r.numero)} — ${esc(r.nome)}`,
   tituloExcluir: r => `Excluir o ramal ${r.numero}?`,
   textoExcluir: r => `${r.nome} perde o acesso à central assim que a configuração for aplicada. O histórico de chamadas é preservado.`,
 
@@ -1214,7 +1214,7 @@ PAGES['conn.troncos'] = paginaCrud({
   vazioTexto: 'Sem tronco a central só faz chamadas internas. Cadastre o entroncamento da operadora.',
   placeholderBusca: 'Buscar por nome ou host…',
   textoBusca: t => `${t.nome} ${t.host || ''}`,
-  tituloEditar: t => `Tronco ${t.nome}`,
+  tituloEditar: t => `Tronco ${esc(t.nome)}`,
   tituloExcluir: t => `Excluir o tronco ${t.nome}?`,
   textoExcluir: () => 'As rotas de saída que usam este tronco deixarão de funcionar.',
 
@@ -1556,7 +1556,7 @@ PAGES['apps.filas'] = {
         .filter(c => c.aba === aba).map(c => campoHtml(c, f)).join('')}</div>`;
 
       Drawer.open({
-        titulo: novo ? 'Nova fila' : `Fila ${f.numero} — ${f.nome}`,
+        titulo: novo ? 'Nova fila' : `Fila ${esc(f.numero)} — ${esc(f.nome)}`,
         sub: 'Os agentes são montados no botão Agentes, na lista.',
         wide: true,
         corpo: `<div class="tabs" data-abas>${abas.map((a, i) =>
@@ -1799,7 +1799,7 @@ PAGES['apps.filas'] = {
 
       Drawer.open({
         titulo: `Fila ${f.numero} agora`,
-        sub: d.disponivel ? `${d.esperando} chamada(s) esperando` : d.detalhe,
+        sub: d.disponivel ? `${num(d.esperando)} chamada(s) esperando` : esc(d.detalhe || ''),
         corpo: !d.disponivel
           ? vazio('alert', 'Asterisk fora do ar', esc(d.detalhe))
           : `${d.membros.length ? `<div class="table-wrap"><table class="table">
@@ -1852,7 +1852,7 @@ async function paginaPesquisas(ctx, pagina) {
     const p = item || {};
     const cs = campos(p);
     Drawer.open({
-      titulo: novo ? 'Nova pesquisa' : `Editar ${p.nome}`,
+      titulo: novo ? 'Nova pesquisa' : `Editar ${esc(p.nome)}`,
       sub: 'O cliente cai aqui quando o atendente desliga, se a fila tiver esta pesquisa escolhida.',
       corpo: `<div class="form-grid">${cs.map(c => campoHtml(c, p)).join('')}</div>`,
       rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
@@ -1908,7 +1908,9 @@ PAGES['rel.cdr'] = {
   _f: { de: '', ate: '', direcao: '', status: '', q: '', pagina: 1 },
 
   async render(ctx) {
-    const hoje = new Date().toISOString().slice(0, 10);
+    // No fuso do navegador: o dia em UTC, depois das 21 h no Brasil, já
+    // virava amanhã.
+    const hoje = (d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)(new Date());
     if (!this._f.de) { this._f.de = hoje; this._f.ate = hoje; }
 
     let r;
@@ -2087,7 +2089,7 @@ PAGES['admin.usuarios'] = {
       ];
 
       Drawer.open({
-        titulo: novo ? 'Novo usuário' : `Editar ${u.nome}`,
+        titulo: novo ? 'Novo usuário' : `Editar ${esc(u.nome)}`,
         sub: novo ? 'Defina a senha agora: a conta só entra depois disso.' : '',
         corpo: `<div class="form-grid">
           ${campos.map(c => campoHtml(c, u || {})).join('')}
@@ -2162,7 +2164,7 @@ PAGES['admin.usuarios'] = {
     };
 
     const senhaForm = (u) => Drawer.open({
-      titulo: `Definir senha de ${u.nome}`,
+      titulo: `Definir senha de ${esc(u.nome)}`,
       sub: 'As sessões abertas dessa pessoa são encerradas assim que a senha muda.',
       corpo: `<div class="form-grid">
         ${campoSenha('senha', 'Nova senha')}
@@ -2191,12 +2193,12 @@ PAGES['admin.usuarios'] = {
             return;
           }
 
-          ev.currentTarget.disabled = true;
+          const alvoBtn = ev.currentTarget; alvoBtn.disabled = true;
           try {
             await Api.post(`/usuarios/${u.id}/senha`, { senha: s1 });
             Drawer.close(); toast('Senha definida.', 'ok'); App.route();
           } catch (e) {
-            ev.currentTarget.disabled = false;
+            alvoBtn.disabled = false;
             marcarErro(dw, 'senha', e.message);
           }
         };
@@ -2235,7 +2237,7 @@ PAGES['admin.usuarios'] = {
     document.querySelectorAll('[data-excluir]').forEach(b => b.onclick = async () => {
       const u = this._usuarios.find(x => String(x.id) === b.dataset.excluir);
       const ok = await Modal.confirm({
-        titulo: `Excluir ${u.nome}?`,
+        titulo: `Excluir ${esc(u.nome)}?`,
         texto: `A conta ${u.usuario} perde o acesso imediatamente.`, ok: 'Excluir'
       });
       if (!ok) return;
@@ -2386,7 +2388,7 @@ PAGES['admin.permissoes'] = {
           });
           if (!dados.nome?.trim()) { toast('Informe o nome do perfil.', 'warn'); return; }
 
-          ev.currentTarget.disabled = true;
+          const alvoBtn = ev.currentTarget; alvoBtn.disabled = true;
           try {
             if (novo) await Api.post('/perfis', dados);
             else await Api.put(`/perfis/${p.id}`, dados);
@@ -2394,7 +2396,7 @@ PAGES['admin.permissoes'] = {
             toast(novo ? 'Perfil criado. Agora marque as permissões dele.' : 'Perfil atualizado.', 'ok');
             App.route();
           } catch (e) {
-            ev.currentTarget.disabled = false;
+            alvoBtn.disabled = false;
             toast(e.message, 'err');
           }
         }

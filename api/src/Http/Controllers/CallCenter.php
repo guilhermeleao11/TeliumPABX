@@ -109,9 +109,9 @@ final class CallCenter
                   WHERE ativo = 1 AND sistema = 0 ORDER BY ordem, nome'
             ),
             'tabulacoes' => $tabulacoes,
-            'pendentes'  => self::comContato(self::pendentes($id)),
+            'pendentes'  => self::comContato((int) $usuario['id'], self::pendentes($id)),
             // Quem está na linha agora: o atendimento aberto mais recente.
-            'atual'      => self::comContato(Bd::todos(
+            'atual'      => self::comContato((int) $usuario['id'], Bd::todos(
                 'SELECT a.id, a.fila, f.nome AS fila_nome, a.numero, a.nome, a.espera_seg, a.atendido_em,
                         UNIX_TIMESTAMP(a.atendido_em) AS desde
                    FROM cc_atendimentos a LEFT JOIN filas f ON f.numero = a.fila
@@ -119,7 +119,7 @@ final class CallCenter
                ORDER BY a.atendido_em DESC LIMIT 1',
                 [$id]
             ))[0] ?? null,
-            'recentes'   => self::comContato(Bd::todos(
+            'recentes'   => self::comContato((int) $usuario['id'], Bd::todos(
                 'SELECT a.id, a.fila, a.numero, a.nome, a.espera_seg, a.atendido_em, a.encerrado_em,
                         a.tabulado_em, a.tabulacao_id, t.nome AS tabulacao, a.observacao
                    FROM cc_atendimentos a LEFT JOIN cc_tabulacoes t ON t.id = a.tabulacao_id
@@ -141,7 +141,7 @@ final class CallCenter
      * @param list<array<string,mixed>> $linhas
      * @return list<array<string,mixed>>
      */
-    private static function comContato(array $linhas): array
+    private static function comContato(int $usuarioId, array $linhas): array
     {
         foreach ($linhas as &$l) {
             $digitos = preg_replace('/\D/', '', (string) ($l['numero'] ?? '')) ?? '';
@@ -150,13 +150,16 @@ final class CallCenter
                 continue;
             }
             $c = Bd::um(
+                // A agenda corporativa e a pessoal DESTE agente — a pessoal
+                // dos colegas não é dele para ler.
                 "SELECT id, nome, empresa FROM contatos
-                  WHERE ativo = 1 AND (
+                  WHERE ativo = 1 AND (usuario_id IS NULL OR usuario_id = ?) AND (
                         REGEXP_REPLACE(IFNULL(numero,''), '[^0-9]', '') = ?
                      OR REGEXP_REPLACE(IFNULL(celular,''), '[^0-9]', '') = ?
                      OR REGEXP_REPLACE(IFNULL(telefone,''), '[^0-9]', '') = ?)
+                  ORDER BY usuario_id IS NULL
                   LIMIT 1",
-                [$digitos, $digitos, $digitos]
+                [$usuarioId, $digitos, $digitos, $digitos]
             );
             if ($c !== null) {
                 $l['contato'] = ['nome' => $c['nome'], 'empresa' => $c['empresa']];
@@ -689,7 +692,9 @@ final class CallCenter
         );
 
         if (($q['formato'] ?? '') === 'csv') {
-            return self::csv($res, (string) ($q['tabela'] ?? 'agentes'), $r);
+            $tabela = in_array($q['tabela'] ?? '', ['agentes', 'filas', 'horas'], true) ? $q['tabela'] : 'agentes';
+
+            return self::csv($res, $tabela, $r);
         }
 
         return Resposta::json($res, [
@@ -730,9 +735,21 @@ final class CallCenter
         $fh = fopen('php://temp', 'w+');
         fwrite($fh, "\xEF\xBB\xBF");
         fputcsv($fh, $cabecalho, ';', '"', '');
+        // Um nome de agente ou de fila que comece com = + - @ vira fórmula
+        // no Excel de quem abrir a planilha. O apóstrofo na frente faz a
+        // célula ser lida como texto.
+        $celula = static function ($v) {
+            if (is_float($v)) {
+                return str_replace('.', ',', (string) $v);
+            }
+            if (is_string($v) && $v !== '' && str_contains("=+-@\t\r", $v[0])) {
+                return "'" . $v;
+            }
+
+            return $v;
+        };
         foreach ($linhas as $l) {
-            fputcsv($fh, array_map(static fn ($v) => is_float($v) ? str_replace('.', ',', (string) $v) : $v, $l),
-                    ';', '"', '');
+            fputcsv($fh, array_map($celula, $l), ';', '"', '');
         }
         rewind($fh);
         $conteudo = (string) stream_get_contents($fh);
@@ -772,6 +789,9 @@ final class CallCenter
             return Resposta::json($res, $f());
         } catch (\DomainException $e) {
             return Resposta::erro($res, $e->getMessage(), 422);
+        } catch (\PDOException) {
+            // A mensagem do banco carrega SQL e nomes internos: não é para a tela.
+            return Resposta::erro($res, 'Falha ao consultar o banco. Tente de novo em instantes.', 503);
         } catch (\Throwable $e) {
             return Resposta::erro($res, 'O Asterisk não respondeu: ' . $e->getMessage(), 503);
         }

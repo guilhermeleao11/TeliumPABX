@@ -419,8 +419,14 @@ final class CallCenter
 
         $interface = (string) $membros[0]['Location'];
         $atuais = [];
+        $pausado = false;
+        $motivo = '';
         foreach ($membros as $m) {
             $atuais[(string) $m['Queue']] = (int) $m['Penalty'];
+            if (($m['Paused'] ?? '0') === '1') {
+                $pausado = true;
+                $motivo = (string) ($m['PausedReason'] ?? $motivo);
+            }
         }
 
         $desejadas = [];
@@ -433,11 +439,17 @@ final class CallCenter
         }
         foreach ($desejadas as $fila => $penalidade) {
             if (!isset($atuais[$fila])) {
-                $this->ami->acao([
+                // Entra na fila nova do jeito que está nas outras: quem está
+                // no almoço não começa a tocar porque ganhou uma fila.
+                $campos = [
                     'Action' => 'QueueAdd', 'Queue' => (string) $fila, 'Interface' => $interface,
                     'Penalty' => (string) $penalidade, 'MemberName' => self::nomeDoMembro($agenteId),
-                    'StateInterface' => $interface,
-                ]);
+                    'StateInterface' => $interface, 'Paused' => $pausado ? 'true' : 'false',
+                ];
+                if ($pausado && $motivo !== '') {
+                    $campos['Reason'] = $motivo;
+                }
+                $this->ami->acao($campos);
             } elseif ($atuais[$fila] !== $penalidade) {
                 $this->ami->acao([
                     'Action' => 'QueuePenalty', 'Queue' => (string) $fila,
@@ -470,7 +482,10 @@ final class CallCenter
             'Action'      => 'Originate',
             'Channel'     => "PJSIP/{$ramalSupervisor}",
             'Application' => 'ChanSpy',
-            'Data'        => "{$interface},{$opcoes}",
+            // O "-" fecha o nome: o ChanSpy casa pelo começo, e "PJSIP/100"
+            // também pegava a chamada de "PJSIP/1001-…" — o supervisor
+            // entrava na conversa de outro agente.
+            'Data'        => "{$interface}-,{$opcoes}",
             'CallerID'    => sprintf('"%s: %s" <%s>', ucfirst($modo), $agente['nome'] ?? 'agente',
                                      self::ramalDaInterface($interface)),
             'Timeout'     => '30000',

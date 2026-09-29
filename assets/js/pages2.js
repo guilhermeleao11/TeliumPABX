@@ -1133,7 +1133,7 @@ PAGES['conn.provisionamento'] = paginaCrud({
   vazioTexto: 'Cadastre o MAC do telefone para ele receber a configuração automaticamente.',
   placeholderBusca: 'Buscar por MAC, modelo ou IP…',
   textoBusca: d => `${d.mac} ${d.modelo || ''} ${d.ip || ''}`,
-  tituloEditar: d => `Aparelho ${d.mac}`,
+  tituloEditar: d => `Aparelho ${esc(d.mac)}`,
   colunas: [
     { label: 'MAC', render: d => `<span class="mono">${esc(d.mac)}</span>${
         d.observacao ? `<div class="tiny muted">${esc(d.observacao)}</div>` : ''}` },
@@ -1253,7 +1253,7 @@ PAGES['conn.provisionamento'] = paginaCrud({
       try {
         const r = await Api.get(`/provisionamento/${b.dataset.previa}/previa`);
         Drawer.open({
-          titulo: r.arquivo,
+          titulo: esc(r.arquivo),
           sub: `O que o aparelho recebe — ramal ${r.ramal}`,
           wide: true,
           corpo: `<p class="small muted">Este arquivo carrega a senha SIP do ramal. Ele é entregue
@@ -1430,9 +1430,9 @@ PAGES['cfg.empresa'] = {
     document.getElementById('salvarEmp')?.addEventListener('click', async ev => {
       const dados = {};
       document.querySelectorAll('.form-grid [name]').forEach(el => { dados[el.name] = el.value; });
-      ev.currentTarget.disabled = true;
+      const alvoBtn = ev.currentTarget; alvoBtn.disabled = true;
       try { await Api.put('/empresa', dados); toast('Dados da empresa salvos.', 'ok'); App.route(); }
-      catch (e) { ev.currentTarget.disabled = false; toast(e.message, 'err'); }
+      catch (e) { alvoBtn.disabled = false; toast(e.message, 'err'); }
     });
   }
 };
@@ -1754,13 +1754,13 @@ PAGES['admin.backup'] = {
             const el = dw.querySelector(`[name="${c.campo}"]`);
             if (el) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
           });
-          ev.currentTarget.disabled = true;
+          const alvoBtn = ev.currentTarget; alvoBtn.disabled = true;
           try {
             const r = await Api.post('/backup/executar', dados);
             Drawer.close();
             toast(r.detalhe, r.disparado ? 'ok' : 'warn');
             setTimeout(() => App.route(), 1500);
-          } catch (e) { ev.currentTarget.disabled = false; toast(e.message, 'err'); }
+          } catch (e) { alvoBtn.disabled = false; toast(e.message, 'err'); }
         }
       });
     });
@@ -1793,11 +1793,11 @@ PAGES['admin.backup'] = {
             const el = dw.querySelector(`[name="${c.campo}"]`);
             if (el) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : (el.value || null);
           });
-          ev.currentTarget.disabled = true;
+          const alvoBtn = ev.currentTarget; alvoBtn.disabled = true;
           try {
             await Api.put(`/backup-rotinas/${r.id}`, dados);
             Drawer.close(); toast('Rotina atualizada.', 'ok'); App.route();
-          } catch (e) { ev.currentTarget.disabled = false; toast(e.message, 'err'); }
+          } catch (e) { alvoBtn.disabled = false; toast(e.message, 'err'); }
         }
       });
     });
@@ -2810,7 +2810,7 @@ PAGES['admin.certificados'] = {
     document.querySelectorAll('[data-assinar]').forEach(b => b.onclick = () => {
       const c = d.dados.find(x => String(x.id) === b.dataset.assinar);
       Drawer.open({
-        titulo: `Concluir ${c.nome}`,
+        titulo: `Concluir ${esc(c.nome)}`,
         sub: 'Cole ou envie o certificado que a autoridade emitiu para este pedido.',
         corpo: `
           <div class="grid" style="gap:16px">
@@ -2871,7 +2871,7 @@ PAGES['admin.certificados'] = {
         { campo: 'descricao', label: 'Observação', tipo: 'textarea', largura: 'full' }
       ];
       Drawer.open({
-        titulo: `Renomear ${c.nome}`,
+        titulo: `Renomear ${esc(c.nome)}`,
         sub: 'Muda só como ele aparece aqui — o certificado em si não é tocado.',
         corpo: `<div class="form-grid">${campos.map(x => campoHtml(x, c)).join('')}</div>`,
         rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
@@ -2893,7 +2893,7 @@ PAGES['admin.certificados'] = {
     document.querySelectorAll('[data-excluir-cert]').forEach(b => b.onclick = async () => {
       const c = d.dados.find(x => String(x.id) === b.dataset.excluirCert);
       const ok = await Modal.confirm({
-        titulo: `Excluir ${c.nome}?`,
+        titulo: `Excluir ${esc(c.nome)}?`,
         texto: `O certificado e a chave privada são apagados do servidor e não há como recuperá-los.
                 Se algum serviço ainda estiver usando este par, a exclusão é recusada.`,
         ok: 'Excluir'
@@ -4822,7 +4822,7 @@ function paginaAgenda(cfg) {
           .filter(x => x.aba === aba).map(x => campoHtml(x, c)).join('')}</div>`;
 
         Drawer.open({
-          titulo: novo ? 'Novo contato' : `Editar ${c.nome}`,
+          titulo: novo ? 'Novo contato' : `Editar ${esc(c.nome)}`,
           sub: novo
             ? 'Só o nome e uma forma de contato são obrigatórios — o resto você completa quando quiser.'
             : 'A foto é salva na hora; os demais campos, ao clicar em Salvar.',
@@ -4919,7 +4919,7 @@ function paginaAgenda(cfg) {
       document.querySelectorAll('[data-excluir-contato]').forEach(b => b.onclick = async () => {
         const c = d.dados.find(x => String(x.id) === b.dataset.excluirContato);
         const ok = await Modal.confirm({
-          titulo: `Excluir ${c.nome}?`,
+          titulo: `Excluir ${esc(c.nome)}?`,
           texto: c.escopo === 'corporativo'
             ? 'O contato some da agenda da empresa para todos os usuários.'
             : 'O contato some da sua agenda pessoal.',
@@ -6365,7 +6365,7 @@ PAGES['conn.firewall'] = {
     document.querySelectorAll('[data-confiar]').forEach(b => b.onclick = async () => {
       const ip = b.dataset.confiar;
       const ok = await Modal.confirm({
-        titulo: `Nunca mais bloquear ${ip}?`,
+        titulo: `Nunca mais bloquear ${esc(ip)}?`,
         texto: 'Ele é desbloqueado agora e o firewall deixa de bani-lo, mesmo que erre a senha. '
              + 'Faça isso só para endereços seus — o do escritório, do monitoramento, do syslog.',
         ok: 'Nunca bloquear', tone: 'warn', ico: 'shield'
@@ -6375,7 +6375,7 @@ PAGES['conn.firewall'] = {
 
     document.querySelectorAll('[data-desconfiar]').forEach(b => b.onclick = async () => {
       const ok = await Modal.confirm({
-        titulo: `Tirar ${b.dataset.endereco} da lista?`,
+        titulo: `Tirar ${esc(b.dataset.endereco)} da lista?`,
         texto: 'Ele volta a ser bloqueado se errar a senha cinco vezes.', ok: 'Tirar da lista'
       });
       if (!ok) return;
@@ -6389,7 +6389,7 @@ PAGES['conn.firewall'] = {
     document.querySelectorAll('[data-desbanir]').forEach(b => b.onclick = async () => {
       const ip = b.dataset.desbanir;
       const ok = await Modal.confirm({
-        titulo: `Desbloquear ${ip}?`,
+        titulo: `Desbloquear ${esc(ip)}?`,
         texto: 'O endereço volta a poder falar com a central agora. Se as tentativas que o '
              + 'bloquearam continuarem, ele é banido de novo.',
         ok: 'Desbloquear', tone: 'primary', ico: 'checkCirc'

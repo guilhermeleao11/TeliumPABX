@@ -152,11 +152,13 @@ const Palette = {
     const t = termo.trim().toLowerCase();
     const achados = this.itens.filter(i => !t || i.label.toLowerCase().includes(t) || (i.meta || '').toLowerCase().includes(t));
     const lista = document.getElementById('palList');
-    if (!achados.length) { lista.innerHTML = `<div class="empty" style="padding:28px">${icon('search')}<p>Nada encontrado para “${termo}”.</p></div>`; return; }
+    if (!achados.length) { lista.innerHTML = `<div class="empty" style="padding:28px">${icon('search')}<p>Nada encontrado para “${esc(termo)}”.</p></div>`; return; }
     let html = '', grupoAtual = '';
     achados.slice(0, 40).forEach(i => {
-      if (i.grupo !== grupoAtual) { grupoAtual = i.grupo; html += `<div class="palette-group">${grupoAtual}</div>`; }
-      html += `<button class="palette-item">${icon(i.ico, 'ico ico-sm')}<span>${i.label}</span><span class="meta">${i.meta || ''}</span></button>`;
+      // Nome de ramal e de contato vem do cadastro: sem esc(), um contato
+      // global chamado "<img onerror=…>" rodava na tela de quem abrisse a busca.
+      if (i.grupo !== grupoAtual) { grupoAtual = i.grupo; html += `<div class="palette-group">${esc(grupoAtual)}</div>`; }
+      html += `<button class="palette-item">${icon(i.ico, 'ico ico-sm')}<span>${esc(i.label)}</span><span class="meta">${esc(i.meta || '')}</span></button>`;
     });
     lista.innerHTML = html;
     const vis = [...lista.querySelectorAll('.palette-item')];
@@ -237,8 +239,12 @@ const Softphone = {
   /** Tudo o que a camada SIP avisa chega aqui. */
   doSip(evento, dados) {
     if (evento === 'estado') {
+      // O registro se renova a cada cinco minutos e avisa de novo: sem
+      // esta conferência, o aparelho era redesenhado e o número que a
+      // pessoa estava digitando perdia o foco.
+      const antes = this.registro?.estado + '|' + (this.registro?.motivo || '');
       this.registro = { estado: SipLink.estado, motivo: SipLink.motivo };
-      this.pintar();
+      if (antes !== this.registro.estado + '|' + this.registro.motivo) this.pintar();
       return;
     }
     if (evento === 'entrante') {
@@ -356,8 +362,10 @@ const Softphone = {
     this.direcao = 'saida';
     this.pintar();
     // A chamada só sai depois que o navegador libera o microfone.
-    if (!await SipLink.ligar(numero)) {
-      if (this.estado === 'chamando') this.limpar();
+    // Se o SIP já avisou o motivo (microfone negado, por exemplo), a tela
+    // já voltou ao repouso e mostrou a frase certa: não repete outra.
+    if (!await SipLink.ligar(numero) && this.estado === 'chamando') {
+      this.limpar();
       toast('Não foi possível iniciar a chamada.', 'err');
     }
   },

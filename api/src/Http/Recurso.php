@@ -66,6 +66,23 @@ final class Recurso
          * @var (callable(string, array<string,mixed>, array<string,mixed>, array<string,mixed>): ?array{mensagem:string, campo?:string, codigo?:int})|null
          */
         private $conferir = null,
+        /**
+         * As colunas devolvidas a quem lê a lista só por referência (o
+         * seletor de destino de outra tela, o telefone do navegador).
+         * Vazio: as mesmas de sempre. Nos ramais, sem isto, qualquer
+         * tela com seletor recebia siga-me, e-mail e DID de todo mundo.
+         *
+         * @var list<string>
+         */
+        private readonly array $colunasReferencia = [],
+        /**
+         * As telas que, mesmo entrando por referência, administram as
+         * colunas que o corte tiraria — siga-me e correio de voz listam os
+         * ramais justamente para mostrar o desvio e a caixa de cada um.
+         *
+         * @var list<string>
+         */
+        private readonly array $referenciaCompleta = [],
     ) {
     }
 
@@ -136,8 +153,16 @@ final class Recurso
 
         $linhas = Bd::todos($sql . ' LIMIT ' . $limite . ' OFFSET ' . (($pagina - 1) * $limite), $args);
 
+        $linhas = array_map($this->limpar(...), $linhas);
+        $por = (array) $req->getAttribute('referencia_por', []);
+        if ($this->colunasReferencia !== [] && $req->getAttribute('so_referencia') === true
+            && array_intersect($por, $this->referenciaCompleta) === []) {
+            $manter = array_flip($this->colunasReferencia);
+            $linhas = array_map(static fn (array $l): array => array_intersect_key($l, $manter), $linhas);
+        }
+
         return Resposta::json($res, [
-            'dados'  => array_map($this->limpar(...), $linhas),
+            'dados'  => $linhas,
             'total'  => $total,
             'pagina' => $pagina,
             'limite' => $limite,

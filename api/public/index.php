@@ -137,6 +137,9 @@ $recursos = [
             // O PIN do usuário autoriza chamada nas rotas que o pedem:
             // vale o mesmo cuidado da senha SIP.
             ocultas: ['senha_sip','vm_senha','pin'],
+            // Para quem só escolhe um ramal (destinos, telefone, provisionamento).
+            colunasReferencia: ['id', 'numero', 'nome', 'setor', 'ativo', 'webrtc'],
+            referenciaCompleta: ['apps.sigame', 'apps.correiovoz'],
             afetaAsterisk: true,
             modulo: 'conn.ramais',
             regras: [
@@ -708,7 +711,9 @@ $recursos = [
             modulo: 'cc.pausas',
             regras: [
                 'nome'   => ['padrao' => '/^.{2,40}$/u', 'mensagem' => 'O nome tem de 2 a 40 caracteres.'],
-                'codigo' => ['min' => 1, 'max' => 89,
+                // Faixa numérica por padrão, e não min/max: nas regras do
+                // Recurso, min/max medem o tamanho do texto, não o valor.
+                'codigo' => ['padrao' => '/^([1-9]|[1-8][0-9])$/',
                              'mensagem' => 'O número vai de 1 a 89: é o que se digita depois do *42. 90 em diante são da central.'],
             ],
             unicas: ['nome', 'codigo'],
@@ -808,8 +813,10 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     // O softphone do navegador deixa aqui o resumo do áudio de cada
     // chamada. Exige só "ter um ramal": é o próprio dono relatando a
     // própria ligação, e o ramal vem da sessão.
+    // O resumo que o telefone do navegador manda ao fim de cada chamada:
+    // vale para quem tem o módulo do telefone, com ou sem o Meu Ramal.
     $g->post('/me/webrtc/chamada', [Portal::class, 'registrarChamadaWebrtc'])
-      ->add(new Permissao('pcu.meuramal'));
+      ->add(new Permissao('pcu.meuramal', null, ['fone.webrtc']));
     $g->get('/me/correiovoz', [Portal::class, 'correioVoz'])->add(new Permissao('pcu.correiovoz'));
     $g->get('/me/correiovoz/audio', [Portal::class, 'audioCorreio'])
       ->add(new Permissao('pcu.correiovoz'));

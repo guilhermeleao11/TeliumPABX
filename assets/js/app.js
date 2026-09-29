@@ -424,6 +424,11 @@ const App = {
       return;
     }
 
+    // A mesma tela se atualizando (wallboard, estatísticas, a cada 5 s)
+    // não pisca o esqueleto nem volta ao topo: quem rolou até a tabela de
+    // chamadas era jogado para cima a cada atualização.
+    const mesmaTela = this.key === key;
+    const rolagem = window.scrollY;
     this.key = key;
     document.title = `${item.label} · Telium PABX`;
     document.getElementById('crumbs').innerHTML =
@@ -435,7 +440,7 @@ const App = {
       return;
     }
 
-    alvo.innerHTML = skeletonPage();
+    if (!mesmaTela) alvo.innerHTML = skeletonPage();
 
     const ctx = { sess: Auth.sessao, item, group: grupo, can: a => Auth.cap(a) };
     const page = PAGES[key];
@@ -462,7 +467,7 @@ const App = {
       }
     }
 
-    scrollTo({ top: 0 });
+    scrollTo({ top: mesmaTela ? rolagem : 0 });
   },
   _turno: 0
 };

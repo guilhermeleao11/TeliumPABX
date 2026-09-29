@@ -1534,8 +1534,8 @@ final class Testes
         // O que o gerador escreve para uma fila de call center.
         $pdo->beginTransaction();
         try {
-            Bd::executar("INSERT INTO filas (numero, nome, estrategia, callcenter, ampliar_segundos, ampliar_ate, retorno_tecla)
-                          VALUES ('98799', 'Teste CC', 'rrmemory', 1, 30, 2, '1')");
+            Bd::executar("INSERT INTO filas (numero, nome, estrategia, callcenter, ampliar_segundos, ampliar_ate, retorno_tecla, entrar_vazia)
+                          VALUES ('98799', 'Teste CC', 'rrmemory', 1, 30, 2, '1', 'nao')");
             $filaId = (int) $pdo->lastInsertId();
             $ramal = (int) Bd::valor('SELECT id FROM ramais WHERE ativo = 1 ORDER BY id LIMIT 1');
             if ($ramal > 0) {
@@ -1550,6 +1550,10 @@ final class Testes
             $this->ok(str_contains($bloco, 'context = telium-cc-retorno-98799'), 'a tecla de retorno leva ao contexto do retorno');
             $this->ok(str_contains($g['queuerules.conf'], "[telium-98799]\npenaltychange => 30,1\npenaltychange => 60,2"),
                       'a regra abre um nível a cada 30 s, até o nível 2');
+            $this->ok(!preg_match('/^joinempty = no$/m', $bloco) && !str_contains($bloco, 'penalty'),
+                      'com ampliação, "fila vazia" não conta agente de nível acima do permitido como ausente');
+            $this->ok(str_contains($bloco, 'setinterfacevar = yes'),
+                      'a fila grava quem atendeu no canal (o retorno depende disso)');
 
             $cc = (new \Telium\Gerador\GeradorCallCenter())->gerar()['extensions.callcenter.conf'];
             $this->ok(str_contains($cc, '[telium-cc-retorno-98799]') && str_contains($cc, 'exten => 1,1,'),
@@ -1647,6 +1651,17 @@ final class Testes
             $this->ok(($tempos['pausas']['Almoço'] ?? 0) === 1800, 'meia hora de almoço, pausada nas duas filas, conta meia hora');
             $this->ok(($tempos['pausas']['Treinamento'] ?? 0) === 600, 'pausa numa fila só também conta');
             $this->ok(($tempos['produtiva'] ?? -1) === 600, 'treinamento é pausa produtiva; almoço não');
+
+            // Logado desde três dias antes e saindo hoje: o relatório de
+            // ontem tem de contar o dia inteiro, e não zero.
+            $ontem = date('Y-m-d', strtotime('yesterday'));
+            Bd::executar("INSERT INTO queue_log (time, callid, queuename, agent, event)
+                          VALUES (?, 'NONE', '98799', 'Agente/98796', 'ADDMEMBER'),
+                                 (?, 'NONE', '98799', 'Agente/98796', 'REMOVEMEMBER')",
+                         [date('Y-m-d 08:00:00', strtotime('-3 days')), date('Y-m-d 00:30:00')]);
+            $antigo = \Telium\Dominio\RelatorioFilas::doPeriodo($ontem, $ontem)->temposDeSessao()['Agente/98796'] ?? null;
+            $this->ok(($antigo['logado'] ?? 0) === 86400,
+                      'quem está logado desde dias antes conta o dia inteiro no relatório (' . ($antigo['logado'] ?? 0) . ' s)');
 
             $fila = array_values(array_filter($r->filas(), static fn ($f) => $f['numero'] === '98799'))[0] ?? [];
             $this->ok(($fila['recebidas'] ?? 0) === 2 && ($fila['atendidas'] ?? 0) === 1 && ($fila['abandonadas'] ?? 0) === 1,

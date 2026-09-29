@@ -429,11 +429,10 @@ final class Provisionar
     /** O endereço de quem pediu, respeitando o proxy da própria casa. */
     private static function origem(Request $req): string
     {
-        $real = trim($req->getHeaderLine('X-Real-IP'));
-        if ($real !== '' && filter_var($real, FILTER_VALIDATE_IP) !== false) {
-            return $real;
-        }
-
+        // Só o REMOTE_ADDR. O X-Real-IP que ficava aqui vinha do próprio
+        // cliente — o nginx passa ao PHP-FPM direto, e não o reescreve —,
+        // então bastava mandar "X-Real-IP: 127.0.0.1" da internet para a
+        // trava de rede interna deixar passar e entregar a senha SIP.
         return (string) ($req->getServerParams()['REMOTE_ADDR'] ?? '');
     }
 }

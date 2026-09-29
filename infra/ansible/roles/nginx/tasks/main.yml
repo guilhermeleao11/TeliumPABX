@@ -1,9 +1,22 @@
 ---
+# Com a chave já instalada não há o que baixar — igual ao MariaDB: uma
+# atualização não pode parar porque nginx.org demorou a responder.
+- name: Ver se a chave do nginx.org já está instalada
+  ansible.builtin.stat:
+    path: /etc/apt/keyrings/nginx.gpg
+  register: chave_nginx
+
 - name: Instalar chave do repositório nginx.org
   ansible.builtin.get_url:
     url: https://nginx.org/keys/nginx_signing.key
     dest: /tmp/nginx_signing.key
     mode: "0644"
+    timeout: 60
+  register: baixou_nginx
+  retries: 3
+  delay: 10
+  until: baixou_nginx is succeeded
+  when: not chave_nginx.stat.exists
 
 - name: Converter chave para keyring
   ansible.builtin.shell:

@@ -275,11 +275,13 @@ final class GeradorDialplan
             // opção, e a chamada termina junto com o agente, como sempre.
             $opcoes = 'tT' . ($pesquisa > 0 ? 'c' : '');
 
+            // Espera máxima 0 é "sem limite": passada ao Queue como 0, cada
+            // cliente estourava o tempo no mesmo instante em que entrava.
             $b->same(sprintf(
-                'Queue(%s,%s,,,%d)',
+                'Queue(%s,%s,,,%s)',
                 $numero,
                 $opcoes,
-                (int) $f['max_espera']
+                (int) $f['max_espera'] > 0 ? (string) (int) $f['max_espera'] : ''
             ));
 
             $b->same('NoOp(Saída da fila ' . $numero . ': ${QUEUESTATUS})');

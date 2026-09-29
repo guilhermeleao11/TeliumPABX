@@ -32,7 +32,7 @@ const CCVivo = {
   },
 
   _vivo(c) {
-    if (c.ativo && !location.hash.includes(c.rota)) this.desconectar();
+    if (c.ativo && rotaAtual() !== c.rota) this.desconectar();
     return c.ativo;
   },
 
@@ -86,6 +86,18 @@ const CCVivo = {
 };
 
 /* ------------------------- Utilidades ------------------------- */
+/** A rota aberta agora, exata: "cc.agente" não pode casar com "cc.agentes". */
+function rotaAtual() {
+  return location.hash.replace(/^#\/?/, '').split('?')[0];
+}
+
+/** AAAA-MM-DD no fuso do navegador. O dia em UTC, depois das 21 h no
+ *  Brasil, já é amanhã — e esvaziava o relatório de "hoje". */
+function diaLocal(d = new Date()) {
+  const dd = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${dd(d.getMonth() + 1)}-${dd(d.getDate())}`;
+}
+
 const CC_ESTADOS = {
   deslogado:    { rotulo: 'Fora do atendimento', tone: '',       ico: 'power' },
   livre:        { rotulo: 'Disponível',          tone: 'ok',     ico: 'checkCirc' },
@@ -150,6 +162,7 @@ function ccKpi(label, valor, rodape, tone, ico) {
    ================================================================= */
 PAGES['cc.agente'] = {
   async render() {
+    this._chave = null;
     let eu;
     try { eu = await Api.get('/cc/eu'); }
     catch (e) { return pageHead('Meu Atendimento', '') + blocoErro(e); }
@@ -164,7 +177,7 @@ PAGES['cc.agente'] = {
 
     const a = eu.agente;
     const cod = Object.fromEntries((eu.codigos || []).map(c => [c.chave, c]));
-    const motivosTel = eu.motivos.map(m => `${esc(cod.cc_pausa?.codigo || '*42')}${m.codigo} ${esc(m.nome)}`).join(' · ');
+    const motivosTel = eu.motivos.map(m => `${esc(cod.cc_pausa?.codigo || '*42')}${esc(m.codigo)} ${esc(m.nome)}`).join(' · ');
 
     return pageHead('Meu Atendimento',
       `${esc(a.nome)} · matrícula <span class="mono">${esc(a.matricula)}</span>`,
@@ -229,7 +242,7 @@ PAGES['cc.agente'] = {
 
     clearInterval(this._relogio);
     this._relogio = setInterval(() => {
-      if (!location.hash.includes('cc.agente')) { clearInterval(this._relogio); return; }
+      if (rotaAtual() !== 'cc.agente') { clearInterval(this._relogio); return; }
       this.pintarRelogio();
     }, 1000);
   },
@@ -252,6 +265,19 @@ PAGES['cc.agente'] = {
     const a = this.eu();
     const estado = this._foto ? ccEstado(a) : null;
     const eu = this._eu;
+
+    // O cartão só é refeito quando o que ele mostra muda. Refeito a cada
+    // foto (a cada 3 s, na consulta), apagava o ramal que a pessoa estava
+    // digitando no "Entrar" e fechava o que ela tinha aberto.
+    const chave = [estado, a?.motivo, a?.ramal, a?.pausado, eu.atual?.id, (eu.pendentes || []).length].join('|');
+    if (this._chave === chave && alvo.dataset.pintado) {
+      this.pintarRelogio();
+      this.pintarHoje();
+      this.pintarFilas();
+      return;
+    }
+    this._chave = chave;
+    alvo.dataset.pintado = this._foto ? '1' : '';
 
     if (!this._foto) {
       alvo.innerHTML = `<div class="card-body">${skeletonLinha()}</div>`;
@@ -552,10 +578,13 @@ PAGES['cc.supervisor'] = {
     CCVivo.conectar('cc.supervisor', foto => { this._foto = foto; this.pintar(); },
       estado => { const el = document.getElementById('ccVivo'); if (el) el.innerHTML = ccIndicadorVivo(estado); });
 
+    // A cada segundo só os relógios andam. Refazer as tabelas inteiras
+    // perdia o clique de quem estava apertando "Escutar" ou "Pausar"
+    // bem na virada do segundo, e fazia as dicas piscarem.
     clearInterval(this._relogio);
     this._relogio = setInterval(() => {
-      if (!location.hash.includes('cc.supervisor')) { clearInterval(this._relogio); return; }
-      if (this._foto) this.pintar();
+      if (rotaAtual() !== 'cc.supervisor') { clearInterval(this._relogio); return; }
+      if (this._foto) { this.pintarKpis(); this.pintarFilas(); this.atualizarTempos(); }
     }, 1000);
   },
 
@@ -645,12 +674,14 @@ PAGES['cc.supervisor'] = {
                  <th>Hoje</th><th>TMA</th><th></th></tr></thead>
       <tbody>${linhas.map(a => {
         const e = a.deslogado ? 'deslogado' : ccEstado(a);
-        let tempo = '—', alerta = false;
+        let tempo = '—', alerta = false, desde = 0;
         if (!a.deslogado && a.pausado && a.pausa_desde) {
+          desde = a.pausa_desde;
           const seg = ccDesde(this._foto, a.pausa_desde);
           tempo = ccTempo(seg);
           alerta = a.pausa_limite && seg > a.pausa_limite;
         } else if (!a.deslogado && e === 'livre' && a.ultima) {
+          desde = a.ultima;
           tempo = ccTempo(ccDesde(this._foto, a.ultima));
         }
         const filas = Object.entries(a.filas || {}).map(([f, n]) => `<span class="badge mono">${esc(f)}${n ? ` · ${n}` : ''}</span>`).join(' ');
@@ -658,7 +689,8 @@ PAGES['cc.supervisor'] = {
           <td><b>${esc(a.nome || 'Agente ' + a.id)}</b><div class="tiny muted mono">${esc(a.matricula || '')}</div></td>
           <td class="mono">${esc(a.ramal || '—')}</td>
           <td>${ccBadge(e, e === 'pausa' ? a.motivo : '')}</td>
-          <td class="num" style="${alerta ? 'color:var(--danger);font-weight:700' : ''}">${tempo}${alerta ? ' ' + icon('alert','ico ico-sm') : ''}</td>
+          <td class="num" data-desde="${desde || ''}" data-limite="${a.pausado && a.pausa_limite ? a.pausa_limite : ''}"
+              style="${alerta ? 'color:var(--danger);font-weight:700' : ''}">${tempo}${alerta ? ' ' + icon('alert','ico ico-sm') : ''}</td>
           <td>${filas || '<span class="muted small">—</span>'}</td>
           <td class="num">${a.hoje ? num(a.hoje.atendidas) : '—'}</td>
           <td class="num">${a.hoje ? ccTempo(a.hoje.tma) : '—'}</td>
@@ -675,6 +707,28 @@ PAGES['cc.supervisor'] = {
       }).join('')}</tbody></table></div>`;
   },
 
+  /** O segundo que passou, sem refazer as tabelas (ver mount). */
+  atualizarTempos() {
+    document.querySelectorAll('#ccAgentes [data-desde]').forEach(td => {
+      const desde = Number(td.dataset.desde);
+      if (!desde) return;
+      const seg = ccDesde(this._foto, desde);
+      const limite = Number(td.dataset.limite);
+      const alerta = limite && seg > limite;
+      td.innerHTML = ccTempo(seg) + (alerta ? ' ' + icon('alert','ico ico-sm') : '');
+      td.style.color = alerta ? 'var(--danger)' : '';
+      td.style.fontWeight = alerta ? '700' : '';
+    });
+    const passou = Math.max(0, ccDesde(this._foto, this._foto.agora));
+    document.querySelectorAll('#ccEsperando [data-espera]').forEach(td => {
+      const espera = Number(td.dataset.espera) + passou;
+      td.textContent = ccTempo(espera);
+      const fora = espera > Number(td.dataset.sla);
+      td.style.color = fora ? 'var(--danger)' : '';
+      td.style.fontWeight = fora ? '650' : '';
+    });
+  },
+
   pintarEsperando() {
     const el = document.getElementById('ccEsperando');
     if (!el) return;
@@ -688,7 +742,8 @@ PAGES['cc.supervisor'] = {
         <td>${esc(c.filaNome)} <span class="tiny muted mono">${esc(c.fila)}</span></td>
         <td class="num">${c.posicao}${c.prioridade ? ' <span class="badge badge-brand">retorno</span>' : ''}</td>
         <td><b class="mono">${esc(c.numero || 'anônimo')}</b> <span class="tiny muted">${esc(c.nome || '')}</span></td>
-        <td class="num" style="${espera > c.sla ? 'color:var(--danger);font-weight:650' : ''}">${ccTempo(espera)}</td></tr>`;
+        <td class="num" data-espera="${c.espera}" data-sla="${c.sla}"
+            style="${espera > c.sla ? 'color:var(--danger);font-weight:650' : ''}">${ccTempo(espera)}</td></tr>`;
       }).join('')}</tbody></table></div>`
       : vazio('checkCirc', 'Ninguém esperando', 'Toda chamada que entrou já foi atendida.');
   },
@@ -977,7 +1032,7 @@ PAGES['cc.retornos'] = {
    ================================================================= */
 PAGES['cc.relatorios'] = {
   async render() {
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = diaLocal();
     this._p ??= { de: hoje, ate: hoje, fila: '' };
     let d;
     try { d = await Api.get('/cc/relatorio', this._p); }
@@ -1084,7 +1139,7 @@ PAGES['cc.relatorios'] = {
       const b = ev.target.closest('[data-dias]');
       if (!b) return;
       const ate = new Date(), de = new Date(Date.now() - Number(b.dataset.dias) * 86400000);
-      this._p = { ...this._p, de: de.toISOString().slice(0, 10), ate: ate.toISOString().slice(0, 10) };
+      this._p = { ...this._p, de: diaLocal(de), ate: diaLocal(ate) };
       App.route();
     });
 

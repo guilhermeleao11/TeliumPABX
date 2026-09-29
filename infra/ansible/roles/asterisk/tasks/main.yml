@@ -394,6 +394,24 @@
     group: asterisk
     recurse: true
 
+# Os áudios do sistema (envios pelo console e a música em espera) moram
+# dentro de sounds/, mas são da API. A troca de dono acima, recursiva,
+# passava por eles também, e depois de cada execução a API não conseguia
+# mais gravar a música em espera. Devolvidos a quem escreve neles.
+- name: Ver se o diretório de áudios do sistema existe
+  ansible.builtin.stat:
+    path: "{{ audios_dir }}"
+  register: audios_sistema
+
+- name: Devolver os áudios do sistema à API
+  ansible.builtin.file:
+    path: "{{ audios_dir }}"
+    state: directory
+    owner: "{{ telium_user }}"
+    group: asterisk
+    recurse: true
+  when: audios_sistema.stat.exists
+
 # ------------------------------------------------------------------
 # Música em espera.
 #
@@ -576,6 +594,9 @@
     # de a API gerar qualquer coisa — deixava o Asterisk sem dialplan: um
     # #include de arquivo que não existe derruba o pbx_config inteiro.
     - { arquivo: "extensions.callcenter.conf", conteudo: "; gerado pela API" }
+    # O features.conf estático inclui este: sem ele, na primeira subida o
+    # Asterisk recusava o features.conf inteiro, featuremap de fábrica junto.
+    - { arquivo: "features.conf",           conteudo: "; gerado pela API" }
     - { arquivo: "queuerules.conf",         conteudo: "; gerado pela API" }
     - { arquivo: "musicaespera.conf",       conteudo: "; gerado pela API" }
     - { arquivo: "queues.conf",             conteudo: "; gerado pela API" }
@@ -1083,3 +1104,23 @@
       Quase sempre é um arquivo do #include faltando em extensions.conf:
         grep "does not exist" /var/log/asterisk/messages
     success_msg: "Dialplan carregado: {{ ast_dialplan.stdout_lines | last | default('') | trim }}"
+
+# O queue_log vai para o banco pelo res_config_odbc, que até a versão do
+# call center era "noload". Numa atualização, o modules.conf novo só vale
+# no próximo reinício do Asterisk — agendado para quando não houver
+# chamada, o que numa central movimentada pode não acontecer. Enquanto
+# isso o queue_log seguia para arquivo e os relatórios do call center
+# ficavam vazios. Carregar o módulo agora resolve sem derrubar ninguém.
+- name: Ver se o módulo do queue_log no banco está carregado
+  ansible.builtin.command: asterisk -rx "module show like res_config_odbc"
+  register: ast_config_odbc
+  changed_when: false
+  failed_when: false
+
+- name: Carregar o módulo do queue_log no banco
+  ansible.builtin.shell: |
+    asterisk -rx "module load res_config_odbc.so"
+    asterisk -rx "module reload extconfig"
+    asterisk -rx "logger reload"
+  when: "'Running' not in ast_config_odbc.stdout"
+  failed_when: false
