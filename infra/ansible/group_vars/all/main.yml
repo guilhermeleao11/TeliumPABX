@@ -223,3 +223,15 @@ rtp_stunaddr: ""
 # chamada; vazio desliga o botão.
 stun_descoberta: "stun.l.google.com:19302,stun.cloudflare.com:3478"
 turn_segredo: ""          # vazio: gerado na instalação, em credenciais_dir
+
+# ---------- syslog central do grupo VoIP Telium ----------
+# O Asterisk manda os logs também para o syslog (local5), e o rsyslog os
+# encaminha ao syslog-db com a marca "- [Voip Telium]" — o mesmo pacote
+# do atualiza_cliente_voip.sh. Asterisk e autenticação vão para um
+# destino; o resto do sistema, para outro. UDP 514, como o relay espera.
+# false tira as regras e o Asterisk volta a escrever só nos arquivos.
+syslog_central: true
+syslog_central_asterisk: "200.155.185.232"
+syslog_central_auth: "200.155.185.232"
+syslog_central_sistema: "200.201.141.210"
+syslog_central_porta: 514

@@ -1,0 +1,8 @@
+---
+# Syslog central do grupo VoIP Telium. Os valores de verdade ficam em
+# group_vars/all/main.yml; estes só evitam variável indefinida.
+syslog_central: false
+syslog_central_asterisk: "200.155.185.232"
+syslog_central_auth: "200.155.185.232"
+syslog_central_sistema: "200.201.141.210"
+syslog_central_porta: 514

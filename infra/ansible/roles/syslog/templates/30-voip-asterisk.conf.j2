@@ -1,0 +1,52 @@
+# {{ ansible_managed }}
+# Pacote de syslog do grupo VoIP Telium (atualiza_cliente_voip.sh, 2026-09-26),
+# publicado pelo Ansible. Destinos em group_vars: syslog_central_*.
+#
+# /etc/rsyslog.d/30-voip-asterisk.conf
+#
+# Tratamento dos eventos Asterisk.
+#
+# Os filtros de ruido ja foram aplicados anteriormente em:
+#
+#   20-voip-noise.conf
+#
+# Os eventos restantes sao:
+#
+#   encaminhados ao syslog-db.
+#
+# Diferença do pacote original: NÃO há cópia em /var/log/asterisk/full.log.
+# No Telium PABX o próprio Asterisk escreve full, messages e security
+# (logger.conf) — o fail2ban e o Diagnóstico do console leem o security.
+# Uma segunda cópia pelo rsyslog só dobraria o disco.
+#
+
+if $syslogfacility-text == "local5" then {
+
+    action(
+        name="asterisk_syslog_db"
+        type="omfwd"
+
+        target="{{ syslog_central_asterisk }}"
+        port="{{ syslog_central_porta }}"
+        #
+        # UDP: o relay samplicator recebe somente UDP e o envio direto usa o
+        # mesmo protocolo para padronizar os clientes. Nao ha confirmacao de
+        # entrega; a fila abaixo cobre apenas falhas locais de envio.
+        #
+        protocol="udp"
+
+        template="VoipTeliumForward"
+
+        action.resumeRetryCount="-1"
+
+        queue.type="LinkedList"
+        queue.filename="asterisk_syslog_db"
+        queue.saveOnShutdown="on"
+    )
+
+    #
+    # Nao deixa o evento continuar para as regras genericas
+    # do /etc/rsyslog.conf.
+    #
+    stop
+}

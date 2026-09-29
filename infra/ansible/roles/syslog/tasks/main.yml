@@ -1,0 +1,62 @@
+---
+# ------------------------------------------------------------------
+# Syslog central do grupo VoIP Telium.
+#
+# O mesmo pacote do atualiza_cliente_voip.sh, publicado pelo Ansible em
+# vez de por cima dele: o script troca o logger.conf inteiro, e aqui o
+# logger.conf é gerado pelo playbook — a troca seria desfeita na próxima
+# atualização, e a versão do pacote apagaria o log "security" que o
+# fail2ban lê e o queue_log no banco que o call center usa.
+#
+# O rsyslog.conf do Debian fica como está: ele já inclui rsyslog.d/,
+# que é onde o pacote põe as regras.
+# ------------------------------------------------------------------
+- name: Instalar o rsyslog
+  ansible.builtin.apt:
+    name: rsyslog
+    state: present
+  when: syslog_central
+
+- name: Publicar as regras de syslog do grupo VoIP
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/rsyslog.d/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - 10-voip-common.conf
+    - 20-voip-noise.conf
+    - 30-voip-asterisk.conf
+    - 31-voip-auth.conf
+    - 32-voip-system-forward.conf
+  when: syslog_central
+  notify: reiniciar rsyslog
+
+# Uma regra com erro faz o rsyslog subir sem ela — ou não subir. Melhor
+# o playbook parar aqui, com a mensagem do próprio rsyslog.
+- name: Validar a configuração do rsyslog
+  ansible.builtin.command:
+    cmd: rsyslogd -N1
+  changed_when: false
+  when: syslog_central
+
+- name: Desligado — tirar as regras do grupo VoIP
+  ansible.builtin.file:
+    path: "/etc/rsyslog.d/{{ item }}"
+    state: absent
+  loop:
+    - 10-voip-common.conf
+    - 20-voip-noise.conf
+    - 30-voip-asterisk.conf
+    - 31-voip-auth.conf
+    - 32-voip-system-forward.conf
+  when: not syslog_central
+  notify: reiniciar rsyslog
+
+- name: Garantir o rsyslog de pé
+  ansible.builtin.systemd_service:
+    name: rsyslog
+    state: started
+    enabled: true
+  when: syslog_central

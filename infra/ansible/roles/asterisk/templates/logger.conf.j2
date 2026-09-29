@@ -13,3 +13,9 @@ console  => notice,warning,error
 messages => notice,warning,error
 full     => notice,warning,error,verbose(3),dtmf
 security => security
+{% if syslog_central | default(false) %}
+; Cópia para o syslog (facility local5), que o rsyslog encaminha ao
+; syslog central do grupo VoIP Telium (role syslog). Os arquivos acima
+; continuam: o fail2ban lê o security, e o console lê o messages.
+syslog.local5 => notice,warning,error,debug,verbose
+{% endif %}

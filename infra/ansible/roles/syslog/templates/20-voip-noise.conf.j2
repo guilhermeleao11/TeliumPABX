@@ -1,0 +1,121 @@
+# {{ ansible_managed }}
+# Pacote de syslog do grupo VoIP Telium (atualiza_cliente_voip.sh, 2026-09-26),
+# publicado pelo Ansible. Destinos em group_vars: syslog_central_*.
+#
+# /etc/rsyslog.d/20-voip-noise.conf
+#
+# Filtros de ruido.
+#
+# Eventos descartados aqui NAO sao:
+#
+#   - gravados localmente
+#   - encaminhados ao syslog-db
+#
+# O objetivo e eliminar ruido causado por monitoramento
+# e eventos operacionais sem interesse.
+
+
+#
+# ============================================================
+# Asterisk
+# ============================================================
+#
+
+if $syslogfacility-text == "local5" then {
+
+    if $msg contains "Manager 'zabbix'" then stop
+
+    if $msg contains "Remote UNIX connection" then stop
+
+    if $msg contains "Using SIP RTP" then stop
+}
+
+
+#
+# ============================================================
+# SSH / PAM - monitoramento Zabbix
+# ============================================================
+#
+
+#
+# Exemplos eliminados:
+#
+# pam_unix(systemd-user:session):
+#   session opened for user zabbix_test
+#
+# sshd:
+#   Disconnected from user zabbix_test ...
+#
+# pam_unix(sshd:session):
+#   session closed for user zabbix_test
+#
+if (
+    $syslogfacility-text == "auth"
+    or $syslogfacility-text == "authpriv"
+) then {
+
+    if $msg contains "zabbix_test" then stop
+
+    #
+    # Esta mensagem nao contem o username:
+    #
+    # Received disconnect from 200.155.185.231 port XXXXX:11:
+    # disconnected by user
+    #
+    if (
+        $programname == "sshd"
+        and $msg contains "Received disconnect from 200.155.185.231"
+    ) then stop
+}
+
+#
+# ============================================================
+# AppArmor / SSSD - eventos permitidos
+# ============================================================
+#
+# Exemplo:
+# apparmor="ALLOWED" ... profile="/usr/sbin/sssd/..."
+#
+# Sao acessos permitidos pelo AppArmor e geram grande volume
+# de ruido via kernel/audit.
+#
+
+if (
+    $programname == "kernel"
+    and $msg contains 'apparmor="ALLOWED"'
+    and (
+        $msg contains 'sssd_nss'
+        or $msg contains 'sssd_pam'
+    )
+) then stop
+
+#
+# ============================================================
+# systemd --user
+# ============================================================
+#
+# Remove mensagens das instancias systemd de usuario.
+#
+# Mantemos systemd[1], pois contem eventos relevantes
+# de servicos do sistema.
+#
+
+if (
+    $programname == "systemd"
+    and $procid != "1"
+    and $procid != "-"
+) then stop
+
+#
+# Ruido do ciclo de sessao do usuario de monitoramento
+#
+if (
+    $programname == "systemd"
+    and (
+        $msg contains "UID 1015"
+        or $msg contains "@1015.service"
+        or $msg contains "/run/user/1015"
+        or $msg contains "User Slice of UID 1015"
+        or $msg contains "run-user-1015.mount"
+    )
+) then stop

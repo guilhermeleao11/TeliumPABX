@@ -1,0 +1,24 @@
+# {{ ansible_managed }}
+# Pacote de syslog do grupo VoIP Telium (atualiza_cliente_voip.sh, 2026-09-26),
+# publicado pelo Ansible. Destinos em group_vars: syslog_central_*.
+#
+# /etc/rsyslog.d/10-voip-common.conf
+#
+# Template comum para logs encaminhados pelo grupo VoIP Telium.
+#
+# Todo evento enviado ao syslog-db recebe o marcador:
+#
+#   - [Voip Telium]
+#
+# O servidor central usa esse marcador para identificar
+# a origem/grupo e definir o tratamento apropriado.
+
+#
+# Envio em UDP: cada datagrama e uma mensagem, portanto nao ha LF final.
+# O receptor exige que a mensagem termine exatamente com o marcador.
+#
+template(
+    name="VoipTeliumForward"
+    type="string"
+    string="<%PRI%>%TIMESTAMP% %HOSTNAME% %syslogtag%%msg:::drop-last-lf% - [Voip Telium]"
+)

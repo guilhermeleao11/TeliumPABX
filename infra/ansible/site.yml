@@ -40,6 +40,8 @@
     - certificados
     - email
     - api
+    # Logs para o syslog central do grupo VoIP (syslog_central).
+    - syslog
     - seguranca
 
   post_tasks:

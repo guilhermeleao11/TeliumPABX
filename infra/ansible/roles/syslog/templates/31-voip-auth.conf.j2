@@ -1,0 +1,52 @@
+# {{ ansible_managed }}
+# Pacote de syslog do grupo VoIP Telium (atualiza_cliente_voip.sh, 2026-09-26),
+# publicado pelo Ansible. Destinos em group_vars: syslog_central_*.
+#
+# /etc/rsyslog.d/31-voip-auth.conf
+#
+# Encaminha eventos de autenticacao para o syslog-db.
+#
+# Os filtros de ruido ja foram aplicados em:
+#
+#   20-voip-noise.conf
+#
+# IMPORTANTE:
+#
+# Nao existe "stop" neste arquivo.
+#
+# Depois do encaminhamento o evento continua sendo processado
+# pelo /etc/rsyslog.conf e portanto continua sendo gravado em:
+#
+#   /var/log/auth.log
+#
+
+if (
+    (
+        $syslogfacility-text == "auth"
+        or $syslogfacility-text == "authpriv"
+    )
+    and $programname != "CRON"
+) then {
+
+    action(
+        name="auth_syslog_db"
+        type="omfwd"
+
+        target="{{ syslog_central_auth }}"
+        port="{{ syslog_central_porta }}"
+        #
+        # UDP: o relay samplicator recebe somente UDP e o envio direto usa o
+        # mesmo protocolo para padronizar os clientes. Nao ha confirmacao de
+        # entrega; a fila abaixo cobre apenas falhas locais de envio.
+        #
+        protocol="udp"
+
+        template="VoipTeliumForward"
+
+        action.resumeRetryCount="-1"
+
+        queue.type="LinkedList"
+        queue.filename="auth_syslog_db"
+        queue.saveOnShutdown="on"
+    )
+}
