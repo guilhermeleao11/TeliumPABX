@@ -80,3 +80,22 @@ writesql=INSERT INTO gravacoes (uniqueid, arquivo, origem, destino, tags, inicio
 [TELIUM_SIGAME]
 dsn=telium
 writesql=UPDATE ramais SET siga_me = NULLIF('${SQL_ESC(${VAL1})}',''), siga_me_ativo = IF('${SQL_ESC(${VAL1})}' = '', 0, 1) WHERE numero = '${SQL_ESC(${ARG1})}'
+
+; ------------------------------------------------------------------
+; Call center — retorno pedido na espera:
+;   Set(ODBC_TELIUM_CC_RETORNO(<fila>,<número>,<uniqueid>)=<nome>)
+; ------------------------------------------------------------------
+[TELIUM_CC_RETORNO]
+dsn=telium
+writesql=INSERT INTO cc_retornos (fila, numero, nome, callid) VALUES ('${SQL_ESC(${ARG1})}', '${SQL_ESC(${ARG2})}', NULLIF('${SQL_ESC(${VAL1})}',''), NULLIF('${SQL_ESC(${ARG3})}',''))
+
+; A fila de um retorno, para o lado que entra na espera no lugar do cliente.
+[TELIUM_CC_RETORNO_FILA]
+dsn=telium
+readsql=SELECT fila FROM cc_retornos WHERE id = CAST('${SQL_ESC(${ARG1})}' AS UNSIGNED) AND estado = 'discando'
+
+; Resultado de um retorno: ANSWER conclui; SEMAGENTE não gasta tentativa;
+; o resto volta para a fila de retornos, até esgotar as tentativas.
+[TELIUM_CC_RETORNO_FIM]
+dsn=telium
+writesql=UPDATE cc_retornos r JOIN filas f ON f.numero = r.fila SET r.estado = IF('${SQL_ESC(${ARG2})}' = 'ANSWER', 'concluido', IF('${SQL_ESC(${ARG2})}' <> 'SEMAGENTE' AND r.tentativas >= f.retorno_tentativas, 'falhou', 'pendente')), r.resultado = '${SQL_ESC(${ARG2})}', r.proxima_em = NOW() + INTERVAL 3 MINUTE, r.concluido_em = IF('${SQL_ESC(${ARG2})}' = 'ANSWER', NOW(), NULL), r.tentativas = IF('${SQL_ESC(${ARG2})}' = 'SEMAGENTE' AND r.tentativas > 0, r.tentativas - 1, r.tentativas) WHERE r.id = CAST('${SQL_ESC(${ARG1})}' AS UNSIGNED) AND r.estado = 'discando'

@@ -624,6 +624,8 @@
     - pjproject.conf
     - resolver_unbound.conf
     - queuerules.conf
+    # O queue_log das filas vai para o banco por aqui (call center).
+    - extconfig.conf
     - res_fax.conf
     - voicemail.conf
     - musiconhold.conf
@@ -638,6 +640,18 @@
     - websocket_client.conf
     - pjsip_notify.conf
   notify: recarregar asterisk
+
+# Os áudios do call center (login, pausa, saída do agente pelo
+# telefone), em português. Ficam fora da pasta do idioma: o Asterisk
+# acha "telium-cc/…" na raiz de sounds/ qualquer que seja o idioma.
+- name: Publicar os áudios do call center
+  ansible.builtin.copy:
+    src: sons/telium-cc/
+    dest: /var/lib/asterisk/sounds/telium-cc/
+    owner: asterisk
+    group: asterisk
+    mode: "0644"
+    directory_mode: "0755"
 
 # O código *68 grava a hora; sem alguém para ler e ligar de volta, ele
 # não seria um despertador de verdade.

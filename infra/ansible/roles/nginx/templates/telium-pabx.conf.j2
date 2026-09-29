@@ -94,6 +94,21 @@ server {
         try_files $uri /api/index.php$is_args$args;
     }
 
+    # ---------- call center: tempo real ----------
+    # Fluxo de eventos (SSE) do serviço telium-cc. Conexão longa: sem
+    # buffer, senão o nginx segura as fotos e o painel atrasa; e com
+    # prazo longo, senão ele fecha a cada minuto de silêncio. Quem
+    # confere a sessão é o próprio serviço, pelo Authorization.
+    location = /api/cc/eventos {
+        proxy_pass http://127.0.0.1:8095/eventos;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+    }
+
     # O login é o alvo da varredura de senha e o mais caro de processar.
     # burst=5 deixa passar o erro de digitação sem deixar passar o robô.
     location = /api/auth/login {

@@ -51,13 +51,44 @@ final class GeradorFilas
             ->comentario('Personalizações vão em telium/queues_custom.conf')
             ->branco();
 
+        $regras = (new Bloco())
+            ->comentario('Gerado pelo Telium PABX — NÃO EDITE À MÃO')
+            ->comentario('Ampliação de habilidade das filas de call center')
+            ->branco();
+
         foreach (Bd::todos('SELECT * FROM filas WHERE ativo = 1 ORDER BY numero') as $f) {
             $this->fila($b, $f);
+            $this->regra($regras, $f);
         }
 
         $b->crua('#include "telium/queues_custom.conf"');
 
-        return ['queues.conf' => $b->texto()];
+        return ['queues.conf' => $b->texto(), 'queuerules.conf' => $regras->texto()];
+    }
+
+    /**
+     * Ampliação de habilidade: começa só com o nível 0 e, a cada N
+     * segundos de espera, a fila passa a oferecer a chamada a mais um
+     * nível. O começo em 0 é posto no dialplan (QUEUE_MAX_PENALTY),
+     * porque a regra só age depois do primeiro intervalo.
+     */
+    private function regra(Bloco $b, array $f): void
+    {
+        $passo = (int) ($f['ampliar_segundos'] ?? 0);
+        if ((int) $f['callcenter'] !== 1 || $passo <= 0) {
+            return;
+        }
+
+        $b->crua('[' . self::nomeDaRegra((string) $f['numero']) . ']');
+        for ($nivel = 1; $nivel <= max(1, (int) $f['ampliar_ate']); $nivel++) {
+            $b->crua(sprintf('penaltychange => %d,%d', $passo * $nivel, $nivel));
+        }
+        $b->branco();
+    }
+
+    public static function nomeDaRegra(string $fila): string
+    {
+        return "telium-{$fila}";
     }
 
     private function fila(Bloco $b, array $f): void
@@ -118,6 +149,17 @@ final class GeradorFilas
             default => 'no',
         });
 
+        if ((int) $f['callcenter'] === 1) {
+            if ((int) ($f['ampliar_segundos'] ?? 0) > 0) {
+                $b->crua('defaultrule = ' . self::nomeDaRegra($numero));
+            }
+            // Tecla de retorno: a fila sai para este contexto quando o
+            // cliente aperta um dígito que existe nele — e só esse.
+            if (($f['retorno_tecla'] ?? '') !== '' && $f['retorno_tecla'] !== null) {
+                $b->crua("context = telium-cc-retorno-{$numero}");
+            }
+        }
+
         // Nada de monitor-type aqui: o app_queue do Asterisk 22 não tem
         // mais gravação própria, e ela já acontece no dialplan, em
         // sub-gravar, que é o único lugar que sabe onde o arquivo vai.
@@ -127,7 +169,12 @@ final class GeradorFilas
         // otimizar o canal e sumir com a pergunta.
         $confirma = (int) $f['confirmar_atendimento'] === 1;
 
-        foreach ($this->agentes((int) $f['id']) as $a) {
+        // Fila de call center não tem membro fixo: quem está nela é quem
+        // entrou (console ou *40), com o nome "Agente/<id>". Escrever um
+        // membro aqui faria um ramal receber chamada sem ninguém logado.
+        $fixos = (int) $f['callcenter'] === 1 ? [] : $this->agentes((int) $f['id']);
+
+        foreach ($fixos as $a) {
             // Campos do member: canal, penalidade, nome, canal de estado e
             // se a fila pode oferecer chamada com o ramal já ocupado. O de
             // estado precisa ser o PJSIP mesmo quando o canal é um Local

@@ -21,7 +21,8 @@ noload => chan_websocket.so
 noload => res_config_curl.so
 noload => res_config_ldap.so
 noload => res_config_sqlite3.so
-noload => res_config_odbc.so
+; res_config_odbc fica: é por ele que o queue_log chega ao banco
+; (extconfig.conf mapeia só o queue_log — nada de configuração realtime).
 ; O assistente de PJSIP procura pjsip_wizard.conf a cada reload e
 ; reclama oito vezes seguidas. Quem escreve o pjsip aqui é a API.
 noload => res_pjsip_config_wizard.so

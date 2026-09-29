@@ -2,3 +2,9 @@
 - name: recarregar systemd da api
   ansible.builtin.systemd_service:
     daemon_reload: true
+
+- name: reiniciar telium-cc
+  ansible.builtin.systemd_service:
+    name: telium-cc.service
+    state: restarted
+    daemon_reload: true

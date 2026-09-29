@@ -1,0 +1,10 @@
+; {{ ansible_managed }}
+;
+; Só uma coisa vem do banco em tempo real: o queue_log do app_queue.
+; É o histórico das filas — entrada, pausa com motivo, espera,
+; atendimento e abandono — e é dele que saem os relatórios do call
+; center. Em arquivo ele não servia para nada: ninguém lia.
+;
+; A configuração em si continua vindo dos arquivos gerados pela API.
+[settings]
+queue_log => odbc,telium,queue_log

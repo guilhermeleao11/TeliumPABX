@@ -321,6 +321,15 @@ INI'
 
 fi
 
+# Os áudios do call center vêm do repositório, não de download: são os
+# mesmos que o playbook publica em sounds/telium-cc. Vão para os dois
+# lados — o Asterisk toca, e a API confere que existem.
+passo "publicando os áudios do call center"
+mkdir -p "$TRAB/ast/sounds/telium-cc"
+cp "$RAIZ"/infra/ansible/roles/asterisk/files/sons/telium-cc/*.wav "$TRAB/ast/sounds/telium-cc/"
+docker exec v-ast sh -c 'mkdir -p /var/lib/asterisk/sounds/telium-cc &&
+  cp /etc/asterisk/sounds/telium-cc/*.wav /var/lib/asterisk/sounds/telium-cc/'
+
 echo
 passo "pronto"
 echo "   console : http://127.0.0.1:${PORTA}/"

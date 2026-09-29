@@ -10,6 +10,7 @@ declare(strict_types=1);
  *   php bin/telium doctor           — diagnóstico das dependências
  *   php bin/telium senha <usuario>  — define uma nova senha
  *   php bin/telium testar           — roda a bateria de testes
+ *   php bin/telium cc-servico       — serviço de tempo real do call center
  */
 
 use Telium\Dominio\Senha;
@@ -36,6 +37,7 @@ try {
         'testar'         => testar(),
         'backup-enviar'  => backupEnviar($argv[2] ?? ''),
         'tarifar'        => tarifar($argv[2] ?? ''),
+        'cc-servico'     => (new \Telium\Servico\TempoReal((string) (Ambiente::get('CC_ENDERECO') ?: '127.0.0.1:8095')))->rodar(),
         default          => ajuda(),
     };
 } catch (Throwable $e) {

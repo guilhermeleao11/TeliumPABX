@@ -36,6 +36,7 @@ final class Gerador
             ...(new GeradorDialplan())->gerar(),
             ...(new GeradorRecursos())->gerar(),
             ...(new GeradorFilas())->gerar(),
+            ...(new GeradorCallCenter())->gerar(),
             ...(new GeradorConferencias())->gerar(),
             ...(new GeradorEstacionamento())->gerar(),
             ...(new GeradorVoicemail())->gerar(),

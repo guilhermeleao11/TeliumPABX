@@ -263,6 +263,13 @@ final class GeradorDialplan
                 $b->same("Playback({$entrada})");
             }
 
+            // Ampliação de habilidade: a chamada começa oferecida só ao
+            // nível 0; a regra da fila (queuerules) abre os outros níveis
+            // conforme a espera cresce.
+            if ((int) $f['callcenter'] === 1 && (int) ($f['ampliar_segundos'] ?? 0) > 0) {
+                $b->same('Set(QUEUE_MAX_PENALTY=0)');
+            }
+
             // 'c' devolve o cliente ao dialplan quando o atendente desliga;
             // é o que leva ele para a pesquisa. Sem pesquisa não usamos a
             // opção, e a chamada termina junto com o agente, como sempre.

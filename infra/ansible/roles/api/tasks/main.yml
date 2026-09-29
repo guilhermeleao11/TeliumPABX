@@ -184,6 +184,62 @@
     enabled: true
     daemon_reload: true
 
+# ------------------------------------------------------------------
+# Serviço de tempo real do call center (telium-cc).
+#
+# Escuta os eventos de fila do Asterisk e empurra o estado para os
+# painéis do agente e do supervisor; atende os códigos *40/*42/*44/*49
+# do telefone; pausa quem precisa tabular; disca os retornos. Escuta só
+# em 127.0.0.1 — o nginx publica /api/cc/eventos e nada mais.
+#
+# Sem ele o console continua funcionando (as telas perguntam ao
+# Asterisk a cada poucos segundos), mas o telefone não loga agente.
+# ------------------------------------------------------------------
+- name: Instalar a unidade do serviço de call center
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/telium-cc.service
+    mode: "0644"
+    content: |
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão.
+      [Unit]
+      Description=Telium PABX — tempo real do call center
+      After=network.target mariadb.service asterisk.service
+      Wants=asterisk.service
+
+      [Service]
+      Type=simple
+      User={{ telium_user }}
+      WorkingDirectory={{ telium_api }}
+      ExecStart=/usr/bin/php {{ telium_api }}/bin/telium cc-servico
+      Restart=always
+      RestartSec=3
+      NoNewPrivileges=true
+      PrivateTmp=true
+
+      [Install]
+      WantedBy=multi-user.target
+  notify:
+    - recarregar systemd da api
+    - reiniciar telium-cc
+
+- name: Aplicar a unidade do call center
+  ansible.builtin.meta: flush_handlers
+
+- name: Habilitar o serviço de call center
+  ansible.builtin.systemd_service:
+    name: telium-cc.service
+    state: started
+    enabled: true
+    daemon_reload: true
+
+# Código novo da API é código novo do serviço: sem reiniciar, ele segue
+# rodando a versão que estava na memória.
+- name: Reiniciar o serviço de call center com o código publicado
+  ansible.builtin.systemd_service:
+    name: telium-cc.service
+    state: restarted
+  changed_when: false
+
 # Depois de tudo publicado, a bateria confere o que já foi corrigido uma
 # vez: a injeção pelo cadastro, o TOTP, as permissões, a integridade do
 # banco e se alguma rota da API ficou sem exigir sessão. Falha aqui

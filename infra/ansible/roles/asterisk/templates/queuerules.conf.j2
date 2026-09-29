@@ -1,5 +1,6 @@
 ; {{ ansible_managed }}
-; Regras de penalidade das filas. Vazio de propósito: as penalidades são
-; fixas, definidas por agente na tela de filas. O arquivo existe só para
-; o app_queue não avisar a cada reload.
+; Regras de penalidade das filas. As das filas de call center (ampliação
+; de habilidade) são geradas pela API a partir do cadastro.
 [general]
+
+#include "telium/queuerules.conf"

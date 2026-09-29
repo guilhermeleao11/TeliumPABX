@@ -208,6 +208,62 @@ final class Ami
     }
 
     /**
+     * Ação que responde com uma lista de eventos (QueueStatus, por
+     * exemplo): a resposta vem primeiro, depois um evento por item, e um
+     * evento "…Complete" fecha a lista.
+     *
+     * @return list<array<string,string>> os eventos da lista, já em campos
+     */
+    public function lista(array $campos, float $espera = 5.0): array
+    {
+        $resposta = $this->acao($campos, $espera);
+        if (!str_contains($resposta, 'Success')) {
+            throw new \RuntimeException('AMI recusou ' . ($campos['Action'] ?? '?') . ': ' . $this->resumo($resposta));
+        }
+
+        $id = 'telium-' . $this->sequencia;
+        $itens = [];
+        $limite = microtime(true) + $espera;
+
+        while (microtime(true) < $limite) {
+            $pacote = $this->ler($espera);
+            if ($pacote === '') {
+                break;
+            }
+            if (!$this->ehDoActionId($pacote, $id)) {
+                continue;
+            }
+
+            $item = self::campos($pacote);
+            if (($item['EventList'] ?? '') === 'Complete') {
+                break;
+            }
+            $itens[] = $item;
+        }
+
+        return $itens;
+    }
+
+    /**
+     * Um pacote do AMI em campos. Chave repetida fica com o último valor.
+     *
+     * @return array<string,string>
+     */
+    public static function campos(string $pacote): array
+    {
+        $campos = [];
+        foreach (preg_split('/\r?\n/', $pacote) ?: [] as $linha) {
+            $p = strpos($linha, ':');
+            if ($p === false) {
+                continue;
+            }
+            $campos[trim(substr($linha, 0, $p))] = trim(substr($linha, $p + 1));
+        }
+
+        return $campos;
+    }
+
+    /**
      * Comando de CLI.
      *
      * A espera é maior que a das consultas: recarregar o PJSIP numa

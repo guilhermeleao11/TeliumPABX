@@ -488,6 +488,24 @@ final class GeradorRecursos
                 "UnpauseQueueMember({$arg},\${TELIUM_MEMBRO})",
                 'Playback(de-activated)', 'Hangup()',
             ]]],
+            // ---------------- call center ----------------
+            // A decisão fica com o serviço de tempo real, pela mesma
+            // classe do console: telium-cc-telefone só pergunta a ele.
+            'cc_login' => [$codigo, [
+                'NoOp(Call center: entrar)', 'GoSub(telium-cc-telefone,login,1)', 'Hangup()',
+            ]],
+            'cc_logout' => [$codigo, [
+                'NoOp(Call center: sair)', 'GoSub(telium-cc-telefone,logout,1)', 'Hangup()',
+            ]],
+            // O motivo tem um dígito ou dois: "X." pediria pelo menos dois,
+            // e *421 (almoço) não casaria com nada.
+            'cc_pausa' => ["_{$codigo}X!", [
+                "NoOp(Call center: pausa pelo motivo {$arg})", "GoSub(telium-cc-telefone,pausa,1({$arg}))", 'Hangup()',
+            ]],
+            'cc_volta' => [$codigo, [
+                'NoOp(Call center: voltar da pausa)', 'GoSub(telium-cc-telefone,volta,1)', 'Hangup()',
+            ]],
+
             'fila_contagem' => [$comArg, [
                 "NoOp(Chamadas esperando na fila {$arg})", 'Answer()', 'Wait(1)',
                 'SayNumber(${QUEUE_WAITING_COUNT(' . $arg . ')})',

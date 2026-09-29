@@ -2,6 +2,11 @@
 [general]
 dateformat = %F %T
 use_callids = yes
+; O queue_log vai para o banco (extconfig.conf), não para arquivo, e com
+; os campos separados em data1…data5 — é o que o relatório consulta.
+queue_log = yes
+queue_log_to_file = no
+queue_adaptive_realtime = yes
 
 [logfiles]
 console  => notice,warning,error

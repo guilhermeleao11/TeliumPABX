@@ -32,6 +32,15 @@ final class Bd
         return self::$pdo;
     }
 
+    /**
+     * Esquece a conexão. Para o serviço que fica de pé por dias: o
+     * MariaDB derruba conexão parada, e a próxima consulta reabre.
+     */
+    public static function desconectar(): void
+    {
+        self::$pdo = null;
+    }
+
     /** @return array<int,array<string,mixed>> */
     public static function todos(string $sql, array $params = []): array
     {
