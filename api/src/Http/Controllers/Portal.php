@@ -34,6 +34,51 @@ final class Portal
     ];
 
     // ---------------------------------------------------------------
+    /**
+     * GET /api/me/telefone — o que a tela do telefone (WebRTC) precisa:
+     * o ramal da sessão e o não perturbe. Nada de senha: essa vem só no
+     * /me, e só para quem tem o módulo.
+     */
+    public function telefone(Request $req, Response $res): Response
+    {
+        $r = $this->meuRamal($req);
+        if ($r === null) {
+            return $this->semRamal($res);
+        }
+
+        return Resposta::json($res, [
+            'disponivel' => true,
+            'ramal'      => [
+                'numero' => (string) $r['numero'],
+                'nome'   => (string) $r['nome'],
+                'webrtc' => (int) $r['webrtc'] === 1,
+                'dnd'    => (int) $r['dnd'] === 1,
+            ],
+        ]);
+    }
+
+    /**
+     * PUT /api/me/telefone/dnd {ativo} — não perturbe do próprio ramal.
+     *
+     * Vale na hora: escreve no banco e na base do Asterisk, como o
+     * *78/*79 do telefone. Sem precisar de "Aplicar configurações".
+     */
+    public function dnd(Request $req, Response $res): Response
+    {
+        $r = $this->meuRamal($req);
+        if ($r === null) {
+            return $this->semRamal($res);
+        }
+
+        $ativo = (int) (bool) (((array) $req->getParsedBody())['ativo'] ?? false);
+        Bd::executar('UPDATE ramais SET dnd = ? WHERE id = ?', [$ativo, $r['id']]);
+        $this->refletirNoAsterisk((string) $r['numero'], array_merge($r, ['dnd' => $ativo]));
+        Auditoria::registrar($req->getAttribute('usuario'), 'editar', 'fone.webrtc',
+                             (string) $r['numero'], ['dnd' => $ativo]);
+
+        return Resposta::json($res, ['dnd' => $ativo === 1]);
+    }
+
     /** GET /api/me/ramal */
     public function ramal(Request $req, Response $res): Response
     {

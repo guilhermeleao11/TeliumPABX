@@ -70,6 +70,7 @@ assets/js/data.js           menu, perfis, usuários, empresa e massa de dados de
 assets/js/auth.js           sessão, permissões e tema (com fallback para file://)
 assets/js/ui.js             softphone, drawer, modal, paleta Ctrl+K, player, modo TV
 assets/js/pages.js          telas: painel, ramais, troncos, filas, CDR, usuários, permissões
+assets/js/telefone.js       telefone do navegador (WebRTC), para quem tem o módulo
 assets/js/callcenter.js     call center: painel do agente, monitor do supervisor,
                             agentes, pausas, tabulações, retornos e relatórios
 assets/js/pages2.js         telas: rotas, URA, gravações, tarifação, provisionamento,
@@ -93,8 +94,12 @@ fica nítida em qualquer tamanho — inclusive no favicon.
 - **Tema claro e escuro** com tokens CSS; a preferência é lembrada.
 - **Busca de módulos** na sidebar e no header (tecle `/` para focar).
 - **Responsivo** — em telas ≤ 900 px a sidebar vira gaveta com sobreposição.
-- **Softphone WebRTC** (botão flutuante ou tecla `D`) — discador, DTMF, mudo, espera,
-  transferência com consulta e histórico. Click-to-call em ramais, contatos e correio de voz.
+- **Telefone (WebRTC)** — tela própria, só para quem tem o módulo `fone.webrtc`
+  (ícone do cabeçalho ou tecla `D`): discador, DTMF, mudo, espera, transferência cega e com
+  consulta, volume do alto-falante e do microfone (com medidor), escolha de dispositivos,
+  não perturbe do ramal, contatos pessoais, globais e ramais, e as chamadas da sessão. Sem o
+  módulo, a senha SIP nem chega ao navegador. Click-to-call em ramais, contatos e correio de
+  voz: pelo navegador para quem tem o módulo, pelo telefone de mesa para os demais.
 - **Paleta de comandos** `Ctrl/⌘ + K` — módulos, ramais, contatos e ações.
 - **Modo TV** no wallboard, para telão da operação.
 - Gavetas de formulário com abas, modais de confirmação, skeleton de carregamento e toasts.

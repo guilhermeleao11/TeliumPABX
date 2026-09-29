@@ -115,6 +115,134 @@ const SipLink = {
    */
   PRAZO_ICE: 2000,
 
+  /**
+   * Volumes e dispositivos, lembrados neste navegador.
+   *   alto   0…1  — volume de quem fala do outro lado
+   *   micro  0…2  — ganho do microfone (1 = como ele capta)
+   *   saida        — alto-falante (setSinkId), vazio = o padrão
+   *   entrada      — microfone (deviceId), vazio = o padrão
+   */
+  volume: (() => {
+    const base = { alto: 1, micro: 1, saida: '', entrada: '' };
+    try { return { ...base, ...JSON.parse(localStorage.getItem('telium.fone.volume') || '{}') }; }
+    catch { return base; }
+  })(),
+
+  _guardarVolume() {
+    try { localStorage.setItem('telium.fone.volume', JSON.stringify(this.volume)); } catch { /* sem armazenamento */ }
+  },
+
+  /** Microfones das chamadas vivas: um por perna. */
+  _micros: new Set(),
+
+  /**
+   * O microfone, passado por um ganho antes de sair.
+   *
+   * O navegador não tem "volume do microfone": o que sai é o que ele
+   * capta. Para o controle da tela mexer de verdade no que o outro lado
+   * ouve, o áudio passa por um GainNode e é essa saída — e não a
+   * captura crua — que vai para a chamada. O medidor de nível lê o
+   * mesmo ponto, então mostra o que está sendo enviado.
+   */
+  async _microfone() {
+    const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    if (this.volume.entrada) audio.deviceId = { exact: this.volume.entrada };
+
+    let captura;
+    try {
+      captura = await navigator.mediaDevices.getUserMedia({ audio, video: false });
+    } catch (e) {
+      // Microfone escolhido que sumiu (fone desplugado): tenta o padrão.
+      if (this.volume.entrada && e?.name === 'OverconstrainedError') {
+        this.volume.entrada = '';
+        this._guardarVolume();
+        return this._microfone();
+      }
+      throw e;
+    }
+
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return { stream: captura, ganho: null, medidor: null, parar: () => captura.getTracks().forEach(t => t.stop()) };
+
+    const ctx = new Ctx();
+    const fonte = ctx.createMediaStreamSource(captura);
+    const ganho = ctx.createGain();
+    ganho.gain.value = this.volume.micro;
+    const medidor = ctx.createAnalyser();
+    medidor.fftSize = 512;
+    const destino = ctx.createMediaStreamDestination();
+    fonte.connect(ganho);
+    ganho.connect(medidor);
+    ganho.connect(destino);
+
+    const mic = {
+      stream: destino.stream, ganho, medidor,
+      parar: () => {
+        captura.getTracks().forEach(t => t.stop());
+        destino.stream.getTracks().forEach(t => t.stop());
+        ctx.close?.().catch(() => {});
+        this._micros.delete(mic);
+      }
+    };
+    this._micros.add(mic);
+    return mic;
+  },
+
+  /** Volume de quem está do outro lado, 0 a 1. */
+  ajustarAlto(v) {
+    this.volume.alto = Math.max(0, Math.min(1, Number(v)));
+    [this.audio, this.audioConsulta].forEach(el => { if (el) el.volume = this.volume.alto; });
+    this._guardarVolume();
+  },
+
+  /** Ganho do microfone, 0 a 2, valendo na hora para a chamada viva. */
+  ajustarMicro(v) {
+    this.volume.micro = Math.max(0, Math.min(2, Number(v)));
+    this._micros.forEach(m => { if (m.ganho) m.ganho.gain.value = this.volume.micro; });
+    this._guardarVolume();
+  },
+
+  /** Alto-falante de saída (quando o navegador deixa escolher). */
+  async escolherSaida(id) {
+    this.volume.saida = id || '';
+    this._guardarVolume();
+    const els = [this.audio, this.audioConsulta, Campainha.preparar()].filter(Boolean);
+    for (const el of els) {
+      if (typeof el.setSinkId === 'function') {
+        try { await el.setSinkId(this.volume.saida); } catch { /* dispositivo sumiu: fica o padrão */ }
+      }
+    }
+  },
+
+  /** Microfone de entrada: vale para a próxima chamada. */
+  escolherEntrada(id) {
+    this.volume.entrada = id || '';
+    this._guardarVolume();
+  },
+
+  /** Os dispositivos de áudio, para os seletores da tela. */
+  async dispositivos() {
+    try {
+      const todos = await navigator.mediaDevices.enumerateDevices();
+      return {
+        entradas: todos.filter(d => d.kind === 'audioinput'),
+        saidas: todos.filter(d => d.kind === 'audiooutput'),
+        escolheSaida: typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype
+      };
+    } catch { return { entradas: [], saidas: [], escolheSaida: false }; }
+  },
+
+  /** Nível do que está saindo pelo microfone agora, 0 a 1. */
+  nivel() {
+    const m = [...this._micros].pop();
+    if (!m?.medidor) return 0;
+    const dados = new Uint8Array(m.medidor.fftSize);
+    m.medidor.getByteTimeDomainData(dados);
+    let pico = 0;
+    for (const v of dados) pico = Math.max(pico, Math.abs(v - 128));
+    return Math.min(1, pico / 128);
+  },
+
   /** Quem quiser saber de mudança se inscreve aqui. */
   _ouvintes: [],
   ao(fn) { this._ouvintes.push(fn); },
@@ -270,6 +398,8 @@ const SipLink = {
     this.audio = criar('spAudio');
     this.audioConsulta = criar('spAudioConsulta');
     Campainha.preparar();
+    this.ajustarAlto(this.volume.alto);
+    if (this.volume.saida) this.escolherSaida(this.volume.saida);
   },
 
   /** Chegou uma sessão: pode ser a principal, a consulta, ou uma a recusar. */
@@ -501,6 +631,10 @@ const SipLink = {
     // O amostrador de mídia morre com a sessão, sempre: um relógio
     // sobrevivente ficaria pedindo getStats de uma conexão fechada.
     clearInterval(session._teliumRelogio);
+    // E o microfone também: senão a luz de "gravando" do navegador fica
+    // acesa depois de desligar, com o microfone aberto para ninguém.
+    session._teliumMic?.parar();
+    session._teliumMic = null;
 
     if (this.consulta === session) { this.consulta = null; this.audioConsulta.srcObject = null; return; }
     if (this.sessao === session) {
@@ -520,8 +654,8 @@ const SipLink = {
     return !!this.consulta && this.consulta.status !== 8 /* TERMINATED */;
   },
 
-  /** @returns {boolean} false quando não dá para discar agora */
-  ligar(numero) {
+  /** @returns {Promise<boolean>} false quando não dá para discar agora */
+  async ligar(numero) {
     if (this.estado !== 'pronto' || !numero) return false;
 
     // Sem esta guarda, discar com uma chamada em curso trocava
@@ -533,22 +667,42 @@ const SipLink = {
       return false;
     }
 
+    let mic;
+    try { mic = await this._microfone(); }
+    catch (e) {
+      this._avisar('encerrada', { motivo: this.explicar(e?.name === 'NotAllowedError' ? 'User Denied Media Access' : 'WebRTC Error') });
+      return false;
+    }
+
     // A sessão é guardada no ouvinte de newRTCSession, que dispara
     // dentro desta chamada.
-    this.ua.call(`sip:${numero}@${this.cfg.dominio}`, {
-      mediaConstraints: { audio: true, video: false },
-      rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
-      pcConfig: this.pcConfig
-    });
+    try {
+      const sessao = this.ua.call(`sip:${numero}@${this.cfg.dominio}`, {
+        mediaStream: mic.stream,
+        rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
+        pcConfig: this.pcConfig
+      });
+      sessao._teliumMic = mic;
+    } catch {
+      mic.parar();
+      return false;
+    }
     return true;
   },
 
-  atender() {
+  async atender() {
     Campainha.parar();
-    this.sessao?.answer({
-      mediaConstraints: { audio: true, video: false },
-      pcConfig: this.pcConfig
-    });
+    const s = this.sessao;
+    if (!s) return;
+    let mic;
+    try { mic = await this._microfone(); }
+    catch (e) {
+      this._avisar('midia', { estado: 'falhou', motivo: this.explicar(e?.name === 'NotAllowedError' ? 'User Denied Media Access' : 'WebRTC Error') });
+      this._seguro(() => s.terminate({ status_code: 480 }));
+      return;
+    }
+    s._teliumMic = mic;
+    this._seguro(() => s.answer({ mediaStream: mic.stream, pcConfig: this.pcConfig }));
   },
 
   desligar() {
@@ -630,18 +784,23 @@ const SipLink = {
    * Transferência com consulta, primeiro passo: põe a chamada em espera
    * e liga para o destino, para falar com ele antes de passar.
    */
-  consultar(destino) {
+  async consultar(destino) {
     if (!this.sessao || !destino || this.consultando()) return false;
+
+    let mic;
+    try { mic = await this._microfone(); } catch { return false; }
 
     try {
       this._seguro(() => this.sessao.hold());
       this._pedindoConsulta = true;
-      this.ua.call(`sip:${destino}@${this.cfg.dominio}`, {
-        mediaConstraints: { audio: true, video: false },
+      const perna = this.ua.call(`sip:${destino}@${this.cfg.dominio}`, {
+        mediaStream: mic.stream,
         rtcOfferConstraints: { offerToReceiveAudio: true, offerToReceiveVideo: false },
         pcConfig: this.pcConfig
       });
+      perna._teliumMic = mic;
     } catch {
+      mic.parar();
       this._pedindoConsulta = false;
       this._seguro(() => this.sessao.unhold());
       return false;
@@ -676,6 +835,7 @@ const SipLink = {
 
   encerrar() {
     Campainha.parar();
+    [...this._micros].forEach(m => m.parar());
     try { this.ua?.stop(); } catch { /* já parada */ }
     this.ua = null;
     this.sessao = null;

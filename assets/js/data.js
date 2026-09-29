@@ -15,6 +15,14 @@ const MENU = [
     ]
   },
   {
+    // O telefone do navegador. É uma permissão: sem este módulo o ramal
+    // não registra no navegador e a senha SIP nem chega ao console.
+    id: 'fone', label: 'Telefone', icon: 'phone',
+    items: [
+      { id: 'fone.webrtc', label: 'Telefone (WebRTC)', icon: 'headset' }
+    ]
+  },
+  {
     id: 'admin', label: 'Administrador', icon: 'shield',
     items: [
       { id: 'admin.usuarios',        label: 'Gerenciador de Usuários',  icon: 'user' },

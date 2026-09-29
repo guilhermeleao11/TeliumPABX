@@ -72,6 +72,7 @@ final class Testes
             $this->grupo('Call center', $this->callCenter(...));
             $this->grupo('Relatório do call center', $this->relatorioCallCenter(...));
             $this->grupo('Firewall: nunca bloquear', $this->confiaveis(...));
+            $this->grupo('Telefone do navegador: permissão', $this->permissaoTelefone(...));
             $this->grupo('Envio de e-mail', $this->email(...));
             $this->grupo('Saída do backup', $this->backup(...));
             $this->grupo('Certificados TLS', $this->certificados(...));
@@ -1560,6 +1561,32 @@ final class Testes
         } finally {
             $pdo->rollBack();
         }
+    }
+
+    /**
+     * O telefone do navegador é uma permissão: sem o módulo fone.webrtc a
+     * senha SIP não sai do servidor, mesmo com ramal WebRTC vinculado.
+     */
+    private function permissaoTelefone(): void
+    {
+        $ramal = Bd::um('SELECT numero FROM ramais WHERE webrtc = 1 AND ativo = 1 LIMIT 1');
+        if ($ramal === null) {
+            echo "    \033[33m!\033[0m nenhum ramal WebRTC cadastrado — conferido só no servidor\n";
+
+            return;
+        }
+
+        $auth = new \Telium\Http\Controllers\Autenticacao();
+        $softphone = (new \ReflectionMethod($auth, 'softphone'))->getClosure($auth);
+        $usuario = ['id' => 0, 'ramal' => (string) $ramal['numero']];
+
+        foreach ([[], ['pcu.*'], ['cc.agente', 'dash.*']] as $allow) {
+            $r = $softphone($usuario, $allow);
+            $this->ok(!isset($r['senha']) && $r['disponivel'] === false,
+                      'sem fone.webrtc (' . (implode(',', $allow) ?: 'nada') . ') a senha SIP não vai ao navegador');
+        }
+        $this->ok(\Telium\Dominio\Permissoes::podeModulo(['*'], 'fone.webrtc'),
+                  'o administrador (*) tem o telefone do navegador');
     }
 
     /**

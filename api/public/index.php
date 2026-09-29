@@ -96,7 +96,8 @@ const ESCOLHEM_DESTINO = [
 $recursos = [
     'ramais' => [
         'modulo' => 'conn.ramais',
-        'referencia' => ESCOLHEM_DESTINO,
+        // O telefone do navegador lista os ramais para discar e transferir.
+        'referencia' => [...ESCOLHEM_DESTINO, 'fone.webrtc'],
         'recurso' => new Recurso(
             tabela: 'ramais',
             colunas: ['numero','nome','setor','email','tecnologia','senha_sip','contexto','transporte',
@@ -793,7 +794,11 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     // agenda, relatório de chamadas — entram por referência.
     $g->post('/discar', [Portal::class, 'discar'])
       ->add(new Permissao('pcu.meuramal', null,
-            ['pcu.contatos', 'pcu.chamadas', 'admin.contatos', 'rel.cdr', 'conn.ramais']));
+            ['pcu.contatos', 'pcu.chamadas', 'admin.contatos', 'rel.cdr', 'conn.ramais', 'fone.webrtc']));
+
+    // ---- telefone do navegador (WebRTC): só quem tem o módulo ----
+    $g->get('/me/telefone', [Portal::class, 'telefone'])->add(new Permissao('fone.webrtc'));
+    $g->put('/me/telefone/dnd', [Portal::class, 'dnd'])->add(new Permissao('fone.webrtc'));
 
     $g->get('/me/ramal', [Portal::class, 'ramal'])
       ->add(new Permissao('pcu.meuramal', null, ['pcu.sigame', 'pcu.perfil']));
@@ -987,8 +992,9 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     // Não entra no CRUD genérico: quem só tem a agenda pessoal enxerga os
     // contatos corporativos mas mexe apenas nos próprios, e isso é decidido
     // por linha, dentro do controller.
+    // O telefone do navegador lê a agenda (pessoal e global) para discar.
     $g->get('/contatos', [Contatos::class, 'listar'])
-      ->add(new Permissao('pcu.contatos', null, ['admin.contatos']));
+      ->add(new Permissao('pcu.contatos', null, ['admin.contatos', 'fone.webrtc']));
     $g->get('/contatos/{id}', [Contatos::class, 'obter'])->add(new Permissao('pcu.contatos'));
     $g->post('/contatos', [Contatos::class, 'criar'])
       ->add(new Permissao('pcu.contatos', 'criar'));

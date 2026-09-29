@@ -338,7 +338,7 @@ final class Autenticacao
             'permissoes' => ['allow' => $allow, 'caps' => $caps],
             'empresa'    => Bd::um('SELECT nome, plano, ramais_contratados FROM empresa WHERE id = 1'),
             'versao'     => Versao::NUMERO,
-            'softphone'  => $this->softphone($usuario),
+            'softphone'  => $this->softphone($usuario, $allow),
         ]);
     }
 
@@ -352,7 +352,7 @@ final class Autenticacao
      *
      * @return array<string,mixed>
      */
-    private function softphone(array $usuario): array
+    private function softphone(array $usuario, array $allow = []): array
     {
         // "modo" diz ao console o que oferecer quando o softphone não
         // está disponível: com um ramal vinculado, o discador continua
@@ -367,6 +367,14 @@ final class Autenticacao
 
         if (!$temRamal) {
             return $semNavegador('A sua conta não está vinculada a nenhum ramal.', false);
+        }
+
+        // O telefone do navegador é uma permissão, e não um efeito de ter
+        // ramal WebRTC: sem o módulo "fone.webrtc" a senha SIP não sai
+        // daqui, e o console nem tenta registrar. Quem não tem o módulo
+        // continua ligando pelo telefone de mesa, pela central.
+        if (!\Telium\Dominio\Permissoes::podeModulo($allow, 'fone.webrtc')) {
+            return $semNavegador('O telefone pelo navegador não está liberado para o seu perfil.', true);
         }
 
         // Desligado na central: nem tenta registrar. Registrar e falhar
