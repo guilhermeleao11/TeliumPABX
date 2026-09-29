@@ -286,11 +286,170 @@ final class Provisionamento
     }
 
     /** Guarda quem pediu o quê — inclusive quem pediu e não devia. */
-    public static function registrar(?string $mac, string $ip, string $agente, string $resultado): void
+    public static function registrar(
+        ?string $mac,
+        string $ip,
+        string $agente,
+        string $resultado,
+        ?string $ramal = null
+    ): void {
+        Bd::executar(
+            'INSERT INTO provisionamento_log (mac, ramal, ip, agente, resultado) VALUES (?, ?, ?, ?, ?)',
+            [$mac, $ramal, substr($ip, 0, 45), substr($agente, 0, 160) ?: null, $resultado]
+        );
+    }
+
+    /* -----------------------------------------------------------------
+       Linphone por QR Code
+       -----------------------------------------------------------------
+       O celular não tem MAC cadastrado nem opção 66: o QR leva uma URL
+       que o aplicativo busca uma vez só. Formato conferido no código do
+       próprio Linphone (linphone-android 5.3/6.x e liblinphone):
+
+       - O QR é uma URL http(s) simples. O 6.x também aceita
+         "linphone-config:https://…", o 5.x não — por isso a URL pura.
+       - O XML é o lpconfig: <config><section><entry>. Sem
+         overwrite="true" o aplicativo mantém o valor que já tinha.
+       - Não há chave de transporte: ele vai na URI do reg_proxy.
+       - misc/transient_provisioning=1 faz o aplicativo esquecer a URL
+         depois de aplicá-la. Sem isso ele a buscaria a cada abertura,
+         e um token de uso único viraria aviso de erro toda vez.
+       ----------------------------------------------------------------- */
+
+    /** Validade do QR. Tempo de abrir o aplicativo e apontar a câmera. */
+    public const LINPHONE_VALIDADE_SEG = 600;
+
+    /** 24 bytes de random_bytes: 48 hexadecimais, 192 bits. */
+    public static function novoToken(): string
+    {
+        return bin2hex(random_bytes(24));
+    }
+
+    /** O formato é conferido antes de ir ao banco. */
+    public static function tokenValido(string $token): bool
+    {
+        return preg_match('/^[0-9a-f]{48}$/', $token) === 1;
+    }
+
+    /** O banco guarda só isto — nunca o token. */
+    public static function hashDoToken(string $token): string
+    {
+        return hash('sha256', $token);
+    }
+
+    /**
+     * Cifra a senha digitada com uma chave que só o token abre.
+     *
+     * O token não está no banco, então quem ler a tabela não abre a
+     * senha — e a do cadastro, quando é ela que vale, nem passa por aqui.
+     */
+    public static function cifrarSenha(string $senha, string $token): string
+    {
+        $iv = random_bytes(12);
+        $tag = '';
+        $cifra = openssl_encrypt($senha, 'aes-256-gcm', self::chaveDoToken($token),
+                                 OPENSSL_RAW_DATA, $iv, $tag);
+        if ($cifra === false) {
+            throw new \RuntimeException('Não foi possível cifrar a senha do convite.');
+        }
+
+        return $iv . $tag . $cifra;
+    }
+
+    public static function decifrarSenha(string $bruto, string $token): ?string
+    {
+        if (strlen($bruto) < 29) {
+            return null;
+        }
+
+        $senha = openssl_decrypt(substr($bruto, 28), 'aes-256-gcm', self::chaveDoToken($token),
+                                 OPENSSL_RAW_DATA, substr($bruto, 0, 12), substr($bruto, 12, 16));
+
+        return $senha === false ? null : $senha;
+    }
+
+    private static function chaveDoToken(string $token): string
+    {
+        return hash_hkdf('sha256', $token, 32, 'telium-prov-linphone');
+    }
+
+    /** Servidor, porta e transporte que o Linphone vai usar. */
+    public static function destinoLinphone(): array
+    {
+        $servidor = trim((string) Ambiente::get('SIP_DOMINIO', ''));
+        if ($servidor === '') {
+            $servidor = Rede::ipPublico() ?: Rede::enderecoLocal();
+        }
+
+        return ['servidor' => $servidor, 'porta' => Rede::portaSip(), 'transporte' => 'udp'];
+    }
+
+    /**
+     * O XML de configuração do Linphone para um ramal.
+     *
+     * Só chaves que a liblinphone lê de fato (account-params.cpp e
+     * auth-info.cpp). O realm fica de fora de propósito: sem ele a
+     * credencial serve a qualquer realm que o Asterisk anunciar.
+     *
+     * @param array<string,mixed> $ramal linha de "ramais"
+     */
+    public static function linphone(array $ramal, string $senha, ?array $destino = null): string
+    {
+        $d = $destino ?? self::destinoLinphone();
+        $numero = (string) $ramal['numero'];
+        $servidor = (string) $d['servidor'];
+
+        // O nome vai entre aspas no reg_identity: aspas e barra no nome
+        // do ramal quebrariam o endereço inteiro.
+        $nome = str_replace(['\\', '"', "\r", "\n"], ['', '', ' ', ' '],
+                            (string) ($ramal['nome'] ?? $numero));
+
+        $secoes = [
+            'misc' => [
+                // Aplica uma vez e esquece a URL. O token é de uso único.
+                'transient_provisioning' => '1',
+            ],
+            'proxy_0' => [
+                'reg_identity'     => "\"{$nome}\" <sip:{$numero}@{$servidor}>",
+                'reg_proxy'        => "<sip:{$servidor}:{$d['porta']};transport={$d['transporte']}>",
+                'reg_expires'      => '3600',
+                'reg_sendregister' => '1',
+                'publish'          => '0',
+            ],
+            'auth_info_0' => [
+                'username' => $numero,
+                'userid'   => $numero,
+                'passwd'   => $senha,
+                'domain'   => $servidor,
+            ],
+        ];
+
+        $xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+             . "<config xmlns=\"http://www.linphone.org/xsds/lpconfig.xsd\" "
+             . "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" "
+             . "xsi:schemaLocation=\"http://www.linphone.org/xsds/lpconfig.xsd lpconfig.xsd\">\n";
+
+        foreach ($secoes as $secao => $entradas) {
+            $xml .= "  <section name=\"{$secao}\">\n";
+            foreach ($entradas as $chave => $valor) {
+                $xml .= sprintf("    <entry name=\"%s\" overwrite=\"true\">%s</entry>\n",
+                                $chave, htmlspecialchars($valor, ENT_XML1 | ENT_QUOTES, 'UTF-8'));
+            }
+            $xml .= "  </section>\n";
+        }
+
+        return $xml . "</config>\n";
+    }
+
+    /** Some com o que venceu: senha cifrada primeiro, a linha depois. */
+    public static function limparConvites(): void
     {
         Bd::executar(
-            'INSERT INTO provisionamento_log (mac, ip, agente, resultado) VALUES (?, ?, ?, ?)',
-            [$mac, substr($ip, 0, 45), substr($agente, 0, 160) ?: null, $resultado]
+            'UPDATE provisionamento_convite SET senha_cifrada = NULL
+              WHERE senha_cifrada IS NOT NULL AND (expira_em <= NOW() OR usado_em IS NOT NULL)'
         );
+        // Um dia de folga: é o que ainda responde "410, já usado" em vez
+        // de "404, nunca existiu" para quem escaneou de novo.
+        Bd::executar('DELETE FROM provisionamento_convite WHERE expira_em < NOW() - INTERVAL 1 DAY');
     }
 }

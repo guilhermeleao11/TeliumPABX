@@ -44,7 +44,10 @@ $app = AppFactory::create();
 // cada segmento a mais é uma chance a mais de erro — ela já carrega um
 // segredo de 32 caracteres.
 $caminhoPedido = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
-$app->setBasePath(str_starts_with($caminhoPedido, '/prov/') ? '' : '/api');
+// O /p/ do Linphone mora fora pelo mesmo motivo: a URL vai dentro de um
+// QR Code, e QR menor é QR que a câmera lê de mais longe.
+$app->setBasePath(str_starts_with($caminhoPedido, '/prov/') || str_starts_with($caminhoPedido, '/p/')
+    ? '' : '/api');
 $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
 $app->add(new Seguranca());
@@ -710,6 +713,9 @@ $app->get('/health', Saude::class);
 // conjunto — segredo no caminho, MAC precisar estar cadastrado e rede de
 // origem conferida. Cada pedido, atendido ou não, fica registrado.
 $app->get('/prov/{segredo}/{arquivo}', [Provisionar::class, 'entregar']);
+// O Linphone lendo o QR Code. Protegido pelo token: aleatório, dez
+// minutos, uma vez só.
+$app->get('/p/{token}', [Provisionar::class, 'linphone']);
 $app->post('/auth/login', [CtrlAuth::class, 'login']);
 
 /* ---------------------------------------------------------
@@ -868,6 +874,8 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->put('/provisionamento', [Provisionar::class, 'salvar'])
       ->add(new Permissao('conn.provisionamento', 'editar'));
     $g->get('/provisionamento/{id}/previa', [Provisionar::class, 'previa'])
+      ->add(new Permissao('conn.provisionamento', 'editar'));
+    $g->post('/provisionamento/linphone', [Provisionar::class, 'gerarLinphone'])
       ->add(new Permissao('conn.provisionamento', 'editar'));
 
     // ---- certificados TLS ----

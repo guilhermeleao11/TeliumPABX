@@ -626,6 +626,33 @@ configure no aparelho o endereço de provisionamento que a tela mostra.
 > viajando para quem pedir. *Só rede local* é o padrão e é o que se deve
 > manter.
 
+### I3 🟡 O Linphone no Android se configura pelo QR Code
+
+Em **Conectividade → Provisionamento → Linphone no celular**, escolha o
+ramal (400, por exemplo), deixe a senha em branco e clique em *Gerar QR
+Code*. No Android, com o Linphone instalado, use *Ler QR code* no
+assistente de conta. O celular busca a configuração **pela internet**:
+o nome do console tem de ser público e o certificado, válido — o
+Linphone recusa certificado autoassinado.
+
+- [ ] A tela mostra ramal, servidor e UDP, e **não** mostra a senha
+- [ ] O Linphone baixa a configuração e a conta aparece: `sip:400@<servidor>`
+- [ ] O ramal registra: `pjsip show contacts` lista o 400 com `transport=udp`
+- [ ] Uma chamada de teste completa, com áudio nos dois sentidos
+- [ ] O log de provisionamento mostra `entregue`, o ramal 400 e o IP do celular
+- [ ] Fechar e abrir o Linphone **não** dá aviso de erro de configuração
+      (o aplicativo esquece a URL depois do primeiro uso)
+
+### I4 🔴 O QR não entrega a senha para quem pedir
+
+- [ ] Ler o mesmo QR de novo devolve **410** (uso único)
+- [ ] Depois de 10 minutos, um QR não lido devolve **410**
+- [ ] Um token inventado em `/p/…` devolve **404**
+- [ ] O conteúdo do QR é só `https://<servidor>/p/<token>` — sem senha,
+      sem `sip:` (confira com qualquer leitor de QR)
+- [ ] `grep -r <senha> /var/log/nginx/ /var/log/php*` não encontra nada
+- [ ] `grep '/p/' /var/log/nginx/access.log` mostra `GET /p/…`, sem o token
+
 ---
 
 ## 11. Bloco J — Backup e restauração

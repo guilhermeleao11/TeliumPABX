@@ -198,6 +198,183 @@ final class Provisionar
     }
 
     /**
+     * POST /api/provisionamento/linphone — o QR Code de um ramal.
+     *
+     * Devolve só a URL com o token; a senha nunca volta para a tela. Em
+     * branco, vale a senha do cadastro — que é a que o Asterisk confere.
+     */
+    public function gerarLinphone(Request $req, Response $res): Response
+    {
+        $c = (array) $req->getParsedBody();
+        $ramalId = (int) ($c['ramal_id'] ?? 0);
+        $senha = (string) ($c['senha'] ?? '');
+
+        $ramal = $ramalId > 0
+            ? Bd::um('SELECT * FROM ramais WHERE id = ? AND ativo = 1', [$ramalId])
+            : null;
+        if ($ramal === null) {
+            return Resposta::erro($res, 'Escolha um ramal ativo.', 422);
+        }
+        if ((int) $ramal['webrtc'] === 1) {
+            return Resposta::erro(
+                $res,
+                "O ramal {$ramal['numero']} é do softphone do navegador (WebRTC) e só fala por "
+                . 'WebSocket. O Linphone registra por UDP: use um ramal SIP comum.',
+                422
+            );
+        }
+        if ($senha !== '' && (strlen($senha) > 120 || preg_match('/[\x00-\x1f\x7f]/', $senha) === 1)) {
+            return Resposta::erro($res, 'A senha SIP tem de ter até 120 caracteres, sem quebra de linha.', 422);
+        }
+
+        Provisionamento::limparConvites();
+
+        $token = Provisionamento::novoToken();
+        $usuario = $req->getAttribute('usuario');
+
+        // O prazo é contado pelo relógio do banco, que é o mesmo que
+        // confere a validade na entrega.
+        Bd::executar(
+            'INSERT INTO provisionamento_convite (token_hash, ramal_id, senha_cifrada, criado_por, expira_em)
+             VALUES (?, ?, ?, ?, NOW() + INTERVAL ? SECOND)',
+            [
+                Provisionamento::hashDoToken($token),
+                (int) $ramal['id'],
+                $senha === '' ? null : Provisionamento::cifrarSenha($senha, $token),
+                $usuario['id'] ?? null,
+                Provisionamento::LINPHONE_VALIDADE_SEG,
+            ]
+        );
+        $expira = (string) Bd::valor(
+            'SELECT expira_em FROM provisionamento_convite WHERE token_hash = ?',
+            [Provisionamento::hashDoToken($token)]
+        );
+
+        Auditoria::registrar($usuario, 'criar', 'conn.provisionamento',
+                             "QR do Linphone para o ramal {$ramal['numero']}");
+
+        // O celular busca a URL pela internet, não pela rede da central:
+        // o nome tem de ser o público, com certificado válido.
+        $host = trim((string) Ambiente::get('SIP_DOMINIO', '')) ?: $req->getUri()->getHost();
+        $destino = Provisionamento::destinoLinphone();
+
+        return Resposta::json($res, [
+            'url'          => "https://{$host}/p/{$token}",
+            'expira_em'    => $expira,
+            'validade_seg' => Provisionamento::LINPHONE_VALIDADE_SEG,
+            'ramal'        => (string) $ramal['numero'],
+            'nome'         => (string) $ramal['nome'],
+            'servidor'     => $destino['servidor'],
+            'porta'        => $destino['porta'],
+            'transporte'   => strtoupper($destino['transporte']),
+            // Digitada e diferente da do cadastro, o Asterisk vai recusar o
+            // registro. A tela avisa; quem decide é quem está instalando.
+            'senha_difere' => $senha !== '' && !hash_equals((string) $ramal['senha_sip'], $senha),
+        ], 201);
+    }
+
+    /**
+     * GET /p/{token} — o que o Linphone busca ao ler o QR.
+     *
+     * Sem sessão, como o /prov/: o aplicativo não faz login. O que
+     * protege é o token — 192 bits, dez minutos, uma vez só. A trava de
+     * rede interna não vale aqui: o celular costuma estar no 4G.
+     *
+     * Token usado ou vencido responde 410, nunca 200 com página de
+     * erro: a liblinphone apaga as credenciais que tinha antes de ler
+     * o corpo, e um 200 sem conta deixaria o aplicativo sem nenhuma.
+     */
+    public function linphone(Request $req, Response $res, array $args): Response
+    {
+        $ip = self::origem($req);
+        $agente = $req->getHeaderLine('User-Agent');
+        $token = strtolower((string) ($args['token'] ?? ''));
+
+        if (!Provisionamento::tokenValido($token)) {
+            Provisionamento::registrar(null, $ip, $agente, 'token_desconhecido');
+
+            return self::naoEncontrado($res);
+        }
+
+        $convite = Bd::um(
+            'SELECT c.*, (c.expira_em <= NOW()) AS vencido, r.numero
+               FROM provisionamento_convite c
+               LEFT JOIN ramais r ON r.id = c.ramal_id
+              WHERE c.token_hash = ?',
+            [Provisionamento::hashDoToken($token)]
+        );
+
+        if ($convite === null) {
+            Provisionamento::registrar(null, $ip, $agente, 'token_desconhecido');
+
+            return self::naoEncontrado($res);
+        }
+
+        $numero = $convite['numero'] !== null ? (string) $convite['numero'] : null;
+
+        if ($convite['usado_em'] !== null) {
+            Provisionamento::registrar(null, $ip, $agente, 'token_usado', $numero);
+
+            return self::expirado($res);
+        }
+        if ((int) $convite['vencido'] === 1) {
+            Provisionamento::registrar(null, $ip, $agente, 'token_expirado', $numero);
+
+            return self::expirado($res);
+        }
+
+        // Queima o token antes de entregar, e numa condição só: dois
+        // pedidos ao mesmo tempo não levam a senha duas vezes.
+        $queimou = Bd::executar(
+            'UPDATE provisionamento_convite
+                SET usado_em = NOW(), usado_ip = ?, senha_cifrada = NULL
+              WHERE id = ? AND usado_em IS NULL AND expira_em > NOW()',
+            [substr($ip, 0, 45), (int) $convite['id']]
+        );
+        if ($queimou !== 1) {
+            Provisionamento::registrar(null, $ip, $agente, 'token_usado', $numero);
+
+            return self::expirado($res);
+        }
+
+        $ramal = Bd::um('SELECT * FROM ramais WHERE id = ? AND ativo = 1', [(int) $convite['ramal_id']]);
+        if ($ramal === null) {
+            Provisionamento::registrar(null, $ip, $agente, 'sem_ramal', $numero);
+
+            return self::naoEncontrado($res);
+        }
+
+        $senha = (string) $ramal['senha_sip'];
+        if ($convite['senha_cifrada'] !== null) {
+            $digitada = Provisionamento::decifrarSenha((string) $convite['senha_cifrada'], $token);
+            if ($digitada === null) {
+                Provisionamento::registrar(null, $ip, $agente, 'token_desconhecido', $numero);
+
+                return self::naoEncontrado($res);
+            }
+            $senha = $digitada;
+        }
+
+        $conteudo = Provisionamento::linphone($ramal, $senha);
+        Provisionamento::registrar(null, $ip, $agente, 'entregue', $numero);
+
+        $corpo = $res->getBody();
+        $corpo->write($conteudo);
+
+        return $res->withBody($corpo)
+            ->withHeader('Content-Type', 'application/xml; charset=utf-8')
+            ->withHeader('Content-Length', (string) strlen($conteudo))
+            ->withHeader('Cache-Control', 'no-store')
+            ->withHeader('X-Robots-Tag', 'noindex');
+    }
+
+    private static function expirado(Response $res): Response
+    {
+        return $res->withStatus(410)->withHeader('Content-Type', 'text/plain')
+                   ->withHeader('Cache-Control', 'no-store');
+    }
+
+    /**
      * Sempre 404, nunca "MAC não cadastrado".
      *
      * Dizer qual das conferências falhou entrega a quem estiver varrendo

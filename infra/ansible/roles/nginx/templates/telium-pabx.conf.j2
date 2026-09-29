@@ -65,6 +65,17 @@ server {
         try_files $uri /api/index.php$is_args$args;
     }
 
+    # ---------- Linphone lendo o QR Code ----------
+    # O caminho é o token: o access.log o escreve sem caminho (ver o
+    # nginx.conf), e o error.log só no crítico, porque a linha do
+    # limit_req traz o pedido inteiro. Quem pediu, quando e o resultado
+    # ficam no registro de provisionamento do console, com o ramal.
+    location /p/ {
+        error_log  /var/log/nginx/error.log crit;
+        limit_req  zone=telium_api burst=20 nodelay;
+        try_files $uri /api/index.php$is_args$args;
+    }
+
     # O login é o alvo da varredura de senha e o mais caro de processar.
     # burst=5 deixa passar o erro de digitação sem deixar passar o robô.
     location = /api/auth/login {

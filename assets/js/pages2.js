@@ -1008,6 +1008,112 @@ PAGES['telium.tarifacao'] = {
 };
 
 /* ------------------------- Provisionamento ------------------------- */
+
+/* Linphone por QR Code. O celular não tem MAC cadastrado nem opção 66:
+   o QR leva uma URL de uso único, válida por dez minutos, e o aplicativo
+   busca nela a própria configuração. A senha não vai no QR e não volta
+   para a tela — só a URL com o token. */
+function cartaoLinphone(pagina, ctx) {
+  if (!ctx.can('editar')) return '';
+  const ramais = (pagina._ramais || []).filter(r => Number(r.ativo ?? 1) && !Number(r.webrtc));
+
+  return `
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head"><div><div class="card-title">Linphone no celular (QR Code)</div>
+        <div class="card-sub">Gera um QR que o Linphone para Android lê e com o qual configura o ramal
+          sozinho. Vale por 10 minutos e para uma leitura só.</div></div></div>
+      <div class="card-body">
+        <div class="grid g-2" style="gap:20px;align-items:start">
+          <form id="fLinphone" autocomplete="off">
+            <div class="form-grid">
+              <div class="field"><label class="label">Ramal *</label>
+                <select class="select" name="ramal_id" required>
+                  <option value="">Escolha…</option>
+                  ${ramais.map(r => `<option value="${r.id}">${esc(r.numero)} — ${esc(r.nome)}</option>`).join('')}
+                </select></div>
+              <div class="field"><label class="label">Senha SIP</label>
+                <input class="input" type="password" name="senha" autocomplete="new-password"
+                       maxlength="120" placeholder="em branco: a do cadastro do ramal"></div>
+            </div>
+            <p class="tiny muted" style="margin:10px 0 12px">Em branco, vai a senha cadastrada no ramal — que é a
+              que a central confere. Ramais do softphone do navegador (WebRTC) não aparecem: eles não falam UDP.</p>
+            <button class="btn btn-primary btn-sm" type="submit">${icon('grid','ico ico-sm')} Gerar QR Code</button>
+          </form>
+          <div id="linphoneResultado"></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function montarLinphone(pagina) {
+  const form = document.getElementById('fLinphone');
+  if (!form) return;
+
+  form.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const botao = form.querySelector('button[type=submit]');
+    const dados = lerFormulario(form);
+    botao.disabled = true;
+    try {
+      const r = await Api.post('/provisionamento/linphone',
+                               { ramal_id: Number(dados.ramal_id), senha: dados.senha || '' });
+      // A senha sai do campo assim que o QR existe: ela não fica na tela.
+      form.querySelector('[name=senha]').value = '';
+      pintarQrLinphone(pagina, r);
+    } catch (e) { toast(e.message, 'err'); }
+    finally { botao.disabled = false; }
+  });
+}
+
+function pintarQrLinphone(pagina, r) {
+  const alvo = document.getElementById('linphoneResultado');
+  if (!alvo) return;
+  clearInterval(pagina._linphoneRelogio);
+
+  alvo.innerHTML = `
+    <div class="row gap-16" style="align-items:flex-start;flex-wrap:wrap">
+      <div id="qrLinphone" class="qr-caixa"></div>
+      <div class="small" style="min-width:200px">
+        <div>Ramal: <b class="mono">${esc(r.ramal)}</b> <span class="muted">${esc(r.nome || '')}</span></div>
+        <div>Servidor: <span class="mono">${esc(r.servidor)}:${esc(r.porta)}</span></div>
+        <div>Transporte: <span class="mono">${esc(r.transporte)}</span></div>
+        <div style="margin-top:6px">Vale por <b id="linphoneRestante">10:00</b></div>
+        ${r.senha_difere ? `<p class="badge badge-warn" style="margin-top:8px;white-space:normal">A senha digitada é
+          diferente da cadastrada no ramal: a central vai recusar o registro.</p>` : ''}
+      </div>
+    </div>
+    <p class="small" style="margin:12px 0 0">Abra o Linphone no Android e utilize a opção de leitura de QR Code
+      para provisionar este ramal.</p>
+    <p class="tiny muted" style="margin:4px 0 0">No assistente de conta, "Ler QR code". O aplicativo aplica a
+      configuração na hora e substitui a primeira conta que já existisse nele.</p>`;
+
+  const caixa = document.getElementById('qrLinphone');
+  if (typeof qrcode === 'undefined') {
+    caixa.innerHTML = '<span class="small muted">Gerador de QR indisponível.</span>';
+  } else {
+    // O QR é desenhado aqui: a URL carrega o token, e mandá-la para um
+    // gerador de terceiros seria entregar a senha do ramal a ele.
+    const q = qrcode(0, 'M');
+    q.addData(r.url);
+    q.make();
+    caixa.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+  }
+
+  const fim = Date.now() + Number(r.validade_seg || 600) * 1000;
+  const relogio = () => {
+    const el = document.getElementById('linphoneRestante');
+    if (!el) { clearInterval(pagina._linphoneRelogio); return; }
+    const s = Math.max(0, Math.round((fim - Date.now()) / 1000));
+    el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    if (s === 0) {
+      clearInterval(pagina._linphoneRelogio);
+      caixa.innerHTML = '<span class="small muted" style="text-align:center">Vencido. Gere outro.</span>';
+    }
+  };
+  relogio();
+  pagina._linphoneRelogio = setInterval(relogio, 1000);
+}
+
 PAGES['conn.provisionamento'] = paginaCrud({
   recurso: 'dispositivos',
   titulo: 'Provisionamento de Telefones',
@@ -1056,7 +1162,7 @@ PAGES['conn.provisionamento'] = paginaCrud({
     const p = pagina._prov;
     if (!p) return '';
 
-    return `
+    return cartaoLinphone(pagina, ctx) + `
       <div class="card" style="margin-bottom:16px">
         <div class="card-head row-between">
           <div><div class="card-title">Endereço que o telefone busca</div>
@@ -1092,6 +1198,8 @@ PAGES['conn.provisionamento'] = paginaCrud({
   },
 
   aoMontar: (pagina, ctx) => {
+    montarLinphone(pagina);
+
     document.getElementById('copiarProvUrl')?.addEventListener('click', () => {
       const campo = document.getElementById('provUrl');
       campo.select();

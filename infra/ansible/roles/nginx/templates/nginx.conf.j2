@@ -21,7 +21,22 @@ http {
     log_format telium '$remote_addr - $remote_user [$time_local] "$request" '
                       '$status $body_bytes_sent "$http_referer" '
                       '"$http_user_agent" rt=$request_time';
-    access_log /var/log/nginx/access.log telium;
+    # O mesmo registro, sem o caminho, para o /p/. A URL do QR Code do
+    # Linphone é o próprio token, e token escrito em log é token que vale
+    # para quem ler o log nos dez minutos seguintes.
+    #
+    # A escolha é feita aqui, pelo caminho original, e não com um
+    # access_log dentro do "location /p/": o try_files manda o pedido
+    # para o "location = /api/index.php", e é o bloco em que o pedido
+    # termina que escreve o log — com o $request inteiro.
+    log_format telium_sem_caminho '$remote_addr - $remote_user [$time_local] "$request_method /p/…" '
+                                  '$status $body_bytes_sent "$http_user_agent" rt=$request_time';
+
+    map $request_uri $telium_log_comum { ~^/p/ 0; default 1; }
+    map $request_uri $telium_log_token { ~^/p/ 1; default 0; }
+
+    access_log /var/log/nginx/access.log telium if=$telium_log_comum;
+    access_log /var/log/nginx/access.log telium_sem_caminho if=$telium_log_token;
 
     sendfile        on;
     tcp_nopush      on;

@@ -145,6 +145,9 @@ congela no que valia quando ela aconteceu.
 Yealink e Fanvil (chave = valor), servidos num endereço com segredo no
 caminho, travado à rede local por padrão e com registro de quem pediu o
 quê — inclusive de quem pediu e não devia.
+O Linphone do Android entra por QR Code: uma URL de uso único, válida
+por dez minutos, que devolve o XML de configuração do próprio Linphone.
+Falta provar num celular de verdade (caderno, I3).
 
 **O gerenciador de usuários não deixa mais o console sem dono** —
 excluir ou desativar a última conta que administra, movê-la para um

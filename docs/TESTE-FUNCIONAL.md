@@ -150,6 +150,10 @@ Fanvil. Confira também o outro lado: pedir o arquivo sem o segredo do
 endereço, ou com um MAC não cadastrado, tem de devolver 404 — e a
 tentativa tem de aparecer no log da tela.
 
+O Linphone do Android entra pelo QR Code da mesma tela: o celular lê,
+baixa a configuração uma vez e registra por UDP. Ler o mesmo QR de novo,
+ou depois de dez minutos, tem de devolver 410. Roteiro no caderno, I3 e I4.
+
 ---
 
 ## 4. Aplicações

@@ -68,6 +68,7 @@ final class Testes
             $this->grupo('Faixas de horário', $this->horarios(...));
             $this->grupo('Tarifação', $this->tarifacao(...));
             $this->grupo('Provisionamento de telefones', $this->provisionamento(...));
+            $this->grupo('QR Code do Linphone', $this->linphone(...));
             $this->grupo('Envio de e-mail', $this->email(...));
             $this->grupo('Saída do backup', $this->backup(...));
             $this->grupo('Certificados TLS', $this->certificados(...));
@@ -1385,6 +1386,70 @@ final class Testes
     }
 
     /**
+     * O XML e o token do QR do Linphone.
+     *
+     * O formato foi conferido no código da liblinphone: <config>,
+     * <section>, <entry overwrite="true">. Sem overwrite o aplicativo
+     * mantém o valor antigo; sem transient_provisioning ele busca a URL
+     * de novo a cada abertura, e o token de uso único vira erro.
+     */
+    private function linphone(): void
+    {
+        $destino = ['servidor' => 'sip-reg-ext.telium.com.br', 'porta' => 5060, 'transporte' => 'udp'];
+        $ramal = ['numero' => '400', 'nome' => 'Sala "A" <3>', 'senha_sip' => 'x'];
+        $xml = Provisionamento::linphone($ramal, 'S3nh4&<Forte>', $destino);
+
+        $dom = new \DOMDocument();
+        $valido = @$dom->loadXML($xml) === true;
+        $this->ok($valido, 'o XML do Linphone é XML válido, mesmo com & e < na senha e no nome');
+        if (!$valido) {
+            return;
+        }
+
+        $this->ok(
+            $dom->documentElement->namespaceURI === 'http://www.linphone.org/xsds/lpconfig.xsd',
+            'a raiz é o <config> do lpconfig'
+        );
+
+        $valor = static function (string $secao, string $chave) use ($dom): ?string {
+            $x = new \DOMXPath($dom);
+            $x->registerNamespace('l', 'http://www.linphone.org/xsds/lpconfig.xsd');
+            $n = $x->query("//l:section[@name='{$secao}']/l:entry[@name='{$chave}']");
+
+            return $n !== false && $n->length === 1 ? $n->item(0)->textContent : null;
+        };
+
+        $this->ok($valor('proxy_0', 'reg_proxy') === '<sip:sip-reg-ext.telium.com.br:5060;transport=udp>',
+                  'o proxy é o servidor SIP, porta 5060, por UDP');
+        $this->ok($valor('proxy_0', 'reg_identity') === '"Sala A <3>" <sip:400@sip-reg-ext.telium.com.br>',
+                  'a identidade é sip:400@servidor, sem aspas do nome quebrando o endereço');
+        $this->ok($valor('proxy_0', 'reg_sendregister') === '1', 'a conta registra');
+        $this->ok($valor('auth_info_0', 'username') === '400', 'o usuário SIP é o número do ramal');
+        $this->ok($valor('auth_info_0', 'passwd') === 'S3nh4&<Forte>', 'a senha chega intacta');
+        $this->ok($valor('misc', 'transient_provisioning') === '1',
+                  'o aplicativo esquece a URL depois de aplicá-la');
+
+        $semOverwrite = 0;
+        foreach ($dom->getElementsByTagName('entry') as $e) {
+            $semOverwrite += $e->getAttribute('overwrite') === 'true' ? 0 : 1;
+        }
+        $this->ok($semOverwrite === 0, 'toda entrada sobrescreve o que o aplicativo já tinha');
+
+        $t = Provisionamento::novoToken();
+        $this->ok(Provisionamento::tokenValido($t), 'o token tem 48 hexadecimais (192 bits)');
+        $this->ok($t !== Provisionamento::novoToken(), 'dois tokens seguidos não se repetem');
+        $this->ok(!Provisionamento::tokenValido('../../etc/passwd'), 'caminho não é token');
+        $this->ok(strlen(Provisionamento::hashDoToken($t)) === 64 && Provisionamento::hashDoToken($t) !== $t,
+                  'o banco guarda o SHA-256, não o token');
+
+        $cifra = Provisionamento::cifrarSenha('S3nh4', $t);
+        $this->ok(!str_contains($cifra, 'S3nh4'), 'a senha digitada não fica legível no banco');
+        $this->ok(Provisionamento::decifrarSenha($cifra, $t) === 'S3nh4', 'o próprio token abre a senha');
+        $this->ok(Provisionamento::decifrarSenha($cifra, Provisionamento::novoToken()) === null,
+                  'outro token não abre a senha');
+    }
+
+    /**
      * A conta de cada chamada.
      *
      * Esta tela somava cdr.custo desde sempre, e nada escrevia a coluna:
@@ -1921,13 +1986,74 @@ final class Testes
         };
 
         $this->ok(
-            $pedir('/prov/segredo-errado/001122334455.cfg') === 404,
+            $pedir('/api/prov/segredo-errado/001122334455.cfg') === 404,
             'o provisionamento recusa quem não tem o segredo do endereço'
         );
         $this->ok(
-            $pedir('/prov/' . Provisionamento::segredo() . '/aaaaaaaaaaaa.cfg') === 404,
+            $pedir('/api/prov/' . Provisionamento::segredo() . '/aaaaaaaaaaaa.cfg') === 404,
             'o provisionamento recusa um MAC que não está cadastrado'
         );
+
+        $this->ok($pedir('/api/p/nao-e-token') === 404, 'o QR do Linphone recusa token malformado');
+        $this->ok($pedir('/api/p/' . Provisionamento::novoToken()) === 404,
+                  'o QR do Linphone recusa token que nunca existiu');
+
+        // O caminho inteiro, com um ramal e um convite de mentira dentro
+        // de uma transação que é desfeita no fim: nada fica no banco.
+        $pdo = Bd::conexao();
+        $pdo->beginTransaction();
+        try {
+            Bd::executar(
+                "INSERT INTO ramais (numero, nome, senha_sip) VALUES ('9T400', 'Teste QR', 'SenhaDoCadastro')"
+            );
+            $ramalId = (int) $pdo->lastInsertId();
+
+            $convite = static function (string $prazo, ?string $senha = null) use ($ramalId): string {
+                $t = Provisionamento::novoToken();
+                Bd::executar(
+                    "INSERT INTO provisionamento_convite (token_hash, ramal_id, senha_cifrada, expira_em)
+                     VALUES (?, ?, ?, NOW() + INTERVAL {$prazo})",
+                    [Provisionamento::hashDoToken($t), $ramalId,
+                     $senha === null ? null : Provisionamento::cifrarSenha($senha, $t)]
+                );
+
+                return $t;
+            };
+
+            $buscar = static function (string $token) use ($app): array {
+                $req = (new \Slim\Psr7\Factory\ServerRequestFactory())
+                    ->createServerRequest('GET', "/api/p/{$token}");
+                $r = $app->handle($req);
+
+                return [$r->getStatusCode(), (string) $r->getBody(), $r->getHeaderLine('Content-Type')];
+            };
+
+            $t = $convite('10 MINUTE');
+            [$codigo, $corpo, $tipo] = $buscar($t);
+            $this->ok($codigo === 200, "o Linphone recebe a configuração com o token válido ({$codigo})");
+            $this->ok(str_starts_with($tipo, 'application/xml'), 'a resposta é application/xml');
+            $this->ok(str_contains($corpo, '>SenhaDoCadastro</entry>'),
+                      'sem senha digitada, vai a senha do cadastro do ramal');
+            $this->ok(!str_contains($corpo, $t), 'o token não aparece no XML');
+
+            [$codigo] = $buscar($t);
+            $this->ok($codigo === 410, "o mesmo token, lido de novo, responde 410 ({$codigo})");
+
+            [$codigo] = $buscar($convite('-1 SECOND'));
+            $this->ok($codigo === 410, "token vencido responde 410 ({$codigo})");
+
+            [$codigo, $corpo] = $buscar($convite('10 MINUTE', 'Digitada#1'));
+            $this->ok($codigo === 200 && str_contains($corpo, '>Digitada#1</entry>'),
+                      'a senha digitada na tela é a que chega ao aplicativo');
+
+            $sobrou = (int) Bd::valor(
+                'SELECT COUNT(*) FROM provisionamento_convite WHERE ramal_id = ? AND senha_cifrada IS NOT NULL',
+                [$ramalId]
+            );
+            $this->ok($sobrou === 0, 'a senha cifrada some do banco no primeiro uso');
+        } finally {
+            $pdo->rollBack();
+        }
     }
 
     /**
@@ -2134,7 +2260,7 @@ final class Testes
         // que a protege é conferido logo abaixo, caso a caso.
         // A chave é montada trocando cada {parâmetro} por "1", então é
         // assim que a rota de provisionamento aparece aqui.
-        $publicas = ['GET /api/health', 'POST /api/auth/login', 'GET /api/prov/1/1'];
+        $publicas = ['GET /api/health', 'POST /api/auth/login', 'GET /api/prov/1/1', 'GET /api/p/1'];
         $abertas = [];
         $conferidas = 0;
 

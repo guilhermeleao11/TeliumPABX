@@ -23,6 +23,7 @@ final class Esquema
         'conferencias', 'anuncios',
         'grupos_horario', 'grupo_horario_faixas', 'condicoes_horarias',
         'estacionamentos', 'despertadores',
+        'provisionamento_convite',
     ];
 
     /** Colunas acrescentadas depois, por tabela. */
@@ -35,6 +36,8 @@ final class Esquema
         // Sem esta coluna o relatório de chamadas não mostra por que
         // a ligação não completou, e o dialplan grava no vazio.
         'cdr' => ['motivo'],
+        // O QR do Linphone escreve o ramal no registro de pedidos.
+        'provisionamento_log' => ['ramal'],
     ];
 
     /**
