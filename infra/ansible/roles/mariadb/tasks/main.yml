@@ -5,11 +5,26 @@
     state: directory
     mode: "0755"
 
+# Com a chave já instalada, não há o que baixar. Sem esta conferência,
+# toda atualização dependia de mariadb.org responder — e um tempo
+# esgotado no handshake derrubava o playbook antes de qualquer coisa
+# que se quisesse de fato atualizar.
+- name: Ver se a chave do MariaDB já está instalada
+  ansible.builtin.stat:
+    path: /etc/apt/keyrings/mariadb.gpg
+  register: chave_mariadb
+
 - name: Baixar chave de assinatura do MariaDB
   ansible.builtin.get_url:
     url: https://mariadb.org/mariadb_release_signing_key.pgp
     dest: /tmp/mariadb_signing.key
     mode: "0644"
+    timeout: 60
+  register: baixou_chave
+  retries: 3
+  delay: 10
+  until: baixou_chave is succeeded
+  when: not chave_mariadb.stat.exists
 
 - name: Converter chave do MariaDB para keyring binário
   ansible.builtin.shell:
