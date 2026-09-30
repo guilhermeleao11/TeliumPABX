@@ -31,7 +31,7 @@ antes de o ramal registrar é perder a tarde.
 |---|---|
 | Cliente | |
 | Endereço do console | `https://` |
-| Versão instalada (`git log --oneline -1` em `/opt/telium-src`) | |
+| Versão instalada (`git log --oneline -1` em `/opt/TeliumPABX`) | |
 | Data de início / término | |
 | Quem testou | |
 | Quantos ramais em produção | |
@@ -54,7 +54,7 @@ Monte o cenário antes de qualquer caso. Sem ele, cada teste começa com
 vinte cadastros à mão.
 
 ```sh
-cd /opt/telium-src && git pull
+cd /opt/TeliumPABX && git pull
 cd infra/ansible
 sudo ansible-playbook site.yml -e compilar_asterisk=false \
                                -e compilar_janus=false \
@@ -83,7 +83,7 @@ O que derruba tudo o mais. Nada abaixo vale se algum destes falhar.
 ### A1 🔴 A bateria passa inteira
 
 ```sh
-sudo -u telium php /opt/telium/api/bin/telium testar
+sudo -u teliumpbx php /opt/telium/api/bin/telium testar
 ```
 
 Tem de terminar em `✓ N testes, nenhuma falha`.
@@ -98,7 +98,7 @@ Tem de terminar em `✓ N testes, nenhuma falha`.
 ### A2 🔴 O diagnóstico não acusa nada
 
 ```sh
-sudo -u telium php /opt/telium/api/bin/telium doctor
+sudo -u teliumpbx php /opt/telium/api/bin/telium doctor
 ```
 
 Confere banco, AMI e permissão de escrita nos diretórios.
@@ -579,7 +579,7 @@ conta que não bate é pior do que nenhuma.
 ### H2 🟡 O cálculo roda e bate
 
 ```sh
-sudo -u telium php /opt/telium/api/bin/telium tarifar
+sudo -u teliumpbx php /opt/telium/api/bin/telium tarifar
 ```
 
 Depois, faça uma chamada externa de duração conhecida (marque no
@@ -1065,6 +1065,6 @@ aba *Network* com a requisição que falhou.
 Para falha de configuração aplicada:
 
 ```sh
-sudo -u telium php /opt/telium/api/bin/telium doctor
-sudo -u telium php /opt/telium/api/bin/telium testar
+sudo -u teliumpbx php /opt/telium/api/bin/telium doctor
+sudo -u teliumpbx php /opt/telium/api/bin/telium testar
 ```

@@ -19,13 +19,15 @@ nginx com TLS, Asterisk compilado, TURN, backup, firewall e o console:
 
 ```bash
 sudo apt update && sudo apt install -y ansible git
-git clone https://github.com/guilhermeleao11/TeliumPABX.git /opt/telium-src
-cd /opt/telium-src/infra/ansible
+git clone https://github.com/guilhermeleao11/TeliumPABX.git /opt/TeliumPABX
+cd /opt/TeliumPABX/infra/ansible
 sudo ansible-playbook site.yml
 ```
 
-O guia completo — variáveis, senhas, atualização, diagnóstico e o cenário
-de teste — está em **[infra/README.md](infra/README.md)**.
+**Guias de instalação, atualização, backup e problemas comuns:
+[documentacao/](documentacao/README.md).** A referência técnica do
+provisionamento (variáveis, áudios em português, TLS, TURN) está em
+[infra/README.md](infra/README.md).
 
 Para mexer só no front-end, sem instalar nada:
 

@@ -25,7 +25,7 @@ Não confie no estado: a ideia é você derrubar o que estiver errado.
 ## 1. Montar o ambiente
 
 ```sh
-cd /opt/telium-src && git pull
+cd /opt/TeliumPABX && git pull
 cd infra/ansible
 sudo ansible-playbook site.yml -e compilar_asterisk=false -e compilar_janus=false \
                                -e cenario_teste=true
@@ -64,7 +64,7 @@ sudo asterisk -rx "core reload"            # não pode sair nenhum ERROR
 sudo asterisk -rx "pjsip show endpoints"   # os ramais do cenário
 sudo asterisk -rx "pjsip show transports"  # udp, tcp, tls, wss
 sudo asterisk -rx "queue show 3000"        # a fila com dois agentes
-sudo -u telium php /opt/telium/api/bin/telium testar
+sudo -u teliumpbx php /opt/telium/api/bin/telium testar
 ```
 
 A bateria termina em `✓ N testes, nenhuma falha`. Qualquer falha aqui
@@ -272,7 +272,7 @@ Cadastre os valores da operadora e confira em Telium → Tarifação.
 ## 8. Telium
 
 ### Tarifação — **falta provar**
-`sudo -u telium php /opt/telium/api/bin/telium tarifar` calcula o que
+`sudo -u teliumpbx php /opt/telium/api/bin/telium tarifar` calcula o que
 está pendente; de hora em hora o `telium-tarifar.timer` faz sozinho.
 Faça uma chamada externa de duração conhecida e confira o valor contra a
 conta à mão: `taxa fixa + (segundos cobrados ÷ 60) × custo por minuto`,

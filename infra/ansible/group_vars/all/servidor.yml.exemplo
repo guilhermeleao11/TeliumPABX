@@ -1,0 +1,33 @@
+# Ajustes DESTE servidor.
+#
+# Copie para servidor.yml (na mesma pasta) e edite:
+#
+#   cp servidor.yml.exemplo servidor.yml
+#
+# O servidor.yml fica fora do Git: o git pull da atualização nunca
+# conflita com ele, e o que é do cliente não vai parar no repositório.
+# O Ansible lê os arquivos desta pasta em ordem alfabética, e o que vem
+# depois vale: o que estiver aqui ganha do main.yml.
+#
+# Deixe só o que muda neste servidor; o resto continua vindo do main.yml.
+
+# Nome pelo qual o console, os telefones e o navegador chegam à central.
+# Precisa resolver no DNS e ser alcançável de quem usa o console — um
+# ".local" não serve para o softphone do navegador. Começa por letra,
+# sem "_".
+pabx_hostname: "voz.suaempresa.com.br"
+
+# Enquanto o nome acima ainda não existe no DNS, aponte o TURN (o áudio do
+# softphone do navegador) direto para o IP público do servidor:
+# turn_dominio: "200.170.198.144"
+
+# Encaminhamento de log para o syslog central. Os IPs do main.yml são os
+# do grupo VoIP da Telium; num cliente com outro syslog, troque aqui — ou
+# desligue.
+# syslog_central: false
+# syslog_central_asterisk: "10.0.0.10"
+# syslog_central_auth: "10.0.0.10"
+# syslog_central_sistema: "10.0.0.10"
+
+# Nome da empresa, usado na identificação da central.
+# pabx_empresa: "Sua Empresa"

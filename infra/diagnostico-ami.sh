@@ -6,7 +6,8 @@
 export LC_ALL=C
 CONF=/etc/asterisk/manager.conf
 CRED=/etc/telium/credenciais/ami_senha
-VAULT=/opt/telium-src/infra/ansible/group_vars/all/vault.yml
+# Relativo ao próprio script: o clone não mora no mesmo lugar em todo servidor.
+VAULT="$(cd "$(dirname "$0")" && pwd)/ansible/group_vars/all/vault.yml"
 
 echo "== 1. Asterisk escutando na 5038?"
 ss -lntp 2>/dev/null | grep ':5038' || echo "   (nada escutando)"

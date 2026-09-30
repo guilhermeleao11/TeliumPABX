@@ -18,3 +18,7 @@ api/var/cache/*
 
 # ---- harness de teste local ----
 __auto.html
+
+# ---- ajustes de cada servidor (nome, TURN, syslog…): fora do Git ----
+# Assim o git pull da atualização nunca conflita com o que é do cliente.
+infra/ansible/group_vars/all/servidor.yml

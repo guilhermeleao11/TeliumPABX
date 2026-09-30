@@ -101,7 +101,10 @@ para a central — o firewall do próprio servidor já é aberto pelo playbook.
 
 ## Antes de rodar
 
-Ajuste `ansible/group_vars/all/main.yml`. O mínimo é uma linha:
+Os ajustes de cada servidor vão em `ansible/group_vars/all/servidor.yml`,
+**fora do Git** (copie de `servidor.yml.exemplo`): o que estiver nele
+ganha do `main.yml`, e o `git pull` da atualização nunca conflita. O
+mínimo é uma linha:
 
 ```yaml
 pabx_hostname: "pabx.suaempresa.com.br"
@@ -145,8 +148,8 @@ Duas variáveis que costumam confundir e **não precisam ser mexidas**:
 
 ```bash
 sudo apt update && sudo apt install -y ansible git
-git clone https://github.com/guilhermeleao11/TeliumPABX.git /opt/telium-src
-cd /opt/telium-src/infra/ansible
+git clone https://github.com/guilhermeleao11/TeliumPABX.git /opt/TeliumPABX
+cd /opt/TeliumPABX/infra/ansible
 sudo ansible-playbook site.yml
 ```
 
@@ -253,7 +256,7 @@ Esses 16 mais `digits/` já cobrem o que se ouve todos os dias.
 ### Conferir
 
 ```bash
-sudo -u telium php /opt/telium/api/bin/telium testar   # o grupo "Áudios"
+sudo -u teliumpbx php /opt/telium/api/bin/telium testar   # o grupo "Áudios"
 sudo asterisk -rx "core show settings" | grep -i language
 ```
 
@@ -293,7 +296,7 @@ entrega** — é exatamente o que se quer saber antes de entregar a central.
 Para rodar de novo a qualquer momento:
 
 ```bash
-sudo -u telium php /opt/telium/api/bin/telium testar
+sudo -u teliumpbx php /opt/telium/api/bin/telium testar
 ```
 
 Tem de terminar em `✓ N testes, nenhuma falha`. Se falhar, pare: nada
@@ -371,8 +374,11 @@ dizendo quais áudios o dialplan pede e não existem.
 
 ## Atualizar uma instalação existente
 
+O passo a passo completo, com backup, conferência e como voltar atrás,
+está em [documentacao/02-ATUALIZACAO.md](../documentacao/02-ATUALIZACAO.md).
+
 ```bash
-cd /opt/telium-src && git pull
+cd /opt/TeliumPABX && git pull
 cd infra/ansible
 sudo ansible-playbook site.yml -e compilar_asterisk=false -e compilar_janus=false
 ```

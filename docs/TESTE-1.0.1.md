@@ -7,7 +7,7 @@ o que precisa de telefone de verdade está separado no fim.
 ## Como colocar a 1.0.1 na VM
 
 ```sh
-cd /opt/telium-src && git pull
+cd /opt/TeliumPABX && git pull
 cd infra/ansible && sudo ansible-playbook site.yml
 ```
 
