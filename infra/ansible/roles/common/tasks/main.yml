@@ -133,15 +133,56 @@
     group: ssl-cert
     mode: "0750"
 
+# A central mudou de nome (ou era a de fábrica e ganhou o nome do
+# cliente): o par de fábrica ainda leva o nome antigo, e o "creates"
+# abaixo nunca o refaria. Ele é refeito; o par ATIVO só acompanha se for
+# o de fábrica — um certificado enviado pelo console não é tocado.
+- name: Ler o nome do par de fábrica atual
+  ansible.builtin.command: "openssl x509 -in {{ tls_fabrica_cert }} -noout -ext subjectAltName"
+  register: fabrica_nome
+  changed_when: false
+  failed_when: false
+  when: tls_autoassinado
+
+- name: O par de fábrica é deste nome?
+  ansible.builtin.set_fact:
+    fabrica_trocar: >-
+      {{ tls_autoassinado and fabrica_nome.rc | default(1) == 0
+         and ('DNS:' ~ pabx_hostname) not in fabrica_nome.stdout
+         and ('IP Address:' ~ pabx_hostname) not in fabrica_nome.stdout }}
+
+# Todas as linhas com o mesmo recuo: no ">-" do YAML, uma linha mais
+# recuada mantém a quebra, e o comando chegava partido ao shell.
+- name: O par ativo é o de fábrica?
+  ansible.builtin.shell: >-
+    ativo=$(openssl x509 -in {{ tls_cert }} -noout -fingerprint -sha256 2>/dev/null);
+    fabrica=$(openssl x509 -in {{ tls_fabrica_cert }} -noout -fingerprint -sha256 2>/dev/null);
+    [ -n "$ativo" ] && [ "$ativo" = "$fabrica" ]
+  register: ativo_de_fabrica
+  changed_when: false
+  failed_when: false
+  when: fabrica_trocar | bool
+
+- name: Descartar o par de fábrica do nome antigo
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ tls_fabrica_cert }}"
+    - "{{ tls_fabrica_key }}"
+  when: fabrica_trocar | bool
+
 # O par de fábrica nunca é substituído pelo console: ele é a rede de
 # segurança para onde o sistema volta se um certificado enviado der errado.
+# O nome vai como DNS ou, quando é um IP, como IP — assim o navegador
+# confere o que foi digitado.
 - name: Gerar o par de fábrica autoassinado
   ansible.builtin.command:
     cmd: >-
       openssl req -x509 -nodes -newkey rsa:2048 -days 3650
       -keyout {{ tls_fabrica_key }} -out {{ tls_fabrica_cert }}
       -subj "/C=BR/ST=SP/L=Sao Paulo/O={{ pabx_empresa }}/CN={{ pabx_hostname }}"
-      -addext "subjectAltName=DNS:{{ pabx_hostname }},DNS:localhost,IP:127.0.0.1,IP:{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}"
+      -addext "subjectAltName={{ ('IP:' if pabx_hostname is match('^[0-9.]+$') else 'DNS:') ~ pabx_hostname }},DNS:localhost,IP:127.0.0.1,IP:{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}"
     creates: "{{ tls_fabrica_cert }}"
   when: tls_autoassinado
 
@@ -162,6 +203,25 @@
   loop_control:
     label: "{{ item.destino }}"
   when: tls_autoassinado
+
+# Com o nome novo, o par ativo que era o de fábrica passa a ser o novo de
+# fábrica. O force: false de cima não o trocaria.
+- name: Trocar o par ativo pelo de fábrica com o nome novo
+  ansible.builtin.copy:
+    src: "{{ item.origem }}"
+    dest: "{{ item.destino }}"
+    remote_src: true
+    force: true
+    owner: root
+    group: ssl-cert
+    mode: "{{ item.modo }}"
+  loop:
+    - { origem: "{{ tls_fabrica_cert }}", destino: "{{ tls_cert }}", modo: "0644" }
+    - { origem: "{{ tls_fabrica_key }}",  destino: "{{ tls_key }}",  modo: "0640" }
+  loop_control:
+    label: "{{ item.destino }}"
+  when: (fabrica_trocar | bool) and (ativo_de_fabrica.rc | default(1) == 0)
+  notify: recarregar nginx
 
 - name: Ajustar permissões dos certificados
   ansible.builtin.file:

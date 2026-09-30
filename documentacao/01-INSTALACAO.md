@@ -45,10 +45,36 @@ sudo git clone https://github.com/guilhermeleao11/TeliumPABX.git /opt/TeliumPABX
 cd /opt/TeliumPABX/infra/ansible
 ```
 
-## 3. Ajustar para este servidor
+## 3. O nome do servidor
 
-Os ajustes de cada servidor vão num arquivo **próprio, fora do Git**. Assim
-a atualização (`git pull`) nunca conflita com eles.
+**A instalação pergunta o nome** logo no começo, porque cada cliente tem o
+seu:
+
+```
+ Qual é o nome deste servidor?
+ ...
+Nome do servidor: voz.cliente.com.br
+```
+
+- Use o nome que está no DNS apontando para o servidor. Ainda sem DNS,
+  responda com o **IP público**.
+- A resposta é conferida: um nome `.local` ou com `_` é recusado, com o
+  motivo, porque o navegador não conseguiria usar a central com ele.
+- O nome fica guardado em `infra/ansible/group_vars/all/servidor.yml`,
+  **fora do Git**, e as execuções seguintes (atualizações) **não perguntam
+  de novo**.
+- Rodando sem terminal (automação, CI), passe o nome na linha de comando:
+  `sudo ansible-playbook site.yml -e pabx_hostname=voz.cliente.com.br`.
+  Sem nome, a instalação para em vez de seguir com um nome errado.
+
+Para trocar o nome depois, edite o `pabx_hostname` no `servidor.yml` e rode
+o playbook de novo. O certificado de fábrica é refeito com o nome novo; um
+certificado enviado pelo console não é tocado.
+
+### Outros ajustes deste servidor (opcionais)
+
+Ficam no mesmo `servidor.yml`, que a instalação cria a partir de
+`servidor.yml.exemplo`. Para ajustar **antes** da primeira instalação:
 
 ```bash
 cd /opt/TeliumPABX/infra/ansible/group_vars/all
@@ -56,13 +82,7 @@ sudo cp servidor.yml.exemplo servidor.yml
 sudo nano servidor.yml
 ```
 
-O mínimo é o nome:
-
-```yaml
-pabx_hostname: "voz.cliente.com.br"
-```
-
-Revise também:
+Revise:
 
 | Variável | Quando mexer |
 |---|---|
@@ -70,7 +90,8 @@ Revise também:
 | `syslog_central` e `syslog_central_*` | O `main.yml` manda os logs para o syslog do grupo VoIP da Telium. Num cliente com outro syslog, troque os IPs; sem syslog central, `syslog_central: false`. |
 | `pabx_empresa` | Nome da empresa. |
 
-**Não edite o `main.yml`.** Tudo que estiver no `servidor.yml` ganha dele.
+**Não edite o `main.yml`.** Tudo que estiver no `servidor.yml` ganha dele,
+e o `main.yml` editado faz o `git pull` da atualização recusar.
 
 Não é preciso mexer em:
 - **IP público e redes locais**: são ajustados depois pelo console, em
@@ -89,6 +110,7 @@ cd /opt/TeliumPABX/infra/ansible
 sudo ansible-playbook site.yml
 ```
 
+- Primeiro vem a **pergunta do nome** (seção 3).
 - A **compilação do Asterisk leva de 5 a 15 minutos**. É a parte demorada.
 - No fim, o playbook roda a **bateria de testes**, e uma falha ali
   **interrompe a entrega**. É o que se quer: não entregue uma central que

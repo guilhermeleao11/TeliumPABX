@@ -141,6 +141,16 @@ cd /opt/TeliumPABX && sudo git checkout main && sudo git pull
 
 O que muda na operação, e não só por dentro.
 
+### O nome do servidor
+
+- A instalação **pergunta o nome** quando ele ainda é o de fábrica
+  (`pabx.telium.local`) e o guarda no `servidor.yml`. Numa central que já
+  estava no ar com o nome de fábrica, **a próxima atualização vai
+  perguntar**: responda com o nome do DNS (ex.: `voz.telium.com.br`). Nas
+  seguintes, não pergunta mais.
+- Com o nome novo, o certificado de fábrica é refeito. Se a central usa
+  um certificado enviado pelo console, ele continua o mesmo.
+
 ### Pesquisa de satisfação (`5f390c2`)
 - Novo módulo em **Aplicações › Pesquisa de Satisfação**. A pesquisa que
   já existia é mantida, com as respostas antigas.

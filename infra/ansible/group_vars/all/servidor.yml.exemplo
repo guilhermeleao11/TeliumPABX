@@ -1,6 +1,8 @@
 # Ajustes DESTE servidor.
 #
-# Copie para servidor.yml (na mesma pasta) e edite:
+# A instalação cria o servidor.yml sozinha, na primeira execução, quando
+# pergunta o nome da central. Para os outros ajustes, edite o arquivo
+# criado — ou, antes da primeira instalação, copie este e edite:
 #
 #   cp servidor.yml.exemplo servidor.yml
 #
@@ -12,10 +14,11 @@
 # Deixe só o que muda neste servidor; o resto continua vindo do main.yml.
 
 # Nome pelo qual o console, os telefones e o navegador chegam à central.
-# Precisa resolver no DNS e ser alcançável de quem usa o console — um
-# ".local" não serve para o softphone do navegador. Começa por letra,
-# sem "_".
-pabx_hostname: "voz.suaempresa.com.br"
+# A instalação PERGUNTA este nome na primeira vez e o grava aqui — não é
+# preciso preencher à mão. Precisa resolver no DNS e ser alcançável de
+# quem usa o console; um ".local" não serve para o softphone do navegador.
+# Começa por letra, sem "_". Um IP também é aceito.
+# pabx_hostname: "voz.suaempresa.com.br"
 
 # Enquanto o nome acima ainda não existe no DNS, aponte o TURN (o áudio do
 # softphone do navegador) direto para o IP público do servidor:

@@ -5,10 +5,87 @@
   gather_facts: true
 
   pre_tasks:
+    # ---------- o nome desta central ----------
+    # Cada cliente tem o seu, e ele vai para o console, o certificado, o
+    # domínio SIP e o TURN. O de fábrica (pabx.telium.local) não serve
+    # para nada de verdade — um ".local" nem o navegador resolve —, então
+    # enquanto ele estiver valendo a instalação pergunta. A resposta fica
+    # guardada no servidor.yml (fora do Git) e as próximas execuções não
+    # perguntam mais. Sem terminal: -e pabx_hostname=voz.cliente.com.br
+    - name: O nome desta central já foi escolhido?
+      ansible.builtin.set_fact:
+        pabx_nome_pendente: "{{ (pabx_hostname | default('') | string | trim | lower) in ['', 'pabx.telium.local'] }}"
+
+    - name: Perguntar o nome desta central
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           Qual é o nome deste servidor?
+
+           É o endereço do console (https://<nome>/), o nome no certificado,
+           o domínio dos telefones e o do áudio do softphone do navegador.
+           Precisa apontar para este servidor no DNS e ser alcançável de
+           quem vai usar o console. Ex.: voz.cliente.com.br
+
+           Ainda sem DNS? Digite o IP público do servidor.
+          ════════════════════════════════════════════════════════════════
+          Nome do servidor
+      register: resposta_nome
+      when: pabx_nome_pendente
+
+    - name: Usar o nome informado
+      ansible.builtin.set_fact:
+        pabx_hostname: "{{ resposta_nome.user_input | default('') | trim | lower }}"
+      when: pabx_nome_pendente
+
+    - name: Conferir o nome da central
+      ansible.builtin.assert:
+        that:
+          - pabx_hostname | length > 0
+          - pabx_hostname is not search('\.local$')
+          # Nome no formato que os telefones e o navegador aceitam (RFC 3261:
+          # cada parte com letras, números e hífen, a última começando por
+          # letra) — ou um IPv4.
+          - >-
+            (pabx_hostname is match('^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$'))
+            or (pabx_hostname is match('^((25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])$'))
+        fail_msg: >-
+          O nome "{{ pabx_hostname }}" não serve para a central.
+          {% if pabx_hostname | length == 0 %}Nenhum nome foi informado: rodando sem terminal,
+          passe o nome com -e pabx_hostname=voz.cliente.com.br.{% elif pabx_hostname is search('\.local$') %}Um
+          nome ".local" não é resolvido pelo navegador de quem usa o console, e o softphone
+          fica sem áudio. Use o nome do DNS (ex.: voz.cliente.com.br) ou o IP público.{% else %}Use
+          um nome como voz.cliente.com.br (letras, números, hífen e pontos; sem "_"; a última
+          parte começando por letra) ou um IP.{% endif %}
+        quiet: true
+
+    # O servidor.yml vive no clone, na máquina de onde o playbook roda.
+    # Uma central por clone: para várias, use host_vars/<servidor>.yml.
+    - name: Criar o servidor.yml a partir do modelo
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/group_vars/all/servidor.yml.exemplo"
+        dest: "{{ playbook_dir }}/group_vars/all/servidor.yml"
+        force: false
+        mode: "0644"
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    - name: Guardar o nome da central no servidor.yml
+      ansible.builtin.lineinfile:
+        path: "{{ playbook_dir }}/group_vars/all/servidor.yml"
+        regexp: '^#?\s*pabx_hostname:'
+        line: 'pabx_hostname: "{{ pabx_hostname }}"'
+      delegate_to: localhost
+      run_once: true
+      become: false
+
     - name: Resumo do que será instalado
       ansible.builtin.debug:
         msg:
           - "Telium PABX 1.0.1"
+          - "Nome ...... {{ pabx_hostname }}  (console: https://{{ pabx_hostname }}/)"
           - "Alvo ...... {{ inventory_hostname }} ({{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }})"
           - "Asterisk .. {{ asterisk_versao }} (compilado do fonte)"
           - "Janus ..... {{ janus_versao }} (compilado do fonte)"

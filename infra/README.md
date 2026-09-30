@@ -103,8 +103,12 @@ para a central — o firewall do próprio servidor já é aberto pelo playbook.
 
 Os ajustes de cada servidor vão em `ansible/group_vars/all/servidor.yml`,
 **fora do Git** (copie de `servidor.yml.exemplo`): o que estiver nele
-ganha do `main.yml`, e o `git pull` da atualização nunca conflita. O
-mínimo é uma linha:
+ganha do `main.yml`, e o `git pull` da atualização nunca conflita.
+
+**O nome o playbook pergunta** na primeira execução (enquanto valer o de
+fábrica, `pabx.telium.local`), confere e grava no `servidor.yml`; sem
+terminal, passe `-e pabx_hostname=voz.cliente.com.br`. Para deixar
+escrito de antemão, é uma linha:
 
 ```yaml
 pabx_hostname: "pabx.suaempresa.com.br"
