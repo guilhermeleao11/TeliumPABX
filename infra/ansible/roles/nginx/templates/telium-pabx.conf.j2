@@ -50,14 +50,32 @@ server {
     index index.html;
 
     # ---------- front-end estático ----------
+    # O HTML, o JavaScript e o CSS do console mudam a cada atualização e
+    # não levam versão no nome: com cache de 7 dias o navegador seguia com
+    # a tela antiga depois do git pull — botão novo não aparecia e correção
+    # de tela não chegava. "no-cache" não é "sem cache": o navegador guarda
+    # e só pergunta se mudou; sem mudança, a resposta é um 304 vazio.
     location / {
         try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache" always;
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+        add_header Strict-Transport-Security "max-age=31536000" always;
     }
 
     # Um add_header dentro de um location descarta TODOS os herdados do
     # server, então os de segurança precisam ser repetidos aqui — senão o
     # JavaScript do console era servido sem nosniff e sem HSTS.
-    location ~* \.(css|js|svg|png|jpg|woff2?)$ {
+    location ~* \.(css|js)$ {
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy strict-origin-when-cross-origin always;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+    }
+
+    # Imagem e fonte não mudam entre versões: estas podem ficar guardadas.
+    location ~* \.(svg|png|jpg|woff2?)$ {
         expires 7d;
         add_header Cache-Control "public, max-age=604800";
         add_header X-Content-Type-Options nosniff always;
