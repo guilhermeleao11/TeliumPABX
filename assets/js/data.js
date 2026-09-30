@@ -46,6 +46,7 @@ const MENU = [
     id: 'apps', label: 'Aplicações', icon: 'grid',
     items: [
       { id: 'apps.filas',        label: 'Filas de Atendimento',   icon: 'headset' },
+      { id: 'apps.pesquisas',    label: 'Pesquisa de Satisfação', icon: 'star' },
       { id: 'apps.grupostoque',  label: 'Grupos de Toque',        icon: 'users' },
       { id: 'apps.ura',          label: 'URA / Atendimento Digital', icon: 'branch' },
       { id: 'apps.conferencias', label: 'Conferências',           icon: 'users' },

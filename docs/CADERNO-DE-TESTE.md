@@ -953,6 +953,32 @@ telefones. Um supervisor com ramal vinculado à própria conta.
 
 ---
 
+### R 🔴 Pesquisa de satisfação (Aplicações › Pesquisa de Satisfação)
+
+Prepare três anúncios (saudação, "digite de 1 a 5…", agradecimento), crie a
+pesquisa com eles, escolha-a na aba **Pesquisa** de uma fila e aplique.
+
+- [ ] Cliente liga na fila, o atendente atende e **desliga**: o cliente
+      ouve a saudação e a mensagem das notas, sem a chamada cair
+- [ ] Digita uma nota válida: ouve o agradecimento; a resposta aparece em
+      **Resultados** com o número de quem ligou, a fila e o atendente
+- [ ] Escala de 0 a 10: digitar **1** e **0** registra 10; digitar só **1**
+      registra 1 (espera 2 segundos pelo segundo dígito)
+- [ ] Tecla fora da escala: ouve o aviso e a pergunta de novo; errando
+      todas, fica "Tecla inválida"
+- [ ] Não digita nada: pergunta de novo; sem resposta, fica "Não respondeu"
+- [ ] Desliga no meio da pesquisa: fica "Desligou no meio"
+- [ ] Com "a menor nota é a melhor", nota 10 conta como **insatisfeito** e
+      a nota mínima como **satisfeito**; o índice vai de 0 (pior) a 100 (melhor)
+- [ ] Número de transferência: o atendente transfere o cliente para ele no
+      fim da conversa; a resposta sai com o ramal de quem transferiu
+- [ ] Filtros por período, fila e atendente mudam os números; **Exportar
+      respostas** baixa o CSV com as mesmas linhas
+- [ ] No call center, o relatório de agentes mostra a satisfação (0 a 100)
+      de cada agente
+
+---
+
 ## 17. O que NÃO entra nesta aceitação
 
 Escreva aqui, e **mostre ao cliente antes de virar a chave**. Prometer o

@@ -445,3 +445,29 @@ kbd.k { font: 600 10.5px var(--font); background: var(--surface); border: 1px so
   background: var(--brand-soft); border-color: var(--brand); color: var(--brand); font-weight: 600;
 }
 .chip-check input:focus-visible + span { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* ---------- Pesquisa de satisfação ---------- */
+/* Satisfeitos, neutros e insatisfeitos numa faixa só. */
+.pesq-faixa { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: var(--surface-3); }
+.pesq-faixa > div { height: 100%; }
+/* Uma linha por nota: a nota, a barra da quantidade e o número. */
+.pesq-nota { display: grid; grid-template-columns: 28px 1fr 48px 40px; align-items: center; gap: 10px; }
+.pesq-nota b { text-align: right; }
+.pesq-trilho { height: 10px; border-radius: 5px; background: var(--surface-3); overflow: hidden; }
+.pesq-trilho > div { height: 100%; border-radius: 5px; min-width: 2px; }
+/* Índice pequeno, dentro de uma célula de tabela. */
+.pesq-mini { display: inline-block; width: 60px; height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+.pesq-mini > i { display: block; height: 100%; }
+/* Colunas do dia a dia: a altura é o índice. */
+.pesq-dias { display: flex; align-items: flex-end; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.pesq-dia { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1 0 26px; max-width: 48px; }
+.pesq-coluna { width: 100%; height: 110px; display: flex; align-items: flex-end; background: var(--surface-2); border-radius: 5px; overflow: hidden; }
+.pesq-coluna > i { display: block; width: 100%; border-radius: 5px 5px 0 0; min-height: 2px; }
+/* Prévia da escala no formulário. */
+.pesq-previa { display: flex; flex-wrap: wrap; gap: 6px; }
+.pesq-chip { display: inline-grid; place-items: center; min-width: 34px; height: 30px; padding: 0 6px;
+  border: 2px solid; border-radius: 8px; font-weight: 700; font-variant-numeric: tabular-nums; background: var(--surface); }
+@media (max-width: 560px) {
+  .pesq-nota { grid-template-columns: 24px 1fr 40px; }
+  .pesq-nota .tiny { display: none; }
+}

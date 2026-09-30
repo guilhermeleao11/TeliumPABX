@@ -30,9 +30,10 @@ final class Conferencia
         $conf   = self::coluna('SELECT numero FROM conferencias WHERE ativo = 1', 'numero');
         $pag    = self::coluna('SELECT numero FROM grupos_paging WHERE ativo = 1', 'numero');
         $disa   = self::coluna('SELECT id FROM disa WHERE ativo = 1', 'id');
+        $pesq   = self::coluna('SELECT id FROM pesquisas WHERE ativo = 1', 'id');
 
         $existe = static function (?string $tipo, ?string $valor) use (
-            $ramais, $filas, $uras, $grupos, $anun, $cond, $conf, $pag, $disa
+            $ramais, $filas, $uras, $grupos, $anun, $cond, $conf, $pag, $disa, $pesq
         ): bool {
             $valor = (string) $valor;
 
@@ -47,6 +48,7 @@ final class Conferencia
                 'conferencia' => in_array($valor, $conf, true),
                 'paging'    => in_array($valor, $pag, true),
                 'disa'      => in_array($valor, $disa, true),
+                'pesquisa'  => in_array($valor, $pesq, true),
                 // externo e personalizado apontam para fora do cadastro;
                 // desligar, ocupado e congestionado não têm valor.
                 default     => true,

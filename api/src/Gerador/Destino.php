@@ -37,6 +37,7 @@ final class Destino
             'disa'      => ["Goto(telium-disa,disa-{$valor},1)"],
             'conferencia' => ["Goto(telium-conferencias,{$valor},1)"],
             'paging'    => ["Goto(telium-paging,{$valor},1)"],
+            'pesquisa'  => ['Goto(telium-pesquisa,' . (int) $valor . ',1)'],
             'personalizado' => $this->paraPersonalizado((string) $valor),
             // Três jeitos de encerrar, e a diferença importa para quem
             // liga: desligar é silêncio, ocupado toca o tom de ocupado e
@@ -95,6 +96,7 @@ final class Destino
             'externo'   => "número externo {$valor}",
             'conferencia' => "conferência {$valor}",
             'paging'    => "megafonia {$valor}",
+            'pesquisa'  => "pesquisa de satisfação {$valor}",
             'ocupado'   => 'tom de ocupado',
             'congestionado' => 'tom de congestionamento',
             'personalizado' => isset($this->personalizados[(int) $valor])

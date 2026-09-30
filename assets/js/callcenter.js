@@ -1103,7 +1103,7 @@ PAGES['cc.relatorios'] = {
         <div class="card-body tight">${d.agentes.length ? `<div class="table-wrap"><table class="table">
           <thead><tr><th>Agente</th><th class="num">Atendidas</th><th class="num">TMA</th><th class="num">Não atendeu</th>
             <th class="num">Logado</th><th class="num">Em pausa</th><th>Pausas</th><th class="num">Ocupação</th>
-            <th class="num">Nota</th><th class="num">Tabuladas</th></tr></thead>
+            <th class="num" data-tip="Índice da pesquisa de satisfação, de 0 (pior) a 100 (melhor)">Satisfação</th><th class="num">Tabuladas</th></tr></thead>
           <tbody>${d.agentes.map(a => `<tr>
             <td><b>${esc(a.nome)}</b>${a.matricula ? ` <span class="tiny muted mono">${esc(a.matricula)}</span>` : ''}</td>
             <td class="num">${num(a.atendidas)}</td><td class="num">${ccTempo(a.tma)}</td><td class="num">${num(a.nao_atendeu)}</td>

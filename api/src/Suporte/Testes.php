@@ -74,6 +74,7 @@ final class Testes
             $this->grupo('Firewall: nunca bloquear', $this->confiaveis(...));
             $this->grupo('Telefone do navegador: permissão', $this->permissaoTelefone(...));
             $this->grupo('Ramais em planilha', $this->ramaisCsv(...));
+            $this->grupo('Pesquisa de satisfação', $this->pesquisaSatisfacao(...));
             $this->grupo('Envio de e-mail', $this->email(...));
             $this->grupo('Saída do backup', $this->backup(...));
             $this->grupo('Certificados TLS', $this->certificados(...));
@@ -353,6 +354,7 @@ final class Testes
             'condicao'      => ['2',    'Goto(telium-condicoes,2,1)'],
             'conferencia'   => ['4000', 'Goto(telium-conferencias,4000,1)'],
             'paging'        => ['5000', 'Goto(telium-paging,5000,1)'],
+            'pesquisa'      => ['1',    'Goto(telium-pesquisa,1,1)'],
             'disa'          => ['1',    'Goto(telium-disa,disa-1,1)'],
             'externo'       => ['011999', 'Goto(telium-saida,011999,1)'],
             'personalizado' => ['7',    'Goto(telium-recursos,*60,1)'],
@@ -2584,6 +2586,57 @@ final class Testes
     }
 
     // ---------------------------------------------------------------
+    /**
+     * A pesquisa gerada faz o que a tela promete: a nota 10 existe, a
+     * escala recusa o que está fora dela, e quem desliga no meio conta.
+     * Numa transação desfeita no fim, com pesquisas de teste.
+     */
+    private function pesquisaSatisfacao(): void
+    {
+        $pdo = Bd::conexao();
+        $pdo->beginTransaction();
+        try {
+            Bd::executar("INSERT INTO pesquisas (nome, numero, nota_min, nota_max, sentido, tentativas, segundos, ativo)
+                          VALUES ('Teste 0 a 10', '98710', 0, 10, 'menor_melhor', 3, 6, 1),
+                                 ('Teste 1 a 5', NULL, 1, 5, 'maior_melhor', 2, 8, 1)");
+            $dez = (int) Bd::valor("SELECT id FROM pesquisas WHERE numero = '98710'");
+            $cinco = (int) Bd::valor("SELECT id FROM pesquisas WHERE nome = 'Teste 1 a 5' ORDER BY id DESC LIMIT 1");
+            $texto = (new GeradorDialplan())->gerar()['extensions.pesquisa.conf'] ?? '';
+
+            $bloco = static function (string $texto, int $id): string {
+                $ini = strpos($texto, "exten => {$id},1,");
+                if ($ini === false) {
+                    return '';
+                }
+                $fim = strpos($texto, "\nexten => ", $ini + 1);
+
+                return substr($texto, $ini, $fim === false ? null : $fim - $ini);
+            };
+            $b10 = $bloco($texto, $dez);
+            $b5 = $bloco($texto, $cinco);
+
+            $this->ok(str_contains($b10, 'Read(TELIUM_NOTA2,,1,,1,2)'), 'escala até 10: quem digita 1 tem tempo de completar o 10');
+            $this->ok($b5 !== '' && !str_contains($b5, 'TELIUM_NOTA2'), 'escala até 5: nenhuma espera extra');
+            $this->ok(str_contains($b10, '${TELIUM_NOTA} < 0 | ${TELIUM_NOTA} > 10')
+                      && str_contains($b5, '${TELIUM_NOTA} < 1 | ${TELIUM_NOTA} > 5'), 'a faixa aceita é a da pesquisa');
+            $this->ok(str_contains($b10, 'TELIUM_PQ_TENT} >= 3') && str_contains($b10, 'Read(TELIUM_NOTA,beep,1,,1,6)'),
+                      'tentativas e tempo para digitar vêm do cadastro');
+            $this->ok(preg_match('/^exten => h,1,.*TELIUM_PQ_FEITA/m', $texto) === 1 && str_contains($texto, ',desligou)='),
+                      'quem desliga no meio fica registrado');
+            $this->ok(str_contains($texto, "exten => 98710,1,") && str_contains($texto, "Goto(telium-pesquisa,{$dez},1)"),
+                      'o número de transferência leva à pesquisa');
+            foreach (['respondida', 'sem_resposta', 'invalida'] as $status) {
+                $this->ok(str_contains($b10, ",{$status})="), "o desfecho \"{$status}\" é registrado");
+            }
+        } finally {
+            $pdo->rollBack();
+        }
+
+        // O índice de 0 a 100 no sentido da pesquisa, como a planilha e o relatório contam.
+        $this->ok(\Telium\Dominio\Pesquisas::SATISFEITO > \Telium\Dominio\Pesquisas::INSATISFEITO,
+                  'satisfeito e insatisfeito são faixas separadas');
+    }
+
     /**
      * A planilha de ramais: o que o Excel em português salva tem de ser
      * lido do jeito que a pessoa escreveu.

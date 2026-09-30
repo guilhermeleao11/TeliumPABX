@@ -6,7 +6,7 @@
 /* Opções de destino usadas por rotas e URA — carregadas do banco. */
 async function opcoesDestino() {
   const vazio = () => ({ dados: [] });
-  const [ramais, filas, uras, custom, grupos, anuncios, disa, condicoes, conferencias, paging] =
+  const [ramais, filas, uras, custom, grupos, anuncios, disa, condicoes, conferencias, paging, pesquisas] =
     await Promise.all([
       Api.get('/ramais', { limite: 500 }).catch(vazio),
       Api.get('/filas', { limite: 200 }).catch(vazio),
@@ -17,7 +17,8 @@ async function opcoesDestino() {
       Api.get('/disa', { limite: 100 }).catch(vazio),
       Api.get('/condicoes-horarias', { limite: 200 }).catch(vazio),
       Api.get('/conferencias', { limite: 200 }).catch(vazio),
-      Api.get('/grupos-paging', { limite: 200 }).catch(vazio)
+      Api.get('/grupos-paging', { limite: 200 }).catch(vazio),
+      Api.get('/pesquisas', { limite: 200 }).catch(vazio)
     ]);
   const ativos = l => (l.dados || []).filter(x => Number(x.ativo));
   return {
@@ -27,6 +28,7 @@ async function opcoesDestino() {
     condicoes: ativos(condicoes),
     conferencias: ativos(conferencias),
     paging: ativos(paging),
+    pesquisas: ativos(pesquisas),
     // Anúncio, não gravação: a gravação é matéria-prima, o anúncio é o
     // que sabe o que fazer com ela.
     anuncios: ativos(anuncios),
@@ -70,6 +72,8 @@ function destinoSelect(prefixo, item, destinos, extras = {}) {
     grupo('DISA', (d.disa || []).map(x => ({ v: `disa|${x.id}`, r: x.nome }))),
     grupo('Megafonia', (d.paging || []).map(g =>
         ({ v: `paging|${g.numero}`, r: `${g.numero} — ${g.nome}` }))),
+    grupo('Pesquisa de satisfação', (d.pesquisas || []).map(x =>
+        ({ v: `pesquisa|${x.id}`, r: x.nome }))),
     grupo('Destinos personalizados', (d.personalizados || []).map(x =>
         ({ v: `personalizado|${x.id}`, r: `${x.nome} (${x.contexto},${x.extensao})` }))),
     // Número externo é o único destino que não sai de um cadastro: o

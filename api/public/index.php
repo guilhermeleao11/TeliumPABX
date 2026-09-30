@@ -6,6 +6,7 @@ use Slim\Routing\RouteCollectorProxy;
 use Telium\Http\Controllers\Autenticacao as CtrlAuth;
 use Telium\Http\Controllers\Cadastros;
 use Telium\Http\Controllers\RamaisCsv;
+use Telium\Http\Controllers\Pesquisas as CtrlPesquisas;
 use Telium\Http\Controllers\Certificados;
 use Telium\Http\Controllers\Provisionar;
 use Telium\Http\Controllers\CallCenter as CtrlCallCenter;
@@ -411,16 +412,39 @@ $recursos = [
         ),
     ],
     'pesquisas' => [
-        'modulo' => 'apps.filas',
+        'modulo' => 'apps.pesquisas',
+        // A fila escolhe a pesquisa, e URA ou rota de entrada podem mandar
+        // o cliente para ela como destino.
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'pesquisas',
-            colunas: ['nome','descricao','anuncio_pergunta_id','anuncio_obrigado_id','nota_min',
-                      'nota_max','tentativas','segundos','ativo'],
+            colunas: ['nome','numero','descricao','anuncio_saudacao_id','anuncio_pergunta_id',
+                      'anuncio_obrigado_id','anuncio_invalida_id','nota_min','nota_max','sentido',
+                      'tentativas','segundos','ativo'],
             ordem: 'nome',
-            busca: ['nome','descricao'],
+            busca: ['nome','descricao','numero'],
             filtros: ['ativo'],
             afetaAsterisk: true,
-            modulo: 'apps.filas',
+            modulo: 'apps.pesquisas',
+            regras: [
+                'nome' => ['rotulo' => 'nome', 'obrigatorio' => true, 'max' => 80],
+                // O número vira extensão discável: o atendente transfere para ele.
+                'numero' => ['rotulo' => 'número para transferir', 'padrao' => '/^[0-9]{2,10}$/',
+                             'mensagem' => 'O número para transferir é só de dígitos, de 2 a 10.'],
+                // Nota de 0 a 10: até 9 é um dígito, e o 10 é o único de dois.
+                'nota_min' => ['rotulo' => 'nota mínima', 'obrigatorio' => true, 'padrao' => '/^[0-9]$/',
+                               'mensagem' => 'A nota mínima vai de 0 a 9.'],
+                'nota_max' => ['rotulo' => 'nota máxima', 'obrigatorio' => true, 'padrao' => '/^([1-9]|10)$/',
+                               'mensagem' => 'A nota máxima vai de 1 a 10.'],
+                'sentido' => ['rotulo' => 'sentido da escala', 'em' => ['maior_melhor', 'menor_melhor']],
+                'tentativas' => ['rotulo' => 'tentativas', 'padrao' => '/^[1-5]$/',
+                                 'mensagem' => 'De 1 a 5 tentativas.'],
+                'segundos' => ['rotulo' => 'tempo para digitar', 'padrao' => '/^([3-9]|[12][0-9]|30)$/',
+                               'mensagem' => 'O tempo para digitar vai de 3 a 30 segundos.'],
+            ],
+            unicas: ['numero'],
+            conferir: static fn (string $acao, array $dados, array $atual): ?array
+                => \Telium\Dominio\Pesquisas::conferir($acao, $dados, $atual),
         ),
     ],
     'rotas-entrada' => [
@@ -1100,7 +1124,11 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->put('/filas/{id}/agentes', [Filas::class, 'salvarAgentes'])
       ->add(new Permissao('apps.filas', 'editar'));
     $g->get('/filas/{id}/situacao', [Filas::class, 'situacao'])->add(new Permissao('apps.filas'));
-    $g->get('/pesquisas/resultados', [Filas::class, 'resultados'])->add(new Permissao('apps.filas'));
+    // ---- pesquisa de satisfação: resultados (antes do CRUD de /pesquisas/{id}) ----
+    $g->get('/pesquisas/resultados', [CtrlPesquisas::class, 'resultados'])->add(new Permissao('apps.pesquisas'));
+    $g->get('/pesquisas/respostas', [CtrlPesquisas::class, 'respostas'])->add(new Permissao('apps.pesquisas'));
+    $g->get('/pesquisas/respostas/csv', [CtrlPesquisas::class, 'csv'])
+      ->add(new Permissao('apps.pesquisas', 'exportar'));
 
     // ---- URA: entradas do menu ----
     $g->get('/ura/{id}/opcoes', [Ura::class, 'opcoes'])->add(new Permissao('apps.ura'));

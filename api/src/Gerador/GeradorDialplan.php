@@ -755,49 +755,113 @@ final class GeradorDialplan
         $pesquisas = Bd::todos('SELECT * FROM pesquisas WHERE ativo = 1 ORDER BY id');
 
         if ($pesquisas === []) {
-            return $b->comentario('nenhuma pesquisa ativa')->texto();
+            return $b->comentario('nenhuma pesquisa ativa')
+                ->branco()->contexto('telium-pesquisa-numeros')->comentario('nenhuma pesquisa ativa')
+                ->texto();
         }
+
+        // O registro de cada desfecho leva quem ligou, a fila e quem atendeu.
+        $registrar = static fn (int $id, string $status, string $nota): string => sprintf(
+            'Set(ODBC_TELIUM_PESQUISA(%d,${TELIUM_FILA},${TELIUM_PQ_AGENTE},${TELIUM_PQ_RAMAL},'
+            . '${CALLERID(num)},${UNIQUEID},%s)=%s)',
+            $id, $status, $nota
+        );
 
         foreach ($pesquisas as $p) {
             $id = (int) $p['id'];
-            $min = (int) $p['nota_min'];
-            $max = (int) $p['nota_max'];
-            $prompt = $this->audioDoAnuncio($p['anuncio_pergunta_id'] ?? 0) ?: 'beep';
+            $min = max(0, min(9, (int) $p['nota_min']));
+            $max = max($min + 1, min(10, (int) $p['nota_max']));
+            $tentativas = max(1, min(5, (int) $p['tentativas']));
+            $segundos = max(3, min(30, (int) $p['segundos']));
+            $saudacao = $this->audioDoAnuncio($p['anuncio_saudacao_id'] ?? 0);
+            $pergunta = $this->audioDoAnuncio($p['anuncio_pergunta_id'] ?? 0) ?: 'beep';
+            $obrigado = $this->audioDoAnuncio($p['anuncio_obrigado_id'] ?? 0) ?: 'auth-thankyou';
+            $invalida = $this->audioDoAnuncio($p['anuncio_invalida_id'] ?? 0) ?: 'pbx-invalid';
+            $sentido = ($p['sentido'] ?? 'maior_melhor') === 'menor_melhor'
+                ? "{$min} é a melhor" : "{$max} é a melhor";
 
             $b->branco()
-              ->comentario("{$id} — {$p['nome']} (nota de {$min} a {$max})")
+              ->comentario("{$id} — {$p['nome']} (nota de {$min} a {$max}; {$sentido})")
               ->exten((string) $id, "NoOp(Pesquisa: {$p['nome']})")
+              ->same("Set(TELIUM_PQ={$id})")
+              ->same('Set(TELIUM_PQ_FEITA=)')
+              ->same('Set(TELIUM_PQ_TENT=0)')
+              // Quem atendeu. Na fila, a interface do membro (PJSIP/1001, ou
+              // Local/1001@... quando a fila confirma o atendimento); vindo
+              // por transferência, o canal de quem transferiu.
+              ->same('Set(TELIUM_PQ_RAMAL=${CUT(MEMBERINTERFACE,/,2)})')
+              ->same('ExecIf($["${TELIUM_PQ_RAMAL}" = "" & "${BLINDTRANSFER}" != ""]'
+                   . '?Set(TELIUM_PQ_RAMAL=${CUT(BLINDTRANSFER,/,2)}))')
+              ->same('Set(TELIUM_PQ_RAMAL=${CUT(TELIUM_PQ_RAMAL,@,1)})')
+              ->same('Set(TELIUM_PQ_RAMAL=${CUT(TELIUM_PQ_RAMAL,-,1)})')
+              // O agente do call center ("Agente/5"). O nome de um membro
+              // comum não vai: vírgula ou parêntese ali quebrariam o registro,
+              // e o ramal já diz quem foi.
+              ->same('Set(TELIUM_PQ_AGENTE=${IF($["${MEMBERNAME:0:7}" = "Agente/"]?${MEMBERNAME}:)})')
+              ->same('Answer()');
+
+            if ($saudacao !== '') {
+                $b->same("Playback({$saudacao})");
+            }
+
+            $b->same('Set(TELIUM_PQ_TENT=$[${TELIUM_PQ_TENT} + 1])', 'pergunta')
               ->same('Set(TELIUM_NOTA=)')
-              ->same(sprintf(
-                  'Read(TELIUM_NOTA,%s,1,,%d,%d)',
-                  $prompt,
-                  max(1, (int) $p['tentativas']),
-                  max(3, (int) $p['segundos'])
-              ))
-              ->same('GotoIf($["${TELIUM_NOTA}" = ""]?sem-' . $id . ')')
-              ->same('GotoIf($[${TELIUM_NOTA} < ' . $min . ' | ${TELIUM_NOTA} > ' . $max
-                  . ']?invalida-' . $id . ')')
-              ->same(sprintf(
-                  'Set(ODBC_TELIUM_PESQUISA(%d,${TELIUM_FILA},${MEMBERINTERFACE},'
-                  . '${CALLERID(num)},${UNIQUEID})=${TELIUM_NOTA})',
-                  $id
-              ))
-              ->same('NoOp(Nota ${TELIUM_NOTA} registrada)');
+              ->same("Read(TELIUM_NOTA,{$pergunta},1,,1,{$segundos})");
 
-            $obrigado = $this->audioDoAnuncio($p['anuncio_obrigado_id'] ?? 0);
-            $b->same('Playback(' . ($obrigado ?: 'auth-thankyou') . ')');
+            // Nota 10 tem dois dígitos. Quem digitou 1 ganha dois segundos
+            // para completar com 0; quem para no 1 fica com 1. Só o 1 espera:
+            // as outras notas seguem na hora.
+            if ($max === 10) {
+                $b->same('GotoIf($["${TELIUM_NOTA}" != "1"]?confere)')
+                  ->same('Read(TELIUM_NOTA2,,1,,1,2)')
+                  ->same('ExecIf($["${TELIUM_NOTA2}" != ""]?Set(TELIUM_NOTA=1${TELIUM_NOTA2}))');
+            }
 
-            $b->same('Hangup()')
-              // Uma tecla fora da faixa vira nova tentativa, não descarte.
-              ->same('Playback(pbx-invalid)', 'invalida-' . $id)
-              ->same("Goto(telium-pesquisa,{$id},1)")
-              ->same(sprintf(
-                  'Set(ODBC_TELIUM_PESQUISA(%d,${TELIUM_FILA},${MEMBERINTERFACE},'
-                  . '${CALLERID(num)},${UNIQUEID})=)',
-                  $id
-              ), 'sem-' . $id)
+            $b->same('GotoIf($["${TELIUM_NOTA}" = ""]?vazio)', 'confere')
+              ->same('GotoIf($[${REGEX("^[0-9]{1,2}$" ${TELIUM_NOTA})} = 0]?invalida)')
+              ->same("GotoIf(\$[\${TELIUM_NOTA} < {$min} | \${TELIUM_NOTA} > {$max}]?invalida)")
+              ->same('Set(TELIUM_PQ_FEITA=1)')
+              ->same($registrar($id, 'respondida', '${TELIUM_NOTA}'))
+              ->same('NoOp(Nota ${TELIUM_NOTA} registrada)')
+              ->same("Playback({$obrigado})")
+              ->same('Hangup()')
+              // Tecla fora da faixa: avisa e pergunta de novo, até o limite.
+              ->same("GotoIf(\$[\${TELIUM_PQ_TENT} >= {$tentativas}]?esgotou)", 'invalida')
+              ->same("Playback({$invalida})")
+              ->same('Goto(pergunta)')
+              ->same('Set(TELIUM_PQ_FEITA=1)', 'esgotou')
+              ->same($registrar($id, 'invalida', ''))
+              ->same("Playback({$obrigado})")
+              ->same('Hangup()')
+              // Não digitou nada: pergunta de novo, até o limite.
+              ->same("GotoIf(\$[\${TELIUM_PQ_TENT} < {$tentativas}]?pergunta)", 'vazio')
+              ->same('Set(TELIUM_PQ_FEITA=1)')
+              ->same($registrar($id, 'sem_resposta', ''))
               ->same('NoOp(Cliente não respondeu)')
+              ->same("Playback({$obrigado})")
               ->same('Hangup()');
+        }
+
+        // Desligou no meio: também é resultado. O "h" roda no contexto em que
+        // o canal estava, e só registra se nada foi registrado antes.
+        $b->branco()
+          ->comentario('Quem desliga no meio da pesquisa')
+          ->exten('h', 'GotoIf($["${TELIUM_PQ_FEITA}" = "1" | "${TELIUM_PQ}" = ""]?fim)')
+          ->same('Set(ODBC_TELIUM_PESQUISA(${TELIUM_PQ},${TELIUM_FILA},${TELIUM_PQ_AGENTE},${TELIUM_PQ_RAMAL},'
+               . '${CALLERID(num)},${UNIQUEID},desligou)=)')
+          ->same('NoOp(Pesquisa encerrada)', 'fim');
+
+        // Os números para o atendente transferir o cliente para a pesquisa.
+        $b->branco()
+          ->comentario('Números de transferência (incluído no contexto interno)')
+          ->contexto('telium-pesquisa-numeros');
+        foreach ($pesquisas as $p) {
+            $numero = trim((string) ($p['numero'] ?? ''));
+            if ($numero === '') {
+                continue;
+            }
+            $b->exten($numero, "NoOp(Transferido para a pesquisa {$p['nome']})")
+              ->same('Goto(telium-pesquisa,' . (int) $p['id'] . ',1)');
         }
 
         return $b->texto();

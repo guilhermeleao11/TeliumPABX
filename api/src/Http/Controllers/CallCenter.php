@@ -725,7 +725,7 @@ final class CallCenter
             ],
             default => [
                 ['Agente', 'Matrícula', 'Atendidas', 'TMA (s)', 'Falado (s)', 'Não atendeu', 'Logado (s)',
-                 'Em pausa (s)', 'Pausa produtiva (s)', 'Ocupação %', 'Nota', 'Respostas', 'Tabuladas'],
+                 'Em pausa (s)', 'Pausa produtiva (s)', 'Ocupação %', 'Satisfação (0-100)', 'Respostas da pesquisa', 'Tabuladas'],
                 array_map(static fn ($a) => [$a['nome'], $a['matricula'], $a['atendidas'], $a['tma'], $a['falado'],
                     $a['nao_atendeu'], $a['logado'], $a['pausado'], $a['pausa_produtiva'], $a['ocupacao'], $a['nota'],
                     $a['respostas'], $a['tabuladas']], $r->agentes()),

@@ -53,13 +53,16 @@ readsql=SELECT nome FROM contatos WHERE discagem_rapida = '${SQL_ESC(${ARG1})}' 
 
 ; ------------------------------------------------------------------
 ; Pesquisa de satisfação:
-;   Set(ODBC_TELIUM_PESQUISA(<id>,<fila>,<agente>,<origem>,<uniqueid>)=<nota>)
-; Nota vazia é gravada como NULL de propósito: "ouviu e não respondeu"
-; é resultado, e some se a gente não registrar.
+;   Set(ODBC_TELIUM_PESQUISA(<id>,<fila>,<agente>,<ramal>,<origem>,<uniqueid>,<status>)=<nota>)
+; status: respondida · sem_resposta · invalida · desligou. Quem ouviu e não
+; respondeu também é resultado, e some se a gente não registrar.
+; A resposta leva a escala vigente (mínimo, máximo e sentido) e o índice de
+; 0 a 100 já calculado no sentido certo: mudar a escala depois não reescreve
+; o que o cliente disse, e pesquisas de escalas diferentes se comparam.
 ; ------------------------------------------------------------------
 [TELIUM_PESQUISA]
 dsn=telium
-writesql=INSERT INTO pesquisa_respostas (pesquisa_id, fila, agente, origem, uniqueid, nota) VALUES (${ARG1}, NULLIF('${SQL_ESC(${ARG2})}',''), NULLIF('${SQL_ESC(${ARG3})}',''), NULLIF('${SQL_ESC(${ARG4})}',''), NULLIF('${SQL_ESC(${ARG5})}',''), NULLIF('${SQL_ESC(${VAL1})}',''))
+writesql=INSERT INTO pesquisa_respostas (pesquisa_id, fila, agente, ramal, origem, uniqueid, status, nota, nota_min, nota_max, sentido, satisfacao) SELECT p.id, NULLIF('${SQL_ESC(${ARG2})}',''), NULLIF('${SQL_ESC(${ARG3})}',''), NULLIF('${SQL_ESC(${ARG4})}',''), NULLIF('${SQL_ESC(${ARG5})}',''), NULLIF('${SQL_ESC(${ARG6})}',''), IF('${SQL_ESC(${ARG7})}' IN ('respondida','sem_resposta','invalida','desligou'), '${SQL_ESC(${ARG7})}', 'sem_resposta'), n.nota, p.nota_min, p.nota_max, p.sentido, IF(n.nota IS NULL, NULL, ROUND(100 * IF(p.sentido = 'menor_melhor', p.nota_max - n.nota, n.nota - p.nota_min) / NULLIF(p.nota_max - p.nota_min, 0), 2)) FROM pesquisas p JOIN (SELECT IF('${SQL_ESC(${VAL1})}' REGEXP '^[0-9]{1,2}$', CAST('${SQL_ESC(${VAL1})}' AS UNSIGNED), NULL) AS nota) n WHERE p.id = CAST('${SQL_ESC(${ARG1})}' AS UNSIGNED)
 
 ; ------------------------------------------------------------------
 ; Registro de gravação:

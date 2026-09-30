@@ -1523,10 +1523,10 @@ PAGES['apps.filas'] = {
 
     const cabecalho = pageHead('Filas de Atendimento',
       'Distribuição das chamadas, agentes, anúncios e metas de nível de serviço.',
-      `${ctx.can('criar')
-        ? `<button class="btn btn-outline btn-sm" id="verPesquisas">
-             ${icon('star','ico ico-sm')} Pesquisas</button>
-           <button class="btn btn-primary btn-sm" data-nova-fila>
+      `${Auth.can('apps.pesquisas') ? `<a class="btn btn-outline btn-sm" href="#/apps.pesquisas">
+             ${icon('star','ico ico-sm')} Pesquisas de satisfação</a>` : ''}
+       ${ctx.can('criar')
+        ? `<button class="btn btn-primary btn-sm" data-nova-fila>
              ${icon('plus','ico ico-sm')} Nova fila</button>`
         : readOnlyNote(ctx)}`);
 
@@ -1995,88 +1995,8 @@ PAGES['apps.filas'] = {
       });
     });
 
-    // ---------- pesquisas ----------
-    document.getElementById('verPesquisas')?.addEventListener('click', () => paginaPesquisas(ctx, pagina));
   }
 };
-
-/** Gaveta de pesquisas de satisfação, aberta pela tela de filas. */
-async function paginaPesquisas(ctx, pagina) {
-  let r;
-  try { r = await Api.get('/pesquisas', { limite: 100 }); }
-  catch (e) { toast(e.message, 'err'); return; }
-
-  const anuncios = opcoesAnuncio(pagina._anuncios, '— sem anúncio, só um bipe —');
-
-  const campos = p => [
-    { campo: 'nome', label: 'Nome', obrigatorio: true, largura: 'full', placeholder: 'Nota do atendimento' },
-    { campo: 'descricao', label: 'Descrição', largura: 'full' },
-    { campo: 'anuncio_pergunta_id', label: 'Anúncio da pergunta', tipo: 'select', opcoes: anuncios, largura: 'full',
-      ajuda: 'Ex.: "De 1 a 5, que nota você dá para o atendimento?". Sem anúncio, o cliente só ouve um bipe — crie o seu em Aplicações › Anúncios.' },
-    { campo: 'anuncio_obrigado_id', label: 'Anúncio de agradecimento', tipo: 'select', opcoes: anuncios, largura: 'full' },
-    { campo: 'nota_min', label: 'Nota mínima', tipo: 'number', padrao: 1 },
-    { campo: 'nota_max', label: 'Nota máxima', tipo: 'number', padrao: 5,
-      ajuda: 'A resposta é um dígito só, então vai de 1 a 9.' },
-    { campo: 'tentativas', label: 'Tentativas', tipo: 'number', padrao: 2 },
-    { campo: 'segundos', label: 'Segundos para responder', tipo: 'number', padrao: 8 },
-    { campo: 'ativo', label: 'Pesquisa ativa', tipo: 'switch', padrao: 1 }
-  ];
-
-  const formulario = item => {
-    const novo = !item;
-    const p = item || {};
-    const cs = campos(p);
-    Drawer.open({
-      titulo: novo ? 'Nova pesquisa' : `Editar ${p.nome}`,
-      sub: 'O cliente cai aqui quando o atendente desliga, se a fila tiver esta pesquisa escolhida.',
-      corpo: `<div class="form-grid">${cs.map(c => campoHtml(c, p)).join('')}</div>`,
-      rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
-               <button class="btn btn-primary" data-ok>Salvar</button>`,
-      aoAbrir: dw => dw.querySelector('[data-ok]').onclick = async () => {
-        if (!validarCampos(dw, cs)) return;
-        const dados = {};
-        cs.forEach(c => {
-          const el = dw.querySelector(`[name="${c.campo}"]`);
-          if (el) dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value.trim();
-        });
-        try {
-          if (novo) await Api.post('/pesquisas', dados);
-          else await Api.put(`/pesquisas/${p.id}`, dados);
-          Drawer.close();
-          toast('Pesquisa salva. Aplique as configurações.', 'ok');
-          App.route();
-        } catch (e) { toast(e.message, 'err'); }
-      }
-    });
-  };
-
-  Drawer.open({
-    titulo: 'Pesquisas de satisfação',
-    sub: 'Perguntam a nota logo depois que o atendente desliga a chamada.',
-    wide: true,
-    corpo: r.dados.length ? `<div class="table-wrap"><table class="table">
-        <thead><tr><th>Pesquisa</th><th>Notas</th><th>Anúncio</th><th>Estado</th><th></th></tr></thead>
-        <tbody>${r.dados.map(p => `<tr>
-          <td><b>${esc(p.nome)}</b>${p.descricao ? `<div class="tiny muted">${esc(p.descricao)}</div>` : ''}</td>
-          <td class="num">${p.nota_min} a ${p.nota_max}</td>
-          <td>${p.anuncio_pergunta_id
-            ? esc((pagina._anuncios || []).find(a => String(a.id) === String(p.anuncio_pergunta_id))?.nome || '—')
-            : '<span class="badge badge-warn">só um bipe</span>'}</td>
-          <td>${Number(p.ativo) ? '<span class="badge badge-ok">Ativa</span>' : '<span class="badge">Parada</span>'}</td>
-          <td class="col-actions"><button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar"
-                data-editar-pesq="${p.id}">${icon('edit','ico ico-sm')}</button></td>
-        </tr>`).join('')}</tbody></table></div>`
-      : vazio('star', 'Nenhuma pesquisa criada',
-              'Crie uma para medir a satisfação logo depois do atendimento.'),
-    rodape: `<button class="btn btn-outline" data-drawer-close>Fechar</button>
-             ${ctx.can('criar') ? '<button class="btn btn-primary" id="novaPesquisa">Nova pesquisa</button>' : ''}`,
-    aoAbrir: dw => {
-      dw.querySelector('#novaPesquisa')?.addEventListener('click', () => formulario(null));
-      dw.querySelectorAll('[data-editar-pesq]').forEach(b => b.onclick = () =>
-        formulario(r.dados.find(x => String(x.id) === b.dataset.editarPesq)));
-    }
-  });
-}
 
 /* ------------------------- Relatórios · CDR ------------------------- */
 PAGES['rel.cdr'] = {

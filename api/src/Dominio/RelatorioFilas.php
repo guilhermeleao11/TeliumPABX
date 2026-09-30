@@ -205,13 +205,15 @@ final class RelatorioFilas
         $tempos = $this->temposDeSessao();
 
         // A nota da pesquisa é do cliente, e a resposta guarda o uniqueid
-        // da chamada — o mesmo callid que o CONNECT do agente tem.
+        // da chamada — o mesmo callid que o CONNECT do agente tem. Vale o
+        // índice de 0 a 100, e não a nota: pesquisas de escalas diferentes,
+        // ou em que 10 é o pior, não se somam nota com nota.
         $notas = [];
         foreach (Bd::todos(
-            "SELECT q.agent, AVG(p.nota) AS nota, COUNT(p.nota) AS respostas
+            "SELECT q.agent, AVG(p.satisfacao) AS nota, COUNT(p.satisfacao) AS respostas
                FROM pesquisa_respostas p
                JOIN queue_log q ON q.callid = p.uniqueid AND q.event = 'CONNECT'
-              WHERE {$f} AND p.nota IS NOT NULL
+              WHERE {$f} AND p.satisfacao IS NOT NULL
            GROUP BY q.agent",
             $args
         ) as $n) {

@@ -275,6 +275,9 @@
 .page-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 .grid { display: grid; gap: 16px; }
+/* Sem isto uma tabela larga estica a coluna da grade e o card sai pela
+   direita da página, em vez de a tabela rolar dentro do próprio card. */
+.grid > * { min-width: 0; }
 .g-4 { grid-template-columns: repeat(4, 1fr); }
 .g-3 { grid-template-columns: repeat(3, 1fr); }
 .g-2 { grid-template-columns: repeat(2, 1fr); }

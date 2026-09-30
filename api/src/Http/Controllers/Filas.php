@@ -220,64 +220,6 @@ final class Filas
         ]);
     }
 
-    /** GET /api/pesquisas/resultados */
-    public function resultados(Request $req, Response $res): Response
-    {
-        $p = $req->getQueryParams();
-        $de = ($p['de'] ?? '') !== '' ? $p['de'] : date('Y-m-d', strtotime('-30 days'));
-        $ate = ($p['ate'] ?? '') !== '' ? $p['ate'] : date('Y-m-d');
-
-        $where = ['r.criado_em >= ?', 'r.criado_em < ?'];
-        $args = [$de . ' 00:00:00', $ate . ' 23:59:59'];
-
-        if (($p['fila'] ?? '') !== '') {
-            $where[] = 'r.fila = ?';
-            $args[] = $p['fila'];
-        }
-        $filtro = ' WHERE ' . implode(' AND ', $where);
-
-        $resumo = Bd::um(
-            "SELECT COUNT(*) AS total,
-                    SUM(r.nota IS NOT NULL) AS responderam,
-                    ROUND(AVG(r.nota), 2) AS media
-               FROM pesquisa_respostas r {$filtro}",
-            $args
-        ) ?? [];
-
-        return Resposta::json($res, [
-            'periodo' => ['de' => $de, 'ate' => $ate],
-            'resumo' => [
-                'total' => (int) ($resumo['total'] ?? 0),
-                'responderam' => (int) ($resumo['responderam'] ?? 0),
-                'media' => $resumo['media'] !== null ? (float) $resumo['media'] : null,
-            ],
-            'por_nota' => Bd::todos(
-                "SELECT r.nota, COUNT(*) AS quantidade
-                   FROM pesquisa_respostas r {$filtro} AND r.nota IS NOT NULL
-               GROUP BY r.nota ORDER BY r.nota",
-                $args
-            ),
-            'por_fila' => Bd::todos(
-                "SELECT r.fila, f.nome, COUNT(*) AS total,
-                        SUM(r.nota IS NOT NULL) AS responderam,
-                        ROUND(AVG(r.nota), 2) AS media
-                   FROM pesquisa_respostas r
-              LEFT JOIN filas f ON f.numero = r.fila
-                  {$filtro}
-               GROUP BY r.fila, f.nome ORDER BY media DESC",
-                $args
-            ),
-            'por_agente' => Bd::todos(
-                "SELECT r.agente, COUNT(*) AS total,
-                        SUM(r.nota IS NOT NULL) AS responderam,
-                        ROUND(AVG(r.nota), 2) AS media
-                   FROM pesquisa_respostas r {$filtro} AND r.agente IS NOT NULL
-               GROUP BY r.agente ORDER BY media DESC LIMIT 30",
-                $args
-            ),
-        ]);
-    }
-
     // ------------------------------------------------------------------
     /**
      * Lê a saída de "queue show <fila>".
