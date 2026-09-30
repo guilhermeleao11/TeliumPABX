@@ -1124,3 +1124,12 @@
     asterisk -rx "logger reload"
   when: "'Running' not in ast_config_odbc.stdout"
   failed_when: false
+
+# O func_shell passou a "noload" (modules.conf), mas numa atualização o
+# Asterisk em pé segue com ele até reiniciar. Tirado agora, o ${SHELL()}
+# some sem derrubar chamada nenhuma.
+- name: Tirar o func_shell do Asterisk em execução
+  ansible.builtin.command: asterisk -rx "module unload func_shell.so"
+  register: ast_sem_shell
+  changed_when: "'Unloaded' in ast_sem_shell.stdout"
+  failed_when: false

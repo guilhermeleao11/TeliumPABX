@@ -143,10 +143,13 @@ aplicar_asterisk() {
 
   # O par precisa fechar: certificado e chave com a mesma chave pública.
   # Um par trocado derrubaria o SIP TLS no reinício, sem volta automática.
+  # Compara o texto das duas chaves públicas e exige que as duas tenham
+  # saído: com "| sha256sum", saída vazia também dava um hash, e dois
+  # arquivos ilegíveis viravam um par perfeito.
   local pub_crt pub_key
-  pub_crt=$(openssl x509 -in "$AST_CRT" -noout -pubkey 2>/dev/null | sha256sum)
-  pub_key=$(openssl pkey -in "$AST_KEY" -pubout 2>/dev/null | sha256sum)
-  if [ -z "$pub_crt" ] || [ "$pub_crt" != "$pub_key" ]; then
+  pub_crt=$(openssl x509 -in "$AST_CRT" -noout -pubkey 2>/dev/null)
+  pub_key=$(openssl pkey -in "$AST_KEY" -pubout 2>/dev/null)
+  if [ -z "$pub_crt" ] || [ -z "$pub_key" ] || [ "$pub_crt" != "$pub_key" ]; then
     devolver "$AST_CRT" "$AST_KEY"
     echo "o certificado e a chave não formam um par; o anterior foi devolvido"
     return 1

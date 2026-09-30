@@ -224,6 +224,34 @@ final class Horarios
         return false;
     }
 
+    /**
+     * Um campo do GotoIfTime ("*", "mon-fri", "mon&wed&fri", "1-15") cobre
+     * o valor? Faixa que vira a volta (fri-mon, nov-feb) vale.
+     *
+     * @param array<string,int> $nomes
+     */
+    private static function casaCampo(string $campo, int $valor, array $nomes): bool
+    {
+        $campo = strtolower(trim($campo));
+        if ($campo === '' || $campo === '*') {
+            return true;
+        }
+        $num = static fn (string $t): ?int => $nomes[$t] ?? (ctype_digit($t) ? (int) $t : null);
+        foreach (preg_split('/[&,]/', $campo) ?: [] as $parte) {
+            [$de, $ate] = array_pad(explode('-', trim($parte), 2), 2, null);
+            $de = $num((string) $de);
+            $ate = $ate === null ? $de : $num($ate);
+            if ($de === null || $ate === null) {
+                continue;
+            }
+            if ($de <= $ate ? ($valor >= $de && $valor <= $ate) : ($valor >= $de || $valor <= $ate)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function cobre(array $f, \DateTimeImmutable $q): bool
     {
         $emFaixa = static function (?int $valor, mixed $de, mixed $ate, int $volta): bool {
@@ -248,6 +276,18 @@ final class Horarios
             if (!$dentro) {
                 return false;
             }
+        }
+
+        // O que a tela grava e o dialplan usa são "dias", "dia_mes" e "mes"
+        // no formato do GotoIfTime (mon-fri, mon&wed, 1-15, jan-mar). Olhar só
+        // as colunas antigas fazia o "agora: dentro/fora" discordar da central.
+        $dias = ['sun' => 0, 'mon' => 1, 'tue' => 2, 'wed' => 3, 'thu' => 4, 'fri' => 5, 'sat' => 6];
+        $meses = ['jan' => 1, 'feb' => 2, 'mar' => 3, 'apr' => 4, 'may' => 5, 'jun' => 6,
+                  'jul' => 7, 'aug' => 8, 'sep' => 9, 'oct' => 10, 'nov' => 11, 'dec' => 12];
+        if (!self::casaCampo((string) ($f['dias'] ?? '*'), (int) $q->format('w'), $dias)
+            || !self::casaCampo((string) ($f['dia_mes'] ?? '*'), (int) $q->format('j'), [])
+            || !self::casaCampo((string) ($f['mes'] ?? '*'), (int) $q->format('n'), $meses)) {
+            return false;
         }
 
         return $emFaixa((int) $q->format('w'), $f['dia_semana_inicio'] ?? null, $f['dia_semana_fim'] ?? null, 7)

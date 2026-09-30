@@ -181,11 +181,23 @@ final class Audios
             );
         }
 
-        foreach (explode(',', (string) $audio['formatos']) as $fmt) {
-            @unlink($this->diretorio() . '/' . $audio['arquivo'] . '.' . trim($fmt));
+        // Primeiro o registro, depois o disco: se o banco recusar (outra
+        // tabela ainda aponta para o áudio), os arquivos continuam lá e o
+        // que usa o áudio segue tocando. Na ordem inversa, o 500 vinha
+        // depois de o som já ter sido apagado.
+        try {
+            Bd::executar('DELETE FROM audios WHERE id = ?', [$audio['id']]);
+        } catch (\PDOException $e) {
+            if (($e->errorInfo[1] ?? 0) === 1451) {
+                return Resposta::erro($res, 'Este áudio ainda está em uso. Troque onde ele é usado antes de excluir.', 409);
+            }
+            throw $e;
         }
 
-        Bd::executar('DELETE FROM audios WHERE id = ?', [$audio['id']]);
+        foreach (explode(',', (string) $audio['formatos']) as $fmt) {
+            @unlink($this->diretorio() . '/' . basename((string) $audio['arquivo']) . '.' . trim($fmt));
+        }
+
         Auditoria::registrar($req->getAttribute('usuario'), 'excluir', 'admin.gravacoes',
                              (string) $audio['arquivo']);
 
@@ -304,6 +316,15 @@ final class Audios
         $filas = Bd::todos('SELECT numero, nome FROM filas WHERE musica_espera = ?', [$arquivo]);
         foreach ($filas as $f) {
             $usos[] = "fila {$f['numero']}";
+        }
+
+        // O anúncio é quem mais usa áudio: URA, fila, sala e pesquisa
+        // apontam para anúncios, e o anúncio para o áudio.
+        foreach (Bd::todos(
+            'SELECT an.nome FROM anuncios an JOIN audios a ON a.id = an.audio_id WHERE a.arquivo = ?',
+            [$arquivo]
+        ) as $an) {
+            $usos[] = "anúncio {$an['nome']}";
         }
 
         $negra = (int) Bd::valor(

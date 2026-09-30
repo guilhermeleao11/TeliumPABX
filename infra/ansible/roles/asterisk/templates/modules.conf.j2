@@ -27,6 +27,12 @@ noload => res_config_sqlite3.so
 ; reclama oito vezes seguidas. Quem escreve o pjsip aqui é a API.
 noload => res_pjsip_config_wizard.so
 
+; ---------- o que ninguém aqui usa e só abriria porta ----------
+; ${SHELL(...)} roda comando no servidor. O dialplan não usa, e qualquer
+; texto do cadastro que escapasse até um argumento de aplicação viraria
+; execução de comando na primeira chamada.
+noload => func_shell.so
+
 ; ---------- telemetria e integrações que não usamos ----------
 noload => res_statsd.so
 noload => res_hep.so

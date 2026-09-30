@@ -139,15 +139,20 @@ final class Gravacoes
         Auditoria::registrar($req->getAttribute('usuario'), 'exportar', 'apps.gravacao',
                              "{$incluidas} gravações", ['faltando' => $faltando]);
 
-        $conteudo = (string) file_get_contents($zipNome);
+        // O pacote vai do disco para a rede sem passar pela memória: com
+        // duzentas gravações ele passa fácil do memory_limit, e o 500 vinha
+        // no fim da montagem. Aberto, o arquivo pode ser apagado já — o
+        // sistema só o libera quando a leitura terminar.
+        $tamanho = (int) filesize($zipNome);
+        $fluxo = fopen($zipNome, 'rb');
         @unlink($zipNome);
+        if ($fluxo === false) {
+            return Resposta::erro($res, 'Não foi possível ler o pacote no servidor.', 500);
+        }
 
-        $corpoRes = $res->getBody();
-        $corpoRes->write($conteudo);
-
-        return $res->withBody($corpoRes)
+        return $res->withBody(new \Slim\Psr7\Stream($fluxo))
             ->withHeader('Content-Type', 'application/zip')
-            ->withHeader('Content-Length', (string) strlen($conteudo))
+            ->withHeader('Content-Length', (string) $tamanho)
             ->withHeader('X-Telium-Incluidas', (string) $incluidas)
             ->withHeader('Content-Disposition',
                 'attachment; filename="gravacoes-' . date('Ymd-His') . '.zip"');

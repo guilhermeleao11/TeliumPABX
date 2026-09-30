@@ -73,7 +73,11 @@ final class Relatorios
      */
     public function ramais(Request $req, Response $res): Response
     {
-        [$filtro, $args] = $this->periodo($req);
+        // O período vai no ON do LEFT JOIN, junto com o vínculo: como WHERE
+        // ele ficava antes do WHERE da consulta, e toda busca com data dava
+        // erro de SQL. No ON, ramal sem chamada no período aparece com zero.
+        [$filtro, $args] = $this->periodo($req, 'c.');
+        $filtro = $filtro === '' ? '' : ' AND ' . substr($filtro, strlen(' WHERE '));
 
         $linhas = Bd::todos(
             "SELECT r.numero, r.nome, r.setor,
@@ -87,7 +91,7 @@ final class Relatorios
                FROM ramais r
           LEFT JOIN cdr c ON (c.src = r.numero OR c.dst = r.numero){$filtro}
               WHERE r.ativo = 1
-           GROUP BY r.id
+           GROUP BY r.id, r.numero, r.nome, r.setor
            ORDER BY (COALESCE(SUM(c.billsec), 0)) DESC, r.numero",
             $args
         );

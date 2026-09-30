@@ -43,11 +43,13 @@ final class Retornos
         // chamada caía sem avisar voltava à fila para sempre. Um retorno em
         // conversa não entra nesta conta: ao ser atendido pelo agente, o
         // dialplan empurra o proxima_em para longe (TELIUM_CC_RETORNO_ATENDEU).
+        // LEFT JOIN: um retorno cuja fila foi apagada ou renumerada também
+        // sai do "discando" — com JOIN ele ficava preso ali para sempre.
         Bd::executar(
-            "UPDATE cc_retornos r JOIN filas f ON f.numero = r.fila
-                SET r.estado = IF(r.tentativas >= f.retorno_tentativas, 'falhou', 'pendente'),
+            "UPDATE cc_retornos r LEFT JOIN filas f ON f.numero = r.fila
+                SET r.estado = IF(r.tentativas >= COALESCE(f.retorno_tentativas, 0), 'falhou', 'pendente'),
                     r.resultado = 'sem resposta da central',
-                    r.concluido_em = IF(r.tentativas >= f.retorno_tentativas, NOW(), NULL)
+                    r.concluido_em = IF(r.tentativas >= COALESCE(f.retorno_tentativas, 0), NOW(), NULL)
               WHERE r.estado = 'discando' AND r.proxima_em < NOW() - INTERVAL ? MINUTE",
             [self::PRESO_MINUTOS]
         );
@@ -56,7 +58,12 @@ final class Retornos
             "SELECT r.* FROM cc_retornos r
                JOIN filas f ON f.numero = r.fila AND f.ativo = 1 AND f.callcenter = 1
               WHERE r.estado = 'pendente' AND (r.proxima_em IS NULL OR r.proxima_em <= NOW())
-                AND NOT EXISTS (SELECT 1 FROM cc_retornos d WHERE d.fila = r.fila AND d.estado = 'discando')
+                -- Um retorno por fila discando de cada vez. O que já está em
+                -- conversa (proxima_em empurrado para longe pelo ATENDEU) não
+                -- conta: se a central caísse no meio dele, a fila ficava seis
+                -- horas sem retorno nenhum.
+                AND NOT EXISTS (SELECT 1 FROM cc_retornos d WHERE d.fila = r.fila AND d.estado = 'discando'
+                                   AND d.proxima_em < NOW() + INTERVAL 1 HOUR)
            ORDER BY r.pedido_em
               LIMIT 20"
         );

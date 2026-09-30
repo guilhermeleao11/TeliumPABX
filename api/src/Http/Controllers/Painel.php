@@ -23,7 +23,11 @@ final class Painel
             'volume'     => $this->volumePorHora(),
             'topRamais'  => $this->topRamais(),
             'troncos'    => $this->troncos(),
-            'atividades' => $this->atividades(),
+            // O registro de atividades é da auditoria, que ficou restrita a
+            // quem tem admin.auditoria: aqui ele saía para todo mundo que vê
+            // o painel, com usuário, IP e as tentativas de login erradas.
+            'atividades' => \Telium\Dominio\Permissoes::podeModulo($req->getAttribute('allow', []), 'admin.auditoria')
+                ? $this->atividades() : [],
             'atualizado' => date('c'),
         ]);
     }
@@ -207,8 +211,10 @@ final class Painel
         }
 
         $estados = [];
-        foreach (explode("\n", $saida) as $linha) {
-            if (preg_match('/^\s*Endpoint:\s+(\S+)\s+(\S+)/', $linha, $m) === 1) {
+        // Sem o "Output: " do AMI, e com o estado lido até os dois espaços
+        // seguintes: "Not in use" tem espaço, e \S+ pegava só "Not".
+        foreach (explode("\n", Diagnostico::semEnvelope($saida)) as $linha) {
+            if (preg_match('/^\s*Endpoint:\s+([^\s\/<]+)\S*\s{2,}(\S+(?: \S+)*)\s{2,}/', $linha, $m) === 1) {
                 $estados[$m[1]] = match (strtolower($m[2])) {
                     'not in use', 'in use' => 'registrado',
                     'unavailable' => 'offline',

@@ -41,7 +41,7 @@ final class GeradorFilas
         foreach (Bd::todos('SELECT a.id, s.arquivo FROM anuncios a
                               JOIN audios s ON s.id = a.audio_id
                              WHERE a.ativo = 1') as $a) {
-            $this->anuncios[(int) $a['id']] = (string) $a['arquivo'];
+            $this->anuncios[(int) $a['id']] = Som::prompt($a['arquivo']);
         }
 
         $b = (new Bloco())
@@ -168,11 +168,13 @@ final class GeradorFilas
             default => 'no',
         });
 
+        // Grava no canal de quem ligou quem atendeu (MEMBERINTERFACE e
+        // afins). O retorno usa isso para saber, ao cair, se chegou a falar
+        // com um agente, e a pesquisa para saber quem foi avaliado — sem
+        // ela a variável nunca existia e a nota ficava sem atendente.
+        $b->crua('setinterfacevar = yes');
+
         if ((int) $f['callcenter'] === 1) {
-            // Grava no canal de quem ligou quem atendeu (MEMBERINTERFACE e
-            // afins). O retorno usa isso para saber, ao cair, se chegou a
-            // falar com um agente — sem ela a variável nunca existia.
-            $b->crua('setinterfacevar = yes');
             if ((int) ($f['ampliar_segundos'] ?? 0) > 0) {
                 $b->crua('defaultrule = ' . self::nomeDaRegra($numero));
             }

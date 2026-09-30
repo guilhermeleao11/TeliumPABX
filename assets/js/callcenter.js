@@ -482,7 +482,7 @@ PAGES['cc.agente'] = {
     const opcoes = this._eu.tabulacoes.filter(t => !t.fila || t.fila === at.fila);
     Drawer.open({
       titulo: 'Qualificar a chamada',
-      sub: `${esc(at.numero || 'sem número')} · fila ${esc(at.fila)} · ${esc((at.atendido_em || '').slice(11, 16))}`,
+      sub: `${at.numero || 'sem número'} · fila ${at.fila} · ${(at.atendido_em || '').slice(11, 16)}`,
       corpo: opcoes.length ? `<form id="fQualificar"><div class="form-grid">
         <div class="field full"><label class="label">O que foi resolvido *</label>
           <select class="select" name="tabulacao_id" required>
@@ -755,7 +755,7 @@ PAGES['cc.supervisor'] = {
 
     if (cmd === 'pausar') {
       const motivo = await new Promise(ok => Drawer.open({
-        titulo: `Pausar ${esc(nome)}`, sub: 'O agente para de receber chamadas até voltar.',
+        titulo: `Pausar ${nome}`, sub: 'O agente para de receber chamadas até voltar.',
         corpo: `<div class="grid" style="gap:8px">${this._motivos.map(m => `
           <button class="btn btn-outline btn-block" data-motivo="${m.id}">${esc(m.nome)}</button>`).join('')}</div>`,
         aoAbrir: dw => dw.querySelectorAll('[data-motivo]').forEach(b => b.onclick = () => { ok(Number(b.dataset.motivo)); Drawer.close(); }),
@@ -764,7 +764,7 @@ PAGES['cc.supervisor'] = {
       if (!motivo) return;
       corpo.motivo_id = motivo;
     } else if (cmd === 'sair') {
-      if (!await Modal.confirm({ titulo: `Tirar ${esc(nome)} do atendimento?`,
+      if (!await Modal.confirm({ titulo: `Tirar ${nome} do atendimento?`,
         texto: 'Ele sai de todas as filas e precisa entrar de novo para voltar a receber chamadas.', ok: 'Tirar', tone: 'warn' })) return;
     } else if (['escutar', 'sussurrar', 'intervir'].includes(cmd)) {
       const textos = {
@@ -772,7 +772,7 @@ PAGES['cc.supervisor'] = {
         sussurrar: 'Seu ramal vai tocar. Ao atender, só o agente ouve você — o cliente não.',
         intervir: 'Seu ramal vai tocar. Ao atender, você entra na conversa e os dois ouvem você.'
       };
-      if (!await Modal.confirm({ titulo: `${cmd[0].toUpperCase() + cmd.slice(1)} ${esc(nome)}?`, texto: textos[cmd],
+      if (!await Modal.confirm({ titulo: `${cmd[0].toUpperCase() + cmd.slice(1)} ${nome}?`, texto: textos[cmd],
                                  ok: 'Chamar meu ramal', tone: 'brand', ico: 'headset' })) return;
     }
 
@@ -828,7 +828,7 @@ PAGES['cc.agentes'] = {
       this.form(this._d.dados.find(a => a.id === Number(b.dataset.editar))));
     document.querySelectorAll('[data-excluir]').forEach(b => b.onclick = async () => {
       const a = this._d.dados.find(x => x.id === Number(b.dataset.excluir));
-      if (!await Modal.confirm({ titulo: `Excluir o agente ${esc(a.nome)}?`,
+      if (!await Modal.confirm({ titulo: `Excluir o agente ${a.nome}?`,
         texto: 'Ele sai das filas agora. O histórico de atendimentos e os relatórios continuam com o que ele fez.', ok: 'Excluir' })) return;
       try { await Api.delete(`/cc/agentes/${a.id}`); toast('Agente excluído.', 'ok'); App.route(); }
       catch (e) { toast(e.message, 'err'); }
@@ -841,7 +841,7 @@ PAGES['cc.agentes'] = {
     const minhas = Object.fromEntries((a?.filas || []).map(f => [f.fila_id, f.penalidade]));
 
     Drawer.open({
-      titulo: a ? `Agente ${esc(a.nome)}` : 'Novo agente',
+      titulo: a ? `Agente ${a.nome}` : 'Novo agente',
       sub: 'A matrícula é o que se digita no telefone para entrar.',
       wide: true,
       corpo: `<form id="fAgente" autocomplete="off"><div class="form-grid">
@@ -897,8 +897,12 @@ PAGES['cc.agentes'] = {
           toast(r.aviso || 'Agente salvo.', r.aviso ? 'warn' : 'ok');
           App.route();
         } catch (e) {
-          Object.entries(e.detalhe?.campos || {}).forEach(([c, m]) => marcarErro(form, c, m));
-          toast(e.message, 'err');
+          // Campo sem lugar para marcar (as filas são uma lista de caixas):
+          // a mensagem dele vai no aviso, senão "confira os campos
+          // destacados" apontava para nada.
+          const soltos = Object.entries(e.detalhe?.campos || {})
+            .filter(([c, m]) => !marcarErro(form, c, m)).map(([, m]) => m);
+          toast(soltos.length ? soltos.join(' ') : e.message, 'err');
         }
       }
     });

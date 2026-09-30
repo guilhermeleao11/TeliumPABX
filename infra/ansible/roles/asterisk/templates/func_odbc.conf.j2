@@ -82,6 +82,27 @@ dsn=telium
 writesql=UPDATE ramais SET siga_me = NULLIF('${SQL_ESC(${VAL1})}',''), siga_me_ativo = IF('${SQL_ESC(${VAL1})}' = '', 0, 1) WHERE numero = '${SQL_ESC(${ARG1})}'
 
 ; ------------------------------------------------------------------
+; Não perturbe, chamada em espera e interfonia pelo telefone:
+;   Set(ODBC_TELIUM_DND(<ramal>)=1|0)
+;   Set(ODBC_TELIUM_CW(<ramal>)=1|0)
+;   Set(ODBC_TELIUM_INTERFONIA(<ramal>)=permitir|negar)
+; O "aplicar" repõe a base do Asterisk a partir do banco; sem gravar
+; aqui, o que o ramal ligou pelo telefone voltava atrás na aplicação
+; seguinte, sem ninguém saber por quê.
+; ------------------------------------------------------------------
+[TELIUM_DND]
+dsn=telium
+writesql=UPDATE ramais SET dnd = IF('${SQL_ESC(${VAL1})}' = '1', 1, 0) WHERE numero = '${SQL_ESC(${ARG1})}'
+
+[TELIUM_CW]
+dsn=telium
+writesql=UPDATE ramais SET chamada_espera = IF('${SQL_ESC(${VAL1})}' = '1', 1, 0) WHERE numero = '${SQL_ESC(${ARG1})}'
+
+[TELIUM_INTERFONIA]
+dsn=telium
+writesql=UPDATE ramais SET interfonia = IF('${SQL_ESC(${VAL1})}' = 'negar', 'negar', 'permitir') WHERE numero = '${SQL_ESC(${ARG1})}'
+
+; ------------------------------------------------------------------
 ; Call center — retorno pedido na espera:
 ;   Set(ODBC_TELIUM_CC_RETORNO(<fila>,<número>,<uniqueid>)=<nome>)
 ; ------------------------------------------------------------------

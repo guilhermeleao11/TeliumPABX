@@ -146,6 +146,9 @@ final class Configuracao
             'aplicado' => $resultado['sucesso'],
             'etapas'   => $resultado['etapas'],
             'saida'    => $resultado['saida'],
-        ], $resultado['sucesso'] ? 200 : 500);
+        // 200 mesmo quando uma etapa falha: o pedido foi atendido, e a
+        // resposta é o relatório do que deu errado. Com 500 a tela tratava
+        // como erro do servidor, mostrava "Erro 500" e escondia as etapas.
+        ]);
     }
 }

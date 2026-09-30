@@ -154,6 +154,19 @@ final class Cadastros
         $modulos = array_values(array_filter((array) ($corpo['allow'] ?? []), 'is_string'));
         $acoes = array_values(array_filter((array) ($corpo['caps'] ?? []), 'is_string'));
 
+        // Quem edita permissões não dá o que não tem: sem isto, o perfil
+        // com "Permissões" punha "*" em si mesmo e virava administrador.
+        $eu = \Telium\Dominio\Permissoes::doPerfil((int) (((array) $req->getAttribute('usuario'))['perfil_id'] ?? 0));
+        if (!in_array('*', $eu['allow'], true)) {
+            $alem = array_filter($modulos, static fn (string $m): bool
+                => !\Telium\Dominio\Permissoes::podeModulo($eu['allow'], $m));
+            $alem = [...$alem, ...array_diff($acoes, $eu['caps'])];
+            if ($alem !== [] || !Usuarios::alcanca((int) (((array) $req->getAttribute('usuario'))['perfil_id'] ?? 0), (int) $perfil['id'])) {
+                return Resposta::erro($res, 'Você só pode dar permissões que o seu perfil tem'
+                    . ($alem !== [] ? ' (' . implode(', ', array_slice($alem, 0, 5)) . ')' : '') . '.', 403);
+            }
+        }
+
         // O mesmo buraco da tela de usuários, pela outra porta: em vez
         // de mexer na conta, tira-se "Usuários" do perfil em que ela
         // está. O console fica sem ninguém capaz de criar conta,
@@ -228,6 +241,23 @@ final class Cadastros
             return Resposta::erro($res, 'Nenhum campo válido enviado', 422);
         }
 
+        // Número em branco na tela chega como "": numa coluna inteira NOT
+        // NULL isso era erro de SQL e a pessoa via "Erro interno".
+        if (array_key_exists('ramais_contratados', $dados)) {
+            $n = trim((string) $dados['ramais_contratados']);
+            if ($n !== '' && !ctype_digit($n)) {
+                return Resposta::erro($res, 'Ramais contratados é um número inteiro.', 422,
+                                      ['campo' => 'ramais_contratados']);
+            }
+            $dados['ramais_contratados'] = $n === '' ? 0 : (int) $n;
+        }
+        // Texto do cadastro que o Asterisk também lê (nome da empresa).
+        foreach ($dados as $c => $v) {
+            if (is_string($v) && preg_match('/\$\s*[{\[]/', $v) === 1) {
+                return Resposta::erro($res, 'Este campo não aceita "${" nem "$[".', 422, ['campo' => $c]);
+            }
+        }
+
         $sets = implode(', ', array_map(static fn (string $c): string => "`{$c}` = ?", array_keys($dados)));
         Bd::executar("UPDATE empresa SET {$sets} WHERE id = 1", array_values($dados));
 
@@ -265,7 +295,8 @@ final class Cadastros
         // O perfil entra explicitamente: sem a chave no corpo, a
         // conferência pularia o campo e o INSERT estouraria numa chave
         // estrangeira crua, com 500 e a consulta SQL na tela.
-        $problema = Usuarios::conferirCampos($corpo + ['perfil_id' => $perfilId]);
+        $problema = Usuarios::conferirCampos($corpo + ['perfil_id' => $perfilId])
+            ?? Usuarios::conferir('criar', ['perfil_id' => $perfilId], [], (array) $req->getAttribute('usuario'));
         if ($problema !== null) {
             return Resposta::erro(
                 $res,
@@ -326,11 +357,29 @@ final class Cadastros
     }
 
     /** POST /api/usuarios/{id}/senha — define a senha de um usuário */
+    /**
+     * Trocar a senha, desligar a verificação em dois passos ou destravar a
+     * conta de alguém com mais permissões que você é tomar a conta dele.
+     */
+    private function semAlcance(Request $req, Response $res, array $alvo): ?Response
+    {
+        $eu = (array) $req->getAttribute('usuario');
+        if (\Telium\Dominio\Usuarios::alcanca((int) ($eu['perfil_id'] ?? 0), (int) $alvo['perfil_id'])) {
+            return null;
+        }
+
+        return Resposta::erro($res, 'Esta conta tem permissões que o seu perfil não tem; só quem tem '
+                                  . 'pelo menos as mesmas pode alterá-la.', 403);
+    }
+
     public function trocarSenha(Request $req, Response $res, array $args): Response
     {
-        $usuario = Bd::um('SELECT id, usuario FROM usuarios WHERE id = ?', [$args['id']]);
+        $usuario = Bd::um('SELECT id, usuario, perfil_id FROM usuarios WHERE id = ?', [$args['id']]);
         if ($usuario === null) {
             return Resposta::erro($res, 'Usuário não encontrado', 404);
+        }
+        if (($negado = $this->semAlcance($req, $res, $usuario)) !== null) {
+            return $negado;
         }
 
         $senha = (string) (((array) $req->getParsedBody())['senha'] ?? '');
@@ -370,9 +419,12 @@ final class Cadastros
      */
     public function desligar2faDe(Request $req, Response $res, array $args): Response
     {
-        $usuario = Bd::um('SELECT id, usuario, nome, totp_ativo FROM usuarios WHERE id = ?', [$args['id']]);
+        $usuario = Bd::um('SELECT id, usuario, nome, totp_ativo, perfil_id FROM usuarios WHERE id = ?', [$args['id']]);
         if ($usuario === null) {
             return Resposta::erro($res, 'Usuário não encontrado', 404);
+        }
+        if (($negado = $this->semAlcance($req, $res, $usuario)) !== null) {
+            return $negado;
         }
 
         Bd::executar(
@@ -410,11 +462,14 @@ final class Cadastros
     public function destravar(Request $req, Response $res, array $args): Response
     {
         $usuario = Bd::um(
-            'SELECT id, usuario, nome, tentativas_login, bloqueado_ate FROM usuarios WHERE id = ?',
+            'SELECT id, usuario, nome, tentativas_login, bloqueado_ate, perfil_id FROM usuarios WHERE id = ?',
             [$args['id']]
         );
         if ($usuario === null) {
             return Resposta::erro($res, 'Usuário não encontrado', 404);
+        }
+        if (($negado = $this->semAlcance($req, $res, $usuario)) !== null) {
+            return $negado;
         }
 
         Bd::executar(

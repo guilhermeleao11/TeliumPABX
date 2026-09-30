@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Telium\Gerador;
 
+use Telium\Dominio\Permissoes;
 use Telium\Suporte\Ami;
 use Telium\Suporte\Bd;
 use Telium\Suporte\Trava;
@@ -90,6 +91,19 @@ final class Aplicador
                 $saida .= "\$ {$comando}\n" . trim($resposta) . "\n\n";
                 $sucesso = $sucesso && $ok;
             }
+
+            // O reload responde "ok" mesmo quando o PJSIP descartou um objeto
+            // por causa de uma opção inválida: o ramal some da central e o
+            // console dizia que estava tudo aplicado. Aqui se confere o que
+            // de fato carregou.
+            $faltando = $this->endpointsQueNaoCarregaram($ami);
+            if ($faltando !== []) {
+                $etapas['ramais e troncos carregados'] = 'falhou';
+                $saida .= 'O Asterisk não carregou: ' . implode(', ', array_slice($faltando, 0, 20))
+                        . (count($faltando) > 20 ? '…' : '')
+                        . ". Veja o log do Asterisk (pjsip) para saber qual opção ele recusou.\n\n";
+                $sucesso = false;
+            }
         } catch (\Throwable $e) {
             // Sem esta etapa, a tela mostraria "recusou parte da recarga"
             // com a lista vazia, sem dizer que o problema foi a conexão.
@@ -141,6 +155,33 @@ final class Aplicador
         return str_contains($texto, 'not found')
             || str_contains($texto, 'not exist')
             || str_contains($texto, 'no such');
+    }
+
+    /**
+     * Ramais e troncos ativos que não aparecem no "pjsip show endpoints".
+     *
+     * @return string[]
+     */
+    private function endpointsQueNaoCarregaram(Ami $ami): array
+    {
+        $resposta = $ami->comando('pjsip show endpoints');
+        // Pelo AMI cada linha vem como "Output:  Endpoint:  1001/1001 ...";
+        // o cabeçalho da tabela ("<Endpoint/CID...>") fica de fora pelo "<".
+        preg_match_all('/Endpoint:\s+([^\s\/<]+)\//', $resposta, $m);
+        $carregados = array_flip($m[1]);
+        if ($carregados === []) {
+            return [];      // sem resposta legível não dá para afirmar nada
+        }
+
+        $esperados = array_column(Bd::todos('SELECT numero FROM ramais WHERE ativo = 1'), 'numero');
+        foreach (Bd::todos("SELECT nome FROM troncos WHERE ativo = 1 AND tipo = 'pjsip'") as $t) {
+            $esperados[] = preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $t['nome']) ?? (string) $t['nome'];
+        }
+
+        return array_values(array_filter(
+            array_map('strval', $esperados),
+            static fn (string $nome): bool => !isset($carregados[$nome])
+        ));
     }
 
     /** A ação do AMI respondeu sucesso? */
@@ -200,7 +241,8 @@ final class Aplicador
         // Siga-me guarda o destino, não um "1": vai à parte.
         $ok = $this->sincronizarSigaMe($ami) && $ok;
 
-        // Não perturbe: o console e o código *76 escrevem no mesmo lugar,
+        // Não perturbe: o console e o código *76 gravam no banco (o código
+        // pelo func_odbc TELIUM_DND), e a base é reposta a partir dele —
         // senão o ramal aparece livre numa tela e ocupado na outra.
         $tabelas['dnd'] = 'SELECT numero FROM ramais WHERE ativo = 1 AND dnd = 1';
 
@@ -222,6 +264,50 @@ final class Aplicador
 
         // Ditado: os códigos *34 e *35 só valem para quem tem no cadastro.
         $tabelas['ditado'] = 'SELECT numero FROM ramais WHERE ativo = 1 AND ditado = 1';
+
+        // Permissão de discagem de cada ramal. O canal que sai por siga-me,
+        // desvio ou transferência às cegas não é o do ramal (é um Local ou
+        // o do tronco), não carrega o TELIUM_PERM do endpoint, e sem isto
+        // saía com tudo liberado: um ramal só-local punha o siga-me num
+        // número internacional e ligava para si mesmo.
+        if (!$this->limpouFamilia($ami, 'perm')) {
+            $ok = false;
+        }
+        foreach (Bd::todos('SELECT * FROM ramais WHERE ativo = 1') as $r) {
+            $resposta = $ami->acao([
+                'Action' => 'DBPut',
+                'Family' => 'perm',
+                'Key'    => (string) $r['numero'],
+                'Val'    => GeradorPjsip::permissoes($r),
+            ]);
+            if (!$this->deuCerto($resposta)) {
+                $ok = false;
+            }
+        }
+
+        // Quem pode escutar (*555): o ramal de um usuário ativo com a
+        // permissão de supervisor do call center.
+        if (!$this->limpouFamilia($ami, 'escuta')) {
+            $ok = false;
+        }
+        $modulosDoPerfil = [];
+        foreach (Bd::todos('SELECT perfil_id, modulo FROM perfil_modulos') as $m) {
+            $modulosDoPerfil[(int) $m['perfil_id']][] = (string) $m['modulo'];
+        }
+        foreach (Bd::todos(
+            "SELECT ramal, perfil_id FROM usuarios
+              WHERE status = 'ativo' AND ramal IS NOT NULL AND ramal <> ''"
+        ) as $u) {
+            if (!Permissoes::podeModulo($modulosDoPerfil[(int) $u['perfil_id']] ?? [], 'cc.supervisor')) {
+                continue;
+            }
+            $resposta = $ami->acao([
+                'Action' => 'DBPut', 'Family' => 'escuta', 'Key' => (string) $u['ramal'], 'Val' => '1',
+            ]);
+            if (!$this->deuCerto($resposta)) {
+                $ok = false;
+            }
+        }
 
         foreach ($tabelas as $familia => $sql) {
             if (!$this->limpouFamilia($ami, $familia)) {

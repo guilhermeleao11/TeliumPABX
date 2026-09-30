@@ -105,11 +105,28 @@ final class Cli
         return Resposta::json($res, [
             'comando' => $comando,
             'leitura' => $somenteLeitura,
-            'saida'   => $this->limpar($bruto),
+            'saida'   => self::semSegredo($this->limpar($bruto)),
         ]);
     }
 
-    private function ehLeitura(string $comando): bool
+    /**
+     * O CLI imprime segredo em texto puro: "pjsip show auth", e o
+     * "pjsip show endpoint" que traz o auth junto, mostram a senha SIP de
+     * cada ramal e tronco. Quem só tem leitura no console não pode sair
+     * daqui com a senha de ninguém.
+     */
+    public static function semSegredo(string $saida): string
+    {
+        return preg_replace(
+            // [ \t] e não \s: o \s atravessava a quebra de linha e engolia a
+            // linha seguinte quando o valor estava vazio.
+            '/^([ \t]*(?:password|secret|md5_cred|password_digest|refresh_token|oauth_secret|passphrase)[ \t]*:[ \t]*)\S[^\n]*$/mi',
+            '${1}••••••••',
+            $saida
+        ) ?? $saida;
+    }
+
+        private function ehLeitura(string $comando): bool
     {
         $c = strtolower($comando);
         foreach (self::LEITURA as $prefixo) {

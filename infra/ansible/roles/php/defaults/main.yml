@@ -1,6 +1,8 @@
 ---
 ajustes_php:
-  - { chave: "date.timezone",        valor: "America/Sao_Paulo" }
+  # O mesmo fuso do sistema e do Asterisk: com um só daqui diferente, o
+  # "agora" das condições horárias e os relatórios discordavam da central.
+  - { chave: "date.timezone",        valor: "{{ pabx_timezone }}" }
   - { chave: "memory_limit",         valor: "256M" }
   - { chave: "upload_max_filesize",  valor: "64M" }
   - { chave: "post_max_size",        valor: "64M" }

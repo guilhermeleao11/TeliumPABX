@@ -137,7 +137,7 @@ final class GeradorCallCenter
               // O nome vai inteiro em VALUE (e não VAL1): o func_odbc parte o
               // valor nas vírgulas, e "Silva, João" virava só "Silva".
               ->same("Set(ODBC_TELIUM_CC_RETORNO({$numero},\${FILTER(0-9,\${CALLERID(num)})},\${UNIQUEID})=\${CALLERID(name)})")
-              ->same('Playback(' . ((string) ($f['anuncio'] ?? '') !== '' ? $f['anuncio'] : 'auth-thankyou') . ')')
+              ->same('Playback(' . (Som::prompt($f['anuncio'] ?? null) ?: 'auth-thankyou') . ')')
               ->same('Hangup()')
               ->same('Playback(invalid)', 'sem-numero')
               ->same("Goto(telium-filas,{$numero},1)");
@@ -192,7 +192,14 @@ final class GeradorCallCenter
             $b->same("Set(CALLERID(all)=\"\" <{$cid}>)");
         }
 
-        $b->same('Dial(Local/${EXTEN}@telium-saida/n,60)')
+        // O número vem como a operadora entregou (11999990000), e a rota
+        // costuma esperar o prefixo de saída (011999990000). Sem rota para
+        // o número cru, tenta com o 0 na frente — senão todo retorno de
+        // DDD ou celular falhava sem sair da central.
+        $b->same('Set(TELIUM_NUM=${EXTEN})')
+          ->same('ExecIf($[!${DIALPLAN_EXISTS(telium-saida,${TELIUM_NUM},1)}'
+               . ' & ${DIALPLAN_EXISTS(telium-saida,0${TELIUM_NUM},1)}]?Set(TELIUM_NUM=0${TELIUM_NUM}))')
+          ->same('Dial(Local/${TELIUM_NUM}@telium-saida/n,60)')
           ->same('Hangup()')
           ->exten('h', 'Set(ODBC_TELIUM_CC_RETORNO_FIM(${TELIUM_RETORNO},${IF($["${DIALSTATUS}" = ""]?FALHOU:${DIALSTATUS})})=x)');
     }

@@ -162,6 +162,13 @@ $recursos = [
                                'mensagem' => 'O contexto do ramal é "interno", ou "telium-bloqueado" '
                                            . 'para deixá-lo sem saída. Outros contextos pulariam a '
                                            . 'checagem de permissão de discagem.'],
+                // O contexto próprio é o que o administrador escreveu no
+                // extensions_custom.conf. Os contextos do sistema ficam de fora:
+                // apontar o ramal para um deles pulava a permissão de discagem.
+                'contexto_custom' => ['rotulo' => 'contexto personalizado',
+                                      'padrao' => '/^(?!telium|sub-|de-tronco$|interno$|default$)[A-Za-z0-9_-]{1,40}$/',
+                                      'mensagem' => 'O contexto personalizado é um nome seu (letras, números, - e _), '
+                                                  . 'que não comece com "telium" nem seja um contexto do sistema.'],
                 'transporte' => ['rotulo' => 'transporte', 'em' => ['udp', 'tcp', 'tls', 'wss']],
                 'pin' => ['rotulo' => 'PIN do usuário', 'padrao' => '/^[0-9]{0,10}$/',
                           'mensagem' => 'O PIN do usuário é só de dígitos.'],
@@ -276,7 +283,8 @@ $recursos = [
     ],
     'filas' => [
         'modulo' => 'apps.filas',
-        'referencia' => ESCOLHEM_DESTINO,
+        // As telas do call center escolhem fila (tabulação, agente, relatório).
+        'referencia' => [...ESCOLHEM_DESTINO, 'cc.tabulacoes', 'cc.agentes', 'cc.relatorios', 'cc.retornos'],
         'recurso' => new Recurso(
             tabela: 'filas',
             colunas: ['numero','nome','descricao','callcenter','tabulacao_obrigatoria','retorno_tecla',
@@ -292,6 +300,12 @@ $recursos = [
             ordem: 'numero',
             busca: ['numero','nome'],
             filtros: ['ativo'],
+            regras: [
+                // O número vira o nome da extensão no dialplan.
+                'numero' => ['rotulo' => 'número da fila', 'obrigatorio' => true, 'padrao' => '/^[0-9]{2,10}$/',
+                             'mensagem' => 'O número da fila é só de dígitos, de 2 a 10.'],
+                'nome' => ['rotulo' => 'nome', 'obrigatorio' => true, 'max' => 80],
+            ],
             afetaAsterisk: true,
             modulo: 'apps.filas',
         ),
@@ -307,6 +321,12 @@ $recursos = [
             ordem: 'nome',
             busca: ['nome','descricao'],
             filtros: ['ativo'],
+            regras: [
+                'numero_estacionar' => ['rotulo' => 'número para estacionar', 'obrigatorio' => true,
+                                        'padrao' => '/^[0-9*#]{1,10}$/', 'mensagem' => 'Só dígitos, * ou #.'],
+                'vaga_inicio' => ['rotulo' => 'primeira vaga', 'padrao' => '/^[0-9]{1,10}$/', 'mensagem' => 'Só dígitos.'],
+                'vaga_fim' => ['rotulo' => 'última vaga', 'padrao' => '/^[0-9]{1,10}$/', 'mensagem' => 'Só dígitos.'],
+            ],
             afetaAsterisk: true,
             modulo: 'apps.estacionamento',
         ),
@@ -337,6 +357,8 @@ $recursos = [
     ],
     'condicoes-horarias' => [
         'modulo' => 'apps.condicoes',
+        // Quem escolhe destino precisa ver a lista, mesmo sem este módulo.
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'condicoes_horarias',
             colunas: ['nome','descricao','grupo_horario_id','destino_dentro_tipo','destino_dentro_valor',
@@ -376,6 +398,13 @@ $recursos = [
             // O PIN da sala é o que impede alguém de entrar na reunião:
             // não volta numa listagem. Em branco, ao editar, mantém.
             ocultas: ['pin','pin_admin'],
+            regras: [
+                'numero' => ['rotulo' => 'número da sala', 'obrigatorio' => true, 'padrao' => '/^[0-9]{2,10}$/',
+                             'mensagem' => 'O número da sala é só de dígitos, de 2 a 10.'],
+                'pin' => ['rotulo' => 'PIN', 'padrao' => '/^[0-9]{0,10}$/', 'mensagem' => 'O PIN é só de dígitos.'],
+                'pin_admin' => ['rotulo' => 'PIN do moderador', 'padrao' => '/^[0-9]{0,10}$/',
+                                'mensagem' => 'O PIN do moderador é só de dígitos.'],
+            ],
             afetaAsterisk: true,
             modulo: 'apps.conferencias',
         ),
@@ -402,6 +431,10 @@ $recursos = [
                       'destino_tipo','destino_valor','gravar','ordem','ativo'],
             ordem: 'ordem, id',
             busca: ['did','descricao'],
+            regras: [
+                'did' => ['rotulo' => 'DID', 'padrao' => '/^(?:\*|s|qualquer|\+?[0-9]{1,20}|_[0-9XZNxzn.!\[\]+-]{1,30})$/',
+                          'mensagem' => 'O DID é o número recebido (só dígitos), um padrão como _1140XXXXXX, ou * para qualquer um.'],
+            ],
             afetaAsterisk: true,
             modulo: 'conn.rotasentrada',
         ),
@@ -414,6 +447,17 @@ $recursos = [
                       'tronco_falha_id','pin_set_id','classe','ativo'],
             ordem: 'ordem, id',
             busca: ['nome','padrao'],
+            regras: [
+                'padrao' => ['rotulo' => 'padrão', 'obrigatorio' => true,
+                             'padrao' => '/^(?:[0-9*#+]{1,20}|_[0-9XZNxzn.!\[\]*#+-]{1,40})$/',
+                             'mensagem' => 'O padrão é um número ou um padrão do Asterisk como _0XXXXXXXXX.'],
+                // Os prefixos entram no Dial: qualquer coisa além de dígito
+                // (um "&", por exemplo) acrescentaria canais à discagem.
+                'prefixo_remover' => ['rotulo' => 'prefixo a remover', 'padrao' => '/^[0-9*#+]{0,10}$/',
+                                      'mensagem' => 'O prefixo é só de dígitos.'],
+                'prefixo_adicionar' => ['rotulo' => 'prefixo a adicionar', 'padrao' => '/^[0-9*#+]{0,10}$/',
+                                        'mensagem' => 'O prefixo é só de dígitos.'],
+            ],
             afetaAsterisk: true,
             modulo: 'conn.rotassaida',
         ),
@@ -439,6 +483,12 @@ $recursos = [
             colunas: ['ura_id','tecla','rotulo','destino_tipo','destino_valor','ordem'],
             ordem: 'ura_id, ordem',
             filtros: ['ura_id'],
+            regras: [
+                // A mesma regra do PUT /ura/{id}/opcoes: esta rota genérica a pulava.
+                'tecla' => ['rotulo' => 'tecla', 'obrigatorio' => true,
+                            'padrao' => '/^(?:[0-9*#]{1,4}|_[0-9*#XZNxzn._\[\]-]{1,12})$/',
+                            'mensagem' => 'A tecla é um dígito, * ou #, ou um padrão como _1X.'],
+            ],
             afetaAsterisk: true,
             modulo: 'apps.ura',
         ),
@@ -452,6 +502,15 @@ $recursos = [
                       'destino_falha_valor','ativo'],
             ordem: 'numero',
             busca: ['numero','nome'],
+            regras: [
+                'numero' => ['rotulo' => 'número do grupo', 'obrigatorio' => true, 'padrao' => '/^[0-9]{2,10}$/',
+                             'mensagem' => 'O número do grupo é só de dígitos, de 2 a 10.'],
+                // Só ramais: um membro com "@tronco" discava para fora sem
+                // passar pela permissão de ninguém.
+                'ramais' => ['rotulo' => 'ramais', 'obrigatorio' => true,
+                             'padrao' => '/^[0-9]{2,10}(-[0-9]{2,10})*$/',
+                             'mensagem' => 'Os membros do grupo são números de ramal separados por "-".'],
+            ],
             afetaAsterisk: true,
             modulo: 'apps.grupostoque',
         ),
@@ -523,6 +582,8 @@ $recursos = [
     ],
     'grupos-paging' => [
         'modulo' => 'apps.paging',
+        // Quem escolhe destino precisa ver a lista, mesmo sem este módulo.
+        'referencia' => ESCOLHEM_DESTINO,
         'recurso' => new Recurso(
             tabela: 'grupos_paging',
             colunas: ['numero', 'nome', 'ramais', 'duplex', 'anuncio_id', 'forcar',
@@ -584,6 +645,7 @@ $recursos = [
                       'apagar_apos_email', 'assunto', 'corpo'],
             afetaAsterisk: true,
             modulo: 'cfg.correiovoz',
+            modelos: ['assunto', 'corpo'],
             regras: [
                 'max_segundos' => ['rotulo' => 'duração máxima', 'padrao' => '/^[0-9]{1,4}$/',
                                    'mensagem' => 'A duração máxima é em segundos, só dígitos.'],
@@ -635,6 +697,9 @@ $recursos = [
         // Tarifas. Não é destino de chamada — a referência aqui é só a
         // outra tela que a lê.
         'referencia' => ['cfg.tarifas'],
+        // A Tabela de Tarifas é a tela que cadastra: sem isto ela listava e
+        // dava 403 ao salvar.
+        'escrita' => ['cfg.tarifas'],
         'recurso' => new Recurso(
             tabela: 'tarifas',
             colunas: ['nome','classe','padrao','custo_minuto','taxa_fixa','incremento_seg',
@@ -868,7 +933,9 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('admin.permissoes', 'permissoes'));
     // ---- diagnóstico: só leitura, do estado real do Asterisk ----
     $g->get('/diagnostico/rede', [Diagnostico::class, 'rede'])->add(new Permissao('conn.rede'));
-    $g->put('/diagnostico/rede', [Diagnostico::class, 'salvarRede'])->add(new Permissao('conn.rede'));
+    // Mudar o IP público e as redes locais muda o NAT de todas as chamadas:
+    // é edição, não consulta.
+    $g->put('/diagnostico/rede', [Diagnostico::class, 'salvarRede'])->add(new Permissao('conn.rede', 'editar'));
     $g->get('/diagnostico/rede/descobrir', [Diagnostico::class, 'descobrirIp'])
       ->add(new Permissao('conn.rede'));
     $g->get('/diagnostico/webrtc', [Diagnostico::class, 'webrtc'])->add(new Permissao('conn.webrtc'));
@@ -936,12 +1003,12 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/audios', [Audios::class, 'listar'])
       ->add(new Permissao('admin.gravacoes', null, ESCOLHEM_DESTINO));
     $g->post('/audios', [Audios::class, 'enviar'])
-      ->add(new Permissao('admin.gravacoes', 'criar'));
-    $g->get('/audios/{id}/ouvir', [Audios::class, 'ouvir'])->add(new Permissao('admin.gravacoes'));
+      ->add(new Permissao('admin.gravacoes', 'criar', ['cfg.musica']));
+    $g->get('/audios/{id}/ouvir', [Audios::class, 'ouvir'])->add(new Permissao('admin.gravacoes', null, ['cfg.musica']));
     $g->put('/audios/{id}', [Audios::class, 'atualizar'])
-      ->add(new Permissao('admin.gravacoes', 'editar'));
+      ->add(new Permissao('admin.gravacoes', 'editar', ['cfg.musica']));
     $g->delete('/audios/{id}', [Audios::class, 'remover'])
-      ->add(new Permissao('admin.gravacoes', 'excluir'));
+      ->add(new Permissao('admin.gravacoes', 'excluir', ['cfg.musica']));
 
     // ---- call center ----
     $g->get('/cc/estado', [CtrlCallCenter::class, 'estado'])
@@ -1002,17 +1069,19 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     // O telefone do navegador lê a agenda (pessoal e global) para discar.
     $g->get('/contatos', [Contatos::class, 'listar'])
       ->add(new Permissao('pcu.contatos', null, ['admin.contatos', 'fone.webrtc']));
-    $g->get('/contatos/{id}', [Contatos::class, 'obter'])->add(new Permissao('pcu.contatos'));
+    // A agenda da empresa é editada por quem tem o Gerenciador de Contatos,
+    // mesmo sem a agenda pessoal; o controlador separa o que é de quem.
+    $g->get('/contatos/{id}', [Contatos::class, 'obter'])->add(new Permissao('pcu.contatos', null, ['admin.contatos']));
     $g->post('/contatos', [Contatos::class, 'criar'])
-      ->add(new Permissao('pcu.contatos', 'criar'));
+      ->add(new Permissao('pcu.contatos', 'criar', ['admin.contatos']));
     $g->put('/contatos/{id}', [Contatos::class, 'atualizar'])
-      ->add(new Permissao('pcu.contatos', 'editar'));
+      ->add(new Permissao('pcu.contatos', 'editar', ['admin.contatos']));
     $g->delete('/contatos/{id}', [Contatos::class, 'remover'])
-      ->add(new Permissao('pcu.contatos', 'excluir'));
+      ->add(new Permissao('pcu.contatos', 'excluir', ['admin.contatos']));
     $g->post('/contatos/{id}/foto', [Contatos::class, 'foto'])
-      ->add(new Permissao('pcu.contatos', 'editar'));
+      ->add(new Permissao('pcu.contatos', 'editar', ['admin.contatos']));
     $g->delete('/contatos/{id}/foto', [Contatos::class, 'removerFoto'])
-      ->add(new Permissao('pcu.contatos', 'editar'));
+      ->add(new Permissao('pcu.contatos', 'editar', ['admin.contatos']));
 
     // ---- destinos personalizados ----
     $g->get('/destinos/contextos', [Destinos::class, 'contextos'])
@@ -1066,14 +1135,16 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
 
         $g->get("/{$caminho}", [$r, 'listar'])
           ->add(new Permissao($modulo, null, $def['referencia'] ?? []));
-        $g->get("/{$caminho}/{id}", [$r, 'obter'])->add(new Permissao($modulo));
+        // 'escrita': outra tela que também cadastra neste recurso.
+        $escrita = $def['escrita'] ?? [];
+        $g->get("/{$caminho}/{id}", [$r, 'obter'])->add(new Permissao($modulo, null, $escrita));
 
         // usuarios tem criação própria (senha), declarada acima
         if ($caminho !== 'usuarios') {
-            $g->post("/{$caminho}", [$r, 'criar'])->add(new Permissao($modulo, 'criar'));
+            $g->post("/{$caminho}", [$r, 'criar'])->add(new Permissao($modulo, 'criar', $escrita));
         }
-        $g->put("/{$caminho}/{id}", [$r, 'atualizar'])->add(new Permissao($modulo, 'editar'));
-        $g->delete("/{$caminho}/{id}", [$r, 'remover'])->add(new Permissao($modulo, 'excluir'));
+        $g->put("/{$caminho}/{id}", [$r, 'atualizar'])->add(new Permissao($modulo, 'editar', $escrita));
+        $g->delete("/{$caminho}/{id}", [$r, 'remover'])->add(new Permissao($modulo, 'excluir', $escrita));
     }
 })->add(new MwAutenticacao());
 

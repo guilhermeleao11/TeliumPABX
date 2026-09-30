@@ -48,9 +48,12 @@ function destinoSelect(prefixo, item, destinos, extras = {}) {
   // seletor é sempre "externo|", e o número vive no campo ao lado.
   const atual = tipoAtual === 'externo' ? 'externo|' : `${tipoAtual}|${valorAtual}`;
 
+  let achou = false;
   const grupo = (rotulo, itens) => itens.length
-    ? `<optgroup label="${esc(rotulo)}">${itens.map(o =>
-        `<option value="${esc(o.v)}" ${o.v === atual ? 'selected' : ''}>${esc(o.r)}</option>`).join('')}</optgroup>`
+    ? `<optgroup label="${esc(rotulo)}">${itens.map(o => {
+        if (o.v === atual) achou = true;
+        return `<option value="${esc(o.v)}" ${o.v === atual ? 'selected' : ''}>${esc(o.r)}</option>`;
+      }).join('')}</optgroup>`
     : '';
 
   const corpo = [
@@ -80,11 +83,19 @@ function destinoSelect(prefixo, item, destinos, extras = {}) {
     ])
   ].join('');
 
+  // O destino gravado que não está na lista (desativado, ou de um módulo
+  // que este perfil não enxerga) continua sendo o escolhido. Sem isto o
+  // navegador caía na primeira opção, "nenhum", e salvar apagava o
+  // destino sem ninguém ter mexido nele.
+  const guardado = !achou && tipoAtual !== '' && atual !== '|'
+    ? `<optgroup label="Destino atual"><option value="${esc(atual)}" selected>${esc(`${tipoAtual} ${valorAtual}`.trim())} (desativado ou fora do seu acesso)</option></optgroup>`
+    : '';
+
   const semEscolha = extras.rotuloVazio ?? '— escolha um destino —';
   const select = `<span class="destino-par">
     <select class="select" name="${prefixo}" data-destino>
       <option value="|" ${atual === '|' || atual.startsWith('undefined') ? 'selected' : ''}>${esc(semEscolha)}</option>
-      ${corpo}
+      ${guardado}${corpo}
     </select>
     <input class="input mono" data-destino-externo type="text" inputmode="tel"
            placeholder="número com DDD" value="${tipoAtual === 'externo' ? esc(valorAtual) : ''}"
@@ -512,8 +523,11 @@ PAGES['apps.ura'] = {
             botao.disabled = true;
             botao.innerHTML = '<span class="spin"></span> Salvando…';
             try {
-              const r = novo ? await Api.post('/ura', dados) : await Api.put(`/ura/${u.id}`, dados);
-              const id = novo ? r.id : u.id;
+              // Criada a URA, o id fica guardado: se as entradas forem
+              // recusadas, o próximo "Salvar" edita esta em vez de criar outra.
+              let id = u?.id ?? dw._uraCriada;
+              if (id) await Api.put(`/ura/${id}`, dados);
+              else { id = (await Api.post('/ura', dados)).id; dw._uraCriada = id; }
               await Api.put(`/ura/${id}/opcoes`, { opcoes });
               Drawer.close();
               toast('URA salva. Aplique as configurações para valer no Asterisk.', 'ok');
@@ -521,8 +535,11 @@ PAGES['apps.ura'] = {
             } catch (e) {
               botao.disabled = false;
               botao.textContent = novo ? 'Criar URA' : 'Salvar';
-              if (e.detalhe?.campo) marcarErro(dw, e.detalhe.campo, e.message);
-              else toast(e.message, 'err');
+              // "tecla-3" é a quarta linha das entradas, que não tem .field
+              // para o marcarErro achar; sem o toast o erro passava calado.
+              const linha = /^tecla-(\d+)$/.exec(e.detalhe?.campo || '');
+              if (linha) corpo.querySelectorAll('tr[data-entrada] [name="tecla"]')[Number(linha[1])]?.classList.add('erro');
+              if (!(e.detalhe?.campo && marcarErro(dw, e.detalhe.campo, e.message))) toast(e.message, 'err');
             }
           };
         }
@@ -1133,7 +1150,7 @@ PAGES['conn.provisionamento'] = paginaCrud({
   vazioTexto: 'Cadastre o MAC do telefone para ele receber a configuração automaticamente.',
   placeholderBusca: 'Buscar por MAC, modelo ou IP…',
   textoBusca: d => `${d.mac} ${d.modelo || ''} ${d.ip || ''}`,
-  tituloEditar: d => `Aparelho ${esc(d.mac)}`,
+  tituloEditar: d => `Aparelho ${d.mac}`,
   colunas: [
     { label: 'MAC', render: d => `<span class="mono">${esc(d.mac)}</span>${
         d.observacao ? `<div class="tiny muted">${esc(d.observacao)}</div>` : ''}` },
@@ -1253,7 +1270,7 @@ PAGES['conn.provisionamento'] = paginaCrud({
       try {
         const r = await Api.get(`/provisionamento/${b.dataset.previa}/previa`);
         Drawer.open({
-          titulo: esc(r.arquivo),
+          titulo: r.arquivo,
           sub: `O que o aparelho recebe — ramal ${r.ramal}`,
           wide: true,
           corpo: `<p class="small muted">Este arquivo carrega a senha SIP do ramal. Ele é entregue
@@ -1293,7 +1310,7 @@ PAGES['telium.integracoes'] = paginaCrud({
   vazioTexto: 'Webhooks avisam outros sistemas quando uma chamada começa ou termina.',
   placeholderBusca: 'Buscar…',
   textoBusca: i => i.nome,
-  tituloEditar: i => esc(i.nome),
+  tituloEditar: i => i.nome,
   colunas: [
     { label: 'Integração', render: i => `<b>${esc(i.nome)}</b>` },
     { label: 'Tipo', render: i => `<span class="badge">${esc(i.tipo)}</span>` },
@@ -1822,7 +1839,7 @@ PAGES['admin.backup'] = {
       const bk = this._d.historico.find(x => String(x.id) === b.dataset.restaurar);
       const ok = await Modal.confirm({
         titulo: 'Restaurar este backup?',
-        texto: `O conteúdo atual será substituído pelo de ${bk.arquivo}. O Asterisk é parado durante `
+        texto: `O conteúdo atual será substituído pelo de ${esc(bk.arquivo)}. O Asterisk é parado durante `
              + 'a restauração e volta em seguida. As chamadas em andamento caem.',
         ok: 'Restaurar mesmo assim'
       });
@@ -2034,7 +2051,7 @@ PAGES['admin.gravacoes'] = {
       ];
       Drawer.open({
         titulo: `Editar ${a.nome}`,
-        sub: `Arquivo <span class="mono">${esc(a.arquivo)}</span> — para trocar o áudio, envie outro e exclua este.`,
+        subHtml: `Arquivo <span class="mono">${esc(a.arquivo)}</span> — para trocar o áudio, envie outro e exclua este.`,
         corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, a)).join('')}</div>`,
         rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
                  <button class="btn btn-primary" data-ok>Salvar</button>`,
@@ -2810,7 +2827,7 @@ PAGES['admin.certificados'] = {
     document.querySelectorAll('[data-assinar]').forEach(b => b.onclick = () => {
       const c = d.dados.find(x => String(x.id) === b.dataset.assinar);
       Drawer.open({
-        titulo: `Concluir ${esc(c.nome)}`,
+        titulo: `Concluir ${c.nome}`,
         sub: 'Cole ou envie o certificado que a autoridade emitiu para este pedido.',
         corpo: `
           <div class="grid" style="gap:16px">
@@ -2871,7 +2888,7 @@ PAGES['admin.certificados'] = {
         { campo: 'descricao', label: 'Observação', tipo: 'textarea', largura: 'full' }
       ];
       Drawer.open({
-        titulo: `Renomear ${esc(c.nome)}`,
+        titulo: `Renomear ${c.nome}`,
         sub: 'Muda só como ele aparece aqui — o certificado em si não é tocado.',
         corpo: `<div class="form-grid">${campos.map(x => campoHtml(x, c)).join('')}</div>`,
         rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
@@ -2893,7 +2910,7 @@ PAGES['admin.certificados'] = {
     document.querySelectorAll('[data-excluir-cert]').forEach(b => b.onclick = async () => {
       const c = d.dados.find(x => String(x.id) === b.dataset.excluirCert);
       const ok = await Modal.confirm({
-        titulo: `Excluir ${esc(c.nome)}?`,
+        titulo: `Excluir ${c.nome}?`,
         texto: `O certificado e a chave privada são apagados do servidor e não há como recuperá-los.
                 Se algum serviço ainda estiver usando este par, a exclusão é recusada.`,
         ok: 'Excluir'
@@ -3380,7 +3397,7 @@ function paginaServicoDoRamal(cfg) {
 
         Drawer.open({
           titulo: `${cfg.tituloForm} — ramal ${x.numero}`,
-          sub: esc(x.nome),
+          sub: x.nome,
           corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, x)).join('')}</div>`,
           rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
                    <button class="btn btn-primary" data-ok>Salvar</button>`,
@@ -4822,7 +4839,7 @@ function paginaAgenda(cfg) {
           .filter(x => x.aba === aba).map(x => campoHtml(x, c)).join('')}</div>`;
 
         Drawer.open({
-          titulo: novo ? 'Novo contato' : `Editar ${esc(c.nome)}`,
+          titulo: novo ? 'Novo contato' : `Editar ${c.nome}`,
           sub: novo
             ? 'Só o nome e uma forma de contato são obrigatórios — o resto você completa quando quiser.'
             : 'A foto é salva na hora; os demais campos, ao clicar em Salvar.',
@@ -4919,7 +4936,7 @@ function paginaAgenda(cfg) {
       document.querySelectorAll('[data-excluir-contato]').forEach(b => b.onclick = async () => {
         const c = d.dados.find(x => String(x.id) === b.dataset.excluirContato);
         const ok = await Modal.confirm({
-          titulo: `Excluir ${esc(c.nome)}?`,
+          titulo: `Excluir ${c.nome}?`,
           texto: c.escopo === 'corporativo'
             ? 'O contato some da agenda da empresa para todos os usuários.'
             : 'O contato some da sua agenda pessoal.',
@@ -5256,14 +5273,13 @@ PAGES['apps.disa'] = paginaCrud({
     { campo: 'contexto', label: 'Até onde quem entrou pode discar', tipo: 'select', largura: 'full',
       opcoes: [
         { valor: 'telium-ramais', rotulo: 'Só ramais internos — mais seguro' },
-        { valor: 'interno', rotulo: 'Ramais e rotas de saída permitidas' },
+        { valor: 'interno', rotulo: 'Ramais e rotas de saída, menos internacional' },
         { valor: 'telium-bloqueado', rotulo: 'Nenhuma saída (para desativar sem excluir)' }
       ], padrao: 'telium-ramais',
       ajuda: 'Liberar as rotas de saída é o que torna a DISA útil para quem viaja — e o que '
            + 'torna o estrago grande se a senha vazar.' },
     { campo: 'cid_saida', label: 'Número de saída', mono: true, placeholder: '1140041000',
       ajuda: 'O que a operadora recebe nas chamadas feitas por aqui. Em branco, vale o do tronco.' },
-    { campo: 'tempo_digito', label: 'Espera por dígito (segundos)', tipo: 'number', padrao: 10 },
     { campo: 'responder', label: 'Atender a chamada antes de pedir a senha', tipo: 'switch',
       padrao: 1, ajuda: 'Desligado, a operadora não tarifa enquanto ninguém digita.' },
     { campo: 'ativo', label: 'DISA ativa', tipo: 'switch', padrao: 1 }
@@ -6365,7 +6381,7 @@ PAGES['conn.firewall'] = {
     document.querySelectorAll('[data-confiar]').forEach(b => b.onclick = async () => {
       const ip = b.dataset.confiar;
       const ok = await Modal.confirm({
-        titulo: `Nunca mais bloquear ${esc(ip)}?`,
+        titulo: `Nunca mais bloquear ${ip}?`,
         texto: 'Ele é desbloqueado agora e o firewall deixa de bani-lo, mesmo que erre a senha. '
              + 'Faça isso só para endereços seus — o do escritório, do monitoramento, do syslog.',
         ok: 'Nunca bloquear', tone: 'warn', ico: 'shield'
@@ -6375,7 +6391,7 @@ PAGES['conn.firewall'] = {
 
     document.querySelectorAll('[data-desconfiar]').forEach(b => b.onclick = async () => {
       const ok = await Modal.confirm({
-        titulo: `Tirar ${esc(b.dataset.endereco)} da lista?`,
+        titulo: `Tirar ${b.dataset.endereco} da lista?`,
         texto: 'Ele volta a ser bloqueado se errar a senha cinco vezes.', ok: 'Tirar da lista'
       });
       if (!ok) return;
@@ -6389,7 +6405,7 @@ PAGES['conn.firewall'] = {
     document.querySelectorAll('[data-desbanir]').forEach(b => b.onclick = async () => {
       const ip = b.dataset.desbanir;
       const ok = await Modal.confirm({
-        titulo: `Desbloquear ${esc(ip)}?`,
+        titulo: `Desbloquear ${ip}?`,
         texto: 'O endereço volta a poder falar com a central agora. Se as tentativas que o '
              + 'bloquearam continuarem, ele é banido de novo.',
         ok: 'Desbloquear', tone: 'primary', ico: 'checkCirc'

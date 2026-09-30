@@ -727,16 +727,18 @@ function limparErros(escopo) {
 }
 
 /** Marca um campo com problema e escreve o motivo embaixo dele. */
+/** Aponta o erro no campo. Devolve false quando não há campo para apontar. */
 function marcarErro(escopo, nome, mensagem) {
   const el = escopo.querySelector(`[name="${nome}"]`);
   const campo = el?.closest('.field');
-  if (!campo) return;
+  if (!campo) return false;
 
   campo.classList.add('erro');
   if (!campo.querySelector('.campo-erro')) {
     campo.insertAdjacentHTML('beforeend',
       `<span class="campo-erro">${icon('alert','ico')}${esc(mensagem)}</span>`);
   }
+  return true;
 }
 
 /** Resumo no topo, para o problema não passar batido num formulário longo. */
@@ -921,9 +923,9 @@ PAGES['conn.ramais'] = paginaCrud({
   vazioTexto: 'Cadastre o primeiro ramal para começar a receber e originar chamadas.',
   placeholderBusca: 'Buscar por número, nome ou setor…',
   textoBusca: r => `${r.numero} ${r.nome} ${r.setor || ''}`,
-  tituloEditar: r => `Ramal ${esc(r.numero)} — ${esc(r.nome)}`,
+  tituloEditar: r => `Ramal ${r.numero} — ${r.nome}`,
   tituloExcluir: r => `Excluir o ramal ${r.numero}?`,
-  textoExcluir: r => `${r.nome} perde o acesso à central assim que a configuração for aplicada. O histórico de chamadas é preservado.`,
+  textoExcluir: r => `${esc(r.nome)} perde o acesso à central assim que a configuração for aplicada. O histórico de chamadas é preservado.`,
 
   colunas: [
     { label: 'Ramal', thClasse: 'col-num', render: r => `<b class="mono">${esc(r.numero)}</b>` },
@@ -1143,7 +1145,7 @@ PAGES['conn.ramais'] = paginaCrud({
     { aba: 'Avançado', campo: 'ditado_email', label: 'E-mail do ditado', tipo: 'email', largura: 'full' },
     { aba: 'Avançado', campo: 'ditado_remetente', label: 'Remetente do ditado', largura: 'full' },
 
-    { aba: 'Permissões', campo: 'perm_local', label: 'Ligações locais', tipo: 'switch', padrao: 1 },
+    { aba: 'Permissões', campo: 'perm_local', label: 'Ligações locais e 0800/0300', tipo: 'switch', padrao: 1 },
     { aba: 'Permissões', campo: 'perm_celular', label: 'Celular', tipo: 'switch', padrao: 1 },
     { aba: 'Permissões', campo: 'perm_ddd', label: 'DDD nacional', tipo: 'switch', padrao: 1 },
     { aba: 'Permissões', campo: 'perm_ddi', label: 'Internacional', tipo: 'switch' }
@@ -1214,7 +1216,7 @@ PAGES['conn.troncos'] = paginaCrud({
   vazioTexto: 'Sem tronco a central só faz chamadas internas. Cadastre o entroncamento da operadora.',
   placeholderBusca: 'Buscar por nome ou host…',
   textoBusca: t => `${t.nome} ${t.host || ''}`,
-  tituloEditar: t => `Tronco ${esc(t.nome)}`,
+  tituloEditar: t => `Tronco ${t.nome}`,
   tituloExcluir: t => `Excluir o tronco ${t.nome}?`,
   textoExcluir: () => 'As rotas de saída que usam este tronco deixarão de funcionar.',
 
@@ -1556,7 +1558,7 @@ PAGES['apps.filas'] = {
         .filter(c => c.aba === aba).map(c => campoHtml(c, f)).join('')}</div>`;
 
       Drawer.open({
-        titulo: novo ? 'Nova fila' : `Fila ${esc(f.numero)} — ${esc(f.nome)}`,
+        titulo: novo ? 'Nova fila' : `Fila ${f.numero} — ${f.nome}`,
         sub: 'Os agentes são montados no botão Agentes, na lista.',
         wide: true,
         corpo: `<div class="tabs" data-abas>${abas.map((a, i) =>
@@ -1743,7 +1745,7 @@ PAGES['apps.filas'] = {
     const agentesCallCenter = d => {
       const ativos = d.cc_agentes.filter(a => Number(a.ativo) || Number(a.na_fila));
       Drawer.open({
-        titulo: `Agentes da fila ${esc(d.fila.numero)}`,
+        titulo: `Agentes da fila ${d.fila.numero}`,
         sub: 'Fila de call center: marque quem atende nela e o nível de cada um. Nível 0 recebe primeiro.',
         wide: true,
         corpo: ativos.length ? `
@@ -1799,7 +1801,7 @@ PAGES['apps.filas'] = {
 
       Drawer.open({
         titulo: `Fila ${f.numero} agora`,
-        sub: d.disponivel ? `${num(d.esperando)} chamada(s) esperando` : esc(d.detalhe || ''),
+        sub: d.disponivel ? `${num(d.esperando)} chamada(s) esperando` : d.detalhe || '',
         corpo: !d.disponivel
           ? vazio('alert', 'Asterisk fora do ar', esc(d.detalhe))
           : `${d.membros.length ? `<div class="table-wrap"><table class="table">
@@ -1852,7 +1854,7 @@ async function paginaPesquisas(ctx, pagina) {
     const p = item || {};
     const cs = campos(p);
     Drawer.open({
-      titulo: novo ? 'Nova pesquisa' : `Editar ${esc(p.nome)}`,
+      titulo: novo ? 'Nova pesquisa' : `Editar ${p.nome}`,
       sub: 'O cliente cai aqui quando o atendente desliga, se a fila tiver esta pesquisa escolhida.',
       corpo: `<div class="form-grid">${cs.map(c => campoHtml(c, p)).join('')}</div>`,
       rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
@@ -1935,7 +1937,7 @@ PAGES['rel.cdr'] = {
             <td class="small dim">${esc(c.tronco || '—')}</td>
             <td>${badgeCdr(c.disposition)}${c.motivo
               ? `<div class="tiny muted" data-tip="${esc(c.motivo)}">${esc(c.motivo)}</div>` : ''}</td>
-            <td>${c.gravacao ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Ouvir">${icon('play','ico ico-sm')}</button>` : '<span class="muted">—</span>'}</td>
+            <td>${c.gravacao ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Ouvir" data-ouvir-cdr="${esc(c.gravacao)}">${icon('play','ico ico-sm')}</button>` : '<span class="muted">—</span>'}</td>
           </tr>`).join('')}
         </tbody></table></div>
       <div class="card-foot pager">
@@ -1990,6 +1992,25 @@ PAGES['rel.cdr'] = {
     document.querySelectorAll('[data-ligar]').forEach(b => b.onclick = ev => {
       ev.stopPropagation();
       Softphone.discarPara(b.dataset.ligar);
+    });
+
+    // O botão existia sem ação nenhuma. Toca aqui mesmo, numa linha abaixo
+    // da chamada; sem acesso às gravações, a API diz isso no aviso.
+    document.querySelectorAll('[data-ouvir-cdr]').forEach(b => b.onclick = async () => {
+      const tr = b.closest('tr');
+      const aberto = tr.nextElementSibling?.hasAttribute('data-player-linha');
+      document.querySelectorAll('[data-player-linha]').forEach(l => { l.querySelector('audio')?.pause(); l.remove(); });
+      if (aberto) return;
+      b.disabled = true;
+      try {
+        const { blob } = await Api.baixar(`/gravacoes/arquivo?caminho=${encodeURIComponent(b.dataset.ouvirCdr)}`);
+        const url = URL.createObjectURL(blob);
+        tr.insertAdjacentHTML('afterend', `<tr data-player-linha><td colspan="10" style="background:var(--surface-2)">
+          <audio controls autoplay preload="auto" src="${url}" style="width:100%;height:38px"></audio></td></tr>`);
+        tr.nextElementSibling.querySelector('audio')
+          .addEventListener('ended', () => setTimeout(() => URL.revokeObjectURL(url), 1000));
+      } catch (e) { toast(e.message, 'err'); }
+      b.disabled = false;
     });
 
     document.querySelectorAll('[data-pagina]').forEach(b => b.onclick = () => {
@@ -2089,7 +2110,7 @@ PAGES['admin.usuarios'] = {
       ];
 
       Drawer.open({
-        titulo: novo ? 'Novo usuário' : `Editar ${esc(u.nome)}`,
+        titulo: novo ? 'Novo usuário' : `Editar ${u.nome}`,
         sub: novo ? 'Defina a senha agora: a conta só entra depois disso.' : '',
         corpo: `<div class="form-grid">
           ${campos.map(c => campoHtml(c, u || {})).join('')}
@@ -2164,7 +2185,7 @@ PAGES['admin.usuarios'] = {
     };
 
     const senhaForm = (u) => Drawer.open({
-      titulo: `Definir senha de ${esc(u.nome)}`,
+      titulo: `Definir senha de ${u.nome}`,
       sub: 'As sessões abertas dessa pessoa são encerradas assim que a senha muda.',
       corpo: `<div class="form-grid">
         ${campoSenha('senha', 'Nova senha')}
@@ -2237,8 +2258,8 @@ PAGES['admin.usuarios'] = {
     document.querySelectorAll('[data-excluir]').forEach(b => b.onclick = async () => {
       const u = this._usuarios.find(x => String(x.id) === b.dataset.excluir);
       const ok = await Modal.confirm({
-        titulo: `Excluir ${esc(u.nome)}?`,
-        texto: `A conta ${u.usuario} perde o acesso imediatamente.`, ok: 'Excluir'
+        titulo: `Excluir ${u.nome}?`,
+        texto: `A conta ${esc(u.usuario)} perde o acesso imediatamente.`, ok: 'Excluir'
       });
       if (!ok) return;
       try { await Api.delete(`/usuarios/${u.id}`); toast('Usuário excluído.', 'ok'); App.route(); }

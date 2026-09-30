@@ -110,6 +110,24 @@ ficaram, com o motivo:
   sudo de `telium-smtp`/`telium-backup` aceita argumentos; `/etc/telium`
   pertence ao usuário da API.
 
+## 3-B. Achados da revisão de 30/09/2026 que ficaram para depois
+
+- **`*49` com atendimento sem tabular** toca "operação falhou". O certo
+  é um áudio "tabule o atendimento antes de voltar", que não está entre
+  os áudios do call center; o painel do agente já mostra o motivo.
+- **O retorno registra "sem resposta da central"** quando a central cai
+  no meio da conversa com o cliente, e esse retorno fica em "discando"
+  por até seis horas antes de voltar à fila. Os outros retornos da mesma
+  fila seguem normalmente.
+
+- **Siga-me e correio de voz num perfil próprio** salvam pelo cadastro do
+  ramal e pedem "Ramais" com editar. Abrir isso só para essas telas
+  deixaria mexer na senha e no contexto do ramal; precisa de uma rota que
+  aceite só os campos delas.
+- **Discagem rápida dos contatos** tem código único para a central
+  inteira, e o *0 resolve também contato pessoal de outro usuário.
+  Separar por usuário pede mudar a chave e o func_odbc.
+
 ## 4. Limitações conhecidas, por decisão
 
 Não são defeitos; ficam registradas para ninguém "corrigir" por engano.
@@ -122,10 +140,27 @@ Não são defeitos; ficam registradas para ninguém "corrigir" por engano.
 - **Aplicar configuração é serializado.** Duas aplicações simultâneas se
   atropelavam na base do Asterisk; agora a segunda espera até 20 s.
 - **Siga-me, não perturbe, chamada em espera, interfonia, rastreio e
-  ditado são repostos do banco a cada aplicação.** Quem ligar o não
-  perturbe pelo telefone e logo depois alguém aplicar a configuração
-  perde o ajuste. O console é a fonte da verdade, por decisão. A
-  exceção é o portal do usuário, que escreve nos dois lugares na hora.
+  ditado são repostos do banco a cada aplicação.** O console é a fonte da
+  verdade. Os códigos do telefone (*21, *76/*78/*79, *70/*71/*77, *87/*88)
+  e o portal do usuário gravam no banco na hora, então aplicar não desfaz
+  o que o ramal ligou pelo telefone.
+- **A permissão de discagem é a do ramal que responde pela chamada.** No
+  siga-me e no desvio vale a do ramal dono do desvio; na transferência às
+  cegas, a de quem transferiu. Destino que o administrador configurou (URA
+  para número externo, retorno do call center) não tem ramal e sai
+  liberado. As permissões vão para a base do Asterisk no "aplicar": até a
+  primeira aplicação depois de atualizar, siga-me para fora fica só com
+  emergência.
+- **DISA não disca internacional**, qualquer que seja o contexto; local,
+  celular, DDD e 0800 sim. Senha com menos de 6 dígitos desativa a DISA.
+- **Escuta (*555) é só para supervisor**: o ramal de um usuário ativo com
+  a permissão de supervisor do call center. Trocar o perfil ou o ramal do
+  usuário vale a partir da próxima aplicação.
+- **0800/0300 (classe "especial") seguem a permissão de ligação local.**
+- **Um ramal com opção que o Asterisk recusa** some da central só quando é
+  novo; um que já existia continua com a versão anterior até o próximo
+  reinício. O "aplicar" acusa o primeiro caso ("não carregou: …"); o
+  segundo aparece só no log do Asterisk.
 - **Um ramal registrado em dois lugares** funciona; o terceiro registro
   derruba o mais antigo.
 - **Janus é opcional e fica fora do caminho da chamada.** O WebRTC vai

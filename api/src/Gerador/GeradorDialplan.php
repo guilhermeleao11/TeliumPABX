@@ -28,7 +28,10 @@ final class GeradorDialplan
         // Nenhum módulo guarda mais nome de arquivo: todos apontam para um
         // anúncio, e é aqui que o id vira o arquivo que o Asterisk toca.
         $this->anuncios = array_column(
-            Bd::todos('SELECT a.*, s.arquivo FROM anuncios a JOIN audios s ON s.id = a.audio_id'),
+            array_map(
+                static fn (array $a): array => ['arquivo' => Som::prompt($a['arquivo'])] + $a,
+                Bd::todos('SELECT a.*, s.arquivo FROM anuncios a JOIN audios s ON s.id = a.audio_id')
+            ),
             null,
             'id'
         );
@@ -123,7 +126,7 @@ final class GeradorDialplan
                 'ocupado'  => ['Busy(5)', 'Hangup()'],
                 'silencio' => ['Answer()', 'Wait(600)', 'Hangup()'],
                 'anuncio'  => $n['audio']
-                    ? ['Answer()', 'Wait(1)', "Playback({$n['audio']})", 'Hangup()']
+                    ? ['Answer()', 'Wait(1)', 'Playback(' . Som::prompt($n['audio']) . ')', 'Hangup()']
                     : ['Answer()', 'Wait(1)', 'Playback(ss-noservice)', 'Hangup()'],
                 default    => ['Hangup(21)'],
             });
@@ -169,13 +172,18 @@ final class GeradorDialplan
               ->same('Set(CDR(direcao)=interna)')
               ->same("Set(__TELIUM_DESTINO={$numero})");
 
-            // Quem disca está fazendo uma chamada interna, então vale a
-            // regra 4 do ramal de origem — ela chega no canal, no
-            // TELIUM_GRAV do endpoint. A regra de quem recebe é escrita
-            // aqui como literal, porque o destino já é conhecido.
+            // Vindo de um ramal, é chamada interna: vale a regra 4 de quem
+            // discou (no TELIUM_GRAV do endpoint) contra a regra de interna
+            // recebida deste ramal. Vindo de fora (o canal do tronco não tem
+            // TELIUM_RAMAL), vale a regra de externa recebida deste ramal —
+            // antes ela nunca era lida, e "nunca gravar" ou "forçar" para
+            // chamada de fora não faziam nada. A regra de quem recebe vai
+            // como literal, porque o destino já é conhecido.
             $b->same(sprintf(
-                'GoSub(sub-decidir-gravacao,s,1(4,%s,interna))',
-                $this->regraDeQuemRecebe($r)
+                'GoSub(sub-decidir-gravacao,s,1(${IF($["${TELIUM_RAMAL}" != ""]?4:1)},'
+                . '${IF($["${TELIUM_RAMAL}" != ""]?%s:%s)},${IF($["${TELIUM_RAMAL}" != ""]?interna:entrada)}))',
+                $this->regraDeQuemRecebe($r),
+                $this->regraDeQuemRecebe($r, 'grav_ext_entrada')
             ));
 
             // Não perturbe, siga-me e desvios ficam todos no sub-ramal:
@@ -189,13 +197,13 @@ final class GeradorDialplan
     }
 
     /**
-     * A regra de gravação do ramal que recebe uma chamada interna. A
-     * coluna antiga "gravar" continua valendo para quem nunca mexeu nas
-     * quatro novas.
+     * A regra de gravação do ramal que recebe uma chamada, interna
+     * (grav_int_entrada) ou de fora (grav_ext_entrada). A coluna antiga
+     * "gravar" continua valendo para quem nunca mexeu nas quatro novas.
      */
-    private function regraDeQuemRecebe(array $r): string
+    private function regraDeQuemRecebe(array $r, string $coluna = 'grav_int_entrada'): string
     {
-        $regra = (string) ($r['grav_int_entrada'] ?? 'indiferente');
+        $regra = (string) ($r[$coluna] ?? 'indiferente');
         if ($regra !== 'indiferente') {
             return $regra;
         }
@@ -209,10 +217,19 @@ final class GeradorDialplan
         $b = $this->cabecalho('Contexto: grupos de toque')->contexto('telium-grupos');
 
         foreach (Bd::todos('SELECT * FROM grupos_toque WHERE ativo = 1 ORDER BY numero') as $g) {
+            // Só número de ramal: com o texto do cadastro cru, um membro
+            // "00551199999999@Vivo" discava direto pelo tronco, sem passar
+            // pela permissão de ninguém.
             $canais = implode('&', array_map(
-                static fn (string $r): string => 'PJSIP/' . trim($r),
-                array_filter(explode('-', (string) $g['ramais']))
+                static fn (string $r): string => 'PJSIP/' . $r,
+                array_filter(array_map(
+                    static fn (string $r): string => preg_replace('/[^0-9]/', '', $r) ?? '',
+                    explode('-', (string) $g['ramais'])
+                ), static fn (string $r): bool => $r !== '')
             ));
+            if ($canais === '') {
+                continue;
+            }
 
             $b->branco()
               ->comentario("{$g['numero']} — {$g['nome']}")
@@ -287,9 +304,11 @@ final class GeradorDialplan
             $b->same('NoOp(Saída da fila ' . $numero . ': ${QUEUESTATUS})');
 
             if ($pesquisa > 0) {
-                // QUEUESTATUS vazio = a chamada foi atendida e o agente
-                // desligou; qualquer valor ali é motivo de não-atendimento.
-                $b->same('GotoIf($["${QUEUESTATUS}" = ""]?pesquisa-' . $numero . ')');
+                // Atendida e encerrada pelo agente: com a opção 'c' o Asterisk
+                // 22 devolve CONTINUE (versões antigas deixavam vazio). Só
+                // olhar o vazio mandava quem acabou de ser atendido para o
+                // destino de estouro, e a pesquisa nunca tocava.
+                $b->same('GotoIf($["${QUEUESTATUS}" = "CONTINUE" | "${QUEUESTATUS}" = ""]?pesquisa-' . $numero . ')');
             }
 
             $temVazia = ($f['destino_vazia_tipo'] ?? '') !== '';
@@ -331,14 +350,23 @@ final class GeradorDialplan
      */
     private function estacionamento(): string
     {
-        $b = $this->cabecalho('Contextos: chamadas estacionadas que estouraram o tempo');
+        $b = $this->cabecalho('Contextos: vagas dos lotes e chamadas estacionadas que estouraram o tempo');
+
+        // O res_parking cria o contexto telium-vagas-<lote> com o número de
+        // estacionar e as vagas, mas ninguém o incluía: discar 700, apertar
+        // a tecla BLF da vaga ou transferir para 700 dava número inválido.
+        // O [interno] inclui este contexto, que existe mesmo sem lote.
+        $b->contexto('telium-estacionamento');
+        foreach (Bd::todos('SELECT nome, padrao FROM estacionamentos WHERE ativo = 1 ORDER BY padrao DESC, nome') as $l) {
+            $b->crua('include => telium-vagas-' . ((int) $l['padrao'] === 1 ? 'default' : (string) $l['nome']));
+        }
 
         $lotes = Bd::todos(
             'SELECT * FROM estacionamentos WHERE ativo = 1 AND volta_para_origem = 0 ORDER BY nome'
         );
 
         if ($lotes === []) {
-            return $b->comentario('todos os lotes devolvem a chamada para quem estacionou')->texto();
+            return $b->branco()->comentario('todos os lotes devolvem a chamada para quem estacionou')->texto();
         }
 
         foreach ($lotes as $l) {
@@ -505,9 +533,14 @@ final class GeradorDialplan
 
             // Com tecla para pular ou repetir, o áudio tem de ser tocado
             // por Background, que escuta o teclado; Playback não escuta.
+            //
+            // Playback e Background atendem o canal sozinhos antes de tocar;
+            // sem "noanswer"/"n", o "não atender" atendia do mesmo jeito e a
+            // operadora tarifava.
+            $semAtender = (int) $a['nao_responder'] === 1;
             $tocar = ($pular || $repete !== '')
-                ? "Background({$a['arquivo']})"
-                : "Playback({$a['arquivo']})";
+                ? 'Background(' . $a['arquivo'] . ($semAtender ? ',n' : '') . ')'
+                : 'Playback(' . $a['arquivo'] . ($semAtender ? ',noanswer' : '') . ')';
 
             $b->comentario(str_repeat('-', 62))
               ->comentario("Anúncio {$id} — {$a['nome']}")
@@ -516,8 +549,10 @@ final class GeradorDialplan
               ->exten('s', "NoOp(Anúncio: {$a['nome']})");
 
             if ((int) $a['nao_responder'] === 1) {
-                // Sem atender, a operadora não tarifa a chamada.
-                $b->same('NoOp(Tocando sem atender o canal)');
+                // Sem atender, a operadora não tarifa a chamada. O Progress
+                // abre o áudio antecipado, que é por onde o anúncio passa.
+                $b->same('NoOp(Tocando sem atender o canal)')
+                  ->same('Progress()');
             } else {
                 $b->same('Answer()')->same('Wait(1)');
             }
@@ -632,21 +667,35 @@ final class GeradorDialplan
                 $b->same("Playback({$entrada})");
             }
             if ((int) $s['gravar'] === 1) {
-                // Mesmo formato e mesma árvore das gravações de chamada,
-                // para o módulo de gravações achar o arquivo.
-                $b->same('Set(TELIUM_CONFARQ=${STRFTIME(${EPOCH},,%Y/%m/%d)}/'
+                // O perfil dinâmico nasce do default_bridge; sem o template,
+                // gravar a sala perdia o limite de participantes e o resto
+                // do perfil dela.
+                $b->same("Set(CONFBRIDGE(bridge,template)=sala-{$n})")
+                  // A gravação é da sala, e quem manda nela é quem a abre. Cada
+                  // participante que entrava registrava "a sua" gravação, com
+                  // um arquivo que nunca existia.
+                  ->same("GotoIf($[\${CONFBRIDGE_INFO(parties,{$n})} > 0]?ja-gravando)")
+                  // Mesmo formato e mesma árvore das gravações de chamada,
+                  // para o módulo de gravações achar o arquivo.
+                  ->same('Set(TELIUM_CONFARQ=${STRFTIME(${EPOCH},,%Y/%m/%d)}/'
                        . "conferencia-{$n}-\${STRFTIME(\${EPOCH},,%H%M%S)}-\${UNIQUEID}.wav)")
                   ->same('System(mkdir -p ${TELIUM_GRAVACOES}/${STRFTIME(${EPOCH},,%Y/%m/%d)})')
                   ->same('Set(CONFBRIDGE(bridge,record_conference)=yes)')
+                  // Sem isto o ConfBridge acrescenta "-<hora>" ao nome, e o
+                  // arquivo no disco não era o que ficava registrado.
+                  ->same('Set(CONFBRIDGE(bridge,record_file_timestamp)=no)')
                   ->same('Set(CONFBRIDGE(bridge,record_file)=${TELIUM_GRAVACOES}/${TELIUM_CONFARQ})')
                   ->same('Set(ODBC_TELIUM_GRAVACAO(${UNIQUEID},${TELIUM_CONFARQ},${CALLERID(num)},'
-                       . "{$n},conferencia)=\${CALLERID(name)})");
+                       . "{$n},conferencia)=\${CALLERID(name)})")
+                  ->same('NoOp(Sala gravada)', 'ja-gravando');
             }
 
+            // Gravando, o perfil vai em branco: é assim que o ConfBridge usa
+            // o perfil dinâmico (sala-N + gravação) montado acima.
             $b->same(sprintf(
-                'ConfBridge(%s,sala-%s,${TELIUM_PERFIL},${TELIUM_MENU})',
+                'ConfBridge(%s,%s,${TELIUM_PERFIL},${TELIUM_MENU})',
                 $n,
-                $n
+                (int) $s['gravar'] === 1 ? '' : "sala-{$n}"
             ))
               ->same('Hangup()');
 
@@ -867,10 +916,14 @@ final class GeradorDialplan
             ));
 
             // d = todos falam (interfonia), sem d só quem chamou é ouvido.
-            // i = ignora quem recusa megafonia. q = sem o bipe do Asterisk.
+            // q = sem o bipe do Asterisk. s = só aparelho livre: sem
+            // "forçar", quem está em chamada não é interrompido. b = pede
+            // ao aparelho que atenda sozinho (sub-autoatende) — sem isso
+            // os telefones só tocavam, e megafonia que toca não é megafonia.
             $opcoes = 'q'
                 . ((int) $g['duplex'] === 1 ? 'd' : '')
-                . ((int) $g['forcar'] === 1 ? 'i' : '');
+                . ((int) $g['forcar'] === 1 ? '' : 's')
+                . 'b(sub-autoatende^s^1)';
 
             $b->branco()
               ->comentario("{$g['numero']} — {$g['nome']} ("
@@ -939,11 +992,28 @@ final class GeradorDialplan
                   ->same("Set(CALLERID(name)={$cid})");
             }
 
+            // Senha que vira vazia depois de tirar o que não é dígito deixava
+            // a DISA aberta: bastava apertar # para ganhar linha.
+            $senha = $this->soNumero((string) $d['senha']);
+            if (strlen($senha) < 6) {
+                $b->same('NoOp(DISA sem senha numérica de 6 dígitos ou mais: desativada)')
+                  ->same('Playback(ss-noservice)')
+                  ->same('Hangup(21)');
+                continue;
+            }
+
+            // Quem entra pela DISA não é ramal nenhum, e o canal do tronco
+            // não traz permissão: sem isto saía com tudo liberado, inclusive
+            // internacional — o alvo número um de fraude de tarifação.
+            $b->same('Set(__TELIUM_PERM=emergencia,local,celular,ddd,especial)');
+
+            // O quinto argumento da DISA são opções, não o tempo entre
+            // dígitos (que ela não deixa configurar): passar o número ali
+            // não fazia nada de útil.
             $b->same(sprintf(
-                'DISA(%s,%s,,,%d)',
-                $this->soNumero((string) $d['senha']),
-                $this->identificador((string) $d['contexto']),
-                max(3, (int) $d['tempo_digito'])
+                'DISA(%s,%s)',
+                $senha,
+                $this->identificador((string) $d['contexto'])
             ))
               ->same('NoOp(DISA encerrada)')
               ->same('Hangup()');
@@ -976,20 +1046,52 @@ final class GeradorDialplan
                   ->contexto('telium-saida');
 
         $rotas = Bd::todos(
-            'SELECT r.*, t.nome AS tronco_nome, t.cid_saida AS tronco_cid,
+            "SELECT r.*, t.nome AS tronco_nome, t.cid_saida AS tronco_cid,
+                    (t.ativo = 1 AND t.tipo = 'pjsip') AS tronco_usavel,
                     tf.nome AS tronco_falha_nome, tf.cid_saida AS tronco_falha_cid
                FROM rotas_saida r
                JOIN troncos t  ON t.id = r.tronco_id
-          LEFT JOIN troncos tf ON tf.id = r.tronco_falha_id
+          LEFT JOIN troncos tf ON tf.id = r.tronco_falha_id AND tf.ativo = 1 AND tf.tipo = 'pjsip'
               WHERE r.ativo = 1
-           ORDER BY r.ordem, r.id'
+           ORDER BY r.ordem, r.id"
         );
 
         if ($rotas === []) {
             return $b->comentario('nenhuma rota de saída ativa')->texto();
         }
 
+        $padroes = [];
         foreach ($rotas as $r) {
+            // Dois cadastros com o mesmo padrão geravam a prioridade 1 duas
+            // vezes; o Asterisk fica com a primeira e descarta a outra com
+            // um aviso no log. Aqui a regra fica explícita: vale a de menor
+            // ordem, e o reserva de verdade é o "tronco de falha".
+            if (isset($padroes[$r['padrao']])) {
+                $b->branco()->comentario("Rota {$r['nome']} ignorada: o padrão {$r['padrao']} já é da rota "
+                    . $padroes[$r['padrao']] . ' (use o tronco de falha para ter reserva)');
+                continue;
+            }
+            $padroes[$r['padrao']] = $r['nome'];
+
+            // Tronco principal desativado (ou DAHDI, que esta central não
+            // carrega): não há endpoint com esse nome, e todo Dial falhava.
+            // Com reserva ativa, ela passa a ser a principal; sem reserva,
+            // quem discou ouve que não há linha em vez de silêncio.
+            if ((int) $r['tronco_usavel'] !== 1) {
+                if ($r['tronco_falha_nome']) {
+                    $r['tronco_nome'] = $r['tronco_falha_nome'];
+                    $r['tronco_cid'] = $r['tronco_falha_cid'];
+                    $r['tronco_falha_nome'] = null;
+                } else {
+                    $b->branco()
+                      ->comentario("Ordem {$r['ordem']} — {$r['nome']}: o tronco {$r['tronco_nome']} está desativado")
+                      ->exten($r['padrao'], "NoOp(Rota de saída {$r['nome']} sem tronco ativo)")
+                      ->same('Congestion(10)')
+                      ->same('Hangup()');
+                    continue;
+                }
+            }
+
             $tronco = $this->identificador((string) $r['tronco_nome']);
             // O rótulo sai do id porque dois padrões diferentes podem
             // virar o mesmo texto depois de tirar os símbolos (_00X. e
@@ -1046,7 +1148,7 @@ final class GeradorDialplan
             $b->same('GoSub(sub-cid-saida,s,1('
                    . $this->soNumero((string) ($r['tronco_cid'] ?? '')) . '))');
 
-            $b->same("Dial(PJSIP/{$numero}@{$tronco},60,tT)")
+            $b->same("Dial(PJSIP/{$numero}@{$tronco},60,tTb(sub-cid-tronco^s^1(\${TELIUM_CIDSAI})))")
               ->same('NoOp(Tronco principal: ${DIALSTATUS})')
               ->same('GoSub(sub-motivo-falha,s,1(' . $tronco . '))');
 
@@ -1063,7 +1165,7 @@ final class GeradorDialplan
                   // número contratado.
                   ->same('GoSub(sub-cid-saida,s,1('
                        . $this->soNumero((string) ($r['tronco_falha_cid'] ?? '')) . '))')
-                  ->same("Dial(PJSIP/{$numero}@{$falha},60,tT)")
+                  ->same("Dial(PJSIP/{$numero}@{$falha},60,tTb(sub-cid-tronco^s^1(\${TELIUM_CIDSAI})))")
                   ->same('NoOp(Tronco reserva: ${DIALSTATUS})')
                   ->same('GoSub(sub-motivo-falha,s,1(' . $falha . '))');
             }
@@ -1158,7 +1260,10 @@ final class GeradorDialplan
 
         foreach ($troncos as $t) {
             $nome = $this->identificador((string) $t['nome']);
-            $remover = trim((string) ($t['did_remover'] ?? ''));
+            // O "+" do E.164 sai sempre, antes de tudo (abaixo); por isso o
+            // prefixo configurado vale com ou sem ele — "+55" e "55" são o
+            // mesmo pedido.
+            $remover = ltrim(trim((string) ($t['did_remover'] ?? '')), '+');
             $digitos = (int) ($t['did_digitos'] ?? 0);
 
             $b->branco()
@@ -1167,7 +1272,9 @@ final class GeradorDialplan
 
             // Normalização, em linhas reaproveitadas pelos três padrões.
             $normalizar = function (Bloco $b) use ($remover, $digitos): void {
-                $b->same('Set(TELIUM_DID=${EXTEN})');
+                // Sem o "+": o telium-entrada só tem DIDs em dígitos, e o
+                // "+5511..." caía no inválido e era desligado.
+                $b->same('Set(TELIUM_DID=${FILTER(0-9,${EXTEN})})');
 
                 if ($remover !== '') {
                     $n = strlen($remover);

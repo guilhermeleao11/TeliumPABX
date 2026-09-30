@@ -379,7 +379,8 @@ final class CallCenter
     }
 
     /** Pausa em todas as filas, com o motivo escrito no queue_log. */
-    public function pausar(int $agenteId, string $motivo): void
+    /** Sem fila, pausa em todas; com fila, só nela. */
+    public function pausar(int $agenteId, string $motivo, ?string $fila = null): void
     {
         $interface = $this->interfaceDoAgente($agenteId);
         $r = $this->ami->acao([
@@ -387,7 +388,7 @@ final class CallCenter
             'Interface' => $interface,
             'Paused'    => 'true',
             'Reason'    => $motivo,
-        ]);
+        ] + ($fila !== null && $fila !== '' ? ['Queue' => $fila] : []));
         if (!str_contains($r, 'Success')) {
             throw new \RuntimeException('O Asterisk não aceitou a pausa.');
         }

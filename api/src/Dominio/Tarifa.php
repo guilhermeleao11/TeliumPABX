@@ -184,28 +184,36 @@ final class Tarifa
             $args[] = $mes;
         }
 
-        $pendentes = Bd::todos(
-            'SELECT id, dst, billsec, classe FROM cdr WHERE ' . implode(' AND ', $onde)
-            . ' ORDER BY calldate LIMIT ' . max(1, $teto),
-            $args
-        );
-
         $tarifadas = 0;
         $semTarifa = 0;
         $total = 0.0;
 
-        foreach ($pendentes as $c) {
-            $t = self::escolher($tarifas, $c['classe'] ?? null, (string) ($c['dst'] ?? ''));
-            if ($t === null) {
-                $semTarifa++;
-                continue;
-            }
+        // Em páginas, andando pelo id. A chamada sem tarifa que case continua
+        // NULL (para ser tarifada quando alguém cadastrar a tarifa), e com um
+        // LIMIT fixo a partir do começo ela voltava em toda rodada: juntadas
+        // 20 mil, nenhuma chamada nova era tarifada nunca mais.
+        $ultimo = 0;
+        do {
+            $pendentes = Bd::todos(
+                'SELECT id, dst, billsec, classe FROM cdr WHERE ' . implode(' AND ', $onde)
+                . ' AND id > ? ORDER BY id LIMIT ' . max(1, $teto),
+                [...$args, $ultimo]
+            );
 
-            $custo = self::custo($t, (int) $c['billsec']);
-            Bd::executar('UPDATE cdr SET custo = ? WHERE id = ?', [$custo, (int) $c['id']]);
-            $tarifadas++;
-            $total += $custo;
-        }
+            foreach ($pendentes as $c) {
+                $ultimo = (int) $c['id'];
+                $t = self::escolher($tarifas, $c['classe'] ?? null, (string) ($c['dst'] ?? ''));
+                if ($t === null) {
+                    $semTarifa++;
+                    continue;
+                }
+
+                $custo = self::custo($t, (int) $c['billsec']);
+                Bd::executar('UPDATE cdr SET custo = ? WHERE id = ?', [$custo, (int) $c['id']]);
+                $tarifadas++;
+                $total += $custo;
+            }
+        } while (count($pendentes) === max(1, $teto));
 
         return ['tarifadas' => $tarifadas, 'sem_tarifa' => $semTarifa, 'total' => round($total, 4)];
     }

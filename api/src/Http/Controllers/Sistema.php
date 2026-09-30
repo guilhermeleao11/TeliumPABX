@@ -64,7 +64,11 @@ final class Sistema
     {
         $filas = Bd::todos(
             'SELECT f.numero, f.nome, f.estrategia, f.sla_segundos,
-                    (SELECT COUNT(*) FROM fila_agentes a WHERE a.fila_id = f.id) AS agentes
+                    -- Fila de call center não tem membro fixo: os agentes dela
+                    -- são os do cadastro do call center.
+                    IF(f.callcenter = 1,
+                       (SELECT COUNT(*) FROM cc_agente_filas c WHERE c.fila_id = f.id),
+                       (SELECT COUNT(*) FROM fila_agentes a WHERE a.fila_id = f.id)) AS agentes
                FROM filas f WHERE f.ativo = 1 ORDER BY f.numero'
         );
 
@@ -239,15 +243,14 @@ final class Sistema
     }
 
     /** Remove o envelope do AMI, deixando só a saída do comando. */
+    /**
+     * O Asterisk 22 põe "Output: " na frente de cada linha do comando;
+     * sem tirar, nenhum dos leitores abaixo casava e o painel mostrava
+     * fila sem ninguém esperando e canal com nome "Output: PJSIP/...".
+     */
     private function limparResposta(string $bruto): string
     {
-        $linhas = array_filter(
-            explode("\n", $bruto),
-            static fn (string $l): bool =>
-                !preg_match('/^(Response|Message|Privilege|ActionID|--END COMMAND--)/', trim($l))
-        );
-
-        return trim(implode("\n", array_map('rtrim', $linhas)));
+        return Diagnostico::semEnvelope($bruto);
     }
 
     /** Interpreta "core show channels concise". */
@@ -278,7 +281,7 @@ final class Sistema
         $filas = [];
         $atual = null;
         foreach (explode("\n", $saida) as $linha) {
-            if (preg_match('/^(\S+)\s+has\s+(\d+)\s+calls.*?W:(\d+),\s*C:(\d+),\s*A:(\d+)/', $linha, $m) === 1) {
+            if (preg_match('/^(\S+)\s+has\s+(\d+)\s+calls?\b.*?W:(\d+),\s*C:(\d+),\s*A:(\d+)/', $linha, $m) === 1) {
                 $atual = $m[1];
                 $filas[$atual] = [
                     'espera' => (int) $m[2],

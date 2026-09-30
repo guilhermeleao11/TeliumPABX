@@ -658,6 +658,9 @@ final class Diagnostico
         }
 
         Rede::guardar($ip, implode(',', Rede::faixas($locais)));
+        Auditoria::registrar($req->getAttribute('usuario'), 'editar', 'conn.rede', 'rede', [
+            'ip_publico' => $ip, 'redes_locais' => $locais,
+        ]);
         Bd::executar(
             "INSERT INTO sistema (chave, valor) VALUES ('config_pendente','1')
              ON DUPLICATE KEY UPDATE valor = '1'"
@@ -912,14 +915,39 @@ final class Diagnostico
         return $linhas;
     }
 
-    /** @return list<string> */
+    /**
+     * O fim do arquivo, lido de trás para a frente.
+     *
+     * O log de segurança cresce mais rápido justamente durante uma
+     * varredura de SIP, que é quando esta tela é aberta; lido inteiro com
+     * file(), ele estourava a memória do PHP na hora em que mais importava.
+     *
+     * @return list<string>
+     */
     private function ultimasLinhas(string $arquivo, int $quantas): array
     {
-        $conteudo = @file($arquivo, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        if ($conteudo === false) {
+        $f = @fopen($arquivo, 'rb');
+        if ($f === false) {
             return [];
         }
+        fseek($f, 0, SEEK_END);
+        $pos = ftell($f);
+        $texto = '';
+        // Pedaços de 64 KB até ter linhas bastantes, com teto de 8 MB.
+        while ($pos > 0 && substr_count($texto, "\n") <= $quantas && strlen($texto) < 8 << 20) {
+            $ler = min(65536, $pos);
+            $pos -= $ler;
+            fseek($f, $pos);
+            $texto = fread($f, $ler) . $texto;
+        }
+        fclose($f);
 
-        return array_slice($conteudo, -$quantas);
+        $linhas = array_values(array_filter(explode("\n", $texto), static fn (string $l): bool => trim($l) !== ''));
+        // A primeira linha pode ter vindo pela metade quando a leitura parou no meio.
+        if ($pos > 0 && $linhas !== []) {
+            array_shift($linhas);
+        }
+
+        return array_slice($linhas, -$quantas);
     }
 }

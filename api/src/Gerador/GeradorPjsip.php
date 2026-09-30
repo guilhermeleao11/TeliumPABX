@@ -46,6 +46,13 @@ final class GeradorPjsip
             ->branco();
 
         foreach (Bd::todos('SELECT * FROM ramais WHERE ativo = 1 ORDER BY numero') as $r) {
+            // Ramal sem senha não vai para a central: "password =" em branco
+            // deixaria qualquer um registrar com o número dele e ligar pela
+            // conta da empresa.
+            if (strlen((string) ($r['senha_sip'] ?? '')) < 8) {
+                $b->comentario("Ramal {$r['numero']} fora: sem senha SIP (defina uma no cadastro)")->branco();
+                continue;
+            }
             $this->endpoint($b, $r);
         }
 
@@ -83,8 +90,13 @@ final class GeradorPjsip
           ->crua("auth = {$n}")
           ->crua("aors = {$n}")
           ->crua(sprintf('callerid = "%s" <%s>', $this->limpar((string) $r['nome']), $n))
-          ->crua("set_var = TELIUM_PERM={$this->permissoes($r)}")
+          ->crua('set_var = TELIUM_PERM=' . self::permissoes($r))
           ->crua("set_var = TELIUM_RAMAL={$n}")
+          // Transferência pelo teclado (## e *2): sem isto o Asterisk
+          // procura o destino no contexto em que o canal está naquele
+          // momento — sub-ramal ou telium-saida para quem fez a chamada —,
+          // e o ramal que ligou não conseguia transferir para ninguém.
+          ->crua('set_var = TRANSFER_CONTEXT=' . ($r['contexto_custom'] ?: $r['contexto']))
           // As quatro regras de gravação viajam com o canal, na ordem em
           // que sub-decidir-gravacao as lê: externa recebida, externa
           // feita, interna recebida, interna feita, e a sob demanda.
@@ -106,6 +118,24 @@ final class GeradorPjsip
         // conta gigante quando alguém descobre a senha do ramal.
         if ((int) ($r['max_saidas'] ?? 0) > 0) {
             $b->crua('set_var = TELIUM_MAXSAIDA=' . (int) $r['max_saidas']);
+        }
+
+        // Redes de onde este ramal pode falar. A restrição fica no próprio
+        // endpoint: uma ACL global (type=acl) vale para todo pedido SIP, e
+        // um ramal com rede declarada passava a recusar a operadora, os
+        // outros ramais remotos e o WebRTC.
+        $redes = $this->redesDoRamal($r);
+        if ($redes !== []) {
+            $b->crua('deny = 0.0.0.0/0.0.0.0')
+              ->crua('deny = ::/0');
+            foreach ($redes as $rede) {
+                $b->crua("permit = {$rede}");
+            }
+            // O WebRTC chega pelo nginx, de 127.0.0.1; quem usa o telefone
+            // do navegador já passou pelo login do console.
+            if ((int) ($r['webrtc'] ?? 0) === 1) {
+                $b->crua('permit = 127.0.0.1/32');
+            }
         }
 
         if (($r['codecs_negados'] ?? '') !== '') {
@@ -255,11 +285,9 @@ final class GeradorPjsip
           ->crua('maximum_expiration = ' . max(60, (int) $r['expira_max']))
           ->crua('minimum_expiration = ' . max(30, (int) $r['expira_min']));
 
-        // Nada de contact_acl aqui: no PJSIP essa opção não existe no aor
-        // nem no endpoint, e escrevê-la derruba o objeto inteiro — o ramal
-        // deixa de registrar. Restrição de rede no PJSIP é global, por um
-        // objeto type=acl, e é assim que ela sai: uma lista só, montada a
-        // partir das redes que os ramais declararam.
+        // A restrição de rede é o deny/permit do endpoint, lá em cima.
+        // Nada de contact_acl no aor: ali a opção não existe, e escrevê-la
+        // derruba o objeto inteiro — o ramal deixa de registrar.
         $b->branco();
 
         // ---------- identificação por alias ou rede ----------
@@ -268,17 +296,20 @@ final class GeradorPjsip
               ->crua("[{$n}-alias]")
               ->crua('type = identify')
               ->crua("endpoint = {$n}")
-              ->crua("match_header = From: <sip:{$r['alias_sip']}@")
+              // Sem as barras o valor é comparado inteiro com o From, que tem
+              // nome, domínio e tag: "<sip:alias@" nunca casava com nada.
+              ->crua('match_header = From: /sip:'
+                  . str_replace('.', '\\.', preg_replace('/[^A-Za-z0-9_.-]/', '', (string) $r['alias_sip']) ?? '')
+                  . '@/')
               ->branco();
         }
     }
 
     /**
-     * ACLs nomeadas dos ramais que restringem redes.
+     * pjsip.acl.conf, que hoje fica só com um comentário.
      *
-     * O endpoint aponta para "telium-<ramal>" com contact_acl; sem este
-     * arquivo a referência ficaria pendurada e o registro do ramal seria
-     * recusado sem explicação.
+     * A restrição de rede vive no endpoint de cada ramal; o arquivo
+     * continua porque o pjsip.conf das instalações existentes o inclui.
      */
     private function acls(): string
     {
@@ -288,47 +319,24 @@ final class GeradorPjsip
             ->comentario('Gerado em ' . date('d/m/Y H:i:s'))
             ->branco();
 
-        $redes = $this->redesPermitidas();
-
-        if ($redes === []) {
-            return $b->comentario('nenhuma restrição de rede declarada')->texto();
-        }
-
-        // Uma ACL só, aplicada a todo o SIP. O PJSIP não restringe rede
-        // por ramal: quem declara redes no cadastro está dizendo de onde
-        // os ramais desta central podem falar, e é isso que sai aqui.
-        $b->comentario('União das redes declaradas nos ramais')
-          ->crua('[telium-ramais]')
-          ->crua('type = acl')
-          ->crua('deny = 0.0.0.0/0.0.0.0');
-
-        foreach ($redes as $rede) {
-            $b->crua("permit = {$rede}");
-        }
-
-        return $b->branco()->texto();
+        // A restrição por rede saiu daqui e foi para cada endpoint
+        // (deny/permit): uma ACL global barrava também troncos e WebRTC.
+        // O arquivo continua existindo porque o pjsip.conf o inclui.
+        return $b->comentario('as redes permitidas ficam em cada ramal, em pjsip.endpoints.conf')->texto();
     }
 
     /**
-     * As redes que os ramais declararam, sem repetição.
+     * As redes que o ramal declarou, sem repetição.
      *
      * @return string[]
      */
-    private function redesPermitidas(): array
+    private function redesDoRamal(array $r): array
     {
         $redes = [];
-
-        $linhas = Bd::todos(
-            "SELECT redes_permitidas FROM ramais
-              WHERE ativo = 1 AND redes_permitidas IS NOT NULL AND redes_permitidas <> ''"
-        );
-
-        foreach ($linhas as $linha) {
-            foreach (explode(',', (string) $linha['redes_permitidas']) as $rede) {
-                $rede = trim($rede);
-                if ($rede !== '' && !in_array($rede, $redes, true)) {
-                    $redes[] = $rede;
-                }
+        foreach (explode(',', (string) ($r['redes_permitidas'] ?? '')) as $rede) {
+            $rede = trim($rede);
+            if ($rede !== '' && !in_array($rede, $redes, true)) {
+                $redes[] = $rede;
             }
         }
 
@@ -508,8 +516,14 @@ final class GeradorPjsip
         }
     }
 
-    /** Lista de classes de discagem liberadas para o ramal. */
-    private function permissoes(array $r): string
+    /**
+     * Lista de classes de discagem liberadas para o ramal.
+     *
+     * Vai no endpoint (TELIUM_PERM) e, pelo Aplicador, na família "perm"
+     * da base do Asterisk: é de lá que o siga-me, o desvio e a
+     * transferência às cegas tiram a permissão do ramal dono da chamada.
+     */
+    public static function permissoes(array $r): string
     {
         $classes = ['emergencia'];                       // emergência é sempre permitida
         foreach (['local' => 'perm_local', 'celular' => 'perm_celular',
@@ -517,6 +531,12 @@ final class GeradorPjsip
             if ((int) $r[$coluna] === 1) {
                 $classes[] = $classe;
             }
+        }
+        // 0800, 0300, 4004: não há coluna própria, e sem esta linha toda
+        // rota da classe "especial" era barrada para todo mundo. Quem liga
+        // para número local liga para número de serviço.
+        if ((int) $r['perm_local'] === 1) {
+            $classes[] = 'especial';
         }
         return implode(',', $classes);
     }

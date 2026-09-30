@@ -24,10 +24,11 @@ exten => s,1,GotoIf($["${TELIUM_GRAVANDO}" = "1"]?ja)
  ; o destino vem do contexto que chamou: dentro da sub-rotina ${EXTEN}
  ; é sempre "s", e o nome do arquivo saía sem o número discado
  same => n,Set(TELIUM_DEST=${IF($["${TELIUM_DESTINO}" != ""]?${TELIUM_DESTINO}:${EXTEN})})
- same => n,Set(__TELIUM_GRAV=${STRFTIME(${EPOCH},,%Y/%m/%d)}/${STRFTIME(${EPOCH},,%H%M%S)}-${ARG1}-${CALLERID(num)}-${TELIUM_DEST}-${UNIQUEID}.wav)
+ ; nome próprio: TELIUM_GRAV são as regras do ramal, que o sub-decidir-gravacao lê
+ same => n,Set(__TELIUM_GRAVARQ=${STRFTIME(${EPOCH},,%Y/%m/%d)}/${STRFTIME(${EPOCH},,%H%M%S)}-${ARG1}-${CALLERID(num)}-${TELIUM_DEST}-${UNIQUEID}.wav)
  same => n,System(mkdir -p ${TELIUM_GRAVACOES}/${STRFTIME(${EPOCH},,%Y/%m/%d)})
- same => n,MixMonitor(${TELIUM_GRAVACOES}/${TELIUM_GRAV},b)
- same => n,Set(CDR(gravacao)=${TELIUM_GRAV})
+ same => n,MixMonitor(${TELIUM_GRAVACOES}/${TELIUM_GRAVARQ},b)
+ same => n,Set(CDR(gravacao)=${TELIUM_GRAVARQ})
  same => n,Return()
  same => n(ja),NoOp(Esta chamada já está sendo gravada)
  same => n,Return()
@@ -50,7 +51,7 @@ exten => s,1,GotoIf($["${TELIUM_GRAVANDO}" = "1"]?ja)
 exten => s,1,Set(TELIUM_REGRA=${CUT(TELIUM_GRAV,|,${ARG1})})
  same => n,NoOp(Regra de gravação ${ARG1}: ${TELIUM_REGRA} — outro lado: ${ARG2})
  ; uma proibição de qualquer um dos lados encerra o assunto
- same => n,GotoIf($["${TELIUM_REGRA}" = "nunca" | "${ARG2}" = "nunca"]?nao)
+ same => n,GotoIf($["${TELIUM_REGRA}" = "nunca" | "${ARG2}" = "nunca"]?proibido)
  ; e um "forçar" de qualquer um dos lados também
  same => n,GotoIf($["${TELIUM_REGRA}" = "forcar" | "${ARG2}" = "forcar"]?sim)
  same => n,GotoIf($["${TELIUM_REGRA}" = "nao"]?nao)
@@ -61,6 +62,14 @@ exten => s,1,Set(TELIUM_REGRA=${CUT(TELIUM_GRAV,|,${ARG1})})
  same => n,Return()
  same => n(sim),GoSub(sub-gravar,s,1(${ARG3}))
  same => n,Return()
+ ; "Nunca" vale mesmo com a gravação já correndo: a rota de entrada
+ ; decide antes de saber qual ramal vai atender. O TELIUM_GRAVANDO fica
+ ; ligado para nenhuma etapa seguinte (fila, grupo) voltar a gravar.
+ same => n(proibido),NoOp(Gravação proibida por uma das partes)
+ same => n,ExecIf($["${TELIUM_GRAVANDO}" = "1"]?StopMixMonitor())
+ same => n,ExecIf($["${TELIUM_GRAVANDO}" = "1"]?Set(CDR(gravacao)=))
+ same => n,Set(__TELIUM_GRAVANDO=1)
+ same => n,Return()
 
 ; ------------------------------------------------------------------
 ; Sub-rotina: ligar para um ramal
@@ -69,6 +78,9 @@ exten => s,1,Set(TELIUM_REGRA=${CUT(TELIUM_GRAV,|,${ARG1})})
 ; ------------------------------------------------------------------
 [sub-ramal]
 exten => s,1,NoOp(Chamando ramal ${ARG1})
+ ; dono do siga-me e do desvio que saírem daqui: é a permissão dele que
+ ; vale no Local/telium-desvio (ver sub-desvio-dono)
+ same => n,Set(__TELIUM_DONO=${ARG1})
  same => n,Set(TELIUM_R=${ARG1})
  same => n,Set(TELIUM_TOQUE=${ARG2})
  same => n,Set(TELIUM_VM=${ARG3})
@@ -155,7 +167,7 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
 ; ------------------------------------------------------------------
 [sub-autoatende]
 exten => s,1,NoOp(Pedindo atendimento automático a ${EXTEN})
- same => n,Set(PJSIP_HEADER(add,Call-Info)=<sip:${TELIUM_EMPRESA}>\;answer-after=0)
+ same => n,Set(PJSIP_HEADER(add,Call-Info)=<uri>\;answer-after=0)
  same => n,Set(PJSIP_HEADER(add,Alert-Info)=Auto Answer)
  same => n,Return()
 
@@ -165,9 +177,21 @@ exten => s,1,NoOp(Pedindo atendimento automático a ${EXTEN})
 ; ------------------------------------------------------------------
 [telium-desvio]
 exten => _X.,1,NoOp(Destino de desvio: ${EXTEN})
+ same => n,GoSub(sub-desvio-dono,s,1)
  same => n,Goto(interno,${EXTEN},1)
 exten => _*X.,1,NoOp(Destino de desvio: ${EXTEN})
+ same => n,GoSub(sub-desvio-dono,s,1)
  same => n,Goto(interno,${EXTEN},1)
+
+; Quem configurou o desvio responde por ele: a chamada sai com a
+; permissão do ramal dono (família "perm", gravada pelo "aplicar"), e não
+; com a de quem ligou — que, vinda de fora, não tem permissão nenhuma e
+; passava com tudo liberado. Dono sem registro fica só com emergência.
+[sub-desvio-dono]
+exten => s,1,GotoIf($["${TELIUM_DONO}" = ""]?fim)
+ same => n,Set(TELIUM_PERM=${DB(perm/${TELIUM_DONO})})
+ same => n,ExecIf($["${TELIUM_PERM}" = ""]?Set(TELIUM_PERM=emergencia))
+ same => n(fim),Return()
 
 ; ------------------------------------------------------------------
 ; Sub-rotina: registrar chamada perdida
@@ -188,7 +212,19 @@ exten => s,1,GotoIf($[${DB_EXISTS(perdidas/${ARG1})}]?registra)
 ;   A lista permitida chega em ${TELIUM_PERM}, gravada no endpoint PJSIP.
 ; ------------------------------------------------------------------
 [sub-permissao]
-exten => s,1,GotoIf($["${TELIUM_PERM}" = ""]?permitido)
+ ; Transferência às cegas: o canal transferido é o de quem estava do outro
+ ; lado (muitas vezes o do tronco, sem TELIUM_PERM) e quem manda é o ramal
+ ; que transferiu — senão um ramal só-local transferia a chamada recebida
+ ; para um número internacional.
+exten => s,1,GotoIf($["${TELIUM_PERM}" != "" | "${BLINDTRANSFER}" = ""]?confere)
+ same => n,Set(TELIUM_TRF=${CUT(BLINDTRANSFER,-,1)})
+ same => n,Set(TELIUM_TRF=${CUT(TELIUM_TRF,/,2)})
+ same => n,GotoIf($["${TELIUM_TRF}" = ""]?confere)
+ same => n,Set(TELIUM_PERM=${DB(perm/${TELIUM_TRF})})
+ same => n,ExecIf($["${TELIUM_PERM}" = ""]?Set(TELIUM_PERM=emergencia))
+ ; Sem TELIUM_PERM nenhum é destino que o administrador configurou (URA
+ ; para número externo, retorno do call center, DISA): liberado.
+ same => n(confere),GotoIf($["${TELIUM_PERM}" = ""]?permitido)
  same => n,GotoIf($[${REGEX("(^|,)${ARG1}(,|$)" ${TELIUM_PERM})} = 1]?permitido)
  same => n,NoOp(Ramal ${CALLERID(num)} sem permissão para ${ARG1})
  same => n,Answer()
@@ -226,15 +262,26 @@ exten => s,1,GotoIf($["${TELIUM_MAXSAIDA}" = ""]?livre)
 ;   número interno do ramal — era isso que ia para a operadora. Sem
 ;   nenhum dos dois cadastrados a chamada sai como Anonymous e a
 ;   operadora recusa, então quem discou fica sabendo.
+;
+;   Aqui só se escolhe o número. Quem o põe na chamada é sub-cid-tronco,
+;   no canal que vai para a operadora: trocar o CALLERID de quem discou
+;   levava o número da empresa para o "origem" do CDR, e a chamada sumia
+;   dos relatórios por ramal, do "minhas chamadas" e da tarifação.
 ; ------------------------------------------------------------------
 [sub-cid-saida]
 exten => s,1,Set(TELIUM_CIDSAI=${IF($["${TELIUM_CID}" != ""]?${TELIUM_CID}:${ARG1})})
- same => n,GotoIf($["${TELIUM_CIDSAI}" = ""]?semcid)
- same => n,Set(CALLERID(num)=${TELIUM_CIDSAI})
- same => n,Set(CALLERID(name)=${TELIUM_CIDSAI})
+ same => n,ExecIf($["${TELIUM_CIDSAI}" = ""]?NoOp(Sem CID de saída no ramal nem no tronco))
  same => n,Return()
- same => n(semcid),NoOp(Sem CID de saída no ramal nem no tronco)
- same => n,Return()
+
+; Roda no canal de saída, antes de ele discar (opção b do Dial).
+;   ARG1 = o número escolhido por sub-cid-saida
+[sub-cid-tronco]
+exten => s,1,GotoIf($["${ARG1}" = ""]?fim)
+ same => n,Set(CALLERID(num)=${ARG1})
+ same => n,Set(CALLERID(name)=${ARG1})
+ same => n,Set(CONNECTEDLINE(num,i)=${ARG1})
+ same => n,Set(CONNECTEDLINE(name,i)=${ARG1})
+ same => n(fim),Return()
 
 ; ------------------------------------------------------------------
 ; Sub-rotina: barrar entrante que esteja na lista negra
@@ -276,6 +323,7 @@ include => telium-grupos
 include => telium-filas
 include => telium-conferencias
 include => telium-paging
+include => telium-estacionamento
 include => telium-ura
 include => telium-saida
 include => telium-custom

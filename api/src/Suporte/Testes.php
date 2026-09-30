@@ -269,6 +269,13 @@ final class Testes
         $idioma = trim((string) Ambiente::get('ASTERISK_IDIOMA', 'en'));
         $faltando = [];
         foreach (array_keys($pedidos) as $nome) {
+            // Áudio enviado pelo console vem com o caminho inteiro (Som::prompt).
+            if (str_starts_with($nome, '/')) {
+                if ((glob("{$nome}.*") ?: []) === []) {
+                    $faltando[] = $nome;
+                }
+                continue;
+            }
             $no_idioma = glob("{$sons}/{$idioma}/{$nome}.*") ?: [];
             $solto = glob("{$sons}/{$nome}.*") ?: [];
             if ($no_idioma === [] && $solto === []) {
@@ -863,6 +870,25 @@ final class Testes
                 || ltrim($l) === '[outro]'
         );
         $this->ok($injetadas === [], 'nada do texto injetado começa uma linha nova');
+
+        // Vírgula e ponto e vírgula no número da fila faziam dele outra
+        // extensão inteira: "9,1,System(reboot);" rodava comando ao discar 9.
+        $ext = (new Bloco())->exten('9,1,System(reboot);', 'NoOp(x)')->texto();
+        $this->ok(
+            str_starts_with($ext, 'exten => 91Systemreboot,1,NoOp(x)'),
+            'o nome da extensão só leva o que número e padrão usam (' . trim($ext) . ')'
+        );
+        $this->ok(
+            str_starts_with((new Bloco())->exten('_0XXXXXXXXX.', 'NoOp(x)')->texto(), 'exten => _0XXXXXXXXX.,1,')
+            && str_starts_with((new Bloco())->exten('_[2-9]XX!', 'NoOp(x)')->texto(), 'exten => _[2-9]XX!,1,'),
+            'padrões de extensão legítimos passam intactos'
+        );
+
+        // O CLI de leitura mostrava a senha SIP em "pjsip show auth".
+        $cli = \Telium\Http\Controllers\Cli::semSegredo(" password    : Segredo123\n md5_cred    : \n username    : 1001");
+        $this->ok(!str_contains($cli, 'Segredo123') && str_contains($cli, 'username    : 1001')
+                  && str_contains($cli, ' md5_cred    : '),
+                  'o CLI esconde senha e mantém as outras linhas');
 
         foreach ($linhas as $l) {
             $this->ok(
@@ -1619,7 +1645,7 @@ final class Testes
         $pdo = Bd::conexao();
         $pdo->beginTransaction();
         try {
-            $t = static fn (int $s): string => date('Y-m-d H:i:s', strtotime('today 10:00:00') + $s);
+            $t = static fn (int $s): string => date('Y-m-d H:i:s', strtotime('yesterday 10:00:00') + $s);
             foreach ([
                 [0,   '98799', 'ADDMEMBER',  ''],
                 [0,   '98798', 'ADDMEMBER',  ''],
@@ -1645,7 +1671,7 @@ final class Testes
                                  (?, 'c2', '98799', 'NONE', 'ABANDON', '1', '1', '45')",
                          [$t(100), $t(112), $t(232), $t(300), $t(345)]);
 
-            $r = \Telium\Dominio\RelatorioFilas::doPeriodo(date('Y-m-d'), date('Y-m-d'));
+            $r = \Telium\Dominio\RelatorioFilas::doPeriodo(date('Y-m-d', strtotime('yesterday')), date('Y-m-d', strtotime('yesterday')));
             $tempos = $r->temposDeSessao()['Agente/98799'] ?? null;
             $this->ok($tempos !== null && $tempos['logado'] === 3600, 'uma hora logado, em duas filas, conta uma hora');
             $this->ok(($tempos['pausas']['Almoço'] ?? 0) === 1800, 'meia hora de almoço, pausada nas duas filas, conta meia hora');
@@ -1662,6 +1688,22 @@ final class Testes
             $antigo = \Telium\Dominio\RelatorioFilas::doPeriodo($ontem, $ontem)->temposDeSessao()['Agente/98796'] ?? null;
             $this->ok(($antigo['logado'] ?? 0) === 86400,
                       'quem está logado desde dias antes conta o dia inteiro no relatório (' . ($antigo['logado'] ?? 0) . ' s)');
+
+            // Pausou, saiu pausado e entrou de novo antes do período: está
+            // livre. A pausa antiga não pode contaminar o dia seguinte.
+            Bd::executar("INSERT INTO queue_log (time, callid, queuename, agent, event, data1)
+                          VALUES (?, 'NONE', '98799', 'Agente/98795', 'ADDMEMBER', ''),
+                                 (?, 'NONE', '98799', 'Agente/98795', 'PAUSE', 'Almoço'),
+                                 (?, 'NONE', '98799', 'Agente/98795', 'REMOVEMEMBER', ''),
+                                 (?, 'NONE', '98799', 'Agente/98795', 'ADDMEMBER', ''),
+                                 (?, 'NONE', '98799', 'Agente/98795', 'REMOVEMEMBER', '')",
+                         [date('Y-m-d 12:00:00', strtotime('-3 days')), date('Y-m-d 12:10:00', strtotime('-3 days')),
+                          date('Y-m-d 12:20:00', strtotime('-3 days')), date('Y-m-d 20:00:00', strtotime('-2 days')),
+                          date('Y-m-d 00:30:00')]);
+            $voltou = \Telium\Dominio\RelatorioFilas::doPeriodo($ontem, $ontem)->temposDeSessao()['Agente/98795'] ?? null;
+            $this->ok(($voltou['logado'] ?? 0) === 86400 && ($voltou['pausado'] ?? -1) === 0,
+                      'pausa de antes de sair e entrar de novo não vira pausa no período ('
+                      . ($voltou['pausado'] ?? '?') . ' s pausado)');
 
             $fila = array_values(array_filter($r->filas(), static fn ($f) => $f['numero'] === '98799'))[0] ?? [];
             $this->ok(($fila['recebidas'] ?? 0) === 2 && ($fila['atendidas'] ?? 0) === 1 && ($fila['abandonadas'] ?? 0) === 1,
@@ -1760,6 +1802,13 @@ final class Testes
             $this->ok(
                 str_contains($saida, 'Set(CDR(classe)='),
                 'a rota de saída grava a classe no CDR — é ela que decide a tarifa'
+            );
+            // O CID de saída trocado no canal de quem discou virava o
+            // "origem" do CDR, e a chamada ficava sem ramal para tarifar.
+            $this->ok(
+                preg_match_all('/^\s*same => n,Dial\(PJSIP\/[^\n]*$/m', $saida, $m) > 0
+                    && count(array_filter($m[0], fn ($l) => !str_contains($l, 'b(sub-cid-tronco^s^1('))) === 0,
+                'o CID de saída vai só no canal do tronco — o CDR continua com o ramal na origem'
             );
         }
     }

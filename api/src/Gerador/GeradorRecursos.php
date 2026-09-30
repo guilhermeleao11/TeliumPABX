@@ -120,7 +120,10 @@ final class GeradorRecursos
         $n = strlen($codigo);
         $arg = '${EXTEN:' . $n . '}';           // o que foi discado depois do código
         $eu = '${CALLERID(num)}';               // ramal de quem discou
-        $comArg = "_{$codigo}X.";
+        // X! e não X.: o ponto exige dois dígitos ou mais depois do código,
+        // e condição horária 1 a 9, discagem rápida de um dígito ou vaga 1
+        // a 9 não casavam com nada — o *271 do feriado dava inválido.
+        $comArg = "_{$codigo}X!";
 
         return match ($chave) {
             // ---------------- informações ----------------
@@ -189,23 +192,30 @@ final class GeradorRecursos
             ]],
 
             // ---------------- não perturbe ----------------
+            // Não perturbe, chamada em espera e interfonia gravam também no
+            // banco: o "aplicar" repõe a base do Asterisk a partir dele, e
+            // o que só estava na base sumia na próxima aplicação.
             'dnd_ligar' => [$codigo, [
                 'NoOp(Ativar não perturbe)',
                 "Set(DB(dnd/{$eu})=1)",
+                "Set(ODBC_TELIUM_DND({$eu})=1)",
                 'GoSub(sub-confirma,s,1(activated))',
             ]],
             'dnd_desligar' => [$codigo, [
                 'NoOp(Desativar não perturbe)',
                 'NoOp(${DB_DELETE(dnd/' . $eu . ')})',
+                "Set(ODBC_TELIUM_DND({$eu})=0)",
                 'GoSub(sub-confirma,s,1(de-activated))',
             ]],
             'dnd_alterna' => [$codigo, [
                 'NoOp(Alternar não perturbe)',
                 'GotoIf($[${DB_EXISTS(dnd/' . $eu . ')}]?desliga)',
                 "Set(DB(dnd/{$eu})=1)",
+                "Set(ODBC_TELIUM_DND({$eu})=1)",
                 'GoSub(sub-confirma,s,1(activated))',
             ], ['desliga' => [
                 'NoOp(${DB_DELETE(dnd/' . $eu . ')})',
+                "Set(ODBC_TELIUM_DND({$eu})=0)",
                 'GoSub(sub-confirma,s,1(de-activated))',
             ]]],
 
@@ -213,20 +223,24 @@ final class GeradorRecursos
             'cw_on' => [$codigo, [
                 'NoOp(Ativar chamada em espera)',
                 "Set(DB(cw/{$eu})=1)",
+                "Set(ODBC_TELIUM_CW({$eu})=1)",
                 'GoSub(sub-confirma,s,1(call-waiting))',
             ]],
             'cw_off' => [$codigo, [
                 'NoOp(Desativar chamada em espera)',
                 'NoOp(${DB_DELETE(cw/' . $eu . ')})',
+                "Set(ODBC_TELIUM_CW({$eu})=0)",
                 'GoSub(sub-confirma,s,1(de-activated))',
             ]],
             'cw_alterna' => [$codigo, [
                 'NoOp(Alternar chamada em espera)',
                 'GotoIf($[${DB_EXISTS(cw/' . $eu . ')}]?desliga)',
                 "Set(DB(cw/{$eu})=1)",
+                "Set(ODBC_TELIUM_CW({$eu})=1)",
                 'GoSub(sub-confirma,s,1(activated))',
             ], ['desliga' => [
                 'NoOp(${DB_DELETE(cw/' . $eu . ')})',
+                "Set(ODBC_TELIUM_CW({$eu})=0)",
                 'GoSub(sub-confirma,s,1(de-activated))',
             ]]],
 
@@ -361,10 +375,20 @@ final class GeradorRecursos
                 'NoOp(Tom de discar interno)', 'Answer()', 'Wait(1)',
                 'Playtones(dial)', 'WaitExten(15)', 'StopPlaytones()',
             ]],
+            // Escuta: só o ramal de um usuário com a permissão de supervisor do
+            // call center (família "escuta", gravada pelo "aplicar"). Aberto a
+            // todos, qualquer ramal ouvia a conversa de qualquer outro. O "-"
+            // fecha o nome: o ChanSpy casa pelo começo, e PJSIP/100 pegaria
+            // também o 1001.
             'chanspy' => [$comArg, [
-                "NoOp(Escutando o ramal {$arg})", 'Answer()',
-                "ChanSpy(PJSIP/{$arg},qs)", 'Hangup()',
-            ]],
+                "NoOp(Escutando o ramal {$arg})",
+                'GotoIf($[!${DB_EXISTS(escuta/' . $eu . ')}]?negado)',
+                'Answer()',
+                "ChanSpy(PJSIP/{$arg}-,qs)", 'Hangup()',
+            ], ['negado' => [
+                'NoOp(O ramal ${CALLERID(num)} não tem permissão de escuta)',
+                'Answer()', 'Wait(1)', 'Playback(access-denied)', 'Hangup()',
+            ]]],
             'simular_entrada' => [$comArg, [
                 "NoOp(Simulando chamada de entrada no DID {$arg})",
                 'Set(CDR(direcao)=entrada)',
@@ -450,7 +474,8 @@ final class GeradorRecursos
                 "NoOp(Interfonia para {$arg})",
                 'GotoIf($[${DB_EXISTS(interfonia-nao/' . $arg . ')}]?recusado)',
                 'Set(CALLERID(name)=Interfonia ${CALLERID(num)})',
-                "Page(PJSIP/{$arg},dq,30)",
+                // b: o aparelho atende sozinho; sem isso a interfonia só tocava.
+                "Page(PJSIP/{$arg},dqb(sub-autoatende^s^1),30)",
                 'Hangup()',
             ], ['recusado' => [
                 "NoOp(O ramal {$arg} recusa interfonia)",
@@ -459,11 +484,13 @@ final class GeradorRecursos
             'interfonia_permitir' => [$codigo, [
                 'NoOp(Aceitar interfonia)',
                 'NoOp(${DB_DELETE(interfonia-nao/' . $eu . ')})',
+                "Set(ODBC_TELIUM_INTERFONIA({$eu})=permitir)",
                 'GoSub(sub-confirma,s,1(activated))',
             ]],
             'interfonia_negar' => [$codigo, [
                 'NoOp(Recusar interfonia)',
                 "Set(DB(interfonia-nao/{$eu})=1)",
+                "Set(ODBC_TELIUM_INTERFONIA({$eu})=negar)",
                 'GoSub(sub-confirma,s,1(de-activated))',
             ]],
 
@@ -471,7 +498,11 @@ final class GeradorRecursos
             'fila_login' => [$comArg, [
                 "NoOp(Entrar ou sair da fila {$arg})", 'Answer()', 'Wait(1)',
                 'Set(TELIUM_MEMBRO=PJSIP/' . $eu . ')',
-                'GotoIf($["${QUEUE_MEMBER(' . $arg . ',status,${TELIUM_MEMBRO})}" = ""]?entra)',
+                // "status" não é opção do QUEUE_MEMBER (o Asterisk dá erro e o
+                // teste sempre caía em "sair"), e "penalty" devolve 0 também
+                // para quem não é membro. A lista de membros não mente.
+                'Set(TELIUM_MEMBROS=${QUEUE_MEMBER_LIST(' . $arg . ')})',
+                'GotoIf($[${REGEX("(^|,)${TELIUM_MEMBRO}(,|$)" ${TELIUM_MEMBROS})} = 0]?entra)',
                 "RemoveQueueMember({$arg},\${TELIUM_MEMBRO})",
                 'Playback(agent-loggedoff)', 'Hangup()',
             ], ['entra' => [
@@ -499,7 +530,7 @@ final class GeradorRecursos
             ]],
             // O motivo tem um dígito ou dois: "X." pediria pelo menos dois,
             // e *421 (almoço) não casaria com nada.
-            'cc_pausa' => ["_{$codigo}X!", [
+            'cc_pausa' => [$comArg, [
                 "NoOp(Call center: pausa pelo motivo {$arg})", "GoSub(telium-cc-telefone,pausa,1({$arg}))", 'Hangup()',
             ]],
             'cc_volta' => [$codigo, [

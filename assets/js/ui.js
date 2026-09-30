@@ -4,9 +4,16 @@
    skeleton e modo TV.
    ========================================================= */
 
+/* Título e subtítulo de gaveta e de confirmação são TEXTO: vêm de nome de
+   contato, de fila, de certificado — coisas que alguém digitou. Escapar aqui,
+   num lugar só, fecha o XSS de uma vez; cada chamada escapando por conta
+   própria deixava sempre uma de fora. HTML de propósito vai em subHtml. */
+const textoSeguro = s => String(s ?? '').replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 /* ============================== DRAWER ============================== */
 const Drawer = {
-  open({ titulo, sub, corpo, rodape = '', wide = false, aoAbrir, aoFechar }) {
+  open({ titulo, sub, subHtml, corpo, rodape = '', wide = false, aoAbrir, aoFechar }) {
     this.close();
     const bd = document.createElement('div');
     bd.className = 'drawer-backdrop'; bd.id = 'drawerBackdrop';
@@ -15,7 +22,7 @@ const Drawer = {
     dw.setAttribute('role', 'dialog'); dw.setAttribute('aria-modal', 'true');
     dw.innerHTML = `
       <div class="drawer-head">
-        <div><h3>${titulo}</h3>${sub ? `<p>${sub}</p>` : ''}</div>
+        <div><h3>${textoSeguro(titulo)}</h3>${subHtml ? `<p>${subHtml}</p>` : sub ? `<p>${textoSeguro(sub)}</p>` : ''}</div>
         <button class="icon-btn" data-drawer-close aria-label="Fechar">${icon('x')}</button>
       </div>
       <div class="drawer-body">${corpo}</div>
@@ -52,7 +59,7 @@ const Modal = {
         <div class="modal" role="dialog" aria-modal="true">
           <div class="modal-body">
             <div class="m-ico" style="background:var(--${tone}-soft);color:var(--${tone})">${icon(ico,'ico ico-lg')}</div>
-            <h3>${titulo}</h3><p>${texto}</p>
+            <h3>${textoSeguro(titulo)}</h3><p>${texto}</p>
           </div>
           <div class="modal-foot">
             <button class="btn btn-outline" data-no>${cancelar}</button>
@@ -109,10 +116,15 @@ const Palette = {
       grupo: 'Ramais', label: `${r.numero} · ${r.nome}`, meta: 'Ligar', ico: 'phone',
       acao: () => Softphone.discarPara(r.numero, r.nome)
     }));
-    contatos.dados.forEach(c => this.itens.push({
-      grupo: 'Contatos', label: c.nome, meta: c.numero, ico: 'book',
-      acao: () => Softphone.discarPara(c.numero, c.nome)
-    }));
+    // Contato com só celular ou só telefone também se disca daqui.
+    contatos.dados.forEach(c => {
+      const numero = c.numero || c.celular || c.telefone;
+      if (!numero) return;
+      this.itens.push({
+        grupo: 'Contatos', label: c.nome, meta: numero, ico: 'book',
+        acao: () => Softphone.discarPara(numero, c.nome)
+      });
+    });
   },
 
   abrir() {
@@ -328,7 +340,10 @@ const Softphone = {
       this.numero = '';
       this.pintar();
     } catch (e) {
-      toast(e.status === 422 || e.status === 502
+      // 409 é "o aparelho de mesa está fora": a mensagem da central diz
+      // isso; trocar pela dica do WebRTC mandava a pessoa para o aparelho
+      // que acabou de falhar.
+      toast(e.status === 422 || e.status === 409 || e.status === 502 || e.semPermissao
         ? e.message
         : (this.registro?.motivo || 'Não foi possível originar a chamada.'), 'err');
     }
@@ -531,7 +546,7 @@ const Softphone = {
   transferir() {
     Drawer.open({
       titulo: 'Transferir chamada',
-      sub: `Chamada com ${esc(this.numero)}`,
+      sub: `Chamada com ${this.numero}`,
       corpo: `
         <div class="field" style="margin-bottom:16px">
           <label class="label" for="spDestTransf">Destino</label>
@@ -593,7 +608,11 @@ const Softphone = {
         }
       },
       aoFechar: () => {
+        // Com o pedido do microfone ainda aberto a consulta não existe, mas
+        // vai existir: sem mudar a geração ela saía mesmo assim, punha a
+        // chamada em espera e não sobrava tela para cuidar dela.
         if (SipLink.consultando()) SipLink.cancelarConsulta();
+        else SipLink._geracaoConsulta++;
         this.consulta = null;
         this._dwTransf = null;
       }

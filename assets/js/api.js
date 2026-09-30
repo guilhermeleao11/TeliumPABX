@@ -49,7 +49,10 @@ const Api = {
         location.replace('index.html?expirada=1');
         throw new ErroApi('Sessão expirada', 401);
       }
-      throw new ErroApi(dados?.erro || `Erro ${resposta.status}`, resposta.status, dados);
+      // Os testes (SMTP, destino de backup) respondem 502 com o motivo em
+      // "detalhe": sem olhar ali a tela dizia só "Erro 502".
+      const motivo = dados?.erro || (typeof dados?.detalhe === 'string' ? dados.detalhe : '');
+      throw new ErroApi(motivo || `Erro ${resposta.status}`, resposta.status, dados);
     }
 
     // Gravou algo? O aviso de configuração pendente tem de acender

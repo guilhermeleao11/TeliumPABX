@@ -6,6 +6,7 @@ namespace Telium\Servico;
 use Telium\Dominio\CallCenter;
 use Telium\Dominio\Permissoes;
 use Telium\Dominio\Sessao;
+use Telium\Suporte\Ambiente;
 use Telium\Suporte\Ami;
 use Telium\Suporte\Bd;
 
@@ -234,7 +235,10 @@ final class TempoReal
             return;
         }
         try {
-            (new CallCenter($this->acoes))->pausar($agente, CallCenter::PAUSA_NAO_ATENDEU);
+            // Só na fila que pausou: a pausa automática "sim" do Asterisk é
+            // por fila, e renomeá-la sem a fila pausava o agente em todas.
+            // Com "todas", vem um evento por fila e cada uma é renomeada.
+            (new CallCenter($this->acoes))->pausar($agente, CallCenter::PAUSA_NAO_ATENDEU, (string) ($ev['Queue'] ?? ''));
         } catch (\Throwable $e) {
             $this->log("não consegui nomear a pausa automática do agente {$agente}: {$e->getMessage()}");
         }
@@ -401,6 +405,16 @@ final class TempoReal
             }
             // Perdeu o supervisor: passa a receber só a visão de agente.
             $this->clientes[$id]['supervisor'] = $supervisor;
+
+            // Painel aberto é sessão em uso. O monitor do supervisor (e o
+            // modo TV) e o painel do agente sem chamada não fazem pedido
+            // nenhum à API; sem renovar aqui, em 30 minutos a sessão vencia,
+            // o fluxo era fechado e a tela caía no login no meio do turno.
+            $this->comBanco(fn () => Bd::executar(
+                'UPDATE sessoes SET ultima_atividade = NOW(), expira_em = DATE_ADD(NOW(), INTERVAL ? MINUTE)
+                  WHERE id = ?',
+                [Ambiente::int('SESSAO_MINUTOS', 30), $c['sessao']]
+            ));
         }
     }
 

@@ -83,6 +83,13 @@ final class Recurso
          * @var list<string>
          */
         private readonly array $referenciaCompleta = [],
+        /**
+         * Campos que são modelo do próprio Asterisk (assunto e corpo do
+         * e-mail do correio de voz): aceitam as variáveis ${VM_...}, e só elas.
+         *
+         * @var string[]
+         */
+        private readonly array $modelos = [],
     ) {
     }
 
@@ -308,6 +315,22 @@ final class Recurso
      */
     private function validar(array $dados, bool $criando): ?array
     {
+        // Texto que vai para a configuração do Asterisk não pode trazer
+        // expressão: "${...}" ou "$[...]" num nome é avaliado na hora da
+        // chamada, e ${SHELL(...)} rodaria comando no servidor. Nenhum
+        // campo legítimo de cadastro precisa disso.
+        if ($this->afetaAsterisk) {
+            foreach ($dados as $campo => $valor) {
+                if (is_string($valor) && in_array($campo, $this->modelos, true)) {
+                    $valor = preg_replace('/\$\{VM_[A-Z]+\}/', '', $valor) ?? $valor;
+                }
+                if (is_string($valor) && preg_match('/\$\s*[{\[]/', $valor) === 1) {
+                    return ['campo' => (string) $campo,
+                            'mensagem' => 'Este campo não aceita "${" nem "$[": são expressões do Asterisk.'];
+                }
+            }
+        }
+
         foreach ($this->regras as $campo => $regra) {
             $rotulo = $regra['rotulo'] ?? $campo;
             $presente = array_key_exists($campo, $dados);
@@ -451,8 +474,15 @@ final class Recurso
             // null é a caixa "remover o que está gravado" marcada no
             // formulário: é o único jeito de tirar um PIN, já que em
             // branco passou a significar "não mexi nisso".
+            // Segredo com tamanho mínimo (senha SIP, senha da DISA) não tem
+            // "remover": em branco, o endpoint aceitaria registro sem senha.
             if ($dados[$coluna] === null) {
-                $dados[$coluna] = '';
+                $regra = $this->regras[$coluna] ?? [];
+                if (isset($regra['min']) || ($regra['obrigatorio'] ?? false)) {
+                    unset($dados[$coluna]);
+                } else {
+                    $dados[$coluna] = '';
+                }
                 continue;
             }
 

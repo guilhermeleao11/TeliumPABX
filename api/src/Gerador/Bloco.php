@@ -28,8 +28,23 @@ final class Bloco
 
     public function exten(string $exten, string $app): static
     {
-        $this->linhas[] = 'exten => ' . self::umaLinha($exten) . ',1,' . self::semComentario($app);
+        $this->linhas[] = 'exten => ' . self::nomeDeExtensao($exten) . ',1,' . self::semComentario($app);
         return $this;
+    }
+
+    /**
+     * O nome da extensão só pode ter o que número e padrão usam.
+     *
+     * Número de fila, grupo, sala ou tecla de URA vem do cadastro e vira o
+     * começo da linha. Com vírgula e ponto e vírgula ele deixava de ser
+     * nome: "9,1,System(reboot);" gerava uma extensão 9 que rodava comando
+     * no servidor, e o ";" comentava o resto. Tudo fora do alfabeto de
+     * extensão (dígitos, letras de "s"/"h"/rótulos, * # + e o que os padrões
+     * usam: _ . ! [ ] -) sai daqui.
+     */
+    private static function nomeDeExtensao(string $exten): string
+    {
+        return preg_replace('/[^0-9A-Za-z_*#+.!\[\]-]/', '', $exten) ?? '';
     }
 
     public function same(string $app, ?string $rotulo = null): static
@@ -37,7 +52,7 @@ final class Bloco
         $app = self::semComentario($app);
         $this->linhas[] = $rotulo === null
             ? " same => n,{$app}"
-            : ' same => n(' . self::umaLinha($rotulo) . '),' . $app;
+            : ' same => n(' . (preg_replace('/[^0-9A-Za-z_-]/', '', $rotulo) ?? '') . '),' . $app;
         return $this;
     }
 

@@ -302,7 +302,7 @@ final class RelatorioFilas
         // relatório de segunda dava zero horas logado a quem passou o fim de
         // semana no atendimento.
         $semente = Bd::todos(
-            "SELECT UNIX_TIMESTAMP(q.time) AS t, q.agent, q.queuename, q.event, q.data1
+            "SELECT q.id, UNIX_TIMESTAMP(q.time) AS t, q.agent, q.queuename, q.event, q.data1
                FROM queue_log q
                JOIN (SELECT MAX(id) AS id FROM queue_log
                       WHERE time < ? AND agent NOT IN ('NONE','') {$filtroFila}
@@ -326,6 +326,22 @@ final class RelatorioFilas
            ORDER BY time, id",
             [$this->de, $this->ate, ...$argFila]
         );
+
+        // Uma pausa anterior à última entrada ou saída da mesma fila já não
+        // vale: quem pausou, saiu e entrou de novo está livre. Sem este corte
+        // a semente chegava como "pausa antiga, depois entrada", a entrada
+        // não limpa pausa, e o período inteiro contava como almoço.
+        $ultimaSessao = [];
+        foreach ($semente as $ev) {
+            if (in_array($ev['event'], ['ADDMEMBER', 'REMOVEMEMBER'], true)) {
+                $ultimaSessao[$ev['agent'] . '|' . $ev['queuename']] = (int) $ev['id'];
+            }
+        }
+        $semente = array_values(array_filter(
+            $semente,
+            static fn (array $ev): bool => !in_array($ev['event'], ['PAUSE', 'UNPAUSE'], true)
+                || (int) $ev['id'] > ($ultimaSessao[$ev['agent'] . '|' . $ev['queuename']] ?? 0)
+        ));
 
         // A semente só monta o estado: nada dela conta tempo, porque tudo
         // aconteceu antes do período. O relógio de cada um começa no início.

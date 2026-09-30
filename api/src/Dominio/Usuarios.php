@@ -42,6 +42,19 @@ final class Usuarios
      */
     public static function conferir(string $acao, array $dados, array $atual, array $eu): ?array
     {
+        // Ninguém mexe em conta mais poderosa que a própria, nem dá a alguém
+        // mais do que tem: sem isto, um perfil com "usuários" criava uma
+        // conta de administrador ou trocava a senha do admin e entrava.
+        $euPerfil = (int) ($eu['perfil_id'] ?? 0);
+        if ($acao !== 'criar' && !self::alcanca($euPerfil, (int) ($atual['perfil_id'] ?? 0))) {
+            return ['mensagem' => 'Esta conta tem permissões que o seu perfil não tem; só quem tem '
+                                . 'pelo menos as mesmas pode alterá-la.', 'codigo' => 403];
+        }
+        if (array_key_exists('perfil_id', $dados) && !self::alcanca($euPerfil, (int) $dados['perfil_id'])) {
+            return ['mensagem' => 'Você não pode dar a outra conta um perfil com mais permissões que o seu.',
+                    'campo' => 'perfil_id', 'codigo' => 403];
+        }
+
         if ($acao === 'excluir') {
             return self::podeExcluir($atual, $eu);
         }
@@ -52,6 +65,29 @@ final class Usuarios
         }
 
         return $acao === 'editar' ? self::podeEditar($dados, $atual, $eu) : null;
+    }
+
+    /**
+     * O perfil $meu tem tudo o que o perfil $alvo tem — módulos e ações?
+     * Quem tem "*" alcança qualquer um.
+     */
+    public static function alcanca(int $meu, int $alvo): bool
+    {
+        if ($meu === $alvo) {
+            return true;
+        }
+        $eu = Permissoes::doPerfil($meu);
+        if (in_array('*', $eu['allow'], true)) {
+            return true;
+        }
+        $ele = Permissoes::doPerfil($alvo);
+        foreach ($ele['allow'] as $modulo) {
+            if (!Permissoes::podeModulo($eu['allow'], (string) $modulo)) {
+                return false;
+            }
+        }
+
+        return array_diff($ele['caps'], $eu['caps']) === [];
     }
 
     // ------------------------------------------------------------------
