@@ -174,7 +174,8 @@ final class Aplicador
         $resposta = $ami->comando('pjsip show endpoints');
         // Pelo AMI cada linha vem como "Output:  Endpoint:  1001/1001 ...";
         // o cabeçalho da tabela ("<Endpoint/CID...>") fica de fora pelo "<".
-        preg_match_all('/Endpoint:\s+([^\s\/<]+)\//', $resposta, $m);
+        // Com CID o nome vem como "1001/1001"; sem, só "OperadoraTeste".
+        preg_match_all('/Endpoint:\s+([^\s\/<]+)(?:\/|\s)/', $resposta, $m);
         $carregados = array_flip($m[1]);
         if ($carregados === []) {
             return [];      // sem resposta legível não dá para afirmar nada

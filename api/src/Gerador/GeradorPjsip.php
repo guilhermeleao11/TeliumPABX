@@ -460,7 +460,8 @@ final class GeradorPjsip
           ->crua('rtp_symmetric = yes')
           ->crua('force_rport = yes')
           ->crua('rewrite_contact = yes')
-          ->crua("set_var = TELIUM_TRONCO={$t['nome']}");
+          ->crua("set_var = TELIUM_TRONCO={$t['nome']}")
+          ->crua('trust_id_inbound = yes');
 
         if ($t['from_user']) {
             $b->crua("from_user = {$t['from_user']}");
@@ -473,9 +474,15 @@ final class GeradorPjsip
         } elseif ((string) $t['usuario'] !== '') {
             $b->comentario('sem outbound_auth: usuário informado e senha em branco');
         }
-        if ($t['cid_saida']) {
-            $b->crua(sprintf('callerid = <%s>', $t['cid_saida']));
-        }
+        // Sem "callerid" aqui: no PJSIP ele vale também para a chamada que
+        // ENTRA pelo endpoint, e toda chamada de fora aparecia com o número
+        // do próprio tronco em vez do de quem ligou (no CDR, no painel do
+        // call center, na pesquisa). O CID de saída vai pelo sub-cid-tronco,
+        // só no canal que sai para a operadora.
+        //
+        // A operadora é confiável: muitas põem a conta do tronco no From e
+        // o número de quem ligou no P-Asserted-Identity (ou Remote-Party-ID).
+        // Sem isto, o Asterisk ignora os dois e fica com o From.
 
         $b->branco()
           ->crua("[{$nome}]")

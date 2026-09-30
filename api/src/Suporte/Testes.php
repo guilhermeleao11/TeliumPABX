@@ -468,6 +468,14 @@ final class Testes
 
         $comSenha = $gerar([]);
         $this->ok(str_contains($comSenha, 'type = auth'), 'tronco com senha gera o auth');
+
+        // O callerid do endpoint vale também para quem LIGA pelo tronco:
+        // com ele, toda chamada de fora chegava com o número do tronco.
+        $comCid = $gerar(['cid_saida' => '1140041000']);
+        $this->ok(preg_match('/^callerid\s*=/m', $comCid) !== 1,
+                  'o CID de saída não vira callerid do tronco (a chamada que entra mostra quem ligou)');
+        $this->ok(str_contains($comCid, 'trust_id_inbound = yes'),
+                  'o tronco confia no P-Asserted-Identity da operadora');
         $this->ok(str_contains($comSenha, 'outbound_auth = Operadora'), 'o endpoint aponta para o auth');
         $this->ok(str_contains($comSenha, 'type = registration'), 'tronco com senha gera a registration');
         $this->ok(
