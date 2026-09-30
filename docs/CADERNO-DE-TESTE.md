@@ -933,6 +933,26 @@ telefones. Um supervisor com ramal vinculado à própria conta.
 
 ---
 
+### Q 🟡 Ramais em planilha (Conectividade › Ramais)
+
+- [ ] **Modelo CSV** baixa `modelo-ramais.csv`; aberto no Excel, acento e
+      colunas aparecem certos
+- [ ] O modelo, sem mudar nada, importa: a prévia mostra 2001 e 2002 a criar
+- [ ] Planilha salva pelo Excel (";" e acento): a prévia lê os nomes certos
+- [ ] Linha com e-mail errado, senha curta, número com letra ou ramal
+      repetido aparece como **Erro** com o motivo; as outras seguem
+- [ ] Na prévia nada é gravado (a lista de ramais não muda)
+- [ ] **Importar** cria as linhas certas; sem `senha_sip`, a senha gerada
+      aparece e **Baixar ramais e senhas** traz a lista
+- [ ] Ramal que já existe fica como está; com "Atualizar os que já
+      existem", só as células preenchidas mudam
+- [ ] Ramal com `webrtc` = sim sai com o softphone do navegador pronto
+- [ ] **Exportar** traz todos os ramais e nenhuma senha; o arquivo
+      exportado volta pela importação sem mudar senha nenhuma
+- [ ] Depois de importar, **Aplicar** e registrar um aparelho num ramal novo
+
+---
+
 ## 17. O que NÃO entra nesta aceitação
 
 Escreva aqui, e **mostre ao cliente antes de virar a chave**. Prometer o

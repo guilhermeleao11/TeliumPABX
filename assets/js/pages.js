@@ -952,6 +952,16 @@ PAGES['conn.ramais'] = paginaCrud({
     ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Credenciais SIP" data-credencial="${r.id}">${icon('key','ico ico-sm')}</button>`
     : '',
 
+  // Cadastro em lote pela planilha. O modelo é o ponto de partida: as
+  // colunas dele são as únicas que a importação aceita.
+  acoesExtra: ctx => `
+    <button class="btn btn-ghost btn-sm" data-csv-modelo data-tip="Planilha com as colunas e dois exemplos">
+      ${icon('file','ico ico-sm')} Modelo CSV</button>
+    ${ctx.can('exportar') ? `<button class="btn btn-ghost btn-sm" data-csv-exportar>
+      ${icon('download','ico ico-sm')} Exportar</button>` : ''}
+    ${ctx.can('criar') ? `<button class="btn btn-ghost btn-sm" data-csv-importar>
+      ${icon('upload','ico ico-sm')} Importar CSV</button>` : ''}`,
+
   campos: (r) => [
     // ---------------- Geral ----------------
     { campo: 'numero', label: 'Ramal do usuário', obrigatorio: true, mono: true,
@@ -1184,7 +1194,18 @@ PAGES['conn.ramais'] = paginaCrud({
     };
   },
 
-  aoMontar: (pagina) => {
+  aoMontar: (pagina, ctx) => {
+    const baixar = async (b, caminho) => {
+      b.disabled = true;
+      try { await Api.salvarArquivo(caminho); } catch (e) { toast(e.message, 'err'); }
+      b.disabled = false;
+    };
+    document.querySelector('[data-csv-modelo]')?.addEventListener('click', ev =>
+      baixar(ev.currentTarget, '/ramais/csv/modelo'));
+    document.querySelector('[data-csv-exportar]')?.addEventListener('click', ev =>
+      baixar(ev.currentTarget, '/ramais/csv'));
+    document.querySelector('[data-csv-importar]')?.addEventListener('click', () => importarRamaisCsv(ctx));
+
     document.querySelectorAll('[data-credencial]').forEach(b => b.onclick = async () => {
       try {
         const c = await Api.get(`/ramais/${b.dataset.credencial}/credenciais`);
@@ -1202,6 +1223,158 @@ PAGES['conn.ramais'] = paginaCrud({
     });
   }
 });
+
+/**
+ * Importação de ramais pela planilha, em dois passos: a prévia mostra o
+ * que cada linha vai fazer (é o mesmo caminho da gravação, desfeito no
+ * fim), e só então "Importar" grava as linhas sem erro.
+ */
+function importarRamaisCsv(ctx) {
+  let conteudo = '';
+  let nomeArquivo = '';
+  const rotulo = { criar: 'Criar', atualizar: 'Atualizar', ignorado: 'Já existe', erro: 'Erro' };
+  const tom = { criar: 'badge-ok', atualizar: 'badge-brand', ignorado: '', erro: 'badge-danger' };
+
+  Drawer.open({
+    titulo: 'Importar ramais',
+    sub: 'Planilha CSV no formato do modelo. Nada é gravado antes de você conferir a prévia.',
+    wide: true,
+    corpo: `
+      <div class="grid" style="gap:14px">
+        <div class="aviso-form info" style="margin:0">${icon('info','ico')}
+          <div class="small">
+            <b>Como preencher</b>
+            <ul>
+              <li>Baixe o <a href="#" data-csv-modelo-dw>modelo</a>: a primeira linha tem os nomes das colunas.
+                Só <span class="mono">numero</span> e <span class="mono">nome</span> são obrigatórias; as outras podem sair.</li>
+              <li>Colunas de sim/não aceitam <span class="mono">sim</span>, <span class="mono">não</span>,
+                <span class="mono">1</span> ou <span class="mono">0</span>.</li>
+              <li>Sem <span class="mono">senha_sip</span>, a central gera uma senha forte, mostrada ao fim da importação.</li>
+              <li>Célula vazia não muda nada: num ramal novo vale o padrão do cadastro; num existente, fica o que estava.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="field full">
+          <label class="label">Arquivo CSV</label>
+          <input class="input" type="file" accept=".csv,text/csv,text/plain" data-csv-arquivo>
+          <span class="hint">Até 2 MB e 2.000 ramais. Separador ";" ou ",", em UTF-8 ou no formato do Excel.</span>
+        </div>
+        ${ctx.can('editar') ? `<label class="row gap-8 small"><input type="checkbox" data-csv-atualizar>
+          Atualizar os ramais que já existem (sem isto eles ficam como estão)</label>` : ''}
+        <div data-csv-resultado></div>
+      </div>`,
+    rodape: `<button class="btn btn-ghost" data-drawer-close>Fechar</button>
+      <button class="btn btn-ghost" data-csv-previa disabled>${icon('eye','ico ico-sm')} Ver prévia</button>
+      <button class="btn btn-primary" data-csv-gravar disabled>${icon('upload','ico ico-sm')} Importar</button>`
+  });
+
+  const dw = document.getElementById('drawerEl');
+  const alvo = dw.querySelector('[data-csv-resultado]');
+  const botaoPrevia = dw.querySelector('[data-csv-previa]');
+  const botaoGravar = dw.querySelector('[data-csv-gravar]');
+  dw.querySelector('[data-csv-modelo-dw]').onclick = async ev => {
+    ev.preventDefault();
+    try { await Api.salvarArquivo('/ramais/csv/modelo'); } catch (e) { toast(e.message, 'err'); }
+  };
+
+  // O arquivo é lido como bytes e decodificado aqui: planilha salva pelo
+  // Excel costuma vir em Windows-1252, e ler como UTF-8 estragaria os
+  // acentos antes de o servidor ver. Latin-1 preserva cada byte; o
+  // servidor descobre a codificação.
+  dw.querySelector('[data-csv-arquivo]').onchange = async ev => {
+    const arquivo = ev.target.files?.[0];
+    alvo.innerHTML = '';
+    botaoGravar.disabled = true;
+    conteudo = '';
+    if (!arquivo) { botaoPrevia.disabled = true; return; }
+    if (arquivo.size > 2 * 1024 * 1024) { toast('O arquivo passa de 2 MB.', 'err'); return; }
+    const bytes = new Uint8Array(await arquivo.arrayBuffer());
+    let utf8 = true;
+    try { conteudo = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+    catch { utf8 = false; }
+    if (!utf8) conteudo = new TextDecoder('windows-1252').decode(bytes);
+    nomeArquivo = arquivo.name;
+    botaoPrevia.disabled = false;
+    enviar(true);
+  };
+  dw.querySelector('[data-csv-atualizar]')?.addEventListener('change', () => {
+    botaoGravar.disabled = true;
+    if (conteudo) enviar(true);
+  });
+
+  let ultimo = null;
+  const enviar = async simular => {
+    const botao = simular ? botaoPrevia : botaoGravar;
+    const texto = botao.innerHTML;
+    botao.disabled = true;
+    botao.innerHTML = `<span class="spin"></span> ${simular ? 'Conferindo…' : 'Importando…'}`;
+    try {
+      const r = await Api.post('/ramais/csv', {
+        conteudo, simular,
+        atualizar: !!dw.querySelector('[data-csv-atualizar]')?.checked
+      });
+      ultimo = r;
+      pintar(r);
+      botaoGravar.disabled = !(simular && (r.resumo.criar + r.resumo.atualizar) > 0);
+      if (!simular) {
+        toast(`${r.resumo.criar} ramal(is) criado(s), ${r.resumo.atualizar} atualizado(s). `
+            + 'Aplique as configurações para o Asterisk assumir.', 'ok');
+        App.route();
+      }
+    } catch (e) {
+      alvo.innerHTML = `<p class="small" style="color:var(--danger)">${esc(e.message)}</p>`;
+      botaoGravar.disabled = true;
+    }
+    botao.innerHTML = texto;
+    botao.disabled = !conteudo || (!simular);
+    if (simular) botaoPrevia.disabled = !conteudo;
+  };
+  botaoPrevia.onclick = () => enviar(true);
+  botaoGravar.onclick = () => enviar(false);
+
+  const pintar = r => {
+    const s = r.resumo;
+    const senhas = r.linhas.filter(l => l.senha);
+    alvo.innerHTML = `
+      <div class="row gap-8 wrap" style="margin-bottom:10px">
+        <b>${r.simulado ? 'Prévia' : 'Importado'}:</b>
+        <span class="badge badge-ok">${num(s.criar)} ${r.simulado ? 'a criar' : 'criado(s)'}</span>
+        <span class="badge badge-brand">${num(s.atualizar)} ${r.simulado ? 'a atualizar' : 'atualizado(s)'}</span>
+        <span class="badge">${num(s.ignorado)} já existe(m)</span>
+        <span class="badge ${s.erro ? 'badge-danger' : ''}">${num(s.erro)} com erro</span>
+      </div>
+      ${r.aviso ? `<div class="aviso-form atencao" style="margin:0 0 10px">${icon('alert','ico')}
+        <div class="small">${esc(r.aviso)}</div></div>` : ''}
+      ${r.simulado && s.erro ? `<p class="small dim" style="margin:0 0 10px">As linhas com erro ficam de fora;
+        corrija a planilha e escolha o arquivo de novo, ou importe só as que estão certas.</p>` : ''}
+      ${senhas.length ? `<div class="aviso-form atencao" style="margin:0 0 10px">${icon('key','ico')}
+        <div class="small"><b>Senhas geradas.</b> Guarde agora: elas voltam depois só pela tela de credenciais de cada ramal.
+          <div style="margin-top:6px"><button class="btn btn-ghost btn-sm" data-csv-senhas>
+            ${icon('download','ico ico-sm')} Baixar ramais e senhas</button></div></div></div>` : ''}
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th class="col-num">Linha</th><th>Ramal</th><th>Nome</th><th>Resultado</th><th>Detalhe</th></tr></thead>
+        <tbody>${r.linhas.map(l => `<tr>
+          <td class="num small muted">${l.linha}</td>
+          <td class="mono">${esc(l.numero || '—')}</td>
+          <td>${esc(l.nome || '')}</td>
+          <td><span class="badge ${tom[l.acao] || ''}">${rotulo[l.acao] || esc(l.acao)}</span></td>
+          <td class="small">${esc(l.mensagem || '')}${l.senha ? ` <span class="mono">${esc(l.senha)}</span>` : ''}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>`;
+
+    alvo.querySelector('[data-csv-senhas]')?.addEventListener('click', () => {
+      // Montado no navegador: a senha não passa pelo servidor outra vez.
+      const linhas = [['numero', 'nome', 'senha_sip'], ...senhas.map(l => [l.numero, l.nome, l.senha])];
+      const csv = '\uFEFF' + linhas.map(c => c.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';')).join('\r\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const a = Object.assign(document.createElement('a'), {
+        href: url, download: `senhas-${nomeArquivo.replace(/\.csv$/i, '') || 'ramais'}.csv`
+      });
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  };
+}
 
 /* ------------------------- Conectividade · Troncos ------------------------- */
 PAGES['conn.troncos'] = paginaCrud({

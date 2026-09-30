@@ -73,6 +73,7 @@ final class Testes
             $this->grupo('Relatório do call center', $this->relatorioCallCenter(...));
             $this->grupo('Firewall: nunca bloquear', $this->confiaveis(...));
             $this->grupo('Telefone do navegador: permissão', $this->permissaoTelefone(...));
+            $this->grupo('Ramais em planilha', $this->ramaisCsv(...));
             $this->grupo('Envio de e-mail', $this->email(...));
             $this->grupo('Saída do backup', $this->backup(...));
             $this->grupo('Certificados TLS', $this->certificados(...));
@@ -2583,7 +2584,35 @@ final class Testes
     }
 
     // ---------------------------------------------------------------
-    private function grupo(string $nome, callable $casos): void
+    /**
+     * A planilha de ramais: o que o Excel em português salva tem de ser
+     * lido do jeito que a pessoa escreveu.
+     */
+    private function ramaisCsv(): void
+    {
+        $ler = new \ReflectionMethod(\Telium\Http\Controllers\RamaisCsv::class, 'ler');
+        $valor = new \ReflectionMethod(\Telium\Http\Controllers\RamaisCsv::class, 'valor');
+
+        // Windows-1252, ";" e BOM nenhum — o "Salvar como CSV" do Excel.
+        $excel = mb_convert_encoding("numero;nome;setor\r\n2001;João Ação;Vendas\r\n\r\n2002;\"Silva; Maria\";TI\r\n", 'Windows-1252', 'UTF-8');
+        [$cab, $linhas, $erro] = $ler->invoke(null, $excel);
+        $this->ok($erro === null && $cab === ['numero', 'nome', 'setor'], 'cabeçalho lido do CSV do Excel');
+        $this->ok(($linhas[0][1][1] ?? '') === 'João Ação', 'acento em Windows-1252 chega inteiro');
+        $this->ok(count($linhas) === 2 && ($linhas[1][1][1] ?? '') === 'Silva; Maria' && $linhas[1][0] === 4,
+                  'linha em branco pulada, aspas com ";" dentro, e a linha do erro é a do arquivo');
+
+        [, , $erro] = $ler->invoke(null, "\xEF\xBB\xBFnumero,nome,senha\n2001,X,1\n");
+        $this->ok($erro !== null && str_contains($erro, 'senha'), 'coluna que o cadastro não conhece é recusada pelo nome');
+        [, , $erro] = $ler->invoke(null, "nome;setor\nX;Y\n");
+        $this->ok($erro !== null, 'sem a coluna numero a planilha é recusada');
+
+        $this->ok($valor->invoke(null, 'webrtc', 'Não') === '0' && $valor->invoke(null, 'ativo', 'sim') === '1',
+                  'sim e não viram 1 e 0');
+        $this->ok($valor->invoke(null, 'nome', "'=SOMA(A1)") === '=SOMA(A1)',
+                  'o apóstrofo que a exportação põe contra fórmula sai na volta');
+    }
+
+        private function grupo(string $nome, callable $casos): void
     {
         echo "\n  {$nome}\n";
         try {

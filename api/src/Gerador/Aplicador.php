@@ -96,7 +96,14 @@ final class Aplicador
             // por causa de uma opção inválida: o ramal some da central e o
             // console dizia que estava tudo aplicado. Aqui se confere o que
             // de fato carregou.
+            // O reload do PJSIP responde antes de terminar de carregar: logo
+            // depois de criar muitos ramais de uma vez, os últimos ainda não
+            // aparecem. Espera um pouco antes de acusar, sem passar de ~4 s.
             $faltando = $this->endpointsQueNaoCarregaram($ami);
+            for ($tentativa = 0; $faltando !== [] && $tentativa < 5; $tentativa++) {
+                usleep(800_000);
+                $faltando = $this->endpointsQueNaoCarregaram($ami);
+            }
             if ($faltando !== []) {
                 $etapas['ramais e troncos carregados'] = 'falhou';
                 $saida .= 'O Asterisk não carregou: ' . implode(', ', array_slice($faltando, 0, 20))

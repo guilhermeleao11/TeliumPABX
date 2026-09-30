@@ -303,6 +303,13 @@ kbd.k { font: 600 10.5px var(--font); background: var(--surface); border: 1px so
 .aviso-form .ico { flex: none; margin-top: 1px; }
 .aviso-form b { display: block; margin-bottom: 2px; }
 .aviso-form ul { margin: 4px 0 0; padding-left: 16px; list-style: disc; }
+/* Mesma caixa, para orientar e não para acusar erro. */
+.aviso-form.info { background: var(--info-soft); color: var(--text);
+  border-color: color-mix(in srgb, var(--info) 26%, transparent); }
+.aviso-form.info .ico { color: var(--info); }
+.aviso-form.atencao { background: var(--warn-soft); color: var(--text);
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.aviso-form.atencao .ico { color: var(--warn); }
 
 /* ---------------- Requisitos de senha ---------------- */
 .requisitos {

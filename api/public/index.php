@@ -5,6 +5,7 @@ use Slim\Factory\AppFactory;
 use Slim\Routing\RouteCollectorProxy;
 use Telium\Http\Controllers\Autenticacao as CtrlAuth;
 use Telium\Http\Controllers\Cadastros;
+use Telium\Http\Controllers\RamaisCsv;
 use Telium\Http\Controllers\Certificados;
 use Telium\Http\Controllers\Provisionar;
 use Telium\Http\Controllers\CallCenter as CtrlCallCenter;
@@ -978,6 +979,11 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('admin.usuarios', 'editar'));
     $g->post('/usuarios/{id}/destravar', [Cadastros::class, 'destravar'])
       ->add(new Permissao('admin.usuarios', 'editar'));
+    // ---- ramais em planilha: antes do CRUD, que leria "csv" como id ----
+    $ramaisCsv = new RamaisCsv($recursos['ramais']['recurso']);
+    $g->get('/ramais/csv/modelo', [$ramaisCsv, 'modelo'])->add(new Permissao('conn.ramais'));
+    $g->get('/ramais/csv', [$ramaisCsv, 'exportar'])->add(new Permissao('conn.ramais', 'exportar'));
+    $g->post('/ramais/csv', [$ramaisCsv, 'importar'])->add(new Permissao('conn.ramais', 'criar'));
     $g->get('/ramais/{id}/credenciais', [Cadastros::class, 'credenciaisRamal'])
       ->add(new Permissao('conn.ramais', 'editar'));
 
