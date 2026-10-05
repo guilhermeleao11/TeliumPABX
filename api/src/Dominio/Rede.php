@@ -317,6 +317,18 @@ final class Rede
             return $r(false, 'o nome não resolve nem aqui no servidor');
         }
 
+        // O próprio nome da central está no /etc/hosts como 127.0.1.1 (o
+        // playbook põe, como o Debian faz). Isso é deste servidor, não do
+        // navegador: o que vale é o DNS, que é onde o navegador pergunta.
+        if (!$ehIp && str_starts_with($ip, '127.')) {
+            $registros = @dns_get_record($host, DNS_A) ?: [];
+            $ip = (string) ($registros[0]['ip'] ?? '');
+            if ($ip === '') {
+                return $r(false, 'o nome só existe no /etc/hosts deste servidor; no DNS ele não '
+                               . 'existe, e o navegador de quem usa o console não o encontra');
+            }
+        }
+
         if (self::ehPrivado($ip)) {
             return $r(false, "resolve para {$ip}, que é endereço de rede interna — "
                            . 'o navegador de fora não alcança');
