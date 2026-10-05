@@ -80,11 +80,14 @@ INSERT IGNORE INTO perfil_acoes (perfil_id, acao)
 SELECT p.id, 'exportar' FROM perfis p WHERE p.chave = 'auditor';
 
 -- ---------- conta de administrador ----------
--- A senha do admin é REIMPOSTA a cada provisionamento, de propósito: é a
--- garantia de que sempre existe uma forma conhecida de entrar na central.
--- Consequência: se você trocar a senha do admin pelo console, a próxima
--- execução do playbook devolve o padrão. Para uma conta com senha própria,
--- crie um segundo usuário administrador pelo console.
+-- A conta nasce com a senha de fábrica, e ela NÃO é reimposta depois: a
+-- senha de fábrica está no repositório, e reimpô-la a cada atualização
+-- deixava qualquer central em produção aberta a quem a conhecesse — e
+-- desfazia em silêncio a troca que o cliente tinha feito. A senha inicial
+-- de cada servidor é definida uma única vez pelo playbook (papel api), e
+-- quem perder a senha recupera pelo terminal: php bin/telium senha admin.
+-- Cada execução ainda destrava a conta e a mantém administradora, para
+-- nunca ficar sem quem administre.
 --
 -- INSERT direto (sem SELECT) para não haver ambiguidade de coluna com
 -- a tabela perfis no ON DUPLICATE KEY UPDATE.
@@ -93,7 +96,6 @@ VALUES ('admin', 'Administrador', NULL, 'pbkdf2_sha256$390000$YOaItVoHDd2/hpoLND
         (SELECT id FROM perfis WHERE chave = 'admin'), 'TI', 'ativo')
 ON DUPLICATE KEY UPDATE
   nome             = VALUES(nome),
-  senha_hash       = VALUES(senha_hash),
   perfil_id        = VALUES(perfil_id),
   status           = 'ativo',
   tentativas_login = 0,

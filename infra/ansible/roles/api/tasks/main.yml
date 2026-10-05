@@ -101,6 +101,20 @@
     var: acesso_diag.stdout_lines
   when: acesso_conf.rc != 0
 
+# A senha do admin é definida UMA vez por servidor: senha_padrao_console,
+# ou a que estiver no servidor.yml. Depois disso o playbook não toca mais
+# nela — a troca feita pelo console fica. A marca registra que já foi feito.
+- name: Definir a senha inicial do admin (só na primeira vez)
+  ansible.builtin.shell: >-
+    printf '%s\n' "$SENHA_INICIAL" | runuser -u {{ telium_user }} -- php bin/telium senha admin
+    && touch {{ telium_etc }}/.senha-admin-inicial
+  args:
+    chdir: "{{ telium_api }}"
+    creates: "{{ telium_etc }}/.senha-admin-inicial"
+  environment:
+    SENHA_INICIAL: "{{ senha_padrao_console }}"
+  no_log: true
+
 - name: Gerar os arquivos .conf do Asterisk a partir do banco
   ansible.builtin.command:
     cmd: php bin/telium gerar-config

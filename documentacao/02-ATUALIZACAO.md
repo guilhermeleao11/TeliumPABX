@@ -141,6 +141,13 @@ cd /opt/TeliumPABX && sudo git checkout main && sudo git pull
 
 O que muda na operação, e não só por dentro.
 
+### A senha do admin não volta mais ao padrão
+- Até aqui, cada atualização devolvia a senha do `admin` à de fábrica. Agora
+  o playbook só a define **uma vez** por servidor. Na primeira atualização
+  com esta versão ela ainda é definida, e daí em diante é preservada.
+- **Depois de atualizar, troque a senha do admin pelo console.**
+- Perdeu a senha? `sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin`.
+
 ### A central fala português
 - Os avisos do sistema (correio de voz, conferência, fila, números,
   "ativado", "número inválido") passam a ser em **português do Brasil**. O

@@ -41,10 +41,11 @@ python3 -m http.server 8080   # e acesse http://localhost:8080
 |---|---|
 | `admin` | `T3l1um_@2024_@aD1m` |
 
-É a única conta que nasce com a instalação, e essa senha é restaurada a cada
-provisionamento — é a garantia de que sempre há como entrar. As demais contas
-são criadas pelo console, em *Administrador → Gerenciador de Usuários*, e essas
-sim mantêm a senha que você definir.
+É a única conta que nasce com a instalação, com essa senha **inicial**: troque-a
+no primeiro acesso. O playbook só a define na primeira instalação — as
+atualizações não voltam a mexer nela. Perdeu a senha? No servidor:
+`sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin`. As demais contas
+são criadas pelo console, em *Administrador → Gerenciador de Usuários*.
 
 ## Estrutura do repositório
 

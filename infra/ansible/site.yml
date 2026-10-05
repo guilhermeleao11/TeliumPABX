@@ -96,7 +96,7 @@
           - ""
           - "Senhas de serviço: geradas nesta instalação e guardadas em"
           - "  {{ credenciais_dir }} (uma por arquivo, 0600, só root)"
-          - "Senha do console: fixa — veja o resumo no final"
+          - "Senha do console: a inicial vale até a primeira troca — veja o final"
           - ""
           - "ATENÇÃO: a compilação do Asterisk leva de 5 a 15 minutos."
 
@@ -154,18 +154,16 @@
 
           Console ...... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/
           Usuário ...... admin
-          Senha ........ {{ senha_padrao_console }}
+          Senha inicial  {{ senha_padrao_console }}
 
-          A senha do admin é restaurada a cada provisionamento, de propósito:
-          garante que sempre exista uma forma conhecida de entrar. Para uma
-          conta com senha própria, crie outro administrador pelo console.
+          A senha inicial vale só até a primeira troca: TROQUE no primeiro
+          acesso (canto superior direito › Minha conta). O playbook não volta
+          a mexer nela. Perdeu a senha? Pelo terminal do servidor:
+            sudo -u {{ telium_user }} php {{ telium_api }}/bin/telium senha admin
 
           As senhas de serviço (banco, AMI, ARI) foram geradas nesta
           instalação e estão em {{ credenciais_dir }}, uma por arquivo.
           Elas nunca são exibidas na tela nem versionadas.
-
-          Trocar a senha do console:
-            cd {{ telium_api }} && php bin/telium senha admin
 
     - name: Endereços de acesso
       ansible.builtin.debug:
@@ -174,9 +172,9 @@
           - "API ........... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/api/health"
           - "Janus ......... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/janus/info"
           - ""
-          - "Login ......... admin / {{ senha_padrao_console }}"
-          - "  (esta senha é reimposta a cada execução do playbook —"
-          - "   para uma conta com senha própria, crie outro administrador)"
+          - "Login ......... admin / {{ senha_padrao_console }}  (senha INICIAL)"
+          - "  TROQUE no primeiro acesso: o playbook não volta a mexer nela."
+          - "  Perdeu? sudo -u {{ telium_user }} php {{ telium_api }}/bin/telium senha admin"
           - "Senhas de serviço em {{ credenciais_dir }} (0600, só root)"
           - "Resumo salvo em {{ telium_etc }}/instalacao.txt"
           - ""

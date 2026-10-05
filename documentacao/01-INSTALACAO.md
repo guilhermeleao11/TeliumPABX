@@ -128,7 +128,15 @@ sudo ansible-playbook site.yml
 
 | Endereço | Usuário | Senha |
 |---|---|---|
-| `https://voz.cliente.com.br/` | `admin` | `T3l1um_@2024_@aD1m` |
+| `https://voz.cliente.com.br/` | `admin` | `T3l1um_@2024_@aD1m` (inicial) |
+
+> **Troque a senha no primeiro acesso** (Meu Perfil e Segurança). A senha
+> inicial é a mesma de fábrica em toda central e está no repositório. O
+> playbook só a define na primeira instalação: as atualizações não voltam a
+> mexer nela. Perdeu a senha? No servidor:
+> `sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin`.
+> Para uma senha inicial diferente, ponha `senha_padrao_console` no
+> `servidor.yml` antes de instalar.
 
 ## 6. Depois de instalar, pelo console
 

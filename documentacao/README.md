@@ -38,10 +38,10 @@ Vale para todos os guias.
 |---|---|---|
 | `https://<nome ou IP do servidor>/` | `admin` | `T3l1um_@2024_@aD1m` |
 
-A senha do `admin` é **restaurada a cada execução do playbook**, de
-propósito: é a garantia de que sempre existe como entrar. Para uma conta
-administrativa com senha própria, crie outro usuário pelo console
-(**Administrador › Gerenciador de Usuários**).
+Essa é a senha **inicial**: troque-a no primeiro acesso. O playbook só a
+define na primeira instalação, e as atualizações não voltam a mexer nela.
+Perdeu a senha? No servidor:
+`sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin`.
 
 ## Outros documentos do projeto
 
