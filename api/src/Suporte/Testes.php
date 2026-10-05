@@ -303,6 +303,20 @@ final class Testes
                 )
         );
 
+        // A gramática do português no Asterisk pede arquivos que o dialplan
+        // não cita: sem "digits/1000" a fila dizia "duzentos e cinquenta"
+        // para 1250, e sem "digits/100", "cento" para 100.
+        if (str_starts_with($idioma, 'pt')) {
+            $gramatica = ['digits/100', 'digits/100E', 'digits/1000', 'digits/1000000', 'digits/1000000S', 'digits/pt-e',
+                          // a hora falada pelo correio de voz ("às sete horas e dez minutos")
+                          'digits/hours', 'digits/minutes', 'digits/at', 'digits/yesterday'];
+            $semArquivo = array_values(array_filter($gramatica,
+                static fn (string $n): bool => (glob("{$sons}/{$idioma}/{$n}.*") ?: []) === []));
+            $this->ok($semArquivo === [],
+                $semArquivo === [] ? 'os números em português têm todos os pedaços (cem, cento e, mil, milhão)'
+                                   : 'faltam pedaços dos números em português: ' . implode(', ', $semArquivo));
+        }
+
         // Falar português é mais do que ter estes arquivos: SayNumber,
         // VoiceMail, ConfBridge e a fila tocam áudios próprios, que o
         // dialplan não cita. Sem o conjunto de dígitos, a central lê

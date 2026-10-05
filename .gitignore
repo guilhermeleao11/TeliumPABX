@@ -22,3 +22,8 @@ __auto.html
 # ---- ajustes de cada servidor (nome, TURN, syslog…): fora do Git ----
 # Assim o git pull da atualização nunca conflita com o que é do cliente.
 infra/ansible/group_vars/all/servidor.yml
+
+# ---- áudios de origem (o que a central usa já está empacotado em
+# infra/ansible/roles/asterisk/files/sons/) ----
+AudiosPt-br/
+AudiosCallCenter/

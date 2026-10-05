@@ -20,7 +20,9 @@ rungroup       = asterisk
 ; languageprefix, o Asterisk procura sounds/<idioma>/arquivo e, se não
 ; achar, cai no inglês sem avisar. Sem esta linha a central respondia em
 ; inglês mesmo com os áudios em português instalados.
-documentation_language = {{ pabx_idioma }}
+; A documentação do CLI só existe em inglês: seguir o idioma da central
+; (pt_BR) não traduzia nada e só fazia o Asterisk procurar o que não há.
+documentation_language = en_US
 defaultlanguage = {{ pabx_idioma }}
 verbose        = 3
 debug          = 0

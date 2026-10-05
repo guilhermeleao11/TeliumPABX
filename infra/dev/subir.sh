@@ -110,6 +110,7 @@ ASTERISK_GERADO_DIR=/s/ast/telium
 # o de fábrica. Na bancada são dois contêineres, então os áudios moram no
 # diretório compartilhado e o Asterisk chega neles por um atalho.
 ASTERISK_SONS_DIR=/s/ast/sounds
+ASTERISK_IDIOMA=pt_BR
 # Na bancada o Asterisk roda como root e os dois contêineres não
 # compartilham o grupo asterisk. No servidor o padrão vale.
 ASTERISK_GRUPO=root
@@ -165,7 +166,7 @@ vals = {
     'telium_gravacoes': '/var/spool/asterisk/monitor',
     'db_nome': 'telium', 'db_usuario': 'root', 'db_senha': 'r',
     'udptl_inicio': '4000', 'udptl_fim': '4999',
-    'pabx_idioma': 'en',
+    'pabx_idioma': 'pt_BR',
 }
 # Os transportes viraram arquivo gerado; o template é só o ponto de
 # partida, e vai para o diretório do que a API gera — como o playbook faz.
@@ -339,6 +340,13 @@ mkdir -p "$TRAB/ast/sounds/telium-cc"
 cp "$RAIZ"/infra/ansible/roles/asterisk/files/sons/telium-cc/*.wav "$TRAB/ast/sounds/telium-cc/"
 docker exec v-ast sh -c 'mkdir -p /var/lib/asterisk/sounds/telium-cc &&
   cp /etc/asterisk/sounds/telium-cc/*.wav /var/lib/asterisk/sounds/telium-cc/'
+
+# O português vem com o projeto, como no servidor: o mesmo pacote, nos
+# mesmos dois lados.
+passo "publicando os áudios em português"
+tar xJf "$RAIZ"/infra/ansible/roles/asterisk/files/sons/pt_BR.tar.xz -C "$TRAB/ast/sounds"
+docker exec v-ast sh -c 'rm -rf /var/lib/asterisk/sounds/pt_BR &&
+  cp -r /etc/asterisk/sounds/pt_BR /var/lib/asterisk/sounds/pt_BR'
 
 echo
 passo "pronto"

@@ -141,6 +141,15 @@ cd /opt/TeliumPABX && sudo git checkout main && sudo git pull
 
 O que muda na operação, e não só por dentro.
 
+### A central fala português
+- Os avisos do sistema (correio de voz, conferência, fila, números,
+  "ativado", "número inválido") passam a ser em **português do Brasil**. O
+  pacote vem com o projeto e é instalado pelo playbook.
+- A primeira atualização com ele agenda um **reinício do Asterisk** para
+  quando não houver chamada: o idioma só muda depois dele. Para conferir,
+  `sudo asterisk -rx "core show settings" | grep -i language` deve mostrar
+  `pt_BR`.
+
 ### Código de cada condição horária
 - Cada condição tem o seu código no telefone: `*27` + o número dela
   (`*271`, `*272`…), mostrado em **Aplicações › Condições Horárias**. Discar

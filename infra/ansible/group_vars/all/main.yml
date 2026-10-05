@@ -28,17 +28,17 @@ senha_padrao_console: "T3l1um_@2024_@aD1m"
 # ---------- identidade da central ----------
 pabx_hostname: "pabx.telium.local"
 
-# Idioma em que a central FALA — inglês, que é o que o Asterisk publica.
+# Idioma em que a central FALA: português do Brasil. O projeto Asterisk
+# não publica áudios em português; o pacote vem com este projeto
+# (roles/asterisk/files/sons/pt_BR.tar.xz, origem e licença no README ao
+# lado) e é instalado em sounds/pt_BR/. O inglês continua na raiz de
+# sounds/, e é o que o Asterisk toca se faltar algum arquivo em português.
 #
-# O projeto NÃO tem áudios em português: os idiomas oficiais são en,
-# en_AU, en_GB, en_NZ, es, fr, it, ja, ru e sv. Deixar pt_BR aqui sem
-# trazer um pacote próprio faria a central procurar sounds/pt_BR/, não
-# achar, e cair no inglês do mesmo jeito — só que sem ninguém saber.
-#
-# Para mudar depois: ponha o idioma aqui e o pacote em sons_dir. A
-# bateria confere se os áudios existem no idioma configurado, então uma
-# central que diz falar português e não tem os arquivos não passa.
-pabx_idioma: "en"
+# Para outro idioma: ponha-o aqui e traga o pacote por sons_url ou
+# sons_dir (abaixo). A bateria confere se os áudios existem no idioma
+# configurado, então uma central que diz falar um idioma e não tem os
+# arquivos não passa.
+pabx_idioma: "pt_BR"
 pabx_empresa: "Telium Networks"
 pabx_timezone: "America/Sao_Paulo"
 pabx_locale: "pt_BR.UTF-8"
@@ -139,8 +139,9 @@ instalar_firewall: true
 # que o Asterisk toca quando não acha o arquivo no idioma configurado, e
 # é o que impede uma central muda. Não há o que configurar aqui.
 #
-# Para a central falar português é preciso trazer o pacote, porque o
-# projeto Asterisk não publica nenhum. Duas portas, use a que tiver:
+# O português já vem com o projeto (acima). Para OUTRO pacote — outro
+# idioma, ou um português gravado pelo cliente —, duas portas; com
+# qualquer uma delas preenchida, o pacote do projeto não é instalado:
 #
 #   sons_url  — lista de .tar.gz baixados no servidor e descompactados
 #               em sounds/<pabx_idioma>/. É a saída para quem já tem o

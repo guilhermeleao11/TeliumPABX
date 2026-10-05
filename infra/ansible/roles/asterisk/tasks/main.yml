@@ -323,6 +323,55 @@
 # proteção de propósito: quem declarou que a central fala português não
 # pode receber uma central que fala inglês em silêncio.
 # ------------------------------------------------------------------
+# O português vem com o projeto (files/sons/pt_BR.tar.xz — origem e
+# licença no README ao lado): a central fala português sem depender de
+# baixar nada de terceiros. Um arquivo só, descompactado de uma vez — a
+# cópia de 5.800 arquivos um a um levava minutos. A marca guarda a soma do
+# pacote: troca de pacote reinstala, execução repetida não mexe em nada.
+- name: Instalar os áudios em português que vêm com o projeto
+  when:
+    - pabx_idioma == 'pt_BR'
+    - sons_url | default([]) | length == 0
+    - sons_dir | default('') == ''
+  block:
+    # O unarchive abre .tar.xz com o GNU tar e o xz; numa instalação mínima
+    # o xz pode não estar.
+    - name: Garantir o descompactador do pacote pt_BR
+      ansible.builtin.apt:
+        name: [tar, xz-utils]
+        state: present
+
+    - name: Publicar o pacote pt_BR no servidor
+      ansible.builtin.copy:
+        src: sons/pt_BR.tar.xz
+        dest: "{{ src_dir }}/sons-pt_BR.tar.xz"
+        mode: "0644"
+      register: pacote_ptbr
+
+    - name: Ler a marca do pacote pt_BR instalado
+      ansible.builtin.slurp:
+        src: /var/lib/asterisk/sounds/pt_BR/.telium-pacote
+      register: marca_ptbr
+      failed_when: false
+
+    - name: Descompactar os áudios em sounds/pt_BR
+      ansible.builtin.unarchive:
+        src: "{{ src_dir }}/sons-pt_BR.tar.xz"
+        dest: /var/lib/asterisk/sounds
+        remote_src: true
+        owner: asterisk
+        group: asterisk
+      when: (marca_ptbr.content | default('') | b64decode | trim) != pacote_ptbr.checksum
+      notify: recarregar asterisk
+
+    - name: Gravar a marca do pacote pt_BR
+      ansible.builtin.copy:
+        content: "{{ pacote_ptbr.checksum }}\n"
+        dest: /var/lib/asterisk/sounds/pt_BR/.telium-pacote
+        owner: asterisk
+        group: asterisk
+        mode: "0644"
+
 - name: Preparar o diretório do idioma {{ pabx_idioma }}
   ansible.builtin.file:
     path: "/var/lib/asterisk/sounds/{{ pabx_idioma }}"
