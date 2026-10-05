@@ -42,7 +42,7 @@ compilado, TURN, backup, firewall, o serviço do call center e o console.
 
 ```bash
 sudo apt update && sudo apt install -y ansible git
-sudo git clone https://github.com/guilhermeleao11/TeliumPABX.git /opt/TeliumPABX
+sudo git clone https://gitlab.telium.com.br/Voip/teliumpabx.git /opt/TeliumPABX
 cd /opt/TeliumPABX/infra/ansible
 ```
 

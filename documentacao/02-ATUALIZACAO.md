@@ -139,6 +139,19 @@ cd /opt/TeliumPABX && sudo git checkout main && sudo git pull
 
 ## Notas das versões
 
+### O projeto mudou para o GitLab da Telium
+O repositório agora é `gitlab.telium.com.br/Voip/teliumpabx`. Numa
+central instalada a partir do GitHub, aponte o clone para o endereço novo
+**uma vez**, antes do `git pull`:
+
+```bash
+cd /opt/TeliumPABX
+sudo git remote set-url origin https://gitlab.telium.com.br/Voip/teliumpabx.git
+sudo git pull
+```
+
+O GitLab pede usuário e token (ou use uma chave de implantação).
+
 O que muda na operação, e não só por dentro.
 
 ### A senha do admin não volta mais ao padrão

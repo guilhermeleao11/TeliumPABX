@@ -23,7 +23,9 @@ __auto.html
 # Assim o git pull da atualização nunca conflita com o que é do cliente.
 infra/ansible/group_vars/all/servidor.yml
 
-# ---- áudios de origem (o que a central usa já está empacotado em
-# infra/ansible/roles/asterisk/files/sons/) ----
+# ---- áudios de origem ----
+# O que a central usa já está empacotado em infra/ansible/roles/asterisk/
+# files/sons/. AudiosCallCenter/ (os originais das mensagens do call
+# center) vai no Git; o AudiosPt-br/ é clone de outro projeto, com Git
+# próprio, e fica de fora.
 AudiosPt-br/
-AudiosCallCenter/

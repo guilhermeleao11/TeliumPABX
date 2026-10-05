@@ -152,7 +152,7 @@ Duas variáveis que costumam confundir e **não precisam ser mexidas**:
 
 ```bash
 sudo apt update && sudo apt install -y ansible git
-git clone https://github.com/guilhermeleao11/TeliumPABX.git /opt/TeliumPABX
+git clone https://gitlab.telium.com.br/Voip/teliumpabx.git /opt/TeliumPABX
 cd /opt/TeliumPABX/infra/ansible
 sudo ansible-playbook site.yml
 ```
