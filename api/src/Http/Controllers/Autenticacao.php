@@ -67,24 +67,16 @@ final class Autenticacao
             return $suspeito ? $this->demais($res, $login, $ip) : Resposta::erro($res, $generico, 401);
         }
 
-        if ($usuario['bloqueado_ate'] !== null && strtotime($usuario['bloqueado_ate']) > time()) {
+        // O bloqueio da conta vale para quem errou a senha dela, não para
+        // todo mundo: senão bastava alguém na internet errar cinco vezes
+        // o "admin" a cada quinze minutos para o dono nunca mais entrar.
+        if ($usuario['bloqueado_ate'] !== null && strtotime($usuario['bloqueado_ate']) > time()
+            && $this->errouEstaConta($login, $ip)) {
             return Resposta::erro($res, 'Conta temporariamente bloqueada por excesso de tentativas', 429);
         }
 
         if (!Senha::verificar($senha, (string) $usuario['senha_hash'])) {
-            $tentativas = (int) $usuario['tentativas_login'] + 1;
-            $bloqueia = $tentativas >= self::MAX_TENTATIVAS;
-
-            Bd::executar(
-                'UPDATE usuarios SET tentativas_login = ?,
-                        bloqueado_ate = ' . ($bloqueia ? 'DATE_ADD(NOW(), INTERVAL ? MINUTE)' : 'NULL') . '
-                  WHERE id = ?',
-                $bloqueia
-                    ? [$tentativas, self::BLOQUEIO_MINUTOS, $usuario['id']]
-                    : [$tentativas, $usuario['id']]
-            );
-
-            Auditoria::registrar($usuario, 'login_falha', 'auth', $login, ['tentativa' => $tentativas], $ip);
+            $this->contarFalha($usuario, $login, $ip, 'senha');
 
             return $suspeito ? $this->demais($res, $login, $ip) : Resposta::erro($res, $generico, 401);
         }
@@ -479,6 +471,17 @@ final class Autenticacao
         return $falhas >= self::MAX_POR_IP;
     }
 
+    /** Esta origem errou a senha desta conta dentro do tempo de bloqueio? */
+    private function errouEstaConta(string $login, string $ip): bool
+    {
+        return (int) Bd::valor(
+            "SELECT COUNT(*) FROM auditoria
+              WHERE ip = ? AND objeto = ? AND acao = 'login_falha'
+                AND criado_em > DATE_SUB(NOW(), INTERVAL ? MINUTE)",
+            [$ip, $login, self::BLOQUEIO_MINUTOS]
+        ) > 0;
+    }
+
     /** Resposta para quem errou vindo de uma origem já marcada. */
     private function demais(Response $res, string $login, string $ip): Response
     {
@@ -494,7 +497,10 @@ final class Autenticacao
     /** Soma uma tentativa errada na conta e bloqueia no limite. */
     private function contarFalha(array $usuario, string $login, string $ip, string $motivo): void
     {
-        $tentativas = (int) $usuario['tentativas_login'] + 1;
+        // Bloqueio vencido zera a conta: sem isto, um único erro depois
+        // dos quinze minutos (a sexta tentativa) bloqueava de novo na hora.
+        $vencido = $usuario['bloqueado_ate'] !== null && strtotime($usuario['bloqueado_ate']) <= time();
+        $tentativas = ($vencido ? 0 : (int) $usuario['tentativas_login']) + 1;
         $bloqueia = $tentativas >= self::MAX_TENTATIVAS;
 
         Bd::executar(

@@ -1,0 +1,35 @@
+# {{ ansible_managed | default('Gerado pelo Ansible do Telium PABX') }}
+#
+# Logs do Asterisk. O "make install-logrotate" de fábrica recriava os
+# arquivos como root, e o Asterisk (que roda como asterisk) não conseguia
+# reabri-los: o log parava em silêncio, e com ele o fail2ban, que lê o
+# "security". O "security" cresce rápido numa central exposta, com os
+# robôs que varrem o SIP — por isso a rotação é diária.
+/var/log/asterisk/messages /var/log/asterisk/full /var/log/asterisk/security {
+    daily
+    rotate 14
+    maxsize 200M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    sharedscripts
+    su asterisk asterisk
+    create 0640 asterisk asterisk
+    postrotate
+        /usr/sbin/asterisk -rx 'logger reload' >/dev/null 2>&1 || true
+    endscript
+}
+
+# Logs da API e do envio de e-mail. copytruncate: quem escreve neles (o
+# PHP-FPM, o script de e-mail) não precisa ser avisado.
+{{ telium_log }}/*.log /var/log/telium-smtp.log {
+    weekly
+    rotate 8
+    maxsize 100M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}

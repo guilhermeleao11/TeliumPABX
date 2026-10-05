@@ -17,6 +17,9 @@
     - "{{ sip_porta }}/tcp"
     - "{{ sip_tls_porta }}/tcp"
     - "{{ ast_rtp_inicio }}:{{ ast_rtp_fim }}/udp"
+    # Fax T.38 (UDPTL): sem esta faixa a operadora negocia o T.38 e o fax
+    # não passa.
+    - "{{ udptl_inicio | default(4000) }}:{{ udptl_fim | default(4999) }}/udp"
     - "{{ janus_rtp_inicio }}:{{ janus_rtp_fim }}/udp"
   when: instalar_firewall
   register: ufw_regras

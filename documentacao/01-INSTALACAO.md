@@ -30,6 +30,7 @@ compilado, TURN, backup, firewall, o serviço do call center e o console.
 | 5060 | UDP e TCP | SIP — telefones e operadora |
 | 5061 | TCP | SIP sobre TLS |
 | **10000–20000** | **UDP** | **áudio das chamadas (RTP)** |
+| 4000–4999 | UDP | fax T.38 |
 | 3478 | UDP e TCP | TURN/STUN — áudio do softphone do navegador |
 | 5349 | TCP | TURN sobre TLS |
 | 49152–49500 | UDP | áudio retransmitido pelo TURN |

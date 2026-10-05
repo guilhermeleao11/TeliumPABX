@@ -31,7 +31,13 @@ UPDATE grupo_horario_faixas
 -- Sem o par para copiar: "a semana inteira", escrito de qualquer jeito,
 -- vira '*'; o resto que não seja lista fica '*' também, porque é o que
 -- a faixa já fazia na prática.
+-- "mon-fri" é segunda a sexta, e não a semana toda: vira a lista (antes
+-- virava '*', e o "Comercial" de fábrica atendia como expediente no fim
+-- de semana).
+UPDATE grupo_horario_faixas
+   SET dias = 'mon,tue,wed,thu,fri'
+ WHERE dias = 'mon-fri' AND dia_semana_inicio IS NULL;
+
 UPDATE grupo_horario_faixas
    SET dias = '*'
- WHERE dias IS NULL OR dias = '' OR dias IN ('mon-sun', 'sun-sat')
-    OR (dias = 'mon-fri' AND dia_semana_inicio IS NULL);
+ WHERE dias IS NULL OR dias = '' OR dias IN ('mon-sun', 'sun-sat');

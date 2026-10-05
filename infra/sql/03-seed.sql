@@ -17,7 +17,7 @@ SET NAMES utf8mb4;
 -- ---------- empresa ----------
 INSERT INTO empresa (id, nome, razao_social, plano, ramais_contratados)
 VALUES (1, 'Telium Networks', 'Telium Networks Telecomunicações Ltda.', 'Enterprise', 150)
-ON DUPLICATE KEY UPDATE nome = VALUES(nome);
+ON DUPLICATE KEY UPDATE id = id;  -- o nome que o cliente puser no console fica
 
 -- ---------- perfis ----------
 INSERT INTO perfis (chave, nome, descricao, cor, sistema) VALUES
@@ -104,8 +104,14 @@ ON DUPLICATE KEY UPDATE
 -- ---------- grupos de horário padrão ----------
 -- Genéricos e necessários para montar condições horárias.
 INSERT IGNORE INTO grupos_horario (id, nome) VALUES (1,'Comercial'), (2,'24x7');
-INSERT IGNORE INTO grupo_horario_faixas (grupo_id, dias, hora_inicio, hora_fim)
-VALUES (1,'mon-fri','08:00:00','18:00:00'), (2,'mon-sun','00:00:00','23:59:59');
+-- A faixa só entra no grupo que ainda não tem nenhuma. A tabela não tem
+-- chave que o INSERT IGNORE pudesse usar, e cada execução do playbook
+-- somava mais uma cópia (o 41 limpa as que já se acumularam).
+INSERT INTO grupo_horario_faixas (grupo_id, dias, hora_inicio, hora_fim)
+SELECT f.grupo_id, f.dias, f.hora_inicio, f.hora_fim
+  FROM (SELECT 1 AS grupo_id, 'mon,tue,wed,thu,fri' AS dias, '08:00:00' AS hora_inicio, '18:00:00' AS hora_fim
+        UNION ALL SELECT 2, '*', '00:00:00', '23:59:59') f
+ WHERE NOT EXISTS (SELECT 1 FROM grupo_horario_faixas g WHERE g.grupo_id = f.grupo_id);
 
 -- ---------- estado ----------
 INSERT INTO sistema (chave, valor) VALUES ('config_pendente','1'), ('schema_versao','1')

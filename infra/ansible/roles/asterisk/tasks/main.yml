@@ -195,13 +195,21 @@
   when: ast_precisa_compilar
   changed_when: true
 
-- name: Instalar rotação de logs
-  ansible.builtin.command:
-    cmd: make install-logrotate
-    chdir: "{{ src_dir }}/asterisk-{{ asterisk_versao }}"
-  when: ast_precisa_compilar
-  changed_when: true
-  failed_when: false
+- name: Instalar o logrotate
+  ansible.builtin.apt:
+    name: logrotate
+    state: present
+
+# Substitui o arquivo que o "make install-logrotate" de fábrica deixava
+# (que recriava os logs como root). Vale também para quem atualiza sem
+# recompilar.
+- name: Rotação dos logs do Asterisk e da API
+  ansible.builtin.template:
+    src: logrotate-telium.j2
+    dest: /etc/logrotate.d/asterisk
+    owner: root
+    group: root
+    mode: "0644"
 
 # ------------------------------------------------------------------
 # Diretórios, configuração e serviço

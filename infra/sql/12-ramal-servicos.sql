@@ -20,7 +20,7 @@ ALTER TABLE ramais
   ADD COLUMN IF NOT EXISTS vm_dizer_hora    BOOLEAN NOT NULL DEFAULT 1 AFTER vm_max_segundos,
   ADD COLUMN IF NOT EXISTS vm_dizer_origem  BOOLEAN NOT NULL DEFAULT 1 AFTER vm_dizer_hora;
 
--- Quem já tinha um destino de siga-me gravado continua com ele ligado:
--- antes desta coluna, ter destino era estar ativo.
-UPDATE ramais SET siga_me_ativo = 1
- WHERE siga_me IS NOT NULL AND siga_me <> '' AND siga_me_ativo = 0;
+-- (Aqui havia um UPDATE que ligava o siga-me de quem tinha destino
+-- gravado, para a passagem à coluna siga_me_ativo. Como todo .sql roda a
+-- cada execução do playbook, ele religava o siga-me que o usuário tinha
+-- desligado. A passagem já foi feita em todas as centrais; saiu.)
