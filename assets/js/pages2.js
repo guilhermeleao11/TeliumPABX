@@ -147,6 +147,80 @@ document.addEventListener('change', ev => {
 
 
 /* ------------------------- Rotas de entrada ------------------------- */
+/* ------------------------- Padrões de discagem ------------------------- */
+/*
+ * O mesmo que o servidor faz (Padrao.php): "x." vira "_X.", letras em
+ * maiúscula, sem espaço. Número exato fica como está.
+ */
+function padraoNormalizado(v) {
+  let p = String(v ?? '').replace(/\s+/g, '');
+  if (!p || p === '*' || !/^_?[0-9XZNxzn.!\[\]*#+-]+$/.test(p)) return p;
+  p = p.replace(/^_+/, '').replace(/\[[^\]]*\]|-/g, m => m === '-' ? '' : m)
+       .replace(/[xzn]/g, c => c.toUpperCase());
+  return /[XZN.!\[]/.test(p) ? `_${p}` : p;
+}
+
+/** O número casa com o padrão, pelas regras do Asterisk? */
+function padraoCasa(padrao, numero) {
+  const p = padraoNormalizado(padrao);
+  const n = String(numero ?? '').replace(/\s+/g, '');
+  if (!p || !n) return false;
+  if (!p.startsWith('_')) return p === n;
+  let re = '';
+  for (let i = 1; i < p.length; i++) {
+    const c = p[i];
+    if (c === 'X') re += '[0-9]';
+    else if (c === 'Z') re += '[1-9]';
+    else if (c === 'N') re += '[2-9]';
+    else if (c === '.') re += '.+';
+    else if (c === '!') re += '.*';
+    else if (c === '[') { const f = p.indexOf(']', i); re += p.slice(i, f + 1); i = f; }
+    else re += c.replace(/[\\^$*+?.()|{}]/g, '\\$&');
+  }
+  try { return new RegExp(`^${re}$`).test(n); } catch { return false; }
+}
+
+/*
+ * Quando vários padrões casam, o Asterisk fica com o mais específico, e não
+ * com o primeiro da lista: compara posição a posição e vence quem aceita
+ * menos dígitos ali (número exato < [faixa] < N < Z < X < . e !).
+ */
+function padraoPeso(padrao) {
+  const p = padraoNormalizado(padrao);
+  if (!p.startsWith('_')) return [0];
+  const pesos = [];
+  for (let i = 1; i < p.length; i++) {
+    const c = p[i];
+    if (c === '[') { const f = p.indexOf(']', i); pesos.push(p.slice(i + 1, f).replace(/(\d)-(\d)/g, (_, a, b) => 'x'.repeat(b - a + 1)).length); i = f; }
+    else pesos.push({ X: 10, Z: 9, N: 8, '.': 11, '!': 12 }[c] ?? 1);
+  }
+  return pesos;
+}
+function rotaVencedora(rotas, numero, campo = 'padrao') {
+  const candidatas = rotas.filter(r => Number(r.ativo ?? 1) && padraoCasa(r[campo], numero));
+  candidatas.sort((a, b) => {
+    const pa = padraoPeso(a[campo]), pb = padraoPeso(b[campo]);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const x = pa[i] ?? 0, y = pb[i] ?? 0;
+      if (x !== y) return x - y;
+    }
+    return 0;
+  });
+  return candidatas[0] || null;
+}
+
+/** O que a operadora recebe, depois de tirar e pôr os prefixos da rota. */
+function numeroParaOperadora(rota, numero) {
+  let n = String(numero ?? '').replace(/\s+/g, '');
+  const tirar = String(rota.prefixo_remover ?? '');
+  if (tirar && n.startsWith(tirar)) n = n.slice(tirar.length);
+  return String(rota.prefixo_adicionar ?? '') + n;
+}
+
+/* Legenda curta, a mesma nas duas telas de rota. */
+const AJUDA_PADRAO = 'X = qualquer dígito · Z = 1 a 9 · N = 2 a 9 · [2-5] = faixa · '
+  + '. no fim = o resto do número (X. pega tudo). Pode escrever em minúsculas e com espaço: "0xx xxxx xxxx".';
+
 PAGES['conn.rotasentrada'] = paginaCrud({
   recurso: 'rotas-entrada',
   titulo: 'Rotas de Entrada',
@@ -179,6 +253,31 @@ PAGES['conn.rotasentrada'] = paginaCrud({
       ].filter(Boolean).join(' ') || '<span class="muted">—</span>' }
   ],
 
+  aoMontar: (pagina) => {
+    const did = document.querySelector('[data-testar-did]');
+    const origem = document.querySelector('[data-testar-origem]');
+    const alvo = document.querySelector('[data-resultado-entrada]');
+    const coringa = d => ['', '*', 's', 'qualquer'].includes(String(d ?? '').trim()) || ['_X.', '_X!', '_.', '_!'].includes(padraoNormalizado(d));
+    const testar = () => {
+      const n = did.value.replace(/\s+/g, ''), o = origem.value.replace(/\s+/g, '');
+      if (!n) { alvo.innerHTML = '<span class="muted">vai para onde? Digite o número como a operadora entrega (depois do ajuste do tronco).</span>'; return; }
+      const ativas = pagina._itens.filter(r => Number(r.ativo ?? 1));
+      // O número chamado: exato vence padrão, que vence "qualquer número".
+      const doDid = ativas.filter(r => !coringa(r.did) && padraoCasa(r.did, n));
+      const melhor = rotaVencedora(doDid, n, 'did');
+      const grupo = melhor ? doDid.filter(r => padraoNormalizado(r.did) === padraoNormalizado(melhor.did)) : ativas.filter(r => coringa(r.did));
+      // Quem ligou: a origem que casar (a mais específica), senão a rota sem origem.
+      const comOrigem = grupo.filter(r => String(r.cid_origem ?? '').trim() && !coringa(r.cid_origem));
+      const r = (o && rotaVencedora(comOrigem, o, 'cid_origem')) || grupo.find(x => !String(x.cid_origem ?? '').trim() || coringa(x.cid_origem));
+      const destino = r && (r.destino_tipo ? `${r.destino_tipo} ${r.destino_valor ?? ''}`.trim() : '—');
+      alvo.innerHTML = r
+        ? `${icon('check','ico ico-sm')} Vai para <b>${esc(destino)}</b>, pela rota <span class="mono">${esc(r.did || 'qualquer número')}</span>${r.cid_origem ? ` (origem <span class="mono">${esc(r.cid_origem)}</span>)` : ''}${r.descricao ? ` — ${esc(r.descricao)}` : ''}.`
+        : `<span style="color:var(--danger)">${icon('x','ico ico-sm')} Nenhuma rota pega esta chamada: quem liga ouve o aviso de serviço indisponível.</span>`;
+    };
+    did?.addEventListener('input', testar);
+    origem?.addEventListener('input', testar);
+  },
+
   aoCarregar: async (pagina) => {
     pagina._destinos = await opcoesDestino();
     pagina._musicas = (await Api.get('/audios', { limite: 200 }).catch(() => ({ dados: [] })))
@@ -186,6 +285,13 @@ PAGES['conn.rotasentrada'] = paginaCrud({
   },
 
   antesDaLista: () => `
+    <div class="card" style="margin-bottom:16px"><div class="card-body row gap-12 wrap" style="align-items:flex-end">
+      <div class="field"><label class="label">Uma chamada para o número</label>
+        <input class="input mono" data-testar-did inputmode="tel" placeholder="1133255800" style="width:190px"></div>
+      <div class="field"><label class="label">vinda de</label>
+        <input class="input mono" data-testar-origem inputmode="tel" placeholder="11999998888" style="width:190px"></div>
+      <div class="grow small" data-resultado-entrada><span class="muted">vai para onde? Digite o número como a operadora entrega (depois do ajuste do tronco).</span></div>
+    </div></div>
     <div class="card" style="margin-bottom:16px;padding:16px">
       <div class="row gap-12" style="align-items:flex-start">
         <span class="dim" style="flex:none">${icon('info','ico')}</span>
@@ -204,14 +310,14 @@ PAGES['conn.rotasentrada'] = paginaCrud({
 
   campos: (r, ctx, pagina) => [
     { aba: 'Rota', campo: 'did', label: 'Número chamado (DID)', mono: true, placeholder: '1133255800',
-      ajuda: 'O número que a operadora entrega. Em branco, ou um asterisco, vale para QUALQUER '
-           + 'número — inclusive para tronco que não entrega número nenhum. Aceita padrão do '
-           + 'dialplan, como _113325XXXX.' },
+      ajuda: 'O número que a operadora entrega. Em branco, * ou X. vale para QUALQUER número — '
+           + 'inclusive tronco que não entrega número nenhum. Aceita padrão: 113325xxxx pega a faixa. '
+           + AJUDA_PADRAO },
     { aba: 'Rota', campo: 'descricao', label: 'Descrição', placeholder: 'Comercial 0800' },
     { aba: 'Rota', campo: 'cid_origem', label: 'Só quando quem liga for', mono: true,
       placeholder: '11999998888',
       ajuda: 'Em branco, a rota vale para qualquer origem. Preenchida, só para esse número — e '
-           + 'ela vence a rota sem origem do mesmo DID. Aceita padrão: _11XXXXXXXXX pega São Paulo.' },
+           + 'ela vence a rota sem origem do mesmo DID. Aceita padrão: 11 9xxxx xxxx pega celular de São Paulo.' },
     { aba: 'Rota', campo: 'destino', tipo: 'destino', label: 'Para onde vai a chamada', obrigatorio: true,
       largura: 'full', destinos: pagina._destinos,
       ajuda: 'Todo destino que a central alcança: condição de horário, URA, fila, ramal, grupo, '
@@ -277,6 +383,77 @@ PAGES['conn.rotassaida'] = paginaCrud({
     { label: 'Remove prefixo', render: r => `<span class="mono dim">${esc(r.prefixo_remover || '—')}</span>` }
   ],
 
+  // Para onde vai um número: a mesma conta que o Asterisk faz.
+  antesDaLista: () => `
+    <div class="card" style="margin-bottom:16px"><div class="card-body row gap-12 wrap" style="align-items:flex-end">
+      <div class="field" style="min-width:260px"><label class="label">Para onde vai um número?</label>
+        <input class="input mono" data-testar-saida inputmode="tel" placeholder="digite como o ramal discaria"></div>
+      <div class="grow small" data-resultado-saida><span class="muted">${esc(AJUDA_PADRAO)}</span></div>
+    </div></div>`,
+
+  aoMontar: (pagina) => {
+    const campo = document.querySelector('[data-testar-saida]');
+    const alvo = document.querySelector('[data-resultado-saida]');
+    campo?.addEventListener('input', () => {
+      const n = campo.value.replace(/\s+/g, '');
+      if (!n) { alvo.innerHTML = `<span class="muted">${esc(AJUDA_PADRAO)}</span>`; return; }
+      const r = rotaVencedora(pagina._itens, n);
+      const tronco = r && (pagina._troncos || []).find(t => String(t.id) === String(r.tronco_id));
+      alvo.innerHTML = r
+        ? `${icon('check','ico ico-sm')} Sai pela rota <b>${esc(r.nome)}</b> (<span class="mono">${esc(r.padrao)}</span>, classe ${esc(r.classe)})${tronco ? `, tronco ${esc(tronco.nome)}` : ''}. A operadora recebe <b class="mono">${esc(numeroParaOperadora(r, n))}</b>.`
+        : `<span style="color:var(--danger)">${icon('x','ico ico-sm')} Nenhuma rota ativa pega este número: a chamada não sai.</span>`;
+    });
+  },
+
+  // Modelos prontos e o teste do padrão, dentro do formulário.
+  aoAbrirFormulario: (dw) => {
+    const padrao = dw.querySelector('[name="padrao"]');
+    if (!padrao) return;
+    const modelos = [
+      ['Tudo', 'X.', 'ddi', '', 'Qualquer número. Ponha classe restrita: os ramais só-locais usam as rotas mais específicas.'],
+      ['Emergência', '1XX', 'emergencia', '', '190, 192, 193 e os outros de três dígitos.'],
+      ['Fixo local', '[2-5]XXXXXXX', 'local', '', '8 dígitos, começando de 2 a 5.'],
+      ['Celular local', '9XXXXXXXX', 'celular', '', '9 dígitos, começando com 9.'],
+      ['DDD com 0', '0ZZX.', 'ddd', '', '0 + DDD + número. Se a operadora não quiser o 0, ponha 0 em "Prefixo a remover".'],
+      ['Internacional', '00X.', 'ddi', '', '00 + código do país.'],
+      ['0800 / 0300', '0[38]00XXXXXXX', 'especial', '', 'Números de serviço.']
+    ];
+    const campoPadrao = padrao.closest('.field');
+    campoPadrao.insertAdjacentHTML('beforebegin', `<div class="field full"><label class="label">Modelos prontos</label>
+      <div class="row gap-6 wrap">${modelos.map(([rotulo, p, , , dica], i) =>
+        `<button type="button" class="btn btn-ghost btn-sm" data-modelo="${i}" data-tip="${esc(dica)}"><span class="mono">${esc(p)}</span> ${esc(rotulo)}</button>`).join('')}</div>
+      <span class="hint">Preenche o padrão e a classe. É um ponto de partida: ajuste ao jeito que a sua operadora recebe.</span></div>`);
+    campoPadrao.insertAdjacentHTML('afterend', `<div class="field full"><label class="label">Testar este padrão</label>
+      <div class="row gap-8"><input class="input mono" data-testar-padrao inputmode="tel" placeholder="um número que os ramais discariam" style="max-width:260px">
+        <span class="small grow" data-teste-padrao></span></div></div>`);
+
+    const testar = () => {
+      const n = dw.querySelector('[data-testar-padrao]').value.replace(/\s+/g, '');
+      const saida = dw.querySelector('[data-teste-padrao]');
+      const p = padraoNormalizado(padrao.value);
+      const vira = p && p !== padrao.value.trim() ? `Vai ser gravado como <b class="mono">${esc(p)}</b>. ` : '';
+      if (!n) { saida.innerHTML = vira; return; }
+      const rota = { prefixo_remover: dw.querySelector('[name="prefixo_remover"]')?.value, prefixo_adicionar: dw.querySelector('[name="prefixo_adicionar"]')?.value };
+      saida.innerHTML = vira + (padraoCasa(p, n)
+        ? `<span style="color:var(--ok)">${icon('check','ico ico-sm')} Pega.</span> A operadora recebe <b class="mono">${esc(numeroParaOperadora(rota, n))}</b>.`
+        : `<span style="color:var(--danger)">${icon('x','ico ico-sm')} Não pega este número.</span>`);
+    };
+    dw.querySelectorAll('[data-modelo]').forEach(b => b.onclick = () => {
+      const [rotulo, p, classe] = modelos[Number(b.dataset.modelo)];
+      padrao.value = p;
+      const sel = dw.querySelector('[name="classe"]'); if (sel) sel.value = classe;
+      const nome = dw.querySelector('[name="nome"]'); if (nome && !nome.value.trim()) nome.value = rotulo;
+      testar();
+    });
+    ['input', 'change'].forEach(ev => {
+      padrao.addEventListener(ev, testar);
+      dw.querySelector('[data-testar-padrao]').addEventListener(ev, testar);
+      dw.querySelector('[name="prefixo_remover"]')?.addEventListener(ev, testar);
+      dw.querySelector('[name="prefixo_adicionar"]')?.addEventListener(ev, testar);
+    });
+    testar();
+  },
+
   aoCarregar: async (pagina) => {
     pagina._troncos = (await Api.get('/troncos', { limite: 200 }).catch(() => ({ dados: [] }))).dados;
     pagina._pins = (await Api.get('/pin-sets', { limite: 200 }).catch(() => ({ dados: [] }))).dados;
@@ -287,13 +464,15 @@ PAGES['conn.rotassaida'] = paginaCrud({
     const pins = (pagina._pins || []).map(p => ({ valor: p.id, rotulo: p.nome }));
     return [
       { campo: 'nome', label: 'Nome da rota', obrigatorio: true, placeholder: 'Celular' },
-      { campo: 'ordem', label: 'Ordem de precedência', tipo: 'number', padrao: 10,
-        ajuda: 'A primeira rota cujo padrão casar é a usada.' },
-      { campo: 'padrao', label: 'Padrão de discagem', obrigatorio: true, mono: true, placeholder: '_09XXXXXXXX',
-        ajuda: 'X = 0-9 · Z = 1-9 · N = 2-9 · [1-5] = intervalo · . = um ou mais dígitos' },
+      { campo: 'ordem', label: 'Ordem na lista', tipo: 'number', padrao: 10,
+        ajuda: 'Só organiza a lista. Quando dois padrões pegam o mesmo número, vale o mais específico — '
+             + 'o teste abaixo mostra qual.' },
+      { campo: 'padrao', label: 'Padrão de discagem', obrigatorio: true, mono: true, placeholder: 'X.',
+        largura: 'full', ajuda: AJUDA_PADRAO },
       { campo: 'classe', label: 'Classe', tipo: 'select',
         opcoes: ['local','celular','ddd','ddi','emergencia','especial'], padrao: 'local',
-        ajuda: 'Usada para checar a permissão de discagem do ramal.' },
+        ajuda: 'Decide quem pode usar a rota (a permissão de discagem do ramal). Numa rota que pega '
+             + 'tudo (X.), use a mais restrita que a rota realmente leva.' },
       { campo: 'tronco_id', label: 'Tronco', tipo: 'select',
         opcoes: troncos.length ? troncos : [{ valor: '', rotulo: 'cadastre um tronco antes' }] },
       { campo: 'tronco_falha_id', label: 'Tronco reserva', tipo: 'select',

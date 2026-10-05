@@ -457,9 +457,18 @@ $recursos = [
             ordem: 'ordem, id',
             busca: ['did','descricao'],
             regras: [
-                'did' => ['rotulo' => 'DID', 'padrao' => '/^(?:\*|s|qualquer|\+?[0-9]{1,20}|_[0-9XZNxzn.!\[\]+-]{1,30})$/',
-                          'mensagem' => 'O DID é o número recebido (só dígitos), um padrão como _1140XXXXXX, ou * para qualquer um.'],
+                // Aceita como a pessoa escreve ("x.", "1133 25xx"): o
+                // normalizar abaixo põe o "_" e as maiúsculas.
+                'did' => ['rotulo' => 'número chamado', 'padrao' => '/^(?:\*|s|qualquer|_?[0-9XZNxzn.!\[\]+\s-]{1,40})$/',
+                          'mensagem' => 'O número chamado é o número exato (só dígitos), um padrão como 1140XXXXXX, '
+                                      . 'ou X. (ou *) para qualquer número.'],
+                'cid_origem' => ['rotulo' => 'quem liga', 'padrao' => '/^_?[0-9XZNxzn.!\[\]+\s-]{1,40}$/',
+                                 'mensagem' => 'Quem liga é um número exato ou um padrão como 11XXXXXXXXX.'],
             ],
+            normalizar: static fn (array $dados): array => array_merge($dados, array_map(
+                static fn ($v) => \Telium\Gerador\Padrao::normalizar((string) $v),
+                array_intersect_key($dados, ['did' => 1, 'cid_origem' => 1])
+            )),
             afetaAsterisk: true,
             modulo: 'conn.rotasentrada',
         ),
@@ -473,9 +482,12 @@ $recursos = [
             ordem: 'ordem, id',
             busca: ['nome','padrao'],
             regras: [
+                // Aceita como a pessoa escreve ("x.", "0xx xxxx-xxxx"): o
+                // normalizar abaixo põe o "_" e as maiúsculas.
                 'padrao' => ['rotulo' => 'padrão', 'obrigatorio' => true,
-                             'padrao' => '/^(?:[0-9*#+]{1,20}|_[0-9XZNxzn.!\[\]*#+-]{1,40})$/',
-                             'mensagem' => 'O padrão é um número ou um padrão do Asterisk como _0XXXXXXXXX.'],
+                             'padrao' => '/^_?[0-9XZNxzn.!\[\]*#+\s-]{1,40}$/',
+                             'mensagem' => 'O padrão é um número ou usa X (qualquer dígito), Z (1 a 9), N (2 a 9), '
+                                         . '[2-5] (faixa) e . no fim (o resto do número). Ex.: X. para tudo.'],
                 // Os prefixos entram no Dial: qualquer coisa além de dígito
                 // (um "&", por exemplo) acrescentaria canais à discagem.
                 'prefixo_remover' => ['rotulo' => 'prefixo a remover', 'padrao' => '/^[0-9*#+]{0,10}$/',
@@ -483,6 +495,9 @@ $recursos = [
                 'prefixo_adicionar' => ['rotulo' => 'prefixo a adicionar', 'padrao' => '/^[0-9*#+]{0,10}$/',
                                         'mensagem' => 'O prefixo é só de dígitos.'],
             ],
+            normalizar: static fn (array $dados): array => isset($dados['padrao'])
+                ? ['padrao' => \Telium\Gerador\Padrao::normalizar((string) $dados['padrao'])] + $dados
+                : $dados,
             afetaAsterisk: true,
             modulo: 'conn.rotassaida',
         ),

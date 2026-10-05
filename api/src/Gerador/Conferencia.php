@@ -177,7 +177,7 @@ final class Conferencia
         foreach (self::consulta(
             'SELECT nome, padrao, ordem FROM rotas_saida WHERE ativo = 1 ORDER BY ordem, id'
         ) as $r) {
-            $padrao = trim((string) $r['padrao']);
+            $padrao = Padrao::normalizar((string) $r['padrao']);
             if ($padrao === '') {
                 continue;
             }

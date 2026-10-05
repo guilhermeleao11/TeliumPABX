@@ -74,6 +74,7 @@ final class Testes
             $this->grupo('Firewall: nunca bloquear', $this->confiaveis(...));
             $this->grupo('Telefone do navegador: permissão', $this->permissaoTelefone(...));
             $this->grupo('Ramais em planilha', $this->ramaisCsv(...));
+            $this->grupo('Padrões das rotas', $this->padroesDeRota(...));
             $this->grupo('Pesquisa de satisfação', $this->pesquisaSatisfacao(...));
             $this->grupo('Envio de e-mail', $this->email(...));
             $this->grupo('Saída do backup', $this->backup(...));
@@ -2594,6 +2595,29 @@ final class Testes
     }
 
     // ---------------------------------------------------------------
+    /**
+     * O padrão do jeito que a pessoa escreve vira o que o Asterisk entende:
+     * sem o "_" e com x minúsculo, a rota virava um número literal e não
+     * pegava nada.
+     */
+    private function padroesDeRota(): void
+    {
+        $casos = [
+            'x.' => '_X.', 'X.' => '_X.', '0xx xxxx-xxxx' => '_0XXXXXXXXXX', '[2-5]xxxxxxx' => '_[2-5]XXXXXXX',
+            '1140041000' => '1140041000', '+55x.' => '_+55X.', '*' => '*', 's' => 's', '_9XXXXXXXX' => '_9XXXXXXXX',
+        ];
+        $errados = [];
+        foreach ($casos as $entrada => $esperado) {
+            $entrada = (string) $entrada;   // chave numérica vira int no PHP
+            if (\Telium\Gerador\Padrao::normalizar($entrada) !== $esperado) {
+                $errados[] = "{$entrada} → " . \Telium\Gerador\Padrao::normalizar($entrada) . " (esperado {$esperado})";
+            }
+        }
+        $this->ok($errados === [], 'padrão escrito à vontade vira o do Asterisk' . ($errados ? ': ' . implode('; ', $errados) : ''));
+        $this->ok(\Telium\Gerador\Padrao::ehTudo('x.') && \Telium\Gerador\Padrao::ehTudo('X!')
+                  && !\Telium\Gerador\Padrao::ehTudo('0x.'), '"x." no número chamado é "qualquer número"');
+    }
+
     /**
      * A pesquisa gerada faz o que a tela promete: a nota 10 existe, a
      * escala recusa o que está fora dela, e quem desliga no meio conta.

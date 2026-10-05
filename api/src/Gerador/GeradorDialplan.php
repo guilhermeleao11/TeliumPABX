@@ -1126,6 +1126,8 @@ final class GeradorDialplan
 
         $padroes = [];
         foreach ($rotas as $r) {
+            // "x." vira "_X.": quem cadastra escreve como fala.
+            $r['padrao'] = Padrao::normalizar((string) $r['padrao']);
             // Dois cadastros com o mesmo padrão geravam a prioridade 1 duas
             // vezes; o Asterisk fica com a primeira e descarta a outra com
             // um aviso no log. Aqui a regra fica explícita: vale a de menor
@@ -1430,7 +1432,11 @@ final class GeradorDialplan
         // compartilham um só se distinguem por quem ligou.
         $porDid = [];
         foreach ($rotas as $r) {
-            $chave = $this->ehCoringa($r['did'] ?? '') ? '*' : trim((string) $r['did']);
+            // "x." no número chamado é "qualquer número": o mesmo coringa
+            // de "*" ou do campo em branco, e não um padrão à parte que
+            // disputaria com ele a mesma extensão.
+            $chave = $this->ehCoringa($r['did'] ?? '') || Padrao::ehTudo($r['did'] ?? '')
+                ? '*' : Padrao::normalizar((string) $r['did']);
             $porDid[$chave][] = $r;
         }
 
@@ -1455,7 +1461,8 @@ final class GeradorDialplan
             // caso de quase todo cadastro.
             $comCid = array_values(array_filter(
                 $lista,
-                static fn (array $r): bool => trim((string) ($r['cid_origem'] ?? '')) !== ''
+                static fn (array $r): bool => Padrao::normalizar((string) ($r['cid_origem'] ?? '')) !== ''
+                    && !Padrao::ehTudo($r['cid_origem'] ?? '')
             ));
 
             if ($comCid === []) {
@@ -1554,8 +1561,8 @@ final class GeradorDialplan
         $semRegra = null;
 
         foreach ($lista as $r) {
-            $cid = trim((string) ($r['cid_origem'] ?? ''));
-            if ($cid === '') {
+            $cid = Padrao::normalizar((string) ($r['cid_origem'] ?? ''));
+            if ($cid === '' || Padrao::ehTudo($cid)) {
                 $semRegra ??= $r;       // a primeira vira "os demais"
                 continue;
             }
