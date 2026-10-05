@@ -75,6 +75,7 @@ final class Testes
             $this->grupo('Telefone do navegador: permissão', $this->permissaoTelefone(...));
             $this->grupo('Ramais em planilha', $this->ramaisCsv(...));
             $this->grupo('Padrões das rotas', $this->padroesDeRota(...));
+            $this->grupo('Código das condições horárias', $this->codigoDasCondicoes(...));
             $this->grupo('Pesquisa de satisfação', $this->pesquisaSatisfacao(...));
             $this->grupo('Envio de e-mail', $this->email(...));
             $this->grupo('Saída do backup', $this->backup(...));
@@ -2595,6 +2596,47 @@ final class Testes
     }
 
     // ---------------------------------------------------------------
+    /**
+     * Cada condição horária tem o seu código no telefone (*27 + o número),
+     * com a tecla BLF, o PIN quando houver e a ação escolhida.
+     */
+    private function codigoDasCondicoes(): void
+    {
+        $pdo = Bd::conexao();
+        $pdo->beginTransaction();
+        try {
+            $grupo = (int) Bd::valor('SELECT id FROM grupos_horario ORDER BY id LIMIT 1');
+            if ($grupo === 0) {
+                Bd::executar("INSERT INTO grupos_horario (nome) VALUES ('Teste de código')");
+                $grupo = (int) Bd::conexao()->lastInsertId();
+            }
+            Bd::executar("INSERT INTO condicoes_horarias (nome, grupo_horario_id, destino_dentro_tipo, destino_dentro_valor,
+                                 destino_fora_tipo, destino_fora_valor, codigo_acao, codigo_pin, ativo)
+                          VALUES ('Teste fechar', ?, 'desligar', '', 'ocupado', '', 'fechar', '4321', 1),
+                                 ('Teste inverter', ?, 'desligar', '', 'ocupado', '', 'inverter', NULL, 1)",
+                         [$grupo, $grupo]);
+            $fechar = (int) Bd::valor("SELECT id FROM condicoes_horarias WHERE nome = 'Teste fechar' ORDER BY id DESC LIMIT 1");
+            $inverter = (int) Bd::valor("SELECT id FROM condicoes_horarias WHERE nome = 'Teste inverter' ORDER BY id DESC LIMIT 1");
+            $prefixo = (string) Bd::valor("SELECT codigo FROM codigos_recurso WHERE chave = 'condicao_alterna' AND ativo = 1");
+            $texto = (new GeradorDialplan())->gerar()['extensions.condicoes.conf'] ?? '';
+
+            if ($prefixo === '') {
+                $this->ok(str_contains($texto, 'desligado em Códigos de recurso'), 'prefixo desligado: nenhum código gerado');
+            } else {
+                $this->ok(str_contains($texto, "exten => {$prefixo}{$fechar},hint,Custom:TC{$fechar}"),
+                          'cada condição tem o seu código, com a tecla BLF');
+                $this->ok(str_contains($texto, 'Authenticate(4321,,4)'), 'condição com PIN pede o PIN antes');
+                $this->ok(str_contains($texto, "Set(DB(condicao/{$fechar})=fechado)"), '"fechar" força o destino de fora do horário');
+                $this->ok(str_contains($texto, "Set(DB(condicao/{$inverter})=\${TELIUM_VAI})"),
+                          '"inverter" força o contrário do que o relógio diz');
+            }
+            $recursos = (new \Telium\Gerador\GeradorRecursos())->gerar()['extensions.recursos.conf'] ?? '';
+            $this->ok(!str_contains($recursos, "exten => _{$prefixo}X"), 'sem o padrão genérico antigo (*27X), que não tinha tecla BLF');
+        } finally {
+            $pdo->rollBack();
+        }
+    }
+
     /**
      * O padrão do jeito que a pessoa escreve vira o que o Asterisk entende:
      * sem o "_" e com x minúsculo, a rota virava um número literal e não

@@ -293,6 +293,14 @@ final class Aplicador
             }
         }
 
+        // A tecla BLF de cada condição horária reflete a marca que já está
+        // na base: forçada acende, seguindo o relógio apaga.
+        foreach (Bd::todos('SELECT id FROM condicoes_horarias WHERE ativo = 1') as $c) {
+            $marca = $ami->acao(['Action' => 'DBGet', 'Family' => 'condicao', 'Key' => (string) $c['id']]);
+            $ami->acao(['Action' => 'Setvar', 'Variable' => 'DEVICE_STATE(Custom:TC' . (int) $c['id'] . ')',
+                        'Value' => $this->deuCerto($marca) ? 'INUSE' : 'NOT_INUSE']);
+        }
+
         // Quem pode escutar (*555): o ramal de um usuário ativo com a
         // permissão de supervisor do call center.
         if (!$this->limpouFamilia($ami, 'escuta')) {

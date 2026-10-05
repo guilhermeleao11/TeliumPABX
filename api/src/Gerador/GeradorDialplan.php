@@ -406,7 +406,9 @@ final class GeradorDialplan
         );
 
         if ($condicoes === []) {
-            return $b->comentario('nenhuma condição horária ativa')->texto();
+            return $b->comentario('nenhuma condição horária ativa')
+                ->branco()->contexto('telium-condicoes-codigos')->comentario('nenhuma condição horária ativa')
+                ->texto();
         }
 
         foreach ($condicoes as $c) {
@@ -441,7 +443,86 @@ final class GeradorDialplan
             $b->same(array_shift($dentro), 'dentro')->apps($dentro);
         }
 
+        $this->codigosDasCondicoes($b, $condicoes);
+
         return $b->texto();
+    }
+
+    /**
+     * O código de cada condição no telefone: o prefixo de "condicao_alterna"
+     * (de fábrica *27) mais o número dela — *271, *272…
+     *
+     * Discar força a condição; discar de novo volta a seguir o relógio. A
+     * marca é a mesma que o console grava (família "condicao"), e a tecla
+     * BLF do código (Custom:TC<n>) fica acesa enquanto a condição está
+     * forçada. Cada uma é uma extensão de verdade, e não um padrão: só
+     * assim existe a dica (hint) para o telefone assinar.
+     */
+    private function codigosDasCondicoes(Bloco $b, array $condicoes): void
+    {
+        $b->branco()
+          ->comentario(str_repeat('=', 62))
+          ->comentario('Códigos de facilidade das condições (incluído no contexto interno)')
+          ->comentario(str_repeat('=', 62))
+          ->contexto('telium-condicoes-codigos');
+
+        $prefixo = preg_replace('/[^0-9*#]/', '', (string) Bd::valor(
+            "SELECT codigo FROM codigos_recurso WHERE chave = 'condicao_alterna' AND ativo = 1"
+        )) ?? '';
+        if ($prefixo === '') {
+            $b->comentario('o código de condição horária está desligado em Códigos de recurso');
+
+            return;
+        }
+
+        foreach ($condicoes as $c) {
+            $id = (int) $c['id'];
+            $codigo = $prefixo . $id;
+            $acao = (string) ($c['codigo_acao'] ?? 'fechar');
+            $pin = preg_replace('/[^0-9]/', '', (string) ($c['codigo_pin'] ?? '')) ?? '';
+            $estado = "Custom:TC{$id}";
+
+            $b->branco()
+              ->comentario("{$codigo} — {$c['nome']} ({$acao}" . ($pin !== '' ? ', com PIN' : '') . ')')
+              ->crua("exten => {$codigo},hint,{$estado}")
+              ->exten($codigo, "NoOp(Código da condição {$id}: {$c['nome']})")
+              ->same('Answer()')
+              ->same('Wait(1)');
+
+            if ($pin !== '') {
+                // Três tentativas e desliga: fechar a entrada da empresa não é
+                // coisa para qualquer ramal.
+                $b->same('Authenticate(' . $pin . ',,' . strlen($pin) . ')');
+            }
+
+            // Forçada (pelo telefone ou pelo console): volta a seguir o relógio.
+            $b->same('GotoIf($[${DB_EXISTS(condicao/' . $id . ')}]?volta)');
+
+            if ($acao === 'inverter') {
+                // O contrário do que o relógio diz agora, como o FreePBX.
+                $faixas = Bd::todos(
+                    'SELECT * FROM grupo_horario_faixas WHERE grupo_id = ? ORDER BY ordem, id',
+                    [$c['grupo_horario_id']]
+                );
+                $b->same('Set(TELIUM_VAI=aberto)');
+                foreach ($faixas as $f) {
+                    $b->same('GotoIfTime(' . $this->faixaDeHorario($f) . '?agora-dentro)');
+                }
+                $b->same('Goto(grava)')
+                  ->same('Set(TELIUM_VAI=fechado)', 'agora-dentro')
+                  ->same('Set(DB(condicao/' . $id . ')=${TELIUM_VAI})', 'grava');
+            } else {
+                $b->same('Set(DB(condicao/' . $id . ')=' . ($acao === 'abrir' ? 'aberto' : 'fechado') . ')');
+            }
+
+            $b->same("Set(DEVICE_STATE({$estado})=INUSE)")
+              ->same('Playback(activated)')
+              ->same('Hangup()')
+              ->same('NoOp(${DB_DELETE(condicao/' . $id . ')})', 'volta')
+              ->same("Set(DEVICE_STATE({$estado})=NOT_INUSE)")
+              ->same('Playback(de-activated)')
+              ->same('Hangup()');
+        }
     }
 
     /**

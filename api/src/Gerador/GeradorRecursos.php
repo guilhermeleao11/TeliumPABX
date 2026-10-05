@@ -551,23 +551,9 @@ final class GeradorRecursos
             ]],
 
             // ---------------- condições horárias ----------------
-            'condicao_alterna' => [$comArg, [
-                "NoOp(Forçar a condição horária {$arg})", 'Answer()', 'Wait(1)',
-                'Set(TELIUM_COND=${DB(condicao/' . $arg . ')})',
-                'GotoIf($["${TELIUM_COND}" = ""]?forca_aberto)',
-                'GotoIf($["${TELIUM_COND}" = "aberto"]?forca_fechado)',
-                'NoOp(${DB_DELETE(condicao/' . $arg . ')})',
-                'Playback(de-activated)', 'Hangup()',
-            ], [
-                'forca_aberto' => [
-                    "Set(DB(condicao/{$arg})=aberto)",
-                    'Playback(activated)', 'Hangup()',
-                ],
-                'forca_fechado' => [
-                    "Set(DB(condicao/{$arg})=fechado)",
-                    'Playback(activated)', 'Hangup()',
-                ],
-            ]],
+            // condicao_alterna: cada condição tem o seu código, com a tecla
+            // BLF, gerado junto com as condições (GeradorDialplan) — aqui ele
+            // é só o prefixo.
 
             default => null,
         };

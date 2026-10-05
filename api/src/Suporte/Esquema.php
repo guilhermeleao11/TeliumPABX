@@ -36,6 +36,7 @@ final class Esquema
                      'tabulacao_obrigatoria', 'retorno_tecla', 'ampliar_segundos'],
         'ura'    => ['anuncio_id'],
         'pesquisas' => ['sentido', 'numero', 'anuncio_saudacao_id', 'anuncio_invalida_id'],
+        'condicoes_horarias' => ['codigo_acao', 'codigo_pin'],
         'pesquisa_respostas' => ['status', 'ramal', 'satisfacao', 'sentido'],
         'contatos' => ['empresa', 'discagem_rapida'],
         'codigos_recurso' => ['tipo', 'argumento'],

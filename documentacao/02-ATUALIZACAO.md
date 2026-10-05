@@ -141,6 +141,21 @@ cd /opt/TeliumPABX && sudo git checkout main && sudo git pull
 
 O que muda na operação, e não só por dentro.
 
+### Código de cada condição horária
+- Cada condição tem o seu código no telefone: `*27` + o número dela
+  (`*271`, `*272`…), mostrado em **Aplicações › Condições Horárias**. Discar
+  força a condição; discar de novo volta a seguir o horário. Numa tecla BLF
+  do telefone, ela fica acesa enquanto a condição está forçada.
+- Na condição, escolha o que o código faz — **fechar** (padrão), abrir ou
+  inverter — e, se quiser, um **PIN**.
+- Mudou: antes o mesmo código alternava entre três estados com o mesmo
+  aviso. Agora é liga/desliga, com "activated" e "de-activated".
+
+### Rotas de saída e de entrada
+- O padrão aceita o jeito que se escreve: `x.` pega tudo, `0xx xxxx xxxx`
+  vira `_0XXXXXXXXXX`. As telas têm modelos prontos e um teste "para onde
+  vai este número".
+
 ### O nome do servidor
 
 - A instalação **pergunta o nome** quando ele ainda é o de fábrica

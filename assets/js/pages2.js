@@ -4047,7 +4047,7 @@ PAGES['apps.condicoes'] = {
 
     const cabecalho = pageHead('Condições Horárias',
       `Se estiver dentro do grupo de horário, a chamada vai para um destino; fora dele,
-       para outro. O código <span class="mono">*27</span> força aberto ou fechado sem mexer aqui.`,
+       para outro. Cada condição tem um código no telefone para fechar a entrada na mão.`,
       ctx.can('criar')
         ? `<button class="btn btn-primary btn-sm" data-nova-cond>${icon('plus','ico ico-sm')} Nova condição</button>`
         : readOnlyNote(ctx));
@@ -4071,6 +4071,9 @@ PAGES['apps.condicoes'] = {
       estados[c.id] = await Api.get(`/condicoes-horarias/${c.id}/agora`).catch(() => null);
     }));
     this._estados = estados;
+    // O prefixo é o código menos o número da condição (*271 da condição 1 → *27).
+    const comCodigo = Object.entries(estados).find(([, e]) => e?.codigo);
+    this._prefixoCond = comCodigo ? comCodigo[1].codigo.slice(0, -String(comCodigo[0]).length) : null;
 
     return cabecalho + `<div class="agenda-grid larga">${this._itens.map(c => {
       const g = this._grupos.find(x => String(x.id) === String(c.grupo_horario_id));
@@ -4095,6 +4098,8 @@ PAGES['apps.condicoes'] = {
             <span>Dentro → <b>${esc(descreveDestino(c.destino_dentro_tipo, c.destino_dentro_valor, this._destinos))}</b></span></div>
           <div class="row gap-6 small">${icon('phoneOff','ico ico-sm')}
             <span>Fora → <b>${esc(descreveDestino(c.destino_fora_tipo, c.destino_fora_valor, this._destinos))}</b></span></div>
+          ${e?.codigo ? `<div class="row gap-6 small" data-tip="Disque para forçar; disque de novo para voltar ao horário. Num telefone, ponha o código numa tecla BLF: ela acende enquanto a condição está forçada.">${icon('phone','ico ico-sm')}
+            <span>No telefone: <b class="mono">${esc(e.codigo)}</b> ${{ fechar: 'fecha a entrada', abrir: 'abre a entrada', inverter: 'inverte o horário' }[c.codigo_acao || 'fechar']}${c.codigo_pin ? ' · pede PIN' : ''}</span></div>` : ''}
         </div>
 
         <div class="contato-acoes">
@@ -4128,7 +4133,16 @@ PAGES['apps.condicoes'] = {
           opcoes: [{ valor: '', rotulo: '— escolha o grupo —' },
                    ...pagina._grupos.map(g => ({ valor: g.id, rotulo: g.nome }))],
           ajuda: 'As faixas deste grupo é que dizem se estamos dentro ou fora.' },
-        { campo: 'ativo', label: 'Condição ativa', tipo: 'switch', padrao: 1 }
+        { campo: 'ativo', label: 'Condição ativa', tipo: 'switch', padrao: 1 },
+        { campo: 'codigo_acao', label: 'O código no telefone', tipo: 'select', padrao: 'fechar', largura: 'full',
+          opcoes: [{ valor: 'fechar', rotulo: 'Fecha a entrada: vai para "Fora do horário" mesmo dentro dele' },
+                   { valor: 'abrir', rotulo: 'Abre a entrada: vai para "Dentro do horário" mesmo fora dele' },
+                   { valor: 'inverter', rotulo: 'Inverte: faz o contrário do que o horário diz agora (como o FreePBX)' }],
+          ajuda: `Disque ${pagina._prefixoCond || '*27'}${novo ? '<número da condição>' : c.id} para forçar; disque de novo para voltar a seguir o horário. `
+               + 'Numa tecla BLF do telefone, ela fica acesa enquanto a condição está forçada.' },
+        { campo: 'codigo_pin', label: 'PIN para usar o código', mono: true, placeholder: 'em branco: sem PIN',
+          padraoValido: /^([0-9]{4,10})?$/, mensagemPadrao: 'só dígitos, de 4 a 10',
+          ajuda: 'Se preenchido, o telefone pede o PIN antes: fechar a entrada da empresa não é coisa para qualquer ramal.' }
       ];
 
       Drawer.open({

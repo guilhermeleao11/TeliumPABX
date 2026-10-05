@@ -953,6 +953,16 @@ telefones. Um supervisor com ramal vinculado à própria conta.
 
 ---
 
+### S 🟡 Código das condições horárias (Aplicações › Condições Horárias)
+
+- [ ] O card da condição mostra "No telefone: *27N"
+- [ ] Dentro do horário, discar o código: ouve "activated", e uma chamada
+      para a condição vai para o destino de **fora** do horário
+- [ ] Discar de novo: ouve "de-activated" e volta a seguir o horário
+- [ ] Com o código numa tecla BLF do telefone, ela acende enquanto a
+      condição está forçada — também quando a força vem do console
+- [ ] Com PIN na condição, o código pede o PIN; PIN errado não muda nada
+
 ### R 🔴 Pesquisa de satisfação (Aplicações › Pesquisa de Satisfação)
 
 Prepare três anúncios (saudação, "digite de 1 a 5…", agradecimento), crie a

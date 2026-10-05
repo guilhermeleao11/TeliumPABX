@@ -364,12 +364,20 @@ $recursos = [
         'recurso' => new Recurso(
             tabela: 'condicoes_horarias',
             colunas: ['nome','descricao','grupo_horario_id','destino_dentro_tipo','destino_dentro_valor',
-                      'destino_fora_tipo','destino_fora_valor','ativo'],
+                      'destino_fora_tipo','destino_fora_valor','codigo_acao','codigo_pin','ativo'],
             ordem: 'nome',
             busca: ['nome', 'descricao'],
             filtros: ['ativo', 'grupo_horario_id'],
             afetaAsterisk: true,
             modulo: 'apps.condicoes',
+            regras: [
+                // O que o código *27<n> faz no telefone.
+                'codigo_acao' => ['rotulo' => 'o que o código faz', 'em' => ['fechar', 'abrir', 'inverter']],
+                // Visível de propósito: é um código de operação, e a tela
+                // precisa mostrar que a condição está protegida.
+                'codigo_pin' => ['rotulo' => 'PIN do código', 'padrao' => '/^[0-9]{4,10}$/',
+                                 'mensagem' => 'O PIN do código é só de dígitos, de 4 a 10.'],
+            ],
         ),
     ],
     'anuncios' => [

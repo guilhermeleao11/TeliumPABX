@@ -127,11 +127,18 @@ final class Horarios
             ? $this->dentroDeAlguma($faixas, new \DateTimeImmutable())
             : $forcado === 'aberto';
 
+        // O código desta condição no telefone (*27 + o número dela), ou nulo
+        // quando o prefixo está desligado em Códigos de recurso.
+        $prefixo = preg_replace('/[^0-9*#]/', '', (string) Bd::valor(
+            "SELECT codigo FROM codigos_recurso WHERE chave = 'condicao_alterna' AND ativo = 1"
+        )) ?? '';
+
         return Resposta::json($res, [
             'dentro' => $dentro,
             'forcado' => $forcado,
             'faixas' => count($faixas),
             'agora' => date('Y-m-d H:i:s'),
+            'codigo' => $prefixo !== '' ? $prefixo . (int) $args['id'] : null,
         ]);
     }
 
@@ -166,6 +173,15 @@ final class Horarios
         if (str_contains(strtolower($resposta), 'error')
             && !str_contains(strtolower($resposta), 'does not exist')) {
             return Resposta::erro($res, 'O Asterisk recusou a mudança: ' . trim($resposta), 502);
+        }
+
+        // A tecla BLF do código da condição (*27<n>) acende enquanto ela
+        // está forçada, venha a força do telefone ou daqui.
+        try {
+            $ami->acao(['Action' => 'Setvar', 'Variable' => 'DEVICE_STATE(Custom:TC' . (int) $c['id'] . ')',
+                        'Value' => $modo === 'auto' ? 'NOT_INUSE' : 'INUSE']);
+        } catch (\Throwable) {
+            // A marca já foi gravada; só a luz da tecla fica para o próximo "aplicar".
         }
 
         Auditoria::registrar($req->getAttribute('usuario'), 'editar', 'apps.condicoes',
