@@ -160,7 +160,7 @@ final class Pesquisas
         $porNota = [];
         for ($n = $min; $n <= $max; $n++) {
             $porNota[] = ['nota' => $n, 'quantidade' => (int) ($contagem[$n] ?? 0),
-                          'satisfacao' => round(100 * ($p['sentido'] === 'menor_melhor' ? $max - $n : $n - $min) / ($max - $min), 1)];
+                          'satisfacao' => round(100 * ($p['sentido'] === 'menor_melhor' ? $max - $n : $n - $min) / max(1, $max - $min), 1)];
         }
 
         $numeros = static function (array $l): array {

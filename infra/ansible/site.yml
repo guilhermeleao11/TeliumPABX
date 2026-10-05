@@ -39,6 +39,11 @@
         pabx_hostname: "{{ resposta_nome.user_input | default('') | trim | lower }}"
       when: pabx_nome_pendente
 
+    # O nome que vem por -e ou do servidor.yml também vira minúsculo.
+    - name: Nome em minúsculas
+      ansible.builtin.set_fact:
+        pabx_hostname: "{{ pabx_hostname | string | trim | lower }}"
+
     - name: Conferir o nome da central
       ansible.builtin.assert:
         that:

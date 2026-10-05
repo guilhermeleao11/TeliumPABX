@@ -59,10 +59,13 @@ readsql=SELECT nome FROM contatos WHERE discagem_rapida = '${SQL_ESC(${ARG1})}' 
 ; A resposta leva a escala vigente (mínimo, máximo e sentido) e o índice de
 ; 0 a 100 já calculado no sentido certo: mudar a escala depois não reescreve
 ; o que o cliente disse, e pesquisas de escalas diferentes se comparam.
+; As contas são em SIGNED: em UNSIGNED, uma nota fora da escala do banco
+; (escala salva e ainda não aplicada) dava erro e a resposta se perdia;
+; agora ela é gravada, só sem índice.
 ; ------------------------------------------------------------------
 [TELIUM_PESQUISA]
 dsn=telium
-writesql=INSERT INTO pesquisa_respostas (pesquisa_id, fila, agente, ramal, origem, uniqueid, status, nota, nota_min, nota_max, sentido, satisfacao) SELECT p.id, NULLIF('${SQL_ESC(${ARG2})}',''), NULLIF('${SQL_ESC(${ARG3})}',''), NULLIF('${SQL_ESC(${ARG4})}',''), NULLIF('${SQL_ESC(${ARG5})}',''), NULLIF('${SQL_ESC(${ARG6})}',''), IF('${SQL_ESC(${ARG7})}' IN ('respondida','sem_resposta','invalida','desligou'), '${SQL_ESC(${ARG7})}', 'sem_resposta'), n.nota, p.nota_min, p.nota_max, p.sentido, IF(n.nota IS NULL, NULL, ROUND(100 * IF(p.sentido = 'menor_melhor', p.nota_max - n.nota, n.nota - p.nota_min) / NULLIF(p.nota_max - p.nota_min, 0), 2)) FROM pesquisas p JOIN (SELECT IF('${SQL_ESC(${VAL1})}' REGEXP '^[0-9]{1,2}$', CAST('${SQL_ESC(${VAL1})}' AS UNSIGNED), NULL) AS nota) n WHERE p.id = CAST('${SQL_ESC(${ARG1})}' AS UNSIGNED)
+writesql=INSERT INTO pesquisa_respostas (pesquisa_id, fila, agente, ramal, origem, uniqueid, status, nota, nota_min, nota_max, sentido, satisfacao) SELECT p.id, NULLIF('${SQL_ESC(${ARG2})}',''), NULLIF('${SQL_ESC(${ARG3})}',''), NULLIF('${SQL_ESC(${ARG4})}',''), NULLIF('${SQL_ESC(${ARG5})}',''), NULLIF('${SQL_ESC(${ARG6})}',''), IF('${SQL_ESC(${ARG7})}' IN ('respondida','sem_resposta','invalida','desligou'), '${SQL_ESC(${ARG7})}', 'sem_resposta'), n.nota, p.nota_min, p.nota_max, p.sentido, IF(n.nota IS NULL OR n.nota NOT BETWEEN p.nota_min AND p.nota_max, NULL, ROUND(100 * IF(p.sentido = 'menor_melhor', CAST(p.nota_max AS SIGNED) - n.nota, n.nota - CAST(p.nota_min AS SIGNED)) / NULLIF(CAST(p.nota_max AS SIGNED) - p.nota_min, 0), 2)) FROM pesquisas p JOIN (SELECT IF('${SQL_ESC(${VAL1})}' REGEXP '^[0-9]{1,2}$', CAST('${SQL_ESC(${VAL1})}' AS SIGNED), NULL) AS nota) n WHERE p.id = CAST('${SQL_ESC(${ARG1})}' AS UNSIGNED)
 
 ; ------------------------------------------------------------------
 ; Registro de gravação:

@@ -55,12 +55,21 @@ UPDATE pesquisa_respostas r JOIN pesquisas p ON p.id = r.pesquisa_id
    SET r.nota_min = p.nota_min, r.nota_max = p.nota_max, r.sentido = p.sentido
  WHERE r.nota_min IS NULL;
 UPDATE pesquisa_respostas
-   SET satisfacao = ROUND(100 * IF(sentido = 'menor_melhor', nota_max - nota, nota - nota_min)
-                              / NULLIF(nota_max - nota_min, 0), 2)
- WHERE satisfacao IS NULL AND nota IS NOT NULL AND nota_min IS NOT NULL;
-UPDATE pesquisa_respostas SET ramal = SUBSTRING_INDEX(SUBSTRING_INDEX(agente, '/', -1), '@', 1)
- WHERE ramal IS NULL AND agente LIKE 'PJSIP/%';
+   SET satisfacao = ROUND(100 * IF(sentido = 'menor_melhor', CAST(nota_max AS SIGNED) - nota,
+                                   CAST(nota AS SIGNED) - nota_min)
+                              / NULLIF(CAST(nota_max AS SIGNED) - nota_min, 0), 2)
+ WHERE satisfacao IS NULL AND nota IS NOT NULL AND nota_min IS NOT NULL
+   AND nota BETWEEN nota_min AND nota_max;
+UPDATE pesquisa_respostas SET ramal = SUBSTRING_INDEX(SUBSTRING_INDEX(agente, '@', 1), '/', -1)
+ WHERE ramal IS NULL AND (agente LIKE 'PJSIP/%' OR agente LIKE 'Local/%');
+-- O canal antigo ("PJSIP/1001") não é atendente: com ele no agente, a
+-- mesma pessoa aparecia em duas linhas do relatório.
+UPDATE pesquisa_respostas SET agente = NULL
+ WHERE ramal IS NOT NULL AND (agente LIKE 'PJSIP/%' OR agente LIKE 'Local/%');
 
 -- A tela própria. Quem cuidava das filas cuidava das pesquisas.
 INSERT IGNORE INTO perfil_modulos (perfil_id, modulo)
-  SELECT perfil_id, 'apps.pesquisas' FROM perfil_modulos WHERE modulo IN ('apps.filas', 'apps.*');
+  SELECT perfil_id, 'apps.pesquisas' FROM perfil_modulos WHERE modulo IN ('apps.filas', 'apps.*')
+   -- Uma vez só: depois disso, tirar a tela de um perfil é decisão do admin.
+   AND NOT EXISTS (SELECT 1 FROM sistema WHERE chave = 'pesquisas_modulo_migrado');
+INSERT IGNORE INTO sistema (chave, valor) VALUES ('pesquisas_modulo_migrado', '1');

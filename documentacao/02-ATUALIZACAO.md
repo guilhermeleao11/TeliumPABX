@@ -148,6 +148,19 @@ O que muda na operação, e não só por dentro.
 - **Depois de atualizar, troque a senha do admin pelo console.**
 - Perdeu a senha? `sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin`.
 
+### Pente fino de produção
+- **Login:** errar a senha bloqueia a conta só para o IP que errou; quem
+  entra de outro lugar continua entrando.
+- **Siga-me:** a atualização não religa mais o siga-me que o usuário desligou.
+- **Horários:** o grupo "Comercial" de fábrica volta a ser de segunda a
+  sexta, e as faixas que se repetiam a cada atualização são limpas.
+  **Confira em Aplicações › Grupos de Horário** se o expediente está certo.
+- O **nome da empresa** posto no console não volta mais ao de fábrica.
+- **Logs** do Asterisk, da API e do e-mail agora giram (logrotate).
+- O firewall abre a faixa do **fax T.38** (4000–4999 UDP).
+- **Pesquisa:** a nota fora da escala não some mais. Tirar a tela de
+  pesquisas de um perfil agora é definitivo.
+
 ### A central fala português
 - Os avisos do sistema (correio de voz, conferência, fila, números,
   "ativado", "número inválido") passam a ser em **português do Brasil**. O
