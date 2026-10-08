@@ -881,11 +881,20 @@ telefones. Um supervisor com ramal vinculado à própria conta.
 
 - [ ] Pelo painel **Meu Atendimento**: entrar no ramal, pausar (Almoço),
       voltar e sair — o **Monitor ao Vivo** mostra cada mudança na hora
-- [ ] Pelo telefone: *40 (ouve "digite o código do agente"), matrícula e
-      #, ouve "login realizado"; *421 pausa (ouve "pausa ativada"); *49
-      volta; *44 sai
+- [ ] Pelo telefone: *11 (ouve "digite o código do agente"), matrícula e
+      #, ouve "login realizado"; *14 pausa em Almoço (ouve "pausa ativada")
+      e o monitor mostra o motivo; *13 volta; *12 sai
 - [ ] Com PIN no cadastro, só a matrícula é recusada ("agente inválido");
       matrícula * PIN entra
+- [ ] Agente cadastrado **sem conta do console** (só nome, matrícula e
+      PIN) entra, pausa e sai pelo telefone e aparece com o nome dele no
+      monitor e no relatório
+- [ ] Motivo de pausa com código *14 e código de recurso *1 ou *140:
+      salvar é recusado ("colide"); o mesmo na tela de Códigos de Recurso
+- [ ] *45 e *46 numa fila de call center tocam "operação falhou" e não
+      põem o ramal na fila
+- [ ] Monitor ao Vivo com duas filas de call center: escolher uma só
+      esconde as outras nos cartões, nos agentes e em quem espera
 - [ ] Dois agentes no mesmo ramal: o segundo é recusado
 - [ ] Reiniciar o Asterisk com agentes logados: eles continuam logados
 

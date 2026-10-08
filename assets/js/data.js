@@ -56,6 +56,7 @@ const MENU = [
       { id: 'apps.grupohorario', label: 'Grupos de Horário',      icon: 'calendar' },
       { id: 'apps.sigame',       label: 'Siga-me',                icon: 'shuffle' },
       { id: 'apps.correiovoz',   label: 'Correio de Voz',         icon: 'voicemail' },
+      { id: 'apps.caixaspostais', label: 'Caixas Postais',        icon: 'voicemail' },
       { id: 'apps.disa',         label: 'DISA',                   icon: 'key' },
       { id: 'apps.estacionamento', label: 'Estacionamento',       icon: 'package' },
       { id: 'apps.paging',       label: 'Megafonia e Interfonia', icon: 'volume' },

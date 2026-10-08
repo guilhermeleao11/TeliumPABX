@@ -33,12 +33,11 @@ final class Filas
             // Fila de call center: quem atende são pessoas, não ramais. A
             // lista é de todos os agentes, marcados os que estão nesta fila.
             'cc_agentes' => (int) $fila['callcenter'] === 1 ? Bd::todos(
-                'SELECT a.id, a.matricula, a.ativo, u.nome, af.penalidade,
+                'SELECT a.id, a.matricula, a.ativo, a.nome, af.penalidade,
                         (af.agente_id IS NOT NULL) AS na_fila
                    FROM cc_agentes a
-                   JOIN usuarios u ON u.id = a.usuario_id
               LEFT JOIN cc_agente_filas af ON af.agente_id = a.id AND af.fila_id = ?
-               ORDER BY na_fila DESC, u.nome',
+               ORDER BY na_fila DESC, a.nome',
                 [$fila['id']]
             ) : [],
             'agentes' => Bd::todos(

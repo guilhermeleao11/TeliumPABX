@@ -204,6 +204,8 @@ const Palette = {
 const Softphone = {
   estado: 'idle', numero: '', nome: '', seg: 0, tid: null, direcao: '',
   mudo: false, espera: false, teclado: false, midia: '', consulta: null,
+  /* As teclas mandadas (DTMF) nesta chamada — o "visor" do teclado. */
+  digitos: '',
   /* As chamadas desta sessão do console. */
   historico: [],
 
@@ -350,7 +352,16 @@ const Softphone = {
   },
 
   tecla(t) {
-    if (this.estado === 'em chamada') { SipLink.dtmf(t); return; }
+    if (this.estado === 'em chamada') {
+      SipLink.dtmf(t);
+      // Mandava o tom e não mostrava nada: quem navega numa URA ou digita
+      // uma senha não sabia o que já tinha teclado.
+      this.digitos += t;
+      const el = document.getElementById('spDtmf');
+      if (el) el.textContent = this.digitos.slice(-24);
+      else this.pintar();
+      return;
+    }
     this.numero += t;
     this.visor();
   },
@@ -405,7 +416,7 @@ const Softphone = {
       this.historico = this.historico.slice(0, 30);
     }
     this.estado = 'idle'; this.numero = ''; this.nome = ''; this.direcao = '';
-    this.midia = ''; this.consulta = null;
+    this.midia = ''; this.consulta = null; this.digitos = '';
     this.mudo = this.espera = this.teclado = false;
     this.pintar();
     document.dispatchEvent(new CustomEvent('telium:fone-historico'));
@@ -506,6 +517,10 @@ const Softphone = {
           <button class="sp-tool" data-t="transf" ${emChamada ? '' : 'disabled'}>${icon('shuffle','ico')}<span>Transferir</span></button>
           <button class="sp-tool ${this.teclado ? 'on' : ''}" data-t="kpad" ${emChamada ? '' : 'disabled'}>${icon('grid','ico')}<span>Teclado</span></button>
         </div>
+        ${this.teclado || this.digitos ? `<div class="sp-display">
+          <div class="sp-num mono" id="spDtmf" aria-live="polite" aria-label="Teclas enviadas">${esc(this.digitos.slice(-24))}</div>
+          <div class="sp-state">${this.digitos ? 'teclas enviadas nesta chamada' : 'digite pelo teclado abaixo ou pelo do computador'}</div>
+        </div>` : ''}
         ${this.teclado ? teclado : ''}
         <div class="sp-actions">
           <button class="sp-hang" id="spHang">${icon('phoneOff','ico ico-sm')} Desligar</button>

@@ -177,7 +177,7 @@ PAGES['cc.agente'] = {
 
     const a = eu.agente;
     const cod = Object.fromEntries((eu.codigos || []).map(c => [c.chave, c]));
-    const motivosTel = eu.motivos.map(m => `${esc(cod.cc_pausa?.codigo || '*42')}${esc(m.codigo)} ${esc(m.nome)}`).join(' · ');
+    const pausasTel = eu.motivos.filter(m => m.codigo);
 
     return pageHead('Meu Atendimento',
       `${esc(a.nome)} · matrícula <span class="mono">${esc(a.matricula)}</span>`,
@@ -202,8 +202,7 @@ PAGES['cc.agente'] = {
             <div class="deflist">
               ${cod.cc_login?.ativo ? `<div class="defrow"><span class="mono">${esc(cod.cc_login.codigo)}</span>
                 <span>Entrar — digite ${a.tem_pin ? `<b>${esc(a.matricula)}*</b> e o seu PIN` : `<b>${esc(a.matricula)}</b>`} e #</span></div>` : ''}
-              ${cod.cc_pausa?.ativo ? `<div class="defrow"><span class="mono">${esc(cod.cc_pausa.codigo)} + motivo</span>
-                <span>Pausar: ${motivosTel || '—'}</span></div>` : ''}
+              ${pausasTel.map(m => `<div class="defrow"><span class="mono">${esc(m.codigo)}</span><span>Pausa: ${esc(m.nome)}</span></div>`).join('')}
               ${cod.cc_volta?.ativo ? `<div class="defrow"><span class="mono">${esc(cod.cc_volta.codigo)}</span><span>Voltar da pausa</span></div>` : ''}
               ${cod.cc_logout?.ativo ? `<div class="defrow"><span class="mono">${esc(cod.cc_logout.codigo)}</span><span>Sair</span></div>` : ''}
             </div>
@@ -542,6 +541,7 @@ PAGES['cc.supervisor'] = {
 
     return pageHead('Monitor ao Vivo', 'Filas e agentes do call center, no instante em que mudam.',
       `<span id="ccVivo"></span>${Auth.can('dash.temporeal') ? `<button class="btn btn-outline btn-sm" id="ccTv">${icon('target','ico ico-sm')} Modo TV</button>` : ''}`) + `
+      <div class="row gap-8" id="ccSelFilas" style="flex-wrap:wrap;align-items:center;margin-bottom:12px" hidden></div>
       <div class="grid g-4" id="ccKpis" style="margin-bottom:16px"></div>
       <div class="grid g-3" id="ccFilasCards" style="margin-bottom:16px"></div>
       <div class="card" style="margin-bottom:16px">
@@ -560,6 +560,20 @@ PAGES['cc.supervisor'] = {
 
   mount() {
     this._filtro = '';
+    // As filas que o supervisor quer ver. Vazio é todas. Fica guardado no
+    // navegador: quem cuida de uma fila só não precisa escolher toda vez.
+    try { this._selFilas = new Set(JSON.parse(localStorage.getItem('telium.cc.monitor.filas') || '[]')); }
+    catch { this._selFilas = new Set(); }
+    document.getElementById('ccSelFilas')?.addEventListener('change', ev => {
+      const c = ev.target.closest('[data-sel-fila]');
+      if (!c) return;
+      if (c.dataset.selFila === '') this._selFilas.clear();
+      else if (c.checked) this._selFilas.add(c.dataset.selFila);
+      else this._selFilas.delete(c.dataset.selFila);
+      try { localStorage.setItem('telium.cc.monitor.filas', JSON.stringify([...this._selFilas])); } catch { /* sem armazenamento */ }
+      this._seletorFilas = null;
+      this.pintar();
+    });
     document.getElementById('ccTv')?.addEventListener('click', () => TV.entrar());
     document.getElementById('ccFiltro')?.addEventListener('click', ev => {
       const b = ev.target.closest('[data-f]');
@@ -589,16 +603,53 @@ PAGES['cc.supervisor'] = {
   },
 
   pintar() {
+    this.pintarSeletor();
     this.pintarKpis();
     this.pintarFilas();
     this.pintarAgentes();
     this.pintarEsperando();
   },
 
+  /** As filas escolhidas no seletor (todas, se nenhuma). */
+  filasVisiveis() {
+    const sel = this._selFilas;
+    const todas = this._foto.filas;
+    // Uma fila escolhida que deixou de existir não pode esconder tudo.
+    const valem = todas.filter(f => sel.has(f.numero));
+    return sel.size && valem.length ? valem : todas;
+  },
+
+  /** O agente está em alguma das filas escolhidas? */
+  naSelecao(a) {
+    const vis = this.filasVisiveis();
+    if (vis.length === this._foto.filas.length) return true;
+    return vis.some(f => Object.prototype.hasOwnProperty.call(a.filas || {}, f.numero));
+  },
+
+  /** Só aparece com mais de uma fila: com uma só, não há o que escolher. */
+  pintarSeletor() {
+    const el = document.getElementById('ccSelFilas');
+    if (!el) return;
+    const filas = this._foto.filas;
+    const vis = new Set(this.filasVisiveis().map(f => f.numero));
+    const todas = vis.size === filas.length;
+    const chave = filas.map(f => f.numero + (todas ? '' : vis.has(f.numero) ? '+' : '-')).join(',');
+    if (chave === this._seletorFilas) return;
+    this._seletorFilas = chave;
+    el.hidden = filas.length < 2;
+    const chip = (valor, rotulo, marcado, dica = '') => `<label class="chip-check" ${dica ? `title="${esc(dica)}"` : ''}>
+      <input type="checkbox" data-sel-fila="${esc(valor)}" ${marcado ? 'checked' : ''}>
+      <span style="text-transform:none">${rotulo}</span></label>`;
+    el.innerHTML = `<span class="small muted">Filas:</span>`
+      + chip('', 'Todas', todas)
+      + filas.map(f => chip(f.numero, `${esc(f.nome)} <span class="mono" style="opacity:.7;margin-left:4px">${esc(f.numero)}</span>`,
+                            !todas && vis.has(f.numero), `Fila ${f.numero}`)).join('');
+  },
+
   pintarKpis() {
     const el = document.getElementById('ccKpis');
     if (!el) return;
-    const f = this._foto.filas, ag = this._foto.agentes;
+    const f = this.filasVisiveis(), ag = this._foto.agentes.filter(a => this.naSelecao(a));
     const esperando = f.reduce((s, x) => s + x.aguardando, 0);
     const maior = Math.max(0, ...f.map(x => x.maior_espera));
     const conta = e => ag.filter(a => ccEstado(a) === e).length;
@@ -622,7 +673,7 @@ PAGES['cc.supervisor'] = {
     const el = document.getElementById('ccFilasCards');
     if (!el) return;
     const ag = this._foto.agentes;
-    el.innerHTML = this._foto.filas.map(f => {
+    el.innerHTML = this.filasVisiveis().map(f => {
       const nela = ag.filter(a => a.filas && Object.prototype.hasOwnProperty.call(a.filas, f.numero));
       const livres = nela.filter(a => ccEstado(a) === 'livre').length;
       const sla = ccSla(f.hoje);
@@ -656,8 +707,9 @@ PAGES['cc.supervisor'] = {
     const linhas = [
       ...this._foto.agentes,
       ...(this._cadastro || []).filter(c => Number(c.ativo) && !logados[c.id])
-          .map(c => ({ id: c.id, nome: c.nome, matricula: c.matricula, deslogado: true, filas: {} }))
-    ].filter(a => {
+          .map(c => ({ id: c.id, nome: c.nome, matricula: c.matricula, deslogado: true,
+                       filas: Object.fromEntries((c.filas || []).map(f => [f.numero, f.penalidade])) }))
+    ].filter(a => this.naSelecao(a)).filter(a => {
       const e = a.deslogado ? 'deslogado' : ccEstado(a);
       return !this._filtro || e === this._filtro || (this._filtro === 'pausa' && e === 'tabulando')
              || (this._filtro === 'falando' && e === 'tocando');
@@ -732,7 +784,7 @@ PAGES['cc.supervisor'] = {
   pintarEsperando() {
     const el = document.getElementById('ccEsperando');
     if (!el) return;
-    const todos = this._foto.filas.flatMap(f => (f.esperando || []).map(c => ({ ...c, fila: f.numero, filaNome: f.nome, sla: f.sla_segundos })));
+    const todos = this.filasVisiveis().flatMap(f => (f.esperando || []).map(c => ({ ...c, fila: f.numero, filaNome: f.nome, sla: f.sla_segundos })));
     todos.sort((a, b) => b.espera - a.espera);
     el.innerHTML = todos.length ? `<div class="table-wrap"><table class="table">
       <thead><tr><th>Fila</th><th>Posição</th><th>Quem liga</th><th>Esperando</th></tr></thead>
@@ -795,7 +847,7 @@ PAGES['cc.agentes'] = {
 
     const novo = ctx.can('criar') ? `<button class="btn btn-primary btn-sm" id="ccNovo">${icon('plus','ico ico-sm')} Novo agente</button>` : '';
     const cabecalho = pageHead('Agentes',
-      'Quem atende no call center: uma conta do console, a matrícula do telefone e as filas com o nível de cada uma.',
+      'Quem atende no call center: o nome, a matrícula do telefone e as filas com o nível de cada uma. A conta do console é opcional.',
       readOnlyNote(ctx) + novo);
 
     if (!d.filas.length) {
@@ -811,7 +863,7 @@ PAGES['cc.agentes'] = {
     return cabecalho + `<div class="card"><div class="table-wrap"><table class="table">
       <thead><tr><th>Agente</th><th>Matrícula</th><th>Filas (nível)</th><th>Ramal habitual</th><th>Estado</th><th></th></tr></thead>
       <tbody>${d.dados.map(a => `<tr>
-        <td><b>${esc(a.nome)}</b><div class="tiny muted">${esc(a.usuario)} · ${esc(a.perfil)}</div></td>
+        <td><b>${esc(a.nome)}</b><div class="tiny muted">${a.usuario_id ? `${esc(a.usuario)} · ${esc(a.perfil)}` : 'só telefone'}</div></td>
         <td class="mono">${esc(a.matricula)}${a.tem_pin ? ' <span class="badge" title="Pede PIN no telefone">PIN</span>' : ''}</td>
         <td>${a.filas.map(f => `<span class="badge mono" title="${esc(f.nome)}">${esc(f.numero)} · ${f.penalidade}</span>`).join(' ') || '<span class="badge badge-warn">sem fila</span>'}</td>
         <td class="mono">${esc(a.ramal_padrao || a.ramal_usuario || '—')}</td>
@@ -845,12 +897,15 @@ PAGES['cc.agentes'] = {
       sub: 'A matrícula é o que se digita no telefone para entrar.',
       wide: true,
       corpo: `<form id="fAgente" autocomplete="off"><div class="form-grid">
-        <div class="field full" data-campo="usuario_id"><label class="label">Conta do console *</label>
-          <select class="select" name="usuario_id" required>
-            <option value="">Escolha…</option>
-            ${d.usuarios.filter(u => !usados.has(u.id)).map(u => `<option value="${u.id}" ${a?.usuario_id === u.id ? 'selected' : ''}>${esc(u.nome)} (${esc(u.usuario)})${u.ramal ? ' · ramal ' + esc(u.ramal) : ''}</option>`).join('')}
+        <div class="field" data-campo="nome"><label class="label">Nome *</label>
+          <input class="input" name="nome" maxlength="80" value="${esc(a?.nome || '')}" placeholder="Maria Souza">
+          <span class="hint">É o que o supervisor e os relatórios mostram.</span></div>
+        <div class="field" data-campo="usuario_id"><label class="label">Conta do console</label>
+          <select class="select" name="usuario_id">
+            <option value="">Nenhuma — só telefone ou softphone</option>
+            ${d.usuarios.filter(u => !usados.has(u.id)).map(u => `<option value="${u.id}" data-nome="${esc(u.nome)}" ${a?.usuario_id === u.id ? 'selected' : ''}>${esc(u.nome)} (${esc(u.usuario)})${u.ramal ? ' · ramal ' + esc(u.ramal) : ''}</option>`).join('')}
           </select>
-          <span class="hint">É com ela que a pessoa abre o painel "Meu Atendimento". Para ter só o painel, use o perfil Operador.</span></div>
+          <span class="hint">Opcional. Com ela a pessoa abre o painel "Meu Atendimento" (perfil Call Center); sem ela, entra e pausa só pelos códigos do telefone.</span></div>
         <div class="field" data-campo="matricula"><label class="label">Matrícula *</label>
           <input class="input mono" name="matricula" inputmode="numeric" maxlength="8" value="${esc(a?.matricula || '')}" required>
           <span class="hint">2 a 8 dígitos.</span></div>
@@ -880,30 +935,39 @@ PAGES['cc.agentes'] = {
       </div></form>`,
       rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
                <button class="btn btn-primary" id="salvarAgente">${icon('check','ico ico-sm')} Salvar</button>`,
-      aoAbrir: dw => dw.querySelector('#salvarAgente').onclick = async () => {
-        const form = dw.querySelector('#fAgente');
-        limparErros(form);
-        const v = lerFormulario(form);
-        const corpo = {
-          usuario_id: Number(v.usuario_id), matricula: v.matricula, pin: v.pin || '',
-          remover_pin: v.remover_pin ? 1 : 0, ramal_padrao: v.ramal_padrao, ativo: v.ativo ? 1 : 0,
-          filas: [...form.querySelectorAll('[data-fila]:checked')].map(c => ({
-            fila_id: Number(c.dataset.fila), penalidade: Number(form.querySelector(`[data-nivel="${c.dataset.fila}"]`).value)
-          }))
+      aoAbrir: dw => {
+        // Escolher a conta preenche o nome, se ele ainda estiver vazio.
+        const nome = dw.querySelector('[name="nome"]');
+        dw.querySelector('[name="usuario_id"]').onchange = ev => {
+          const op = ev.target.selectedOptions[0];
+          if (!nome.value.trim() && op?.dataset.nome) nome.value = op.dataset.nome;
         };
-        try {
-          const r = a ? await Api.put(`/cc/agentes/${a.id}`, corpo) : await Api.post('/cc/agentes', corpo);
-          Drawer.close();
-          toast(r.aviso || 'Agente salvo.', r.aviso ? 'warn' : 'ok');
-          App.route();
-        } catch (e) {
-          // Campo sem lugar para marcar (as filas são uma lista de caixas):
-          // a mensagem dele vai no aviso, senão "confira os campos
-          // destacados" apontava para nada.
-          const soltos = Object.entries(e.detalhe?.campos || {})
-            .filter(([c, m]) => !marcarErro(form, c, m)).map(([, m]) => m);
-          toast(soltos.length ? soltos.join(' ') : e.message, 'err');
-        }
+        dw.querySelector('#salvarAgente').onclick = async () => {
+          const form = dw.querySelector('#fAgente');
+          limparErros(form);
+          const v = lerFormulario(form);
+          const corpo = {
+            nome: (v.nome || '').trim(), usuario_id: v.usuario_id ? Number(v.usuario_id) : null,
+            matricula: v.matricula, pin: v.pin || '',
+            remover_pin: v.remover_pin ? 1 : 0, ramal_padrao: v.ramal_padrao, ativo: v.ativo ? 1 : 0,
+            filas: [...form.querySelectorAll('[data-fila]:checked')].map(c => ({
+              fila_id: Number(c.dataset.fila), penalidade: Number(form.querySelector(`[data-nivel="${c.dataset.fila}"]`).value)
+            }))
+          };
+          try {
+            const r = a ? await Api.put(`/cc/agentes/${a.id}`, corpo) : await Api.post('/cc/agentes', corpo);
+            Drawer.close();
+            toast(r.aviso || 'Agente salvo.', r.aviso ? 'warn' : 'ok');
+            App.route();
+          } catch (e) {
+            // Campo sem lugar para marcar (as filas são uma lista de caixas):
+            // a mensagem dele vai no aviso, senão "confira os campos
+            // destacados" apontava para nada.
+            const soltos = Object.entries(e.detalhe?.campos || {})
+              .filter(([c, m]) => !marcarErro(form, c, m)).map(([, m]) => m);
+            toast(soltos.length ? soltos.join(' ') : e.message, 'err');
+          }
+        };
       }
     });
   }
@@ -915,7 +979,7 @@ PAGES['cc.agentes'] = {
 PAGES['cc.pausas'] = paginaCrud({
   recurso: 'cc-pausas',
   titulo: 'Motivos de Pausa',
-  sub: 'Por que o agente parou de receber chamadas. O número é o que se digita depois do código de pausa no telefone.',
+  sub: 'Por que o agente parou de receber chamadas. Cada pausa tem o seu código: o agente disca e já fica pausado por ela.',
   ico: 'clock',
   plural: 'motivos',
   rotuloNovo: 'Novo motivo',
@@ -925,15 +989,19 @@ PAGES['cc.pausas'] = paginaCrud({
   textoBusca: m => m.nome,
   colunas: [
     { label: 'Motivo', render: m => `<b>${esc(m.nome)}</b>${Number(m.sistema) ? ' <span class="badge" title="Posto pela própria central">da central</span>' : ''}` },
-    { label: 'No telefone', render: m => Number(m.sistema) ? '<span class="muted small">—</span>' : `<span class="mono">${esc(m.codigo)}</span>` },
+    { label: 'Código no telefone', render: m => m.codigo ? `<span class="mono">${esc(m.codigo)}</span>`
+        : `<span class="muted small">${Number(m.sistema) ? 'posto pela central' : 'só pelo painel'}</span>` },
     { label: 'Limite', render: m => m.limite_minutos ? `${m.limite_minutos} min` : '<span class="muted small">sem limite</span>' },
     { label: 'Tipo', render: m => Number(m.produtiva) ? '<span class="badge badge-info">produtiva</span>' : '<span class="badge">improdutiva</span>' },
     { label: 'Estado', render: m => Number(m.ativo) ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>' : '<span class="badge"><i class="dot"></i>Inativo</span>' }
   ],
-  campos: () => [
+  // Os motivos da central não se discam: não têm o campo do código.
+  campos: m => [
     { campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'Almoço' },
-    { campo: 'codigo', label: 'Número no telefone', tipo: 'number', obrigatorio: true,
-      ajuda: '1 a 89. O agente digita o código de pausa e este número (ex.: *421).' },
+    ...(Number(m.sistema) ? [] : [
+      { campo: 'codigo', label: 'Código no telefone', mono: true, placeholder: '*14',
+        padraoValido: /^[*#][0-9]{1,6}$/, mensagemPadrao: 'use * seguido de 1 a 6 dígitos',
+        ajuda: 'O que o agente disca para entrar nesta pausa. Não pode ser igual nem o começo de outro código de recurso. Vazio: só pelo painel. Vale depois de Aplicar configurações.' }]),
     { campo: 'limite_minutos', label: 'Limite (minutos)', tipo: 'number',
       ajuda: 'Passou disso, o supervisor vê a pausa em vermelho. Vazio: sem limite.' },
     { campo: 'produtiva', label: 'Pausa produtiva', tipo: 'switch',
@@ -1182,7 +1250,8 @@ PAGES['cc.config'] = {
       <div class="card">
         <div class="card-head"><div><div class="card-title">Códigos do agente no telefone</div>
           <div class="card-sub">Trocar um código não tem efeito até "Aplicar configurações". O código não pode
-            colidir com outro código de recurso — nem ser o começo de um.</div></div></div>
+            colidir com outro código de recurso nem com o de uma pausa — nem ser o começo de um.
+            O código de cada pausa fica em <a href="#/cc.pausas">Motivos de Pausa</a>.</div></div></div>
         <div class="card-body"><form id="ccCfg">${d.codigos.map(c => `
           <div class="row gap-12" style="align-items:flex-start;margin-bottom:14px;flex-wrap:wrap" data-campo="${c.chave}">
             <div style="flex:1;min-width:220px"><b>${esc(c.nome)}</b>

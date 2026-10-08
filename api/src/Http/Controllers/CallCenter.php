@@ -7,6 +7,7 @@ use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Telium\Dominio\Auditoria;
 use Telium\Dominio\CallCenter as Cc;
+use Telium\Dominio\CodigosDiscagem;
 use Telium\Dominio\Permissoes;
 use Telium\Dominio\RelatorioFilas;
 use Telium\Servico\TempoReal;
@@ -24,7 +25,7 @@ use Telium\Suporte\Resposta;
 final class CallCenter
 {
     /** Os códigos do telefone que a tela do módulo deixa trocar. */
-    private const CODIGOS = ['cc_login', 'cc_pausa', 'cc_volta', 'cc_logout'];
+    private const CODIGOS = ['cc_login', 'cc_logout', 'cc_volta'];
 
     // ------------------------------------------------------------------
     // Estado ao vivo
@@ -366,13 +367,13 @@ final class CallCenter
     public function listar(Request $req, Response $res): Response
     {
         $agentes = Bd::todos(
-            'SELECT a.id, a.usuario_id, a.matricula, a.ramal_padrao, a.ativo,
+            'SELECT a.id, a.nome, a.usuario_id, a.matricula, a.ramal_padrao, a.ativo,
                     (a.pin_hash IS NOT NULL AND a.pin_hash <> \'\') AS tem_pin,
-                    u.nome, u.usuario, u.ramal AS ramal_usuario, p.nome AS perfil
+                    u.usuario, u.ramal AS ramal_usuario, p.nome AS perfil
                FROM cc_agentes a
-               JOIN usuarios u ON u.id = a.usuario_id
-               JOIN perfis p ON p.id = u.perfil_id
-           ORDER BY u.nome'
+          LEFT JOIN usuarios u ON u.id = a.usuario_id
+          LEFT JOIN perfis p ON p.id = u.perfil_id
+           ORDER BY a.nome'
         );
 
         $filas = [];
@@ -388,6 +389,7 @@ final class CallCenter
         foreach ($agentes as &$a) {
             $a['filas'] = $filas[(int) $a['id']] ?? [];
             $a['tem_pin'] = (bool) $a['tem_pin'];
+            $a['usuario_id'] = $a['usuario_id'] !== null ? (int) $a['usuario_id'] : null;
         }
         unset($a);
 
@@ -411,16 +413,28 @@ final class CallCenter
             return Resposta::erro($res, 'Agente não encontrado.', 404);
         }
 
-        $usuarioId = (int) ($c['usuario_id'] ?? ($atual['usuario_id'] ?? 0));
+        // A conta do console é opcional: sem ela o agente só atende pelo
+        // telefone ou softphone, entrando com matrícula e PIN.
+        $usuarioId = (int) (array_key_exists('usuario_id', $c) ? $c['usuario_id'] : ($atual['usuario_id'] ?? 0)) ?: null;
+        $usuario = $usuarioId !== null
+            ? Bd::um("SELECT id, nome FROM usuarios WHERE id = ? AND status = 'ativo'", [$usuarioId]) : null;
+        $nome = trim((string) ($c['nome'] ?? ($atual['nome'] ?? '')));
+        if ($nome === '' && $usuario !== null) {
+            $nome = (string) $usuario['nome'];
+        }
         $matricula = preg_replace('/\D/', '', (string) ($c['matricula'] ?? ($atual['matricula'] ?? ''))) ?? '';
         $ramal = preg_replace('/\D/', '', (string) ($c['ramal_padrao'] ?? ($atual['ramal_padrao'] ?? ''))) ?? '';
         $pin = (string) ($c['pin'] ?? '');
         $ativo = array_key_exists('ativo', $c) ? (int) (bool) $c['ativo'] : (int) ($atual['ativo'] ?? 1);
 
         $erros = [];
-        if (!Bd::valor("SELECT id FROM usuarios WHERE id = ? AND status = 'ativo'", [$usuarioId])) {
-            $erros['usuario_id'] = 'Escolha a conta do console desta pessoa.';
-        } elseif (Bd::valor('SELECT id FROM cc_agentes WHERE usuario_id = ? AND id <> ?', [$usuarioId, $id ?? 0])) {
+        if (mb_strlen($nome) < 2 || mb_strlen($nome) > 80) {
+            $erros['nome'] = 'O nome tem de 2 a 80 caracteres: é o que o supervisor e o relatório mostram.';
+        }
+        if ($usuarioId !== null && $usuario === null) {
+            $erros['usuario_id'] = 'Esta conta do console não existe ou está desativada.';
+        } elseif ($usuarioId !== null
+            && Bd::valor('SELECT id FROM cc_agentes WHERE usuario_id = ? AND id <> ?', [$usuarioId, $id ?? 0])) {
             $erros['usuario_id'] = 'Esta conta já é de outro agente.';
         }
         if (strlen($matricula) < 2 || strlen($matricula) > 8) {
@@ -454,14 +468,14 @@ final class CallCenter
         try {
             if ($id === null) {
                 Bd::executar(
-                    'INSERT INTO cc_agentes (usuario_id, matricula, ramal_padrao, ativo) VALUES (?, ?, ?, ?)',
-                    [$usuarioId, $matricula, $ramal ?: null, $ativo]
+                    'INSERT INTO cc_agentes (nome, usuario_id, matricula, ramal_padrao, ativo) VALUES (?, ?, ?, ?, ?)',
+                    [$nome, $usuarioId, $matricula, $ramal ?: null, $ativo]
                 );
                 $id = (int) $pdo->lastInsertId();
             } else {
                 Bd::executar(
-                    'UPDATE cc_agentes SET usuario_id = ?, matricula = ?, ramal_padrao = ?, ativo = ? WHERE id = ?',
-                    [$usuarioId, $matricula, $ramal ?: null, $ativo, $id]
+                    'UPDATE cc_agentes SET nome = ?, usuario_id = ?, matricula = ?, ramal_padrao = ?, ativo = ? WHERE id = ?',
+                    [$nome, $usuarioId, $matricula, $ramal ?: null, $ativo, $id]
                 );
             }
 
@@ -602,8 +616,8 @@ final class CallCenter
      * PUT /api/cc/config {codigos: [{chave, codigo, ativo}]}
      *
      * O código precisa ser discável e não pode colidir com outro código
-     * de recurso — nem ser o começo de um, nem começar com um: o
-     * Asterisk escolheria um dos dois e o outro deixaria de funcionar.
+     * de recurso nem com o de uma pausa — nem ser o começo de um, nem
+     * começar com um (CodigosDiscagem).
      */
     public function salvarConfig(Request $req, Response $res): Response
     {
@@ -622,38 +636,29 @@ final class CallCenter
         $novos = [];
         foreach ($pedidos as $chave => $p) {
             if (preg_match('/^[*#]?[0-9]{1,6}$/', $p['codigo']) !== 1) {
-                $erros[$chave] = 'Use * seguido de 1 a 6 dígitos (como *40).';
+                $erros[$chave] = 'Use * seguido de 1 a 6 dígitos (como *11).';
                 continue;
             }
             $novos[$chave] = $p['codigo'];
         }
 
-        // Um contra o outro, dentro do pedido.
-        $vistos = [];
-        foreach ($novos as $chave => $codigo) {
-            foreach ($vistos as $outra => $outro) {
-                if (str_starts_with($codigo, $outro) || str_starts_with($outro, $codigo)) {
-                    $erros[$chave] = "Colide com o código de \"{$outra}\" ({$outro}).";
-                }
-            }
-            $vistos[$chave] = $codigo;
-        }
-
-        // Contra o resto do catálogo.
-        $marcas = implode(',', array_fill(0, count(self::CODIGOS), '?'));
-        $outros = Bd::todos(
-            "SELECT chave, nome, codigo FROM codigos_recurso
-              WHERE ativo = 1 AND tipo = 'dialplan' AND chave NOT IN ({$marcas})",
+        // Um contra o outro, dentro do pedido, e contra o resto: os outros
+        // códigos de recurso e o código de cada pausa. Os do pedido entram
+        // com o código novo, não com o que está no banco.
+        $nomes = array_column(Bd::todos(
+            'SELECT chave, nome FROM codigos_recurso WHERE chave IN (' . implode(',', array_fill(0, count(self::CODIGOS), '?')) . ')',
             self::CODIGOS
-        );
+        ), 'nome', 'chave');
+        $outros = CodigosDiscagem::outros('recurso', null, array_keys($novos));
         foreach ($novos as $chave => $codigo) {
-            foreach ($outros as $o) {
-                $existente = (string) $o['codigo'];
-                if ($existente !== '' && (str_starts_with($codigo, $existente) || str_starts_with($existente, $codigo))) {
-                    $erros[$chave] = "Colide com \"{$o['nome']}\" ({$existente}).";
-                    break;
-                }
+            if ($pedidos[$chave]['ativo'] !== 1) {
+                continue;
             }
+            $colisao = CodigosDiscagem::colisao($codigo, 'recurso', null, $outros);
+            if ($colisao !== null) {
+                $erros[$chave] = $colisao;
+            }
+            $outros[] = ['codigo' => $codigo, 'nome' => (string) ($nomes[$chave] ?? $chave)];
         }
 
         if ($erros !== []) {

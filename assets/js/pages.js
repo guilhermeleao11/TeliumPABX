@@ -482,7 +482,7 @@ function paginaCrud(cfg) {
       const colunas = cfg.colunas;
       const linhas = this._itens.map(item => `
         <tr data-id="${item.id}" data-busca="${esc(cfg.textoBusca ? cfg.textoBusca(item).toLowerCase() : '')}">
-          ${colunas.map(c => `<td${c.classe ? ` class="${c.classe}"` : ''}>${c.render(item, ctx)}</td>`).join('')}
+          ${colunas.map(c => `<td${c.classe ? ` class="${c.classe}"` : ''}>${c.render(item, ctx, this)}</td>`).join('')}
           <td class="col-actions"><span class="row-actions">
             ${cfg.acoesLinha ? cfg.acoesLinha(item, ctx) : ''}
             ${ctx.can('editar') && !cfg.somenteLeitura
@@ -1608,7 +1608,7 @@ PAGES['apps.filas'] = {
       { aba: 'Geral', campo: 'gravar', label: 'Gravar as chamadas', tipo: 'switch', padrao: 1 },
       { aba: 'Geral', campo: 'ativo', label: 'Fila ativa', tipo: 'switch', padrao: 1 },
       { aba: 'Geral', campo: 'callcenter', label: 'Fila de call center', tipo: 'switch',
-        ajuda: 'Os agentes não são montados aqui: são as pessoas cadastradas em Call Center → Agentes, que entram e saem pelo console ou por *40 no telefone.' },
+        ajuda: 'Os agentes não são montados aqui: são as pessoas cadastradas em Call Center → Agentes, que entram e saem pelo console ou pelo código do agente no telefone (*11).' },
 
       { aba: 'Call center', tipo: 'nota', largura: 'full',
         texto: 'Estas opções valem só para fila marcada como call center, na aba Geral.' },

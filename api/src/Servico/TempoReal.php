@@ -25,7 +25,7 @@ use Telium\Suporte\Bd;
  * Além de repassar, faz o que só quem escuta pode fazer:
  *  - registra cada atendimento (cc_atendimentos) quando o agente atende;
  *  - pausa em "Pós-atendimento" quem precisa tabular;
- *  - atende os códigos do telefone (*40, *42, *44, *49), que chegam
+ *  - atende os códigos do telefone (entrar, sair, voltar e cada pausa), que chegam
  *    pelo dialplan em /interno/…;
  *  - disca os retornos pedidos na espera quando há agente livre.
  *
@@ -734,7 +734,7 @@ final class TempoReal
     {
         // Cinco códigos errados em dez minutos no mesmo ramal: o ramal
         // para de tentar por quinze. Sem isto, um PIN de 4 dígitos se
-        // descobria discando *40 em sequência de qualquer telefone.
+        // descobria discando *11 em sequência de qualquer telefone.
         $agora = microtime(true);
         $recentes = array_values(array_filter(
             $this->falhasPin[$ramal] ?? [], static fn (float $t): bool => $agora - $t < 900
@@ -767,7 +767,7 @@ final class TempoReal
     }
 
     /**
-     * *49: a mesma regra do botão do painel — com tabulação pendente numa
+     * Voltar (*13): a mesma regra do botão do painel — com tabulação pendente numa
      * fila que a exige, não volta. Pelo telefone ela era pulada.
      */
     private function voltaPeloTelefone(CallCenter $cc, string $ramal): string
@@ -787,11 +787,12 @@ final class TempoReal
         return 'ok';
     }
 
-    private function pausaPeloTelefone(CallCenter $cc, string $ramal, int $codigo): string
+    /** O código de cada pausa leva o id do motivo: o dialplan não conhece o nome. */
+    private function pausaPeloTelefone(CallCenter $cc, string $ramal, int $motivoId): string
     {
         $motivo = Bd::valor(
-            'SELECT nome FROM cc_pausas_motivos WHERE codigo = ? AND ativo = 1 AND sistema = 0',
-            [$codigo]
+            'SELECT nome FROM cc_pausas_motivos WHERE id = ? AND ativo = 1 AND sistema = 0',
+            [$motivoId]
         );
         if (!$motivo) {
             return 'motivo';

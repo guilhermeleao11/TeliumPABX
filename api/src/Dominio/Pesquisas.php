@@ -186,11 +186,10 @@ final class Pesquisas
         // O atendente é o agente do call center quando houver, senão o ramal.
         $porAtendente = array_map($numeros, Bd::todos(
             'SELECT COALESCE(r.agente, r.ramal) AS atendente, MAX(r.ramal) AS ramal,
-                    COALESCE(MAX(ua.nome), MAX(ra.nome)) AS nome, ' . self::medidas() . ",
+                    COALESCE(MAX(ca.nome), MAX(ra.nome)) AS nome, ' . self::medidas() . ",
                     ROUND(AVG(IF(r.nota_min = ? AND r.nota_max = ? AND r.sentido = ?, r.nota, NULL)), 2) AS media_nota
                FROM pesquisa_respostas r
           LEFT JOIN cc_agentes ca ON r.agente LIKE 'Agente/%' AND ca.id = CAST(SUBSTRING(r.agente, 8) AS UNSIGNED)
-          LEFT JOIN usuarios ua ON ua.id = ca.usuario_id
           LEFT JOIN ramais ra ON ra.numero = r.ramal
                {$onde} AND COALESCE(r.agente, r.ramal) IS NOT NULL
            GROUP BY COALESCE(r.agente, r.ramal)
@@ -244,12 +243,11 @@ final class Pesquisas
 
         $dados = Bd::todos(
             "SELECT r.id, r.criado_em, r.origem, r.fila, f.nome AS fila_nome, r.ramal, r.agente,
-                    COALESCE(ua.nome, ra.nome) AS atendente, r.status, r.nota, r.nota_min, r.nota_max,
+                    COALESCE(ca.nome, ra.nome) AS atendente, r.status, r.nota, r.nota_min, r.nota_max,
                     r.sentido, r.satisfacao, r.uniqueid
                FROM pesquisa_respostas r
           LEFT JOIN filas f ON f.numero = r.fila
           LEFT JOIN cc_agentes ca ON r.agente LIKE 'Agente/%' AND ca.id = CAST(SUBSTRING(r.agente, 8) AS UNSIGNED)
-          LEFT JOIN usuarios ua ON ua.id = ca.usuario_id
           LEFT JOIN ramais ra ON ra.numero = r.ramal
                {$onde}
            ORDER BY r.criado_em DESC, r.id DESC

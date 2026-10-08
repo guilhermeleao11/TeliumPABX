@@ -387,6 +387,12 @@ const App = {
         e.preventDefault(); Palette.aberta ? Palette.fechar() : Palette.abrir(); return;
       }
       if (digitando) return;
+      // Em chamada, com o teclado do telefone aberto, os dígitos do
+      // computador viram tom (DTMF) — e aparecem no visor dele.
+      if (/^[0-9*#]$/.test(e.key) && Softphone.estado === 'em chamada'
+          && Softphone.teclado && Softphone.naTela()) {
+        e.preventDefault(); Softphone.tecla(e.key); return;
+      }
       if (e.key === '/') { e.preventDefault(); hq.focus(); }
       if (e.key === '[') document.getElementById('sbCollapse').click();
       if (e.key.toLowerCase() === 'd') { e.preventDefault(); Softphone.abrir(); }

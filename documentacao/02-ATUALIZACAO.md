@@ -154,6 +154,28 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### Call center, caixas postais e rotas de saída com vários padrões
+- **Os códigos do agente mudaram de lugar** — avise quem atende. Entrar
+  passa de `*40` para **`*11`**, sair de `*44` para **`*12`** e voltar da
+  pausa de `*49` para **`*13`**. Só muda quem estava no código de fábrica.
+- **Cada pausa tem o seu código**, e o `*42` + número acabou: Almoço
+  **`*14`**, Banheiro `*15`, Café `*16`, Treinamento `*17`, Reunião `*18`,
+  Feedback `*19`. Motivos criados por vocês viram `*10` + dois dígitos
+  (o 12 vira `*1012`). Confira e troque em **Call Center › Motivos de Pausa**.
+- O **agente não precisa mais de usuário** do console: nome, matrícula e
+  PIN bastam para atender pelo telefone ou softphone.
+- `*45` e `*46` **não funcionam mais em fila de call center**: nela se
+  entra e se pausa pelos códigos do agente.
+- Nenhum código pode ser igual a outro nem o começo de outro (códigos de
+  recurso, pausas e caixas postais): a tela recusa ao salvar.
+- **Caixas postais sem ramal** em **Aplicações › Caixas Postais**: recado
+  fora do horário, ouvido no dia seguinte pelo código da caixa.
+- **Rota de saída com vários padrões**: a atualização não junta as rotas que
+  já existem. Duas rotas feitas só por causa do 0 (`9XXXXXXXX` e
+  `09XXXXXXXX`) continuam duas; para juntar, acrescente o padrão `09…`
+  (tirando o 0) numa delas e exclua a outra.
+- Depois do playbook, **Aplicar configurações** no console.
+
 ### A senha do admin não volta mais ao padrão
 - Até aqui, cada atualização devolvia a senha do `admin` à de fábrica. Agora
   o playbook só a define **uma vez** por servidor. Na primeira atualização

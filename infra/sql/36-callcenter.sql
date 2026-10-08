@@ -25,7 +25,7 @@ SET NAMES utf8mb4;
 CREATE TABLE IF NOT EXISTS cc_agentes (
   id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   usuario_id    INT UNSIGNED NOT NULL,
-  -- Só dígitos: é o que se digita no teclado do telefone (*40).
+  -- Só dígitos: é o que se digita no teclado do telefone (*11).
   matricula     VARCHAR(10)  NOT NULL,
   -- PIN do telefone. Nunca guardado em claro: SHA-256 de sal + PIN,
   -- calculado pela API.
@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS cc_agente_filas (
 CREATE TABLE IF NOT EXISTS cc_pausas_motivos (
   id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   nome            VARCHAR(40)  NOT NULL,
-  -- O número do motivo no telefone: *42 seguido dele.
+  -- O código que pausa por este motivo no telefone (*14). Vazio: só pelo
+  -- painel. Era um número digitado depois do *42; o 42 converte.
   codigo          TINYINT UNSIGNED NOT NULL,
   -- Passou disto, o supervisor vê a pausa em vermelho. Vazio: sem limite.
   limite_minutos  SMALLINT UNSIGNED NULL,
@@ -197,15 +198,16 @@ SELECT id, 'cc.agente' FROM perfis WHERE chave = 'operador';
 -- Códigos de agente no telefone. Quem decide é o serviço de tempo real,
 -- pela mesma classe que o console usa; o dialplan só pergunta.
 -- ---------------------------------------------------------
+-- A faixa *1x é só do call center (o 42 tira estes códigos da *4x, onde
+-- se misturavam com eco, filas e diretório). Pausar não tem código aqui:
+-- cada motivo de pausa tem o seu, no cadastro do motivo.
 INSERT INTO codigos_recurso (chave, nome, codigo, tipo, argumento, categoria, ordem, descricao) VALUES
- ('cc_login',  'Call center: entrar',            '*40', 'dialplan', NULL,
-  'filas', 40, 'Pede o código do agente — a matrícula, ou matrícula * PIN para quem tem PIN — e o põe nas filas dele, neste ramal.'),
- ('cc_pausa',  'Call center: pausar com motivo', '*42', 'dialplan', 'motivo',
-  'filas', 41, 'Disque o código e o número do motivo (1 almoço, 2 banheiro…). Vale para todas as filas.'),
- ('cc_volta',  'Call center: voltar da pausa',   '*49', 'dialplan', NULL,
-  'filas', 42, 'Encerra a pausa: o agente volta a receber chamadas.'),
- ('cc_logout', 'Call center: sair',              '*44', 'dialplan', NULL,
-  'filas', 43, 'Tira o agente logado neste ramal de todas as filas.')
+ ('cc_login',  'Call center: entrar',            '*11', 'dialplan', NULL,
+  'callcenter', 10, 'Pede o código do agente — a matrícula, ou matrícula * PIN para quem tem PIN — e o põe nas filas dele, neste ramal.'),
+ ('cc_logout', 'Call center: sair',              '*12', 'dialplan', NULL,
+  'callcenter', 20, 'Tira o agente logado neste ramal de todas as filas.'),
+ ('cc_volta',  'Call center: voltar da pausa',   '*13', 'dialplan', NULL,
+  'callcenter', 30, 'Encerra a pausa: o agente volta a receber chamadas.')
 ON DUPLICATE KEY UPDATE
   nome = VALUES(nome), descricao = VALUES(descricao), categoria = VALUES(categoria),
   ordem = VALUES(ordem), tipo = VALUES(tipo), argumento = VALUES(argumento);

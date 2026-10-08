@@ -31,9 +31,10 @@ final class Conferencia
         $pag    = self::coluna('SELECT numero FROM grupos_paging WHERE ativo = 1', 'numero');
         $disa   = self::coluna('SELECT id FROM disa WHERE ativo = 1', 'id');
         $pesq   = self::coluna('SELECT id FROM pesquisas WHERE ativo = 1', 'id');
+        $caixas = self::coluna('SELECT numero FROM caixas_postais WHERE ativo = 1', 'numero');
 
         $existe = static function (?string $tipo, ?string $valor) use (
-            $ramais, $filas, $uras, $grupos, $anun, $cond, $conf, $pag, $disa, $pesq
+            $ramais, $filas, $uras, $grupos, $anun, $cond, $conf, $pag, $disa, $pesq, $caixas
         ): bool {
             $valor = (string) $valor;
 
@@ -49,6 +50,7 @@ final class Conferencia
                 'paging'    => in_array($valor, $pag, true),
                 'disa'      => in_array($valor, $disa, true),
                 'pesquisa'  => in_array($valor, $pesq, true),
+                'caixa'     => in_array($valor, $caixas, true),
                 // externo e personalizado apontam para fora do cadastro;
                 // desligar, ocupado e congestionado não têm valor.
                 default     => true,
@@ -172,13 +174,24 @@ final class Conferencia
         // primeira e recusa a segunda com "already in use" — no log, que
         // ninguém lê. Quem criou "Celular Vivo" e "Celular Claro" com o
         // mesmo padrão fica com uma rota que nunca é usada e não tem como
-        // saber. A ordem decide qual vale.
+        // saber. A ordem decide qual vale. Cada rota pode ter vários
+        // padrões, e a conta é por padrão: os outros dela seguem valendo.
         $vistos = [];
         foreach (self::consulta(
-            'SELECT nome, padrao, ordem FROM rotas_saida WHERE ativo = 1 ORDER BY ordem, id'
+            'SELECT r.nome, p.padrao, r.ordem
+               FROM rotas_saida r
+          LEFT JOIN rota_saida_padroes p ON p.rota_id = r.id
+              WHERE r.ativo = 1
+           ORDER BY r.ordem, r.id, p.ordem, p.id'
         ) as $r) {
             $padrao = Padrao::normalizar((string) $r['padrao']);
+            // Rota ativa sem padrão nenhum não gera nada no dialplan.
             if ($padrao === '') {
+                $p[] = [
+                    'nivel' => 'aviso',
+                    'onde'  => "rota de saída {$r['nome']}",
+                    'texto' => 'não tem nenhum padrão de discagem: nenhum número sai por ela.',
+                ];
                 continue;
             }
             if (isset($vistos[$padrao])) {
@@ -187,7 +200,7 @@ final class Conferencia
                     'onde'  => "rota de saída {$r['nome']}",
                     'texto' => "usa o mesmo padrão \"{$padrao}\" da rota \"{$vistos[$padrao]}\", "
                              . 'que vem antes na ordem. O Asterisk fica só com a primeira: '
-                             . 'esta rota nunca é usada.',
+                             . 'este padrão desta rota nunca é usado.',
                 ];
                 continue;
             }

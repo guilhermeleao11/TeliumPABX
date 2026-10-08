@@ -112,7 +112,7 @@ ficaram, com o motivo:
 
 ## 3-B. Achados da revisão de 30/09/2026 que ficaram para depois
 
-- **`*49` com atendimento sem tabular** toca "operação falhou". O certo
+- **Voltar da pausa (*13) com atendimento sem tabular** toca "operação falhou". O certo
   é um áudio "tabule o atendimento antes de voltar", que não está entre
   os áudios do call center; o painel do agente já mostra o motivo.
 - **O retorno registra "sem resposta da central"** quando a central cai
@@ -195,9 +195,9 @@ padrão brasileiro). Chamada já tarifada não é recalculada: o preço
 congela no que valia quando ela aconteceu.
 
 **Call Center** — o módulo que a fila "call center" prometia e não
-existia. O agente é uma pessoa (conta do console, matrícula e PIN) que
-entra no ramal em que está, pelo painel ou por *40 no telefone, com os
-áudios em português; pausa com motivo, tabulação obrigatória, monitor
+existia. O agente é uma pessoa (nome, matrícula e PIN; a conta do console
+é opcional) que entra no ramal em que está, pelo painel ou por *11 no
+telefone, com os áudios em português; um código por pausa, tabulação obrigatória, monitor
 ao vivo do supervisor (pausar, tirar, escutar, sussurrar, intervir),
 retorno pedido na espera, ampliação de habilidade por tempo de espera e
 relatórios tirados do queue_log (SLA de verdade, TME, TMA, abandono,

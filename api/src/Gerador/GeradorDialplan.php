@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Telium\Gerador;
 
+use Telium\Dominio\RotasSaida;
 use Telium\Suporte\Bd;
 
 /** Gera os contextos telium-* do dialplan. */
@@ -673,12 +674,24 @@ final class GeradorDialplan
     {
         $linhas = ['NoOp(Fim do anúncio)'];
 
+        // Sem destino é uma escolha, não esquecimento: o anúncio toca e a
+        // chamada desliga. Passar o vazio ao resolvedor dava o mesmo
+        // Hangup, mas com "Destino não configurado" no console, como se
+        // faltasse alguma coisa no cadastro.
+        $semDestino = trim((string) ($a['destino_tipo'] ?? '')) === '';
+
         if ((int) $a['retornar_ura'] === 1) {
             // A URA marca de onde a chamada saiu; sem essa marca, não há
             // para onde voltar e vale o destino configurado.
             $linhas[] = 'ExecIf($["${TELIUM_URA_ORIGEM}" != ""]'
                       . '?Goto(telium-ura-${TELIUM_URA_ORIGEM},s,1))';
-            $linhas[] = 'NoOp(A chamada não veio de uma URA; vale o destino configurado)';
+            $linhas[] = $semDestino
+                ? 'NoOp(A chamada não veio de uma URA; desliga)'
+                : 'NoOp(A chamada não veio de uma URA; vale o destino configurado)';
+        }
+
+        if ($semDestino) {
+            return [...$linhas, 'NoOp(Anúncio sem destino: desliga depois de tocar)', 'Hangup()'];
         }
 
         return [...$linhas, ...$this->destino->linhas($a['destino_tipo'], $a['destino_valor'])];
@@ -1205,16 +1218,32 @@ final class GeradorDialplan
             return $b->comentario('nenhuma rota de saída ativa')->texto();
         }
 
+        // Uma rota tem um ou mais padrões (9XXXXXXXX e 09XXXXXXXX no mesmo
+        // "Celular 11"), cada um com os próprios prefixos. Cada padrão vira
+        // uma extensão completa: é o que o DIALPLAN_EXISTS de quem disca
+        // para cá enxerga, e o ${EXTEN} de cada uma é o que ela pegou.
+        $porRota = RotasSaida::padroesPorRota(array_column($rotas, 'id'));
+        $entradas = [];
+        foreach ($rotas as $rota) {
+            foreach ($porRota[(int) $rota['id']] ?? [] as $k => $p) {
+                $entradas[] = array_merge($rota, $p, [
+                    // O primeiro padrão fica com o rótulo de sempre.
+                    'rotulo' => 'r' . $rota['id'] . ($k === 0 ? '' : 'p' . ($k + 1)),
+                ]);
+            }
+        }
+
         $padroes = [];
-        foreach ($rotas as $r) {
+        foreach ($entradas as $r) {
             // "x." vira "_X.": quem cadastra escreve como fala.
             $r['padrao'] = Padrao::normalizar((string) $r['padrao']);
             // Dois cadastros com o mesmo padrão geravam a prioridade 1 duas
             // vezes; o Asterisk fica com a primeira e descarta a outra com
             // um aviso no log. Aqui a regra fica explícita: vale a de menor
-            // ordem, e o reserva de verdade é o "tronco de falha".
+            // ordem, e o reserva de verdade é o "tronco de falha". Os
+            // outros padrões da mesma rota continuam valendo.
             if (isset($padroes[$r['padrao']])) {
-                $b->branco()->comentario("Rota {$r['nome']} ignorada: o padrão {$r['padrao']} já é da rota "
+                $b->branco()->comentario("Padrão {$r['padrao']} da rota {$r['nome']} ignorado: ele já é da rota "
                     . $padroes[$r['padrao']] . ' (use o tronco de falha para ter reserva)');
                 continue;
             }
@@ -1243,7 +1272,8 @@ final class GeradorDialplan
             // O rótulo sai do id porque dois padrões diferentes podem
             // virar o mesmo texto depois de tirar os símbolos (_00X. e
             // _00X viram "00X") e os labels colidiriam dentro do contexto.
-            $rotulo = 'r' . $r['id'];
+            // Com vários padrões na rota, o segundo em diante leva "p2", "p3".
+            $rotulo = $r['rotulo'];
 
             // Atenção ao prefixo "0": com um teste de verdadeiro simples o
             // PHP o trata como vazio e o dígito seguia para a operadora.

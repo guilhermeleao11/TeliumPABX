@@ -232,7 +232,7 @@ final class RelatorioFilas
         }
 
         $nomes = [];
-        foreach (Bd::todos('SELECT a.id, a.matricula, u.nome FROM cc_agentes a JOIN usuarios u ON u.id = a.usuario_id') as $a) {
+        foreach (Bd::todos('SELECT id, matricula, nome FROM cc_agentes') as $a) {
             $nomes[CallCenter::nomeDoMembro((int) $a['id'])] = ['nome' => $a['nome'], 'matricula' => $a['matricula']];
         }
 

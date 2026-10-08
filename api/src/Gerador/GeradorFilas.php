@@ -195,7 +195,7 @@ final class GeradorFilas
         $confirma = (int) $f['confirmar_atendimento'] === 1;
 
         // Fila de call center não tem membro fixo: quem está nela é quem
-        // entrou (console ou *40), com o nome "Agente/<id>". Escrever um
+        // entrou (console ou *11), com o nome "Agente/<id>". Escrever um
         // membro aqui faria um ramal receber chamada sem ninguém logado.
         $fixos = (int) $f['callcenter'] === 1 ? [] : $this->agentes((int) $f['id']);
 

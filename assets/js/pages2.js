@@ -6,7 +6,7 @@
 /* Opções de destino usadas por rotas e URA — carregadas do banco. */
 async function opcoesDestino() {
   const vazio = () => ({ dados: [] });
-  const [ramais, filas, uras, custom, grupos, anuncios, disa, condicoes, conferencias, paging, pesquisas] =
+  const [ramais, filas, uras, custom, grupos, anuncios, disa, condicoes, conferencias, paging, pesquisas, caixas] =
     await Promise.all([
       Api.get('/ramais', { limite: 500 }).catch(vazio),
       Api.get('/filas', { limite: 200 }).catch(vazio),
@@ -18,7 +18,8 @@ async function opcoesDestino() {
       Api.get('/condicoes-horarias', { limite: 200 }).catch(vazio),
       Api.get('/conferencias', { limite: 200 }).catch(vazio),
       Api.get('/grupos-paging', { limite: 200 }).catch(vazio),
-      Api.get('/pesquisas', { limite: 200 }).catch(vazio)
+      Api.get('/pesquisas', { limite: 200 }).catch(vazio),
+      Api.get('/caixas-postais', { limite: 200 }).catch(vazio)
     ]);
   const ativos = l => (l.dados || []).filter(x => Number(x.ativo));
   return {
@@ -29,10 +30,19 @@ async function opcoesDestino() {
     conferencias: ativos(conferencias),
     paging: ativos(paging),
     pesquisas: ativos(pesquisas),
+    caixas: ativos(caixas),
     // Anúncio, não gravação: a gravação é matéria-prima, o anúncio é o
     // que sabe o que fazer com ela.
     anuncios: ativos(anuncios),
-    personalizados: ativos(custom)
+    personalizados: ativos(custom),
+    // As listas inteiras, desativados inclusive: o seletor só oferece o
+    // que está ativo, mas a descrição de um destino já gravado precisa
+    // achar o nome mesmo que o item tenha sido desativado depois.
+    todos: {
+      disa: disa.dados, condicoes: condicoes.dados, conferencias: conferencias.dados,
+      paging: paging.dados, pesquisas: pesquisas.dados,
+      anuncios: anuncios.dados, personalizados: custom.dados, caixas: caixas.dados
+    }
   };
 }
 
@@ -64,6 +74,7 @@ function destinoSelect(prefixo, item, destinos, extras = {}) {
     grupo('URAs', (d.uras || []).map(u => ({ v: `ura|${u.id}`, r: u.nome }))),
     grupo('Grupos de toque', (d.grupos || []).map(g => ({ v: `grupo|${g.numero}`, r: `${g.numero} — ${g.nome}` }))),
     grupo('Correio de voz', (d.ramais || []).map(r => ({ v: `voicemail|${r.numero}`, r: `Caixa de ${r.numero} — ${r.nome}` }))),
+    grupo('Caixas postais', (d.caixas || []).map(c => ({ v: `caixa|${c.numero}`, r: `${c.numero} — ${c.nome}` }))),
     grupo('Anúncios', (d.anuncios || []).map(a => ({ v: `anuncio|${a.id}`, r: a.nome }))),
     grupo('Condições horárias', (d.condicoes || []).map(c =>
         ({ v: `condicao|${c.id}`, r: c.nome }))),
@@ -92,7 +103,7 @@ function destinoSelect(prefixo, item, destinos, extras = {}) {
   // navegador caía na primeira opção, "nenhum", e salvar apagava o
   // destino sem ninguém ter mexido nele.
   const guardado = !achou && tipoAtual !== '' && atual !== '|'
-    ? `<optgroup label="Destino atual"><option value="${esc(atual)}" selected>${esc(`${tipoAtual} ${valorAtual}`.trim())} (desativado ou fora do seu acesso)</option></optgroup>`
+    ? `<optgroup label="Destino atual"><option value="${esc(atual)}" selected>${esc(descreveDestino(tipoAtual, valorAtual, d).replace(/ \(desativado\)$/, ''))} (desativado ou fora do seu acesso)</option></optgroup>`
     : '';
 
   const semEscolha = extras.rotuloVazio ?? '— escolha um destino —';
@@ -243,7 +254,7 @@ PAGES['conn.rotasentrada'] = paginaCrud({
     { label: 'De quem liga', render: r => r.cid_origem
         ? `<span class="badge mono">${esc(r.cid_origem)}</span>`
         : '<span class="muted">qualquer origem</span>' },
-    { label: 'Destino', render: r => `<span class="ura-dest">${icon('branch','ico ico-sm')}${esc(r.destino_tipo)} ${esc(r.destino_valor)}</span>` },
+    { label: 'Destino', render: (r, ctx, pagina) => `<span class="ura-dest">${icon('branch','ico ico-sm')}${esc(descreveDestino(r.destino_tipo, r.destino_valor, pagina?._destinos))}</span>` },
     { label: 'Opções', render: r => [
         Number(r.gravar) && '<span class="badge badge-brand">grava</span>',
         Number(r.bloquear_anonimo) && '<span class="badge badge-warn">barra oculto</span>',
@@ -269,7 +280,7 @@ PAGES['conn.rotasentrada'] = paginaCrud({
       // Quem ligou: a origem que casar (a mais específica), senão a rota sem origem.
       const comOrigem = grupo.filter(r => String(r.cid_origem ?? '').trim() && !coringa(r.cid_origem));
       const r = (o && rotaVencedora(comOrigem, o, 'cid_origem')) || grupo.find(x => !String(x.cid_origem ?? '').trim() || coringa(x.cid_origem));
-      const destino = r && (r.destino_tipo ? `${r.destino_tipo} ${r.destino_valor ?? ''}`.trim() : '—');
+      const destino = r && (r.destino_tipo ? descreveDestino(r.destino_tipo, r.destino_valor, pagina._destinos) : '—');
       alvo.innerHTML = r
         ? `${icon('check','ico ico-sm')} Vai para <b>${esc(destino)}</b>, pela rota <span class="mono">${esc(r.did || 'qualquer número')}</span>${r.cid_origem ? ` (origem <span class="mono">${esc(r.cid_origem)}</span>)` : ''}${r.descricao ? ` — ${esc(r.descricao)}` : ''}.`
         : `<span style="color:var(--danger)">${icon('x','ico ico-sm')} Nenhuma rota pega esta chamada: quem liga ouve o aviso de serviço indisponível.</span>`;
@@ -360,6 +371,26 @@ PAGES['conn.rotasentrada'] = paginaCrud({
 });
 
 /* ------------------------- Rotas de saída ------------------------- */
+
+/*
+ * Uma rota tem um ou mais padrões, cada um com os próprios prefixos: o
+ * "Celular 11" pega 9XXXXXXXX como está e 09XXXXXXXX tirando o 0. Para
+ * achar quem pega um número, cada padrão conta como uma rota à parte —
+ * é o que o dialplan gera, uma extensão por padrão.
+ */
+function padroesDasRotas(rotas) {
+  return (rotas || []).flatMap(r => (r.padroes || []).map(p => ({ ...r, ...p })));
+}
+
+/** " tira 0 · põe 21", ao lado do padrão; nada quando não mexe no número. */
+function descrevePrefixos(p) {
+  const partes = [
+    p.prefixo_remover && `tira <b class="mono">${esc(p.prefixo_remover)}</b>`,
+    p.prefixo_adicionar && `põe <b class="mono">${esc(p.prefixo_adicionar)}</b>`
+  ].filter(Boolean);
+  return partes.length ? ` <span class="small muted">${partes.join(' · ')}</span>` : '';
+}
+
 PAGES['conn.rotassaida'] = paginaCrud({
   recurso: 'rotas-saida',
   titulo: 'Rotas de Saída',
@@ -371,16 +402,18 @@ PAGES['conn.rotassaida'] = paginaCrud({
   vazioTitulo: 'Nenhuma rota de saída',
   vazioTexto: 'Sem rota de saída os ramais só fazem chamadas internas.',
   placeholderBusca: 'Buscar por nome ou padrão…',
-  textoBusca: r => `${r.nome} ${r.padrao}`,
+  textoBusca: r => `${r.nome} ${(r.padroes || []).map(p => p.padrao).join(' ')}`,
   tituloEditar: r => `Rota ${r.nome}`,
   tituloExcluir: r => `Excluir a rota ${r.nome}?`,
 
   colunas: [
     { label: 'Ordem', render: r => `<span class="grab">${icon('list','ico ico-sm')}</span> <b class="num">${r.ordem}</b>` },
     { label: 'Rota', render: r => `<b>${esc(r.nome)}</b>` },
-    { label: 'Padrão', render: r => `<span class="badge mono">${esc(r.padrao)}</span>` },
-    { label: 'Classe', render: r => `<span class="badge">${esc(r.classe)}</span>` },
-    { label: 'Remove prefixo', render: r => `<span class="mono dim">${esc(r.prefixo_remover || '—')}</span>` }
+    // Um padrão por linha, com o que ele tira e põe antes de discar.
+    { label: 'Padrões', render: r => (r.padroes || []).length
+        ? r.padroes.map(p => `<div><span class="badge mono">${esc(p.padrao)}</span>${descrevePrefixos(p)}</div>`).join('')
+        : '<span class="badge badge-warn">sem padrão</span>' },
+    { label: 'Classe', render: r => `<span class="badge">${esc(r.classe)}</span>` }
   ],
 
   // Para onde vai um número: a mesma conta que o Asterisk faz.
@@ -397,7 +430,7 @@ PAGES['conn.rotassaida'] = paginaCrud({
     campo?.addEventListener('input', () => {
       const n = campo.value.replace(/\s+/g, '');
       if (!n) { alvo.innerHTML = `<span class="muted">${esc(AJUDA_PADRAO)}</span>`; return; }
-      const r = rotaVencedora(pagina._itens, n);
+      const r = rotaVencedora(padroesDasRotas(pagina._itens), n);
       const tronco = r && (pagina._troncos || []).find(t => String(t.id) === String(r.tronco_id));
       alvo.innerHTML = r
         ? `${icon('check','ico ico-sm')} Sai pela rota <b>${esc(r.nome)}</b> (<span class="mono">${esc(r.padrao)}</span>, classe ${esc(r.classe)})${tronco ? `, tronco ${esc(tronco.nome)}` : ''}. A operadora recebe <b class="mono">${esc(numeroParaOperadora(r, n))}</b>.`
@@ -405,51 +438,97 @@ PAGES['conn.rotassaida'] = paginaCrud({
     });
   },
 
-  // Modelos prontos e o teste do padrão, dentro do formulário.
-  aoAbrirFormulario: (dw) => {
-    const padrao = dw.querySelector('[name="padrao"]');
-    if (!padrao) return;
+  // Os padrões da rota, os modelos prontos e o teste, dentro do formulário.
+  aoAbrirFormulario: (dw, item) => {
+    const guardado = dw.querySelector('[name="padroes"]');
+    if (!guardado) return;
+    // O quarto item é o prefixo a tirar daquele padrão.
     const modelos = [
       ['Tudo', 'X.', 'ddi', '', 'Qualquer número. Ponha classe restrita: os ramais só-locais usam as rotas mais específicas.'],
       ['Emergência', '1XX', 'emergencia', '', '190, 192, 193 e os outros de três dígitos.'],
       ['Fixo local', '[2-5]XXXXXXX', 'local', '', '8 dígitos, começando de 2 a 5.'],
       ['Celular local', '9XXXXXXXX', 'celular', '', '9 dígitos, começando com 9.'],
-      ['DDD com 0', '0ZZX.', 'ddd', '', '0 + DDD + número. Se a operadora não quiser o 0, ponha 0 em "Prefixo a remover".'],
+      ['Celular com 0', '09XXXXXXXX', 'celular', '0', 'O mesmo celular discado com 0 na frente: o 0 sai antes de ir para a operadora. Junte ao 9XXXXXXXX na mesma rota.'],
+      ['DDD com 0', '0ZZX.', 'ddd', '', '0 + DDD + número. Se a operadora não quiser o 0, ponha 0 em "Tirar".'],
       ['Internacional', '00X.', 'ddi', '', '00 + código do país.'],
       ['0800 / 0300', '0[38]00XXXXXXX', 'especial', '', 'Números de serviço.']
     ];
-    const campoPadrao = padrao.closest('.field');
-    campoPadrao.insertAdjacentHTML('beforebegin', `<div class="field full"><label class="label">Modelos prontos</label>
+    const linha = (p = {}) => `<tr data-padrao-linha>
+        <td><input class="input mono" data-p="padrao" value="${esc(p.padrao || '')}" placeholder="9XXXXXXXX"></td>
+        <td><input class="input mono" data-p="prefixo_remover" value="${esc(p.prefixo_remover || '')}" placeholder="—"></td>
+        <td><input class="input mono" data-p="prefixo_adicionar" value="${esc(p.prefixo_adicionar || '')}" placeholder="—"></td>
+        <td class="col-actions"><button type="button" class="btn btn-ghost btn-sm btn-icon" data-tip="Tirar este padrão" data-tirar-padrao>
+          ${icon('x','ico ico-sm')}</button></td>
+      </tr>`;
+
+    const campoPadroes = guardado.closest('.field');
+    campoPadroes.insertAdjacentHTML('beforebegin', `<div class="field full"><label class="label">Modelos prontos</label>
       <div class="row gap-6 wrap">${modelos.map(([rotulo, p, , , dica], i) =>
         `<button type="button" class="btn btn-ghost btn-sm" data-modelo="${i}" data-tip="${esc(dica)}"><span class="mono">${esc(p)}</span> ${esc(rotulo)}</button>`).join('')}</div>
-      <span class="hint">Preenche o padrão e a classe. É um ponto de partida: ajuste ao jeito que a sua operadora recebe.</span></div>`);
-    campoPadrao.insertAdjacentHTML('afterend', `<div class="field full"><label class="label">Testar este padrão</label>
+      <span class="hint">Acrescenta o padrão à rota e acerta a classe. É um ponto de partida: ajuste ao jeito que a sua operadora recebe.</span></div>`);
+    guardado.insertAdjacentHTML('afterend', `<div class="table-wrap"><table class="table">
+        <thead><tr><th>Padrão</th><th style="width:90px">Tirar</th><th style="width:90px">Pôr</th><th></th></tr></thead>
+        <tbody data-padroes>${((item && item.padroes) || [{}]).map(linha).join('') || linha()}</tbody>
+      </table></div>
+      <div><button type="button" class="btn btn-outline btn-sm" data-add-padrao style="margin-top:8px">
+        ${icon('plus','ico ico-sm')} Adicionar padrão</button></div>`);
+    campoPadroes.insertAdjacentHTML('afterend', `<div class="field full"><label class="label">Testar os padrões</label>
       <div class="row gap-8"><input class="input mono" data-testar-padrao inputmode="tel" placeholder="um número que os ramais discariam" style="max-width:260px">
         <span class="small grow" data-teste-padrao></span></div></div>`);
 
+    const corpo = dw.querySelector('[data-padroes]');
+    const lerLinhas = () => [...corpo.querySelectorAll('[data-padrao-linha]')].map(tr => ({
+      padrao: tr.querySelector('[data-p="padrao"]').value.trim(),
+      prefixo_remover: tr.querySelector('[data-p="prefixo_remover"]').value.trim(),
+      prefixo_adicionar: tr.querySelector('[data-p="prefixo_adicionar"]').value.trim()
+    }));
+
     const testar = () => {
+      const lista = lerLinhas();
+      // A lista inteira vai ao servidor num campo só; ele confere cada
+      // padrão e troca a lista antiga de uma vez, junto com a rota.
+      guardado.value = JSON.stringify(lista);
+
       const n = dw.querySelector('[data-testar-padrao]').value.replace(/\s+/g, '');
       const saida = dw.querySelector('[data-teste-padrao]');
-      const p = padraoNormalizado(padrao.value);
-      const vira = p && p !== padrao.value.trim() ? `Vai ser gravado como <b class="mono">${esc(p)}</b>. ` : '';
+      const viram = lista.filter(p => p.padrao && padraoNormalizado(p.padrao) !== p.padrao)
+        .map(p => `<span class="mono">${esc(p.padrao)}</span> como <b class="mono">${esc(padraoNormalizado(p.padrao))}</b>`);
+      const vira = viram.length ? `Vai ser gravado ${viram.join(', ')}. ` : '';
       if (!n) { saida.innerHTML = vira; return; }
-      const rota = { prefixo_remover: dw.querySelector('[name="prefixo_remover"]')?.value, prefixo_adicionar: dw.querySelector('[name="prefixo_adicionar"]')?.value };
-      saida.innerHTML = vira + (padraoCasa(p, n)
-        ? `<span style="color:var(--ok)">${icon('check','ico ico-sm')} Pega.</span> A operadora recebe <b class="mono">${esc(numeroParaOperadora(rota, n))}</b>.`
-        : `<span style="color:var(--danger)">${icon('x','ico ico-sm')} Não pega este número.</span>`);
+      const p = rotaVencedora(lista.filter(x => x.padrao), n);
+      saida.innerHTML = vira + (p
+        ? `<span style="color:var(--ok)">${icon('check','ico ico-sm')} Pega</span> pelo padrão <span class="mono">${esc(padraoNormalizado(p.padrao))}</span>. A operadora recebe <b class="mono">${esc(numeroParaOperadora(p, n))}</b>.`
+        : `<span style="color:var(--danger)">${icon('x','ico ico-sm')} Nenhum padrão desta rota pega este número.</span>`);
     };
+
+    dw.querySelector('[data-add-padrao]').onclick = () => {
+      corpo.insertAdjacentHTML('beforeend', linha());
+      corpo.lastElementChild.querySelector('[data-p="padrao"]').focus();
+      testar();
+    };
+    corpo.addEventListener('click', ev => {
+      const tirar = ev.target.closest('[data-tirar-padrao]');
+      if (!tirar) return;
+      tirar.closest('[data-padrao-linha]').remove();
+      // Sempre sobra uma linha para escrever.
+      if (!corpo.children.length) corpo.insertAdjacentHTML('beforeend', linha());
+      testar();
+    });
     dw.querySelectorAll('[data-modelo]').forEach(b => b.onclick = () => {
-      const [rotulo, p, classe] = modelos[Number(b.dataset.modelo)];
-      padrao.value = p;
+      const [rotulo, p, classe, tirar] = modelos[Number(b.dataset.modelo)];
+      // Ocupa a primeira linha em branco; sem nenhuma, acrescenta outra.
+      let tr = [...corpo.querySelectorAll('[data-padrao-linha]')]
+        .find(l => !l.querySelector('[data-p="padrao"]').value.trim());
+      if (!tr) { corpo.insertAdjacentHTML('beforeend', linha()); tr = corpo.lastElementChild; }
+      tr.querySelector('[data-p="padrao"]').value = p;
+      tr.querySelector('[data-p="prefixo_remover"]').value = tirar;
       const sel = dw.querySelector('[name="classe"]'); if (sel) sel.value = classe;
       const nome = dw.querySelector('[name="nome"]'); if (nome && !nome.value.trim()) nome.value = rotulo;
       testar();
     });
     ['input', 'change'].forEach(ev => {
-      padrao.addEventListener(ev, testar);
+      corpo.addEventListener(ev, testar);
       dw.querySelector('[data-testar-padrao]').addEventListener(ev, testar);
-      dw.querySelector('[name="prefixo_remover"]')?.addEventListener(ev, testar);
-      dw.querySelector('[name="prefixo_adicionar"]')?.addEventListener(ev, testar);
     });
     testar();
   },
@@ -467,8 +546,12 @@ PAGES['conn.rotassaida'] = paginaCrud({
       { campo: 'ordem', label: 'Ordem na lista', tipo: 'number', padrao: 10,
         ajuda: 'Só organiza a lista. Quando dois padrões pegam o mesmo número, vale o mais específico — '
              + 'o teste abaixo mostra qual.' },
-      { campo: 'padrao', label: 'Padrão de discagem', obrigatorio: true, mono: true, placeholder: 'X.',
-        largura: 'full', ajuda: AJUDA_PADRAO },
+      // A lista é montada pelo aoAbrirFormulario em volta deste campo
+      // escondido, que leva os padrões ao servidor como JSON.
+      { campo: 'padroes', label: 'Padrões de discagem', tipo: 'hidden', obrigatorio: true, largura: 'full',
+        ajuda: 'Os jeitos de discar que esta rota pega — 9XXXXXXXX e 09XXXXXXXX podem ficar juntos. '
+             + '"Tirar" e "Pôr" valem só para aquele padrão: no 09XXXXXXXX, tirar 0 entrega à operadora '
+             + 'o mesmo número do 9XXXXXXXX. ' + AJUDA_PADRAO },
       { campo: 'classe', label: 'Classe', tipo: 'select',
         opcoes: ['local','celular','ddd','ddi','emergencia','especial'], padrao: 'local',
         ajuda: 'Decide quem pode usar a rota (a permissão de discagem do ramal). Numa rota que pega '
@@ -477,8 +560,6 @@ PAGES['conn.rotassaida'] = paginaCrud({
         opcoes: troncos.length ? troncos : [{ valor: '', rotulo: 'cadastre um tronco antes' }] },
       { campo: 'tronco_falha_id', label: 'Tronco reserva', tipo: 'select',
         opcoes: [{ valor: '', rotulo: 'nenhum' }, ...troncos] },
-      { campo: 'prefixo_remover', label: 'Prefixo a remover', mono: true, placeholder: '0' },
-      { campo: 'prefixo_adicionar', label: 'Prefixo a adicionar', mono: true },
       { campo: 'pin_set_id', label: 'Pedir PIN', tipo: 'select', largura: 'full',
         opcoes: [{ valor: '', rotulo: 'não pedir senha nesta rota' }, ...pins],
         ajuda: pins.length
@@ -753,6 +834,14 @@ function descreveDestino(tipo, valor, destinos) {
   if (!tipo) return 'não configurado';
 
   const achar = (lista, campo) => (lista || []).find(x => String(x[campo]) === String(valor));
+  // Para os tipos cuja lista do seletor só traz os ativos: procura ali e,
+  // não achando, na lista inteira — e avisa que está desativado.
+  const acharTodos = (chave, campo) => {
+    const ativo = achar(d[chave], campo);
+    if (ativo) return { x: ativo, off: '' };
+    const qualquer = achar(d.todos?.[chave], campo);
+    return qualquer ? { x: qualquer, off: ' (desativado)' } : null;
+  };
 
   switch (tipo) {
     case 'ramal': {
@@ -773,17 +862,43 @@ function descreveDestino(tipo, valor, destinos) {
       return g ? `grupo ${g.numero} — ${g.nome}` : `grupo de toque ${valor}`;
     }
     case 'personalizado': {
-      const p = achar(d.personalizados, 'id');
-      return p ? `destino ${p.nome}` : `destino personalizado ${valor}`;
+      const p = acharTodos('personalizados', 'id');
+      return p ? `destino ${p.x.nome}${p.off}` : `destino personalizado ${valor}`;
     }
     case 'voicemail': return `correio de voz de ${valor}`;
+    case 'caixa': {
+      const c = acharTodos('caixas', 'numero');
+      return c ? `caixa postal ${c.x.numero} — ${c.x.nome}${c.off}` : `caixa postal ${valor}`;
+    }
     case 'anuncio': {
-      const a = achar(d.anuncios, 'id');
-      return a ? `anúncio ${a.nome}` : `anúncio ${valor}`;
+      const a = acharTodos('anuncios', 'id');
+      return a ? `anúncio ${a.x.nome}${a.off}` : `anúncio ${valor}`;
+    }
+    case 'condicao': {
+      const c = acharTodos('condicoes', 'id');
+      return c ? `condição ${c.x.nome}${c.off}` : `condição horária ${valor}`;
+    }
+    case 'disa': {
+      const x = acharTodos('disa', 'id');
+      return x ? `DISA ${x.x.nome}${x.off}` : `DISA ${valor}`;
+    }
+    case 'conferencia': {
+      const c = acharTodos('conferencias', 'numero');
+      return c ? `conferência ${c.x.numero} — ${c.x.nome}${c.off}` : `conferência ${valor}`;
+    }
+    case 'paging': {
+      const g = acharTodos('paging', 'numero');
+      return g ? `megafonia ${g.x.numero} — ${g.x.nome}${g.off}` : `megafonia ${valor}`;
+    }
+    case 'pesquisa': {
+      const p = acharTodos('pesquisas', 'id');
+      return p ? `pesquisa ${p.x.nome}${p.off}` : `pesquisa de satisfação ${valor}`;
     }
     case 'externo':   return `número externo ${valor}`;
     case 'desligar':  return 'desligar';
-    default:          return `${tipo} ${valor}`;
+    case 'ocupado':   return 'tom de ocupado';
+    case 'congestionado': return 'tom de congestionamento';
+    default:          return `${tipo} ${valor ?? ''}`.trim();
   }
 }
 
@@ -1639,20 +1754,25 @@ PAGES['cfg.empresa'] = {
 
 /* ------------------------- Registro de atividades ------------------------- */
 PAGES['admin.auditoria'] = {
+  // Sem filtro, a consulta é a da última semana; o servidor devolve o
+  // período que usou e páginas de 30, sem contar o total da tabela.
+  _f: { de: '', ate: '', usuario: '', acao: '', modulo: '', q: '', pagina: 1 },
+
   async render() {
     let r;
-    try { r = await Api.get('/auditoria'); }
+    try { r = await Api.get('/auditoria', this._f); }
     catch (e) { return pageHead('Registro de Atividades', '') + blocoErro(e); }
 
-    const cabecalho = pageHead('Registro de Atividades',
-      'Trilha de auditoria: quem fez o quê, quando e de onde.');
+    // O período que valeu de verdade (o padrão, ou o máximo de 92 dias).
+    this._f.de = r.de;
+    this._f.ate = r.ate;
+    const f = this._f;
+    const acoes = ['criar','editar','excluir','aplicar','login','login_falha','logout',
+                   'exportar','importar','backup','testar','senha_propria'];
+    const opcao = (v, atual, rotulo = v) => `<option value="${esc(v)}" ${atual === v ? 'selected' : ''}>${esc(rotulo)}</option>`;
+    const filtrado = f.usuario || f.acao || f.modulo || f.q;
 
-    if (!r.dados.length) {
-      return cabecalho + `<div class="card">${vazio('file', 'Nenhuma atividade registrada',
-        'Toda alteração feita pelo console é registrada aqui.')}</div>`;
-    }
-
-    return cabecalho + `<div class="card"><div class="table-wrap"><table class="table">
+    const corpo = r.dados.length ? `<div class="table-wrap"><table class="table">
       <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Módulo</th><th>Objeto</th><th>IP</th></tr></thead>
       <tbody>${r.dados.map(a => `
         <tr><td class="mono small">${dataHora(a.criado_em)}</td>
@@ -1661,7 +1781,59 @@ PAGES['admin.auditoria'] = {
           <td class="mono small dim">${esc(a.modulo)}</td>
           <td class="small">${esc(a.objeto || '—')}</td>
           <td class="mono small dim">${esc(a.ip || '—')}</td></tr>`).join('')}
-      </tbody></table></div></div>`;
+      </tbody></table></div>
+      <div class="card-foot pager">
+        <span class="small muted">Página ${r.pagina} · ${r.limite} por página</span>
+        <div class="pages">
+          <button data-pagina-aud="${r.pagina - 1}" ${r.pagina <= 1 ? 'disabled' : ''}>${icon('chevronL','ico ico-sm')}</button>
+          <button class="on">${r.pagina}</button>
+          <button data-pagina-aud="${r.pagina + 1}" ${r.tem_mais ? '' : 'disabled'}>${icon('chevronR','ico ico-sm')}</button>
+        </div>
+      </div>`
+      : vazio('file', filtrado ? 'Nada com estes filtros' : 'Nenhuma atividade no período',
+              filtrado ? 'Tire algum filtro ou aumente o período.'
+                       : 'Toda alteração feita pelo console é registrada aqui. Aumente o período para ver mais.');
+
+    return pageHead('Registro de Atividades',
+      'Trilha de auditoria: quem fez o quê, quando e de onde.') + `
+    <div class="card">
+      <div class="toolbar wrap">
+        <input class="input" type="date" data-fa="de" value="${esc(f.de)}" style="width:160px">
+        <span class="muted small">até</span>
+        <input class="input" type="date" data-fa="ate" value="${esc(f.ate)}" style="width:160px">
+        <select class="select" data-fa="acao" style="width:160px">
+          <option value="">Todas as ações</option>${acoes.map(a => opcao(a, f.acao)).join('')}
+        </select>
+        <select class="select" data-fa="modulo" style="width:200px">
+          <option value="">Todos os módulos</option>${(r.modulos || []).map(m => opcao(m, f.modulo)).join('')}
+        </select>
+        <input class="input" data-fa="usuario" value="${esc(f.usuario)}" placeholder="Usuário…" style="width:160px">
+        <div class="input-icon search-mini">${icon('search','ico ico-sm')}
+          <input class="input" data-fa="q" value="${esc(f.q)}" placeholder="Objeto ou IP…"></div>
+        <span class="small muted">no máximo ${r.max_dias} dias por consulta</span>
+      </div>
+      ${corpo}
+    </div>`;
+  },
+
+  mount() {
+    let t;
+    document.querySelectorAll('[data-fa]').forEach(el => {
+      const evento = el.tagName === 'SELECT' || el.type === 'date' ? 'change' : 'input';
+      el.addEventListener(evento, () => {
+        clearTimeout(t);
+        // Texto espera a pessoa parar de digitar: uma consulta por palavra, não por letra.
+        t = setTimeout(() => {
+          this._f[el.dataset.fa] = el.value;
+          this._f.pagina = 1;
+          App.route();
+        }, evento === 'input' ? 500 : 0);
+      });
+    });
+    document.querySelectorAll('[data-pagina-aud]').forEach(b => b.onclick = () => {
+      this._f.pagina = Number(b.dataset.paginaAud);
+      App.route();
+    });
   }
 };
 
@@ -2271,6 +2443,7 @@ const CATEGORIAS_CODIGO = [
   { chave: 'naoperturbe',    rotulo: 'Não Perturbe',              ico: 'phoneOff' },
   { chave: 'chamadaespera',  rotulo: 'Chamada em Espera',         ico: 'clock' },
   { chave: 'filas',          rotulo: 'Filas',                     ico: 'users' },
+  { chave: 'callcenter',     rotulo: 'Call Center',               ico: 'headset' },
   { chave: 'estacionamento', rotulo: 'Estacionamento',            ico: 'package' },
   { chave: 'interfonia',     rotulo: 'Interfonia e Megafonia',    ico: 'speaker' },
   { chave: 'conferencia',    rotulo: 'Conferências',              ico: 'users' },
@@ -4284,7 +4457,10 @@ PAGES['apps.anuncios'] = {
           Number(a.retornar_ura) && '<span class="badge">volta à URA</span>',
           Number(a.nao_responder) && '<span class="badge">não atende</span>'
         ].filter(Boolean).join(' ') || '<span class="muted">—</span>'}</td>
-        <td class="small">${esc(descreveDestino(a.destino_tipo, a.destino_valor, this._destinos))}</td>
+        <td class="small">${a.destino_tipo
+          ? esc(descreveDestino(a.destino_tipo, a.destino_valor, this._destinos))
+          // Sem destino o anúncio toca e desliga — é escolha, não falta.
+          : '<span class="muted">Desliga</span>'}</td>
         <td>${Number(a.ativo)
           ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
           : '<span class="badge">Parado</span>'}</td>
@@ -4358,15 +4534,15 @@ PAGES['apps.anuncios'] = {
 
       Drawer.open({
         titulo: novo ? 'Novo anúncio' : `Editar ${a.nome}`,
-        sub: 'Toca a gravação e manda a chamada para onde você escolher.',
+        sub: 'Toca a gravação e manda a chamada para onde você escolher — ou desliga.',
         corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, a)).join('')}</div>
           <div class="secao-form">
             <b>Destino após reprodução</b>
             <div class="form-grid" style="margin-top:10px">
               ${destinoSelect('destino', a, pagina._destinos,
-                  { label: 'Para onde a chamada vai', largura: 'full',
-                    rotuloVazio: '— desligar depois de tocar —',
-                    ajuda: 'Com "retornar para a URA" ligado, isto só vale quando a chamada não veio de uma URA.' })}
+                  { label: 'Para onde a chamada vai (opcional)', largura: 'full',
+                    rotuloVazio: '— nenhum: desligar depois do anúncio —',
+                    ajuda: 'Deixe em "nenhum" para só tocar o anúncio e desligar. Com "retornar para a URA" ligado, o destino só vale quando a chamada não veio de uma URA.' })}
             </div>
           </div>`,
         rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
@@ -5424,6 +5600,71 @@ PAGES['apps.paging'] = paginaCrud({
       ajuda: 'Um bipe ou aviso curto evita o susto de o aparelho abrir som do nada.' },
     { campo: 'duracao_max', label: 'Tempo máximo (segundos)', tipo: 'number', padrao: 60 },
     { campo: 'ativo', label: 'Grupo ativo', tipo: 'switch', padrao: 1 }
+  ]
+});
+
+/* ------------------------- Aplicações · Caixas Postais ------------------------- */
+PAGES['apps.caixaspostais'] = paginaCrud({
+  recurso: 'caixas-postais',
+  titulo: 'Caixas Postais',
+  sub: `Caixas de recado que não são de ramal nenhum — o cliente que liga fora do horário, o SAC
+        sem atendente. Aponte uma rota de entrada, URA ou condição horária para a caixa; depois,
+        o código dela abre os recados no telefone, dizendo quem ligou e quando.`,
+  ico: 'voicemail',
+  plural: 'caixas',
+  rotuloNovo: 'Nova caixa',
+  tituloNovo: 'Nova caixa postal',
+  tituloEditar: c => `Caixa ${c.numero} — ${c.nome}`,
+  tituloExcluir: c => `Excluir a caixa ${c.numero}?`,
+  vazioTitulo: 'Nenhuma caixa postal avulsa',
+  vazioTexto: 'O correio de voz de cada ramal fica no cadastro do ramal. Aqui ficam as caixas que não são de ninguém.',
+  placeholderBusca: 'Buscar por número ou nome…',
+  textoBusca: c => `${c.numero} ${c.nome}`,
+  aoCarregar: async pagina => {
+    pagina._anuncios = (await Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] }))).dados
+      .filter(a => Number(a.ativo));
+  },
+
+  colunas: [
+    { label: 'Caixa', render: c => `<b class="mono">${esc(c.numero)}</b> ${esc(c.nome)}` },
+    { label: 'Ouvir os recados', render: c => c.codigo
+        ? `<span class="mono">${esc(c.codigo)}</span>${Number(c.pedir_senha) ? '' : ' <span class="badge badge-warn">sem senha</span>'}`
+        : '<span class="muted small">pelo *98, com o número e a senha</span>' },
+    { label: 'Saudação', render: (c, ctx, pagina) => {
+        const a = (pagina?._anuncios || []).find(x => Number(x.id) === Number(c.anuncio_id));
+        return a ? esc(a.nome) : '<span class="muted small">a da própria caixa</span>';
+      } },
+    { label: 'Cópia por e-mail', render: c => Number(c.vm_email) && c.email
+        ? esc(c.email) : '<span class="muted small">—</span>' },
+    { label: 'Estado', render: c => Number(c.ativo)
+        ? '<span class="badge badge-ok">Ativa</span>' : '<span class="badge">Desativada</span>' }
+  ],
+
+  campos: (c, ctx, pagina) => [
+    { campo: 'numero', label: 'Número da caixa', obrigatorio: true, mono: true, placeholder: '800',
+      padraoValido: /^[0-9]{2,10}$/, mensagemPadrao: 'de 2 a 10 dígitos',
+      ajuda: 'Não pode ser número de ramal: os dois dividem o mesmo correio de voz.' },
+    { campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'Recados fora do horário' },
+    { campo: 'senha', label: 'Senha', mono: true, tipo: 'password', obrigatorio: !c.id,
+      padraoValido: /^[0-9]{0,12}$/, mensagemPadrao: 'só dígitos',
+      ajuda: 'De 4 a 12 dígitos: é o que se digita para ouvir os recados. Ao editar, em branco mantém a atual.' },
+    { campo: 'codigo', label: 'Código para ouvir', mono: true, placeholder: '*981',
+      padraoValido: /^([*#][0-9]{1,6})?$/, mensagemPadrao: 'use * seguido de 1 a 6 dígitos',
+      ajuda: 'Discado de qualquer ramal, abre esta caixa: a central diz quem ligou, quando, e toca o recado. '
+           + 'Não pode ser igual nem o começo de outro código de recurso. Vazio: só pelo *98.' },
+    { campo: 'pedir_senha', label: 'Pedir a senha ao usar o código', tipo: 'switch', padrao: 1,
+      ajuda: 'Desligado, qualquer ramal que discar o código ouve os recados.' },
+    { campo: 'anuncio_id', label: 'Saudação', tipo: 'select', largura: 'full',
+      opcoes: [{ valor: '', rotulo: '— a da própria caixa —' },
+               ...(pagina?._anuncios || []).map(a => ({ valor: String(a.id), rotulo: a.nome }))],
+      ajuda: 'O que quem liga ouve antes do bipe. Sem anúncio, vale a saudação gravada pelo menu da caixa '
+           + '(código, senha e opção 0) ou, sem ela, a padrão da central.' },
+    { campo: 'email', label: 'E-mail para cópia', placeholder: 'sac@empresa.com.br' },
+    { campo: 'vm_email', label: 'Mandar cópia do recado por e-mail', tipo: 'switch', padrao: 0 },
+    { campo: 'vm_apagar', label: 'Apagar da caixa depois de mandar', tipo: 'switch', padrao: 0 },
+    { campo: 'vm_max_mensagens', label: 'Máximo de recados', tipo: 'number', padrao: 100 },
+    { campo: 'vm_max_segundos', label: 'Duração máxima do recado (segundos)', tipo: 'number', padrao: 180 },
+    { campo: 'ativo', label: 'Caixa ativa', tipo: 'switch', padrao: 1 }
   ]
 });
 

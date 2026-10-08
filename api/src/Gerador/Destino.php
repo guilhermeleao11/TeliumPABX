@@ -31,6 +31,8 @@ final class Destino
             'ura'       => ["Goto(telium-ura-{$valor},s,1)"],
             'grupo'     => ["Goto(telium-grupos,{$valor},1)"],
             'voicemail' => ["VoiceMail({$valor}@telium,u)", 'Hangup()'],
+            // Caixa postal sem ramal: a saudação dela fica em telium-caixas.
+            'caixa'     => ["Goto(telium-caixas,{$valor},1)"],
             'anuncio'   => ["Goto(telium-anuncios,{$valor},1)"],
             'externo'   => ["Goto(telium-saida,{$valor},1)"],
             'condicao'  => ["Goto(telium-condicoes,{$valor},1)"],
@@ -90,6 +92,7 @@ final class Destino
             'ura'       => "URA {$valor}",
             'grupo'     => "grupo de toque {$valor}",
             'voicemail' => "correio de voz {$valor}",
+            'caixa'     => "caixa postal {$valor}",
             'anuncio'   => "anúncio {$valor}",
             'condicao'  => "condição horária {$valor}",
             'disa'      => "DISA {$valor}",

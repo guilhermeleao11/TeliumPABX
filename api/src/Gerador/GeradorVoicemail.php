@@ -122,6 +122,34 @@ final class GeradorVoicemail
             ));
         }
 
+        // As caixas sem ramal, no mesmo contexto. Um número que virou ramal
+        // depois fica de fora: a caixa do ramal ganha, e a avulsa avisa.
+        $numeros = array_column($ramais, 'numero');
+        foreach (Bd::todos('SELECT * FROM caixas_postais WHERE ativo = 1 ORDER BY numero') as $c) {
+            if (in_array($c['numero'], $numeros, true)) {
+                $b->comentario("caixa avulsa {$c['numero']} ({$c['nome']}) ignorada: o número é de um ramal");
+                continue;
+            }
+            $email = (int) $c['vm_email'] === 1 ? (string) $c['email'] : '';
+            $b->crua(sprintf(
+                '%s => %s,%s,%s,,%s',
+                $c['numero'],
+                $c['senha'] ?: $c['numero'],
+                str_replace(',', ' ', (string) $c['nome']),
+                $email,
+                implode('|', [
+                    'attach=' . ($email !== '' ? 'yes' : 'no'),
+                    'delete=' . ($email !== '' && (int) $c['vm_apagar'] === 1 ? 'yes' : 'no'),
+                    // Quem ouve no dia seguinte quer saber quem ligou e quando.
+                    'saycid=yes',
+                    'envelope=yes',
+                    'maxmsg=' . max(1, (int) $c['vm_max_mensagens']),
+                    'maxsecs=' . max(10, (int) $c['vm_max_segundos']),
+                    'tz=brasil',
+                ])
+            ));
+        }
+
         return ['voicemail.conf' => $b->texto()];
     }
 }

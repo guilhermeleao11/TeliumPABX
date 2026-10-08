@@ -366,6 +366,7 @@ final class Testes
             'ura'           => ['1',    'Goto(telium-ura-1,s,1)'],
             'grupo'         => ['2000', 'Goto(telium-grupos,2000,1)'],
             'voicemail'     => ['1001', 'VoiceMail(1001@telium,u)'],
+            'caixa'         => ['800',  'Goto(telium-caixas,800,1)'],
             'anuncio'       => ['3',    'Goto(telium-anuncios,3,1)'],
             'condicao'      => ['2',    'Goto(telium-condicoes,2,1)'],
             'conferencia'   => ['4000', 'Goto(telium-conferencias,4000,1)'],
@@ -1540,7 +1541,7 @@ final class Testes
         try {
             $uid = (int) Bd::valor('SELECT id FROM usuarios ORDER BY id LIMIT 1');
             Bd::executar('DELETE FROM cc_agentes WHERE usuario_id = ? OR matricula IN (?, ?)', [$uid, '98761', '98762']);
-            Bd::executar("INSERT INTO cc_agentes (usuario_id, matricula) VALUES (?, '98761')", [$uid]);
+            Bd::executar("INSERT INTO cc_agentes (nome, usuario_id, matricula) VALUES ('Teste', ?, '98761')", [$uid]);
             $semPin = (int) $pdo->lastInsertId();
             $this->ok((int) (\Telium\Dominio\CallCenter::agenteDoCodigo('98761')['id'] ?? 0) === $semPin,
                       'sem PIN no cadastro, só a matrícula entra');
@@ -1553,6 +1554,14 @@ final class Testes
                       'matrícula*PIN entra');
             $this->ok(!str_contains((string) Bd::valor('SELECT pin_hash FROM cc_agentes WHERE id = ?', [$semPin]), '4321'),
                       'o PIN não fica em claro no banco');
+
+            // Quem só atende pelo telefone não tem conta no console.
+            Bd::executar("INSERT INTO cc_agentes (nome, usuario_id, matricula) VALUES ('Só telefone', NULL, '98762')");
+            $soFone = (int) $pdo->lastInsertId();
+            $this->ok((\Telium\Dominio\CallCenter::agenteDoCodigo('98762')['nome'] ?? '') === 'Só telefone',
+                      'agente sem conta do console entra pelo telefone, com o nome dele');
+            $this->ok((\Telium\Dominio\CallCenter::agente($soFone)['usuario'] ?? null) === null,
+                      'e não aparece ligado a usuário nenhum');
         } finally {
             $pdo->rollBack();
         }
@@ -1615,6 +1624,32 @@ final class Testes
                       'os códigos do agente usam os áudios do call center');
             $this->ok(str_contains($cc, "exten => _X!,1,NoOp(Retorno"),
                       'o retorno de id com um dígito casa com a extensão (_X!, não _X.)');
+
+            // Cada pausa tem o seu código, e *45/*46 não mexem em fila de call center.
+            Bd::executar("INSERT INTO cc_pausas_motivos (nome, codigo, ordem) VALUES ('Teste pausa', '*61987', 999)");
+            $pausaId = (int) $pdo->lastInsertId();
+            $rec = (new \Telium\Gerador\GeradorRecursos())->gerar()['extensions.recursos.conf'];
+            $this->ok(str_contains($rec, "exten => *61987,1,NoOp(Call center: pausa {$pausaId})")
+                      && str_contains($rec, "GoSub(telium-cc-telefone,pausa,1({$pausaId}))"),
+                      'o código da pausa pausa por ela, sem número de motivo depois');
+            $this->ok(!str_contains($rec, 'pausa pelo motivo'), 'o antigo "código + motivo" não existe mais');
+            $this->ok(str_contains($rec, '98799') && str_contains($rec, '?callcenter)'),
+                      '*45 e *46 desviam a fila de call center para o aviso');
+            $this->ok(\Telium\Dominio\CodigosDiscagem::colisao('*6198', 'recurso', null) !== null,
+                      'um código que é o começo do de uma pausa colide');
+            $this->ok(\Telium\Dominio\CodigosDiscagem::colisao('*61987', 'pausa', $pausaId) === null,
+                      'a pausa não colide com ela mesma');
+
+            // Caixa postal sem ramal: recado pelo destino, ouvida pelo código.
+            Bd::executar("INSERT INTO caixas_postais (numero, nome, senha, codigo, pedir_senha)
+                          VALUES ('98777', 'Fora do horário', '4321', '*61988', 0)");
+            $rec = (new \Telium\Gerador\GeradorRecursos())->gerar()['extensions.recursos.conf'];
+            $vm = (new \Telium\Gerador\GeradorVoicemail())->gerar()['voicemail.conf'];
+            $this->ok(str_contains($vm, '98777 => 4321,Fora do horário,'), 'a caixa avulsa entra no voicemail.conf');
+            $this->ok(str_contains($rec, 'VoiceMailMain(98777@telium,s)'),
+                      'o código da caixa abre os recados, sem senha quando pedido');
+            $this->ok(str_contains($rec, '[telium-caixas]') && str_contains($rec, 'VoiceMail(98777@telium,u)'),
+                      'o destino "caixa postal" grava o recado nela');
         } finally {
             $pdo->rollBack();
         }
@@ -2672,6 +2707,56 @@ final class Testes
         $this->ok($errados === [], 'padrão escrito à vontade vira o do Asterisk' . ($errados ? ': ' . implode('; ', $errados) : ''));
         $this->ok(\Telium\Gerador\Padrao::ehTudo('x.') && \Telium\Gerador\Padrao::ehTudo('X!')
                   && !\Telium\Gerador\Padrao::ehTudo('0x.'), '"x." no número chamado é "qualquer número"');
+
+        // Vários padrões numa rota, cada um com o seu prefixo: o
+        // "Celular 11" pega 9XXXXXXXX como está e 09XXXXXXXX sem o 0.
+        $ok = \Telium\Dominio\RotasSaida::prepararPadroes(json_encode([
+            ['padrao' => '9xxxxxxxx'],
+            ['padrao' => '09xxxxxxxx', 'prefixo_remover' => '0'],
+            ['padrao' => '', 'prefixo_remover' => ''],
+        ]));
+        $this->ok(
+            ($ok['lista'] ?? null) === [
+                ['padrao' => '_9XXXXXXXX', 'prefixo_remover' => null, 'prefixo_adicionar' => null],
+                ['padrao' => '_09XXXXXXXX', 'prefixo_remover' => '0', 'prefixo_adicionar' => null],
+            ],
+            'a rota aceita vários padrões, cada um com o seu prefixo (e ignora a linha em branco)'
+        );
+        $recusa = static fn (mixed $l): bool => isset(\Telium\Dominio\RotasSaida::prepararPadroes($l)['mensagem']);
+        $this->ok($recusa([]) && $recusa('[{"padrao":""}]'), 'rota sem padrão nenhum é recusada');
+        $this->ok($recusa(['9xxxxxxxx', '9XXXXXXXX']), 'o mesmo padrão duas vezes na rota é recusado');
+        $this->ok($recusa([['padrao' => '9XXXXXXXX', 'prefixo_remover' => '0']])
+                  && !$recusa([['padrao' => 'X.', 'prefixo_remover' => '0']])
+                  && !$recusa([['padrao' => '0[1-9]X.', 'prefixo_remover' => '01']]),
+                  'o prefixo a tirar precisa ser o começo do que o padrão pega');
+
+        // E o dialplan escreve uma extensão por padrão, com o corte de cada uma.
+        $pdo = Bd::conexao();
+        $pdo->beginTransaction();
+        try {
+            Bd::executar("INSERT INTO troncos (nome, tipo, ativo) VALUES ('teste-padroes', 'pjsip', 1)");
+            $tronco = (int) $pdo->lastInsertId();
+            Bd::executar("INSERT INTO rotas_saida (nome, ordem, tronco_id, classe, ativo)
+                          VALUES ('Teste de padrões', 1, ?, 'celular', 1)", [$tronco]);
+            $rota = (int) $pdo->lastInsertId();
+            \Telium\Dominio\RotasSaida::gravarPadroes($rota, [
+                ['padrao' => '_7777XXXX', 'prefixo_remover' => null, 'prefixo_adicionar' => null],
+                ['padrao' => '_07777XXXX', 'prefixo_remover' => '0', 'prefixo_adicionar' => null],
+            ]);
+            $saida = (new GeradorDialplan())->gerar()['extensions.saida.conf'] ?? '';
+            $this->ok(
+                str_contains($saida, 'exten => _7777XXXX,1,NoOp(Rota de saída: Teste de padrões)')
+                    && str_contains($saida, 'exten => _07777XXXX,1,NoOp(Rota de saída: Teste de padrões)'),
+                'cada padrão da rota vira uma extensão em telium-saida'
+            );
+            $this->ok(
+                str_contains($saida, 'Dial(PJSIP/${EXTEN}@teste-padroes')
+                    && str_contains($saida, 'Dial(PJSIP/${EXTEN:1}@teste-padroes'),
+                'cada padrão corta o próprio prefixo antes de discar'
+            );
+        } finally {
+            $pdo->rollBack();
+        }
     }
 
     /**

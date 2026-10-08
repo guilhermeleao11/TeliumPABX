@@ -90,6 +90,20 @@ final class Recurso
          * @var string[]
          */
         private readonly array $modelos = [],
+        /**
+         * Uma lista que mora em tabela própria mas é editada no mesmo
+         * formulário — os padrões de discagem da rota de saída. Chega no
+         * corpo, no campo indicado, e grava junto com a linha, na mesma
+         * transação: rota sem padrão nenhum não chega a existir.
+         *
+         * campo:    o nome no corpo e na resposta
+         * ler:      ids → [id => lista], para devolver a lista com a linha
+         * preparar: o que veio → ['lista' => ...] ou ['mensagem' => ...]
+         * gravar:   (id, lista) troca a lista inteira
+         *
+         * @var array{campo:string, ler:callable, preparar:callable, gravar:callable}|null
+         */
+        private readonly ?array $lista = null,
     ) {
     }
 
@@ -160,7 +174,7 @@ final class Recurso
 
         $linhas = Bd::todos($sql . ' LIMIT ' . $limite . ' OFFSET ' . (($pagina - 1) * $limite), $args);
 
-        $linhas = array_map($this->limpar(...), $linhas);
+        $linhas = $this->comLista(array_map($this->limpar(...), $linhas));
         $por = (array) $req->getAttribute('referencia_por', []);
         if ($this->colunasReferencia !== [] && $req->getAttribute('so_referencia') === true
             && array_intersect($por, $this->referenciaCompleta) === []) {
@@ -182,12 +196,13 @@ final class Recurso
 
         return $linha === null
             ? Resposta::erro($res, 'Registro não encontrado', 404)
-            : Resposta::json($res, $this->limpar($linha));
+            : Resposta::json($res, $this->comLista([$this->limpar($linha)])[0]);
     }
 
     public function criar(Request $req, Response $res): Response
     {
-        $dados = $this->extrair((array) $req->getParsedBody());
+        $corpo = (array) $req->getParsedBody();
+        $dados = $this->extrair($corpo);
         if ($dados === []) {
             return Resposta::erro($res, 'Nenhum campo válido enviado', 422);
         }
@@ -195,6 +210,11 @@ final class Recurso
         $problema = $this->validar($dados, true);
         if ($problema !== null) {
             return Resposta::erro($res, $problema['mensagem'], 422, ['campo' => $problema['campo']]);
+        }
+
+        $lista = $this->prepararLista($corpo, true);
+        if (isset($lista['mensagem'])) {
+            return Resposta::erro($res, $lista['mensagem'], 422, ['campo' => $this->lista['campo']]);
         }
 
         $barrado = $this->impedimento($req, $res, 'criar', $dados, []);
@@ -214,18 +234,22 @@ final class Recurso
             implode(', ', array_fill(0, count($campos), '?'))
         );
 
+        $id = 0;
         try {
-            Bd::executar($sql, array_values($dados));
+            $this->gravarJunto($lista, static function () use ($sql, $dados, &$id): int {
+                Bd::executar($sql, array_values($dados));
+
+                return $id = (int) Bd::conexao()->lastInsertId();
+            });
         } catch (\PDOException $e) {
             return $this->erroBanco($res, $e);
         }
 
-        $id = (int) Bd::conexao()->lastInsertId();
-        $this->depoisDeGravar($req, 'criar', (string) $id, $dados);
+        $this->depoisDeGravar($req, 'criar', (string) $id, $this->comoAuditar($dados, $lista));
 
-        return Resposta::json($res, $this->limpar(
+        return Resposta::json($res, $this->comLista([$this->limpar(
             Bd::um("SELECT * FROM `{$this->tabela}` WHERE id = ?", [$id]) ?? []
-        ), 201);
+        )])[0], 201);
     }
 
     public function atualizar(Request $req, Response $res, array $args): Response
@@ -235,17 +259,22 @@ final class Recurso
             return Resposta::erro($res, 'Registro não encontrado', 404);
         }
 
-        $dados = $this->extrair((array) $req->getParsedBody());
-        if ($dados === []) {
+        $corpo = (array) $req->getParsedBody();
+        $dados = $this->extrair($corpo);
+        $lista = $this->prepararLista($corpo, false);
+        if ($dados === [] && $lista === null) {
             return Resposta::erro($res, 'Nenhum campo válido enviado', 422);
+        }
+        if (isset($lista['mensagem'])) {
+            return Resposta::erro($res, $lista['mensagem'], 422, ['campo' => $this->lista['campo']]);
         }
 
         // Editar só o campo secreto e deixá-lo em branco é pedir para
         // não mudar nada: responder o registro como está é a resposta
         // certa, não um erro de "nenhum campo válido".
         $dados = $this->semSegredoEmBranco($dados);
-        if ($dados === []) {
-            return Resposta::json($res, $this->limpar($atual));
+        if ($dados === [] && $lista === null) {
+            return Resposta::json($res, $this->comLista([$this->limpar($atual)])[0]);
         }
 
         $problema = $this->validar($dados, false);
@@ -265,19 +294,25 @@ final class Recurso
         $sets = implode(', ', array_map(static fn (string $c): string => "`{$c}` = ?", array_keys($dados)));
 
         try {
-            Bd::executar(
-                "UPDATE `{$this->tabela}` SET {$sets} WHERE id = ?",
-                [...array_values($dados), $args['id']]
-            );
+            $this->gravarJunto($lista, function () use ($sets, $dados, $args): int {
+                if ($dados !== []) {
+                    Bd::executar(
+                        "UPDATE `{$this->tabela}` SET {$sets} WHERE id = ?",
+                        [...array_values($dados), $args['id']]
+                    );
+                }
+
+                return (int) $args['id'];
+            });
         } catch (\PDOException $e) {
             return $this->erroBanco($res, $e);
         }
 
-        $this->depoisDeGravar($req, 'editar', (string) $args['id'], $dados);
+        $this->depoisDeGravar($req, 'editar', (string) $args['id'], $this->comoAuditar($dados, $lista));
 
-        return Resposta::json($res, $this->limpar(
+        return Resposta::json($res, $this->comLista([$this->limpar(
             Bd::um("SELECT * FROM `{$this->tabela}` WHERE id = ?", [$args['id']]) ?? []
-        ));
+        )])[0]);
     }
 
     public function remover(Request $req, Response $res, array $args): Response
@@ -492,6 +527,73 @@ final class Recurso
         }
 
         return $dados;
+    }
+
+    /**
+     * A lista do corpo, já conferida: null quando o recurso não tem lista
+     * ou a edição não a mandou (ausente é "não mexi"); na criação, faltar
+     * é o mesmo que vir vazia, e o preparar diz o que acha disso.
+     *
+     * @return array{lista:list<mixed>}|array{mensagem:string}|null
+     */
+    private function prepararLista(array $corpo, bool $criando): ?array
+    {
+        if ($this->lista === null || (!$criando && !array_key_exists($this->lista['campo'], $corpo))) {
+            return null;
+        }
+
+        return ($this->lista['preparar'])($corpo[$this->lista['campo']] ?? []);
+    }
+
+    /**
+     * Grava a linha e a lista na mesma transação. Sem lista, só a linha,
+     * do jeito de sempre.
+     *
+     * @param callable(): int $linha grava a linha e devolve o id dela
+     */
+    private function gravarJunto(?array $lista, callable $linha): void
+    {
+        if ($lista === null) {
+            $linha();
+            return;
+        }
+
+        $pdo = Bd::conexao();
+        $pdo->beginTransaction();
+        try {
+            $id = $linha();
+            ($this->lista['gravar'])($id, $lista['lista']);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /** O que vai para a auditoria: os campos e, se veio, a lista. */
+    private function comoAuditar(array $dados, ?array $lista): array
+    {
+        return $lista === null ? $dados : $dados + [$this->lista['campo'] => $lista['lista']];
+    }
+
+    /**
+     * Põe a lista de cada linha na resposta.
+     *
+     * @param  list<array<string,mixed>> $linhas
+     * @return list<array<string,mixed>>
+     */
+    private function comLista(array $linhas): array
+    {
+        if ($this->lista === null || $linhas === []) {
+            return $linhas;
+        }
+
+        $por = ($this->lista['ler'])(array_column($linhas, 'id'));
+        foreach ($linhas as &$l) {
+            $l[$this->lista['campo']] = isset($l['id']) ? ($por[(int) $l['id']] ?? []) : [];
+        }
+
+        return $linhas;
     }
 
     /** Remove colunas sensíveis da resposta. */

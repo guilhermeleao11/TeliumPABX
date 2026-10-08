@@ -22,8 +22,10 @@ final class Esquema
         'pesquisas', 'pesquisa_respostas',
         'conferencias', 'anuncios',
         'grupos_horario', 'grupo_horario_faixas', 'condicoes_horarias',
+        'rota_saida_padroes',
         'estacionamentos', 'despertadores',
         'provisionamento_convite',
+        'caixas_postais',
         // call center
         'cc_agentes', 'cc_agente_filas', 'cc_pausas_motivos', 'cc_tabulacoes',
         'cc_atendimentos', 'cc_retornos', 'queue_log',
@@ -40,6 +42,8 @@ final class Esquema
         'pesquisa_respostas' => ['status', 'ramal', 'satisfacao', 'sentido'],
         'contatos' => ['empresa', 'discagem_rapida'],
         'codigos_recurso' => ['tipo', 'argumento'],
+        // Agente sem conta do console: o nome é dele (42).
+        'cc_agentes' => ['nome'],
         // Sem esta coluna o relatório de chamadas não mostra por que
         // a ligação não completou, e o dialplan grava no vazio.
         'cdr' => ['motivo'],

@@ -368,14 +368,87 @@ final class Relatorios
         ]);
     }
 
-    /** GET /api/gravacoes */
+    /** Linhas por página na auditoria. */
+    private const AUDITORIA_POR_PAGINA = 30;
+    /** Maior período de uma consulta da auditoria, em dias. */
+    private const AUDITORIA_MAX_DIAS = 92;
+
+    /**
+     * GET /api/auditoria — filtrada e em páginas de 30.
+     *
+     * A tabela só cresce: cada alteração, login e aplicação vira uma
+     * linha. Trazer as 200 últimas sem filtro nenhum não achava o que
+     * se procurava e ficava mais pesado a cada mês. Aqui a consulta tem
+     * sempre período (os últimos 7 dias, se nada vier; no máximo 92),
+     * que é o índice da data que corta, e não conta o total: busca uma
+     * linha a mais só para saber se há próxima página.
+     *
+     * Filtros: de, ate (AAAA-MM-DD), usuario, acao, modulo, q (objeto ou
+     * IP) e pagina.
+     */
     public function auditoria(Request $req, Response $res): Response
     {
+        $p = $req->getQueryParams();
+        $data = static function (mixed $v): ?\DateTimeImmutable {
+            $d = \DateTimeImmutable::createFromFormat('!Y-m-d', (string) $v);
+            return $d !== false && $d->format('Y-m-d') === (string) $v ? $d : null;
+        };
+
+        $ate = $data($p['ate'] ?? '') ?? new \DateTimeImmutable('today');
+        $de = $data($p['de'] ?? '') ?? $ate->modify('-6 days');
+        if ($de > $ate) {
+            [$de, $ate] = [$ate, $de];
+        }
+        // Período longo demais vira o máximo, contado do fim.
+        $limiteDe = $ate->modify('-' . (self::AUDITORIA_MAX_DIAS - 1) . ' days');
+        if ($de < $limiteDe) {
+            $de = $limiteDe;
+        }
+
+        $where = ['criado_em >= ?', 'criado_em < ?'];
+        $args = [$de->format('Y-m-d 00:00:00'), $ate->modify('+1 day')->format('Y-m-d 00:00:00')];
+
+        foreach (['acao', 'modulo'] as $campo) {
+            if (trim((string) ($p[$campo] ?? '')) !== '') {
+                $where[] = "{$campo} = ?";
+                $args[] = trim((string) $p[$campo]);
+            }
+        }
+        if (trim((string) ($p['usuario'] ?? '')) !== '') {
+            $where[] = 'usuario_nome LIKE ?';
+            $args[] = '%' . addcslashes(trim((string) $p['usuario']), '%_\\') . '%';
+        }
+        if (trim((string) ($p['q'] ?? '')) !== '') {
+            $termo = '%' . addcslashes(trim((string) $p['q']), '%_\\') . '%';
+            $where[] = '(objeto LIKE ? OR ip LIKE ?)';
+            $args = [...$args, $termo, $termo];
+        }
+
+        $pagina = min(1000, max(1, (int) ($p['pagina'] ?? 1)));
+        $porPagina = self::AUDITORIA_POR_PAGINA;
+        $linhas = Bd::todos(
+            'SELECT id, usuario_nome, acao, modulo, objeto, ip, criado_em
+               FROM auditoria
+              WHERE ' . implode(' AND ', $where) . '
+           ORDER BY criado_em DESC, id DESC
+              LIMIT ' . ($porPagina + 1) . ' OFFSET ' . (($pagina - 1) * $porPagina),
+            $args
+        );
+        $temMais = count($linhas) > $porPagina;
+
         return Resposta::json($res, [
-            'dados' => Bd::todos(
-                'SELECT id, usuario_nome, acao, modulo, objeto, ip, criado_em
-                   FROM auditoria ORDER BY id DESC LIMIT 200'
-            ),
+            'dados'    => array_slice($linhas, 0, $porPagina),
+            'pagina'   => $pagina,
+            'limite'   => $porPagina,
+            'tem_mais' => $temMais,
+            'de'       => $de->format('Y-m-d'),
+            'ate'      => $ate->format('Y-m-d'),
+            'max_dias' => self::AUDITORIA_MAX_DIAS,
+            // Os módulos para o seletor: o índice do módulo responde sem
+            // ler a tabela.
+            'modulos'  => array_map('strval', array_column(
+                Bd::todos('SELECT DISTINCT modulo FROM auditoria ORDER BY modulo'), 'modulo'
+            )),
         ]);
     }
 }

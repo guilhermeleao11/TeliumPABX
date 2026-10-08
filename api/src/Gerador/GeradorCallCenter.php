@@ -10,8 +10,9 @@ use Telium\Suporte\Bd;
  *
  * Três coisas moram aqui:
  *
- *  - telium-cc-telefone: o que os códigos *40, *42, *44 e *49 fazem,
- *    com os áudios do call center (sounds/telium-cc).
+ *  - telium-cc-telefone: o que os códigos do agente (entrar, sair,
+ *    voltar) e o de cada pausa fazem, com os áudios do call center
+ *    (sounds/telium-cc).
  *    A decisão não é do dialplan: ele pergunta ao serviço de tempo real
  *    (CURL em 127.0.0.1:8095), que usa a mesma classe que o console. Um
  *    caminho só para entrar, pausar e sair — e as mesmas regras.
@@ -75,6 +76,7 @@ final class GeradorCallCenter
           ->same("GoSub(telium-cc-pedido,s,1({$url}/logout?k={$k}&ramal={$eu},telium-cc/logout-realizado))")
           ->same('Return()');
 
+        // ARG1 é o id do motivo, posto pelo código daquela pausa.
         $b->exten('pausa', 'Answer()')
           ->same('Wait(1)')
           ->same("GoSub(telium-cc-pedido,s,1({$url}/pausa?k={$k}&ramal={$eu}&motivo=\${FILTER(0-9,\${ARG1})},telium-cc/pausa-ativada))")

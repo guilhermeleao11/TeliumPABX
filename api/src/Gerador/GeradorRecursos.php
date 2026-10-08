@@ -45,6 +45,9 @@ final class GeradorRecursos
     {
         $b = $this->cabecalho('Contexto: códigos de recurso')->contexto('telium-recursos');
         $escritos = 0;
+        $this->filasCallCenter = array_map('strval', array_column(
+            Bd::todos('SELECT numero FROM filas WHERE ativo = 1 AND callcenter = 1'), 'numero'
+        ));
 
         foreach ($codigos as $c) {
             if (($c['tipo'] ?? 'dialplan') !== 'dialplan') {
@@ -75,11 +78,137 @@ final class GeradorRecursos
             $escritos++;
         }
 
+        $escritos += $this->pausas($b);
+        $escritos += $this->codigosDasCaixas($b);
+
         if ($escritos === 0) {
             $b->comentario('nenhum código de recurso ativo');
         }
 
+        $this->caixas($b);
+
         return $b->texto();
+    }
+
+    /** O código de cada caixa postal avulsa: abre a caixa para ouvir os recados. */
+    private function codigosDasCaixas(Bloco $b): int
+    {
+        $n = 0;
+        foreach ($this->caixasAtivas() as $c) {
+            $codigo = (string) ($c['codigo'] ?? '');
+            if (preg_match('/^[*#][0-9]{1,6}$/', $codigo) !== 1) {
+                continue;
+            }
+            // "s" pula a senha: é a caixa que qualquer ramal pode ouvir.
+            $opcoes = (int) $c['pedir_senha'] === 1 ? '' : ',s';
+            $b->branco()->comentario("{$codigo} — Ouvir a caixa postal {$c['numero']} ({$c['nome']})")
+              ->exten($codigo, "NoOp(Caixa postal {$c['numero']})")
+              ->apps(['Answer()', 'Wait(1)', "VoiceMailMain({$c['numero']}@telium{$opcoes})", 'Hangup()']);
+            $n++;
+        }
+
+        return $n;
+    }
+
+    /**
+     * telium-caixas: para onde o destino "caixa postal" manda a chamada.
+     *
+     * Com anúncio, ele é a saudação e o "s" pula a do correio; sem anúncio,
+     * vale a saudação gravada pelo menu da caixa (ou a padrão do Asterisk).
+     */
+    private function caixas(Bloco $b): void
+    {
+        $b->branco()->comentario('Caixas postais sem ramal: o recado')->contexto('telium-caixas');
+        $caixas = $this->caixasAtivas();
+        if ($caixas === []) {
+            $b->comentario('nenhuma caixa postal avulsa ativa');
+
+            return;
+        }
+        foreach ($caixas as $c) {
+            $saudacao = Som::prompt($c['anuncio'] ?? null);
+            $b->exten((string) $c['numero'], "NoOp(Recado na caixa {$c['numero']} — {$c['nome']})")
+              ->apps(array_merge(
+                  ['Answer()', 'Wait(1)'],
+                  $saudacao !== '' ? ["Playback({$saudacao})", "VoiceMail({$c['numero']}@telium,s)"]
+                                   : ["VoiceMail({$c['numero']}@telium,u)"],
+                  ['Hangup()']
+              ));
+        }
+    }
+
+    /** @var list<array<string,mixed>>|null */
+    private ?array $caixasAtivas = null;
+
+    /** As caixas avulsas que valem: ativas e com número que não é de ramal. */
+    private function caixasAtivas(): array
+    {
+        return $this->caixasAtivas ??= Bd::todos(
+            'SELECT c.*, s.arquivo AS anuncio
+               FROM caixas_postais c
+          LEFT JOIN anuncios a ON a.id = c.anuncio_id AND a.ativo = 1
+          LEFT JOIN audios s ON s.id = a.audio_id
+              WHERE c.ativo = 1 AND c.numero NOT IN (SELECT numero FROM ramais)
+           ORDER BY c.numero'
+        );
+    }
+
+    /**
+     * Um código por motivo de pausa do call center: discou, pausou por ele.
+     *
+     * O código leva o id do motivo, e não o nome: renomear a pausa não
+     * pede para aplicar a configuração de novo.
+     */
+    private function pausas(Bloco $b): int
+    {
+        $pausas = Bd::todos(
+            "SELECT id, nome, codigo FROM cc_pausas_motivos
+              WHERE ativo = 1 AND sistema = 0 AND codigo IS NOT NULL AND codigo <> ''
+           ORDER BY ordem, nome"
+        );
+
+        foreach ($pausas as $p) {
+            $codigo = (string) $p['codigo'];
+            if (preg_match('/^[*#][0-9]{1,6}$/', $codigo) !== 1) {
+                continue;
+            }
+            $b->branco()->comentario("{$codigo} — Call center: pausa \"{$p['nome']}\"")
+              ->exten($codigo, "NoOp(Call center: pausa {$p['id']})")
+              ->apps(["GoSub(telium-cc-telefone,pausa,1({$p['id']}))", 'Hangup()']);
+        }
+
+        return count($pausas);
+    }
+
+    /**
+     * As filas de call center, que *45 e *46 não alcançam.
+     *
+     * Nelas quem atende é o agente: entrar pelo código genérico punha o
+     * ramal na fila sem agente nenhum — fora do monitor, do relatório e da
+     * tabulação — e pausar por ele pausava sem motivo.
+     *
+     * @var list<string>
+     */
+    private array $filasCallCenter = [];
+
+    /** O GotoIf que desvia a fila de call center para o aviso. */
+    private function recusaCallCenter(string $arg): ?string
+    {
+        if ($this->filasCallCenter === []) {
+            return null;
+        }
+        $lista = implode('|', array_map(static fn (string $f): string => preg_quote($f, '/'), $this->filasCallCenter));
+
+        return 'GotoIf($[${REGEX("^(' . $lista . ')$" ' . $arg . ')}]?callcenter)';
+    }
+
+    /** @return array<string,string[]> o rótulo que *45 e *46 usam numa fila de call center */
+    private function avisoCallCenter(): array
+    {
+        return $this->filasCallCenter === [] ? [] : ['callcenter' => [
+            "NoOp(Fila de call center: entra-se e pausa-se pelos códigos do agente)",
+            'Playback(telium-cc/operacao-falhou)', 'Hangup()',
+        ]];
     }
 
     private function featuremap(array $codigos): string
@@ -495,8 +624,9 @@ final class GeradorRecursos
             ]],
 
             // ---------------- filas ----------------
-            'fila_login' => [$comArg, [
+            'fila_login' => [$comArg, array_values(array_filter([
                 "NoOp(Entrar ou sair da fila {$arg})", 'Answer()', 'Wait(1)',
+                $this->recusaCallCenter($arg),
                 'Set(TELIUM_MEMBRO=PJSIP/' . $eu . ')',
                 // "status" não é opção do QUEUE_MEMBER (o Asterisk dá erro e o
                 // teste sempre caía em "sair"), e "penalty" devolve 0 também
@@ -505,20 +635,21 @@ final class GeradorRecursos
                 'GotoIf($[${REGEX("(^|,)${TELIUM_MEMBRO}(,|$)" ${TELIUM_MEMBROS})} = 0]?entra)',
                 "RemoveQueueMember({$arg},\${TELIUM_MEMBRO})",
                 'Playback(agent-loggedoff)', 'Hangup()',
-            ], ['entra' => [
+            ])), ['entra' => [
                 "AddQueueMember({$arg},\${TELIUM_MEMBRO})",
                 'Playback(agent-loginok)', 'Hangup()',
-            ]]],
-            'fila_pausa' => [$comArg, [
+            ]] + $this->avisoCallCenter()],
+            'fila_pausa' => [$comArg, array_values(array_filter([
                 "NoOp(Pausar ou despausar na fila {$arg})", 'Answer()', 'Wait(1)',
+                $this->recusaCallCenter($arg),
                 'Set(TELIUM_MEMBRO=PJSIP/' . $eu . ')',
                 'GotoIf($["${QUEUE_MEMBER(' . $arg . ',paused,${TELIUM_MEMBRO})}" = "1"]?volta)',
                 "PauseQueueMember({$arg},\${TELIUM_MEMBRO})",
                 'Playback(activated)', 'Hangup()',
-            ], ['volta' => [
+            ])), ['volta' => [
                 "UnpauseQueueMember({$arg},\${TELIUM_MEMBRO})",
                 'Playback(de-activated)', 'Hangup()',
-            ]]],
+            ]] + $this->avisoCallCenter()],
             // ---------------- call center ----------------
             // A decisão fica com o serviço de tempo real, pela mesma
             // classe do console: telium-cc-telefone só pergunta a ele.
@@ -528,11 +659,7 @@ final class GeradorRecursos
             'cc_logout' => [$codigo, [
                 'NoOp(Call center: sair)', 'GoSub(telium-cc-telefone,logout,1)', 'Hangup()',
             ]],
-            // O motivo tem um dígito ou dois: "X." pediria pelo menos dois,
-            // e *421 (almoço) não casaria com nada.
-            'cc_pausa' => [$comArg, [
-                "NoOp(Call center: pausa pelo motivo {$arg})", "GoSub(telium-cc-telefone,pausa,1({$arg}))", 'Hangup()',
-            ]],
+            // Pausar não está aqui: cada motivo de pausa tem o seu código (pausas()).
             'cc_volta' => [$codigo, [
                 'NoOp(Call center: voltar da pausa)', 'GoSub(telium-cc-telefone,volta,1)', 'Hangup()',
             ]],

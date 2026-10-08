@@ -31,6 +31,7 @@ use Telium\Http\Controllers\Sistema;
 use Telium\Http\Middleware\Autenticacao as MwAutenticacao;
 use Telium\Http\Middleware\Permissao;
 use Telium\Http\Middleware\Seguranca;
+use Telium\Dominio\CodigosDiscagem;
 use Telium\Dominio\Usuarios;
 use Telium\Http\Recurso;
 use Telium\Suporte\Ambiente;
@@ -90,7 +91,7 @@ $erros->setDefaultErrorHandler(
 const ESCOLHEM_DESTINO = [
     'apps.ura', 'apps.filas', 'apps.anuncios', 'apps.condicoes', 'apps.grupohorario',
     'apps.estacionamento', 'apps.paging', 'apps.despertar', 'apps.conferencias',
-    'apps.grupostoque', 'apps.disa', 'apps.sigame', 'apps.correiovoz',
+    'apps.grupostoque', 'apps.disa', 'apps.sigame', 'apps.correiovoz', 'apps.caixaspostais',
     'conn.rotasentrada', 'conn.rotassaida', 'conn.provisionamento',
     'admin.listanegra', 'admin.allowlist', 'admin.destinos', 'cfg.musica', 'cfg.correiovoz',
 ];
@@ -394,6 +395,67 @@ $recursos = [
             modulo: 'apps.anuncios',
         ),
     ],
+    // Caixa postal sem ramal: recado fora do horário, ouvido depois pelo
+    // código de facilidade dela.
+    'caixas-postais' => [
+        'modulo' => 'apps.caixaspostais',
+        'referencia' => ESCOLHEM_DESTINO,
+        'recurso' => new Recurso(
+            tabela: 'caixas_postais',
+            colunas: ['numero', 'nome', 'senha', 'codigo', 'pedir_senha', 'anuncio_id', 'email',
+                      'vm_email', 'vm_apagar', 'vm_max_mensagens', 'vm_max_segundos', 'ativo'],
+            ordem: 'numero',
+            busca: ['numero', 'nome'],
+            filtros: ['ativo'],
+            ocultas: ['senha'],
+            colunasReferencia: ['id', 'numero', 'nome', 'ativo'],
+            afetaAsterisk: true,
+            modulo: 'apps.caixaspostais',
+            regras: [
+                'numero' => ['rotulo' => 'número da caixa', 'obrigatorio' => true, 'padrao' => '/^[0-9]{2,10}$/',
+                             'mensagem' => 'O número da caixa tem de 2 a 10 dígitos.'],
+                'nome'   => ['rotulo' => 'nome', 'obrigatorio' => true, 'padrao' => '/^.{2,80}$/u',
+                             'mensagem' => 'O nome tem de 2 a 80 caracteres.'],
+                'senha'  => ['padrao' => '/^[0-9]{4,12}$/', 'mensagem' => 'A senha tem de 4 a 12 dígitos.'],
+                'codigo' => ['padrao' => CodigosDiscagem::FORMATO,
+                             'mensagem' => 'Use * seguido de 1 a 6 dígitos (como *981).'],
+                'email'  => ['email' => true],
+            ],
+            unicas: ['numero', 'codigo'],
+            normalizar: static function (array $dados): array {
+                foreach (['codigo', 'email'] as $c) {
+                    if (array_key_exists($c, $dados) && trim((string) $dados[$c]) === '') {
+                        $dados[$c] = null;
+                    }
+                }
+
+                return $dados;
+            },
+            conferir: static function (string $acao, array $dados, array $atual): ?array {
+                if ($acao === 'excluir') {
+                    return null;
+                }
+                // A caixa do ramal e a avulsa moram no mesmo contexto do
+                // voicemail.conf: o mesmo número seria a mesma caixa.
+                $numero = (string) ($dados['numero'] ?? $atual['numero'] ?? '');
+                if ($numero !== '' && \Telium\Suporte\Bd::valor('SELECT id FROM ramais WHERE numero = ?', [$numero])) {
+                    return ['mensagem' => "{$numero} é número de ramal. Use um número que não seja de ramal.", 'campo' => 'numero'];
+                }
+                if ($acao === 'criar' && trim((string) ($dados['senha'] ?? '')) === '') {
+                    return ['mensagem' => 'Dê uma senha à caixa: é ela que protege os recados.', 'campo' => 'senha'];
+                }
+                $codigo = trim((string) ($dados['codigo'] ?? $atual['codigo'] ?? ''));
+                $ativo = (int) ($dados['ativo'] ?? $atual['ativo'] ?? 1) === 1;
+                $mudou = $codigo !== (string) ($atual['codigo'] ?? '') || (int) ($atual['ativo'] ?? 0) !== 1;
+                if ($codigo === '' || !$ativo || !$mudou) {
+                    return null;
+                }
+                $colisao = CodigosDiscagem::colisao($codigo, 'caixa', isset($atual['id']) ? (int) $atual['id'] : null);
+
+                return $colisao === null ? null : ['mensagem' => $colisao, 'campo' => 'codigo'];
+            },
+        ),
+    ],
     'conferencias' => [
         'modulo' => 'apps.conferencias',
         'referencia' => ESCOLHEM_DESTINO,
@@ -485,29 +547,21 @@ $recursos = [
         'modulo' => 'conn.rotassaida',
         'recurso' => new Recurso(
             tabela: 'rotas_saida',
-            colunas: ['nome','ordem','padrao','prefixo_remover','prefixo_adicionar','tronco_id',
-                      'tronco_falha_id','pin_set_id','classe','ativo'],
+            // O padrão e os prefixos moram em rota_saida_padroes, um por
+            // forma de discar (9XXXXXXXX e 09XXXXXXXX na mesma rota, cada
+            // um com o seu prefixo a tirar). As colunas antigas da tabela
+            // ficaram vazias na migração 44 e não são mais gravadas.
+            colunas: ['nome','ordem','tronco_id','tronco_falha_id','pin_set_id','classe','ativo'],
             ordem: 'ordem, id',
-            busca: ['nome','padrao'],
-            regras: [
-                // Aceita como a pessoa escreve ("x.", "0xx xxxx-xxxx"): o
-                // normalizar abaixo põe o "_" e as maiúsculas.
-                'padrao' => ['rotulo' => 'padrão', 'obrigatorio' => true,
-                             'padrao' => '/^_?[0-9XZNxzn.!\[\]*#+\s-]{1,40}$/',
-                             'mensagem' => 'O padrão é um número ou usa X (qualquer dígito), Z (1 a 9), N (2 a 9), '
-                                         . '[2-5] (faixa) e . no fim (o resto do número). Ex.: X. para tudo.'],
-                // Os prefixos entram no Dial: qualquer coisa além de dígito
-                // (um "&", por exemplo) acrescentaria canais à discagem.
-                'prefixo_remover' => ['rotulo' => 'prefixo a remover', 'padrao' => '/^[0-9*#+]{0,10}$/',
-                                      'mensagem' => 'O prefixo é só de dígitos.'],
-                'prefixo_adicionar' => ['rotulo' => 'prefixo a adicionar', 'padrao' => '/^[0-9*#+]{0,10}$/',
-                                        'mensagem' => 'O prefixo é só de dígitos.'],
-            ],
-            normalizar: static fn (array $dados): array => isset($dados['padrao'])
-                ? ['padrao' => \Telium\Gerador\Padrao::normalizar((string) $dados['padrao'])] + $dados
-                : $dados,
+            busca: ['nome'],
             afetaAsterisk: true,
             modulo: 'conn.rotassaida',
+            lista: [
+                'campo'    => 'padroes',
+                'ler'      => \Telium\Dominio\RotasSaida::padroesPorRota(...),
+                'preparar' => \Telium\Dominio\RotasSaida::prepararPadroes(...),
+                'gravar'   => \Telium\Dominio\RotasSaida::gravarPadroes(...),
+            ],
         ),
     ],
     'ura' => [
@@ -770,6 +824,24 @@ $recursos = [
             filtros: ['categoria', 'ativo'],
             afetaAsterisk: true,
             modulo: 'admin.codigos',
+            // Um código igual a outro, ou começo de outro — inclusive o de
+            // uma pausa do call center —, faz um dos dois parar de
+            // funcionar. Só se confere o que muda: trocar o código ou
+            // religar um desligado.
+            conferir: static function (string $acao, array $dados, array $atual): ?array {
+                if ($acao === 'excluir' || ($dados['tipo'] ?? $atual['tipo'] ?? 'dialplan') !== 'dialplan') {
+                    return null;
+                }
+                $codigo = trim((string) ($dados['codigo'] ?? $atual['codigo'] ?? ''));
+                $ativo = (int) ($dados['ativo'] ?? $atual['ativo'] ?? 1) === 1;
+                $mudou = $codigo !== (string) ($atual['codigo'] ?? '') || (int) ($atual['ativo'] ?? 0) !== 1;
+                if (!$ativo || !$mudou) {
+                    return null;
+                }
+                $colisao = CodigosDiscagem::colisao($codigo, 'recurso', isset($atual['id']) ? (int) $atual['id'] : null);
+
+                return $colisao === null ? null : ['mensagem' => $colisao, 'campo' => 'codigo'];
+            },
         ),
     ],
     'lista-negra' => [
@@ -821,21 +893,39 @@ $recursos = [
             colunas: ['nome', 'codigo', 'limite_minutos', 'produtiva', 'ordem', 'ativo'],
             ordem: 'ordem, nome',
             busca: ['nome'],
+            // O código de cada pausa vira uma extensão em telium-recursos.
+            afetaAsterisk: true,
             modulo: 'cc.pausas',
             regras: [
                 'nome'   => ['padrao' => '/^.{2,40}$/u', 'mensagem' => 'O nome tem de 2 a 40 caracteres.'],
-                // Faixa numérica por padrão, e não min/max: nas regras do
-                // Recurso, min/max medem o tamanho do texto, não o valor.
-                'codigo' => ['padrao' => '/^([1-9]|[1-8][0-9])$/',
-                             'mensagem' => 'O número vai de 1 a 89: é o que se digita depois do *42. 90 em diante são da central.'],
+                'codigo' => ['padrao' => CodigosDiscagem::FORMATO,
+                             'mensagem' => 'Use * seguido de 1 a 6 dígitos (como *14). Vazio: a pausa só se faz pelo painel.'],
             ],
             unicas: ['nome', 'codigo'],
+            // Sem código é NULL, e não "": a chave única aceita várias
+            // pausas sem código, mas só uma com "".
+            normalizar: static function (array $dados): array {
+                if (array_key_exists('codigo', $dados) && trim((string) $dados['codigo']) === '') {
+                    $dados['codigo'] = null;
+                }
+
+                return $dados;
+            },
             // "Pós-atendimento" e "Não atendeu" são postos pela central, e
             // o nome é o que o código procura no queue_log. Renomear ou
             // apagar quebraria a tabulação obrigatória sem erro nenhum.
             conferir: static function (string $acao, array $dados, array $atual): ?array {
                 if ((int) ($atual['sistema'] ?? 0) !== 1) {
-                    return null;
+                    // O código da pausa divide espaço com os códigos de recurso.
+                    $codigo = trim((string) ($dados['codigo'] ?? $atual['codigo'] ?? ''));
+                    $ativo = (int) ($dados['ativo'] ?? $atual['ativo'] ?? 1) === 1;
+                    $mudou = $codigo !== (string) ($atual['codigo'] ?? '') || (int) ($atual['ativo'] ?? 0) !== 1;
+                    if ($acao === 'excluir' || $codigo === '' || !$ativo || !$mudou) {
+                        return null;
+                    }
+                    $colisao = CodigosDiscagem::colisao($codigo, 'pausa', isset($atual['id']) ? (int) $atual['id'] : null);
+
+                    return $colisao === null ? null : ['mensagem' => $colisao, 'campo' => 'codigo'];
                 }
                 if ($acao === 'excluir') {
                     return ['mensagem' => 'Este motivo é da própria central e não pode ser excluído. Desative-o, se não quiser usá-lo.'];
@@ -843,8 +933,8 @@ $recursos = [
                 if (isset($dados['nome']) && $dados['nome'] !== $atual['nome']) {
                     return ['mensagem' => 'O nome deste motivo é usado pela central e não pode mudar.', 'campo' => 'nome'];
                 }
-                if (isset($dados['codigo']) && (int) $dados['codigo'] !== (int) $atual['codigo']) {
-                    return ['mensagem' => 'O número deste motivo é reservado.', 'campo' => 'codigo'];
+                if (isset($dados['codigo']) && trim((string) $dados['codigo']) !== '') {
+                    return ['mensagem' => 'Este motivo é posto pela central, não discado: não tem código.', 'campo' => 'codigo'];
                 }
 
                 return null;

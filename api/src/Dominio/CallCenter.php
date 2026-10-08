@@ -14,8 +14,8 @@ use Telium\Suporte\Bd;
  * há tabela de "agente online" para ficar presa quando o Asterisk
  * reinicia ou alguém entra pelo telefone.
  *
- * Todo caminho passa por aqui: o console (API), o telefone (códigos
- * *40, *42, *44, *49, pelo serviço de tempo real) e o supervisor. Cada
+ * Todo caminho passa por aqui: o console (API), o telefone (os códigos
+ * do agente e o de cada pausa, pelo serviço de tempo real) e o supervisor. Cada
  * um gera os mesmos eventos no Asterisk e as mesmas linhas no queue_log.
  *
  * O membro da fila leva o nome "Agente/<id>". É esse nome que o
@@ -62,12 +62,19 @@ final class CallCenter
     // Cadastro
     // ------------------------------------------------------------------
 
-    /** @return array<string,mixed>|null agente com nome e usuário */
+    /**
+     * O agente, com a conta do console quando ele tem uma.
+     *
+     * A conta é opcional: quem só atende pelo telefone ou softphone
+     * entra com matrícula e PIN e nunca abre o console.
+     *
+     * @return array<string,mixed>|null
+     */
     public static function agente(int $id): ?array
     {
         return Bd::um(
-            'SELECT a.*, u.nome, u.usuario, u.ramal AS ramal_usuario
-               FROM cc_agentes a JOIN usuarios u ON u.id = a.usuario_id
+            'SELECT a.*, u.usuario, u.ramal AS ramal_usuario
+               FROM cc_agentes a LEFT JOIN usuarios u ON u.id = a.usuario_id
               WHERE a.id = ?',
             [$id]
         );
@@ -261,8 +268,7 @@ final class CallCenter
         if ($agentes !== []) {
             $marcas = implode(',', array_fill(0, count($agentes), '?'));
             foreach (Bd::todos(
-                "SELECT a.id, a.matricula, u.nome FROM cc_agentes a JOIN usuarios u ON u.id = a.usuario_id
-                  WHERE a.id IN ({$marcas})",
+                "SELECT id, matricula, nome FROM cc_agentes WHERE id IN ({$marcas})",
                 array_keys($agentes)
             ) as $c) {
                 $agentes[(int) $c['id']]['nome'] = (string) $c['nome'];
@@ -378,8 +384,7 @@ final class CallCenter
         return $saiu;
     }
 
-    /** Pausa em todas as filas, com o motivo escrito no queue_log. */
-    /** Sem fila, pausa em todas; com fila, só nela. */
+    /** Pausa com o motivo escrito no queue_log: sem fila, em todas; com fila, só nela. */
     public function pausar(int $agenteId, string $motivo, ?string $fila = null): void
     {
         $interface = $this->interfaceDoAgente($agenteId);

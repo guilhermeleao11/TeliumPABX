@@ -150,16 +150,28 @@ SELECT '1140041000', 'DID de teste', 'ura', u.id, 1, 10, 1
  WHERE u.nome = 'URA de teste'
    AND NOT EXISTS (SELECT 1 FROM rotas_entrada WHERE did = '1140041000');
 
-INSERT INTO rotas_saida (nome, ordem, padrao, prefixo_remover, tronco_id, classe, ativo)
-SELECT 'Local (teste)', 10, '_0XXXXXXXXXX', '0', t.id, 'local', 1
+INSERT INTO rotas_saida (nome, ordem, tronco_id, classe, ativo)
+SELECT 'Local (teste)', 10, t.id, 'local', 1
   FROM troncos t
  WHERE t.ativo = 1 AND t.tipo = 'pjsip'
    AND NOT EXISTS (SELECT 1 FROM rotas_saida WHERE nome = 'Local (teste)')
  ORDER BY t.id LIMIT 1;
 
-INSERT INTO rotas_saida (nome, ordem, padrao, prefixo_remover, tronco_id, classe, ativo)
-SELECT 'Celular (teste)', 20, '_0XX9XXXXXXXX', '0', t.id, 'celular', 1
+INSERT INTO rotas_saida (nome, ordem, tronco_id, classe, ativo)
+SELECT 'Celular (teste)', 20, t.id, 'celular', 1
   FROM troncos t
  WHERE t.ativo = 1 AND t.tipo = 'pjsip'
    AND NOT EXISTS (SELECT 1 FROM rotas_saida WHERE nome = 'Celular (teste)')
  ORDER BY t.id LIMIT 1;
+
+-- Os padrões moram em rota_saida_padroes (migração 44). O celular tem
+-- os dois jeitos de discar: com o 0 + DDD, que sai sem o 0, e o local
+-- de nove dígitos, que sai como foi discado.
+INSERT IGNORE INTO rota_saida_padroes (rota_id, padrao, prefixo_remover, ordem)
+SELECT r.id, x.padrao, x.remover, x.ordem
+  FROM rotas_saida r
+  JOIN (SELECT 'Local (teste)' AS nome, '_0XXXXXXXXXX' AS padrao, '0' AS remover, 10 AS ordem
+        UNION ALL SELECT 'Celular (teste)', '_0XX9XXXXXXXX', '0', 10
+        UNION ALL SELECT 'Celular (teste)', '_9XXXXXXXX', NULL, 20) x ON x.nome = r.nome
+-- Rota que já tem padrão foi mexida à mão depois: fica como está.
+ WHERE NOT EXISTS (SELECT 1 FROM rota_saida_padroes p WHERE p.rota_id = r.id);
