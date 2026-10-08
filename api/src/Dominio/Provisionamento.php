@@ -244,7 +244,7 @@ final class Provisionamento
         return str_starts_with($ip, '127.');
     }
 
-    private static function dentroDaFaixa(string $ip, string $faixa): bool
+    public static function dentroDaFaixa(string $ip, string $faixa): bool
     {
         $n = ip2long($ip);
         if ($n === false) {

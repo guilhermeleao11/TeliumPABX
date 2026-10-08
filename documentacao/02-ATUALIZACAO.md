@@ -154,6 +154,17 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### Click to call para outros sistemas
+- Em **Telium › Integrações / API**, crie uma **chave** para cada sistema
+  (CRM, ERP, site). Ele chama `POST https://<central>/api/click2call` com
+  `ramal` e `numero` (e, se quiser, `nome`), mandando a chave no cabeçalho
+  `X-Api-Key`. A central toca o ramal e, quando ele atende, disca o número.
+- A chave aparece **uma vez só**, na criação. Ela pode ficar presa a
+  alguns ramais e a alguns IPs, e pedir ao telefone que atenda sozinho.
+- A chamada segue a permissão e a rota de saída do ramal.
+- A mesma tela tem o botão **Testar** e os últimos pedidos, com o motivo
+  de cada recusa.
+
 ### Call center, caixas postais e rotas de saída com vários padrões
 - **Os códigos do agente mudaram de lugar** — avise quem atende. Entrar
   passa de `*40` para **`*11`**, sair de `*44` para **`*12`** e voltar da

@@ -129,7 +129,11 @@ final class Ami
 
         $pacote = '';
         foreach ($campos as $chave => $valor) {
-            $pacote .= self::campo((string) $chave, (string) $valor);
+            // Um campo que vale várias vezes (Variable, no Originate) vem
+            // como lista: uma linha para cada.
+            foreach (is_array($valor) ? $valor : [$valor] as $v) {
+                $pacote .= self::campo((string) $chave, (string) $v);
+            }
         }
         fwrite($this->socket, $pacote . "\r\n");
 

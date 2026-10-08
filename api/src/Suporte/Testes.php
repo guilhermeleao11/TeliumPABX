@@ -71,6 +71,7 @@ final class Testes
             $this->grupo('QR Code do Linphone', $this->linphone(...));
             $this->grupo('Call center', $this->callCenter(...));
             $this->grupo('Relatório do call center', $this->relatorioCallCenter(...));
+            $this->grupo('Click to call (API)', $this->clickToCall(...));
             $this->grupo('Firewall: nunca bloquear', $this->confiaveis(...));
             $this->grupo('Telefone do navegador: permissão', $this->permissaoTelefone(...));
             $this->grupo('Ramais em planilha', $this->ramaisCsv(...));
@@ -1702,6 +1703,36 @@ final class Testes
     /**
      * Tempo logado e em pausa, reconstruído das transições do queue_log.
      */
+    /** A chave, a lista de ramais e a faixa de origem da API de click to call. */
+    private function clickToCall(): void
+    {
+        $c = \Telium\Dominio\ClickToCall::class;
+        $this->ok($c::lista("1001, 1002\n2000;3000") === ['1001', '1002', '2000', '3000'],
+                  'a lista aceita vírgula, espaço, ponto e vírgula e quebra de linha');
+        $this->ok($c::ipPermitido('10.1.2.3', '') && $c::ipPermitido('10.1.2.3', '10.0.0.0/8')
+                  && !$c::ipPermitido('11.1.2.3', '10.0.0.0/8, 200.1.2.3') && $c::ipPermitido('200.1.2.3', '10.0.0.0/8, 200.1.2.3'),
+                  'sem faixa vale de qualquer lugar; com faixa, só dela');
+        $this->ok($c::numeroLimpo("11 9999-0000\r\nAction: Command") === '1199990000',
+                  'o número perde tudo o que não se disca — não injeta nada no AMI');
+
+        $pdo = Bd::conexao();
+        $pdo->beginTransaction();
+        try {
+            $nova = $c::novaChave();
+            Bd::executar("INSERT INTO click2call_chaves (nome, token_hash, token_fim) VALUES ('Teste', ?, ?)",
+                         [$nova['hash'], $nova['fim']]);
+            $this->ok(($c::chaveDoToken($nova['token'])['nome'] ?? '') === 'Teste', 'a chave certa é aceita');
+            $this->ok($c::chaveDoToken($nova['token'] . 'x') === null && $c::chaveDoToken('') === null,
+                      'a chave errada ou vazia, não');
+            $this->ok(!Bd::valor('SELECT id FROM click2call_chaves WHERE token_hash = ?', [$nova['token']]),
+                      'o banco não guarda a chave em claro');
+            Bd::executar('UPDATE click2call_chaves SET ativo = 0 WHERE token_hash = ?', [$nova['hash']]);
+            $this->ok($c::chaveDoToken($nova['token']) === null, 'a chave desativada para de valer');
+        } finally {
+            $pdo->rollBack();
+        }
+    }
+
     private function relatorioCallCenter(): void
     {
         $pdo = Bd::conexao();

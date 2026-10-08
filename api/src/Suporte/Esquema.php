@@ -25,7 +25,7 @@ final class Esquema
         'rota_saida_padroes',
         'estacionamentos', 'despertadores',
         'provisionamento_convite',
-        'caixas_postais',
+        'caixas_postais', 'click2call_chaves', 'click2call_pedidos',
         // call center
         'cc_agentes', 'cc_agente_filas', 'cc_pausas_motivos', 'cc_tabulacoes',
         'cc_atendimentos', 'cc_retornos', 'queue_log',

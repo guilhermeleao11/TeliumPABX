@@ -6,6 +6,7 @@ namespace Telium\Http\Controllers;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Telium\Dominio\Auditoria;
+use Telium\Dominio\ClickToCall;
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Ami;
 use Telium\Suporte\Bd;
@@ -439,73 +440,19 @@ final class Portal
         }
 
         $corpo = (array) $req->getParsedBody();
-        // Só o que se disca num teclado. Sem isto, o valor viaja para uma
-        // ação do AMI e vira superfície de ataque.
-        $destino = preg_replace('/[^0-9*#+]/', '', (string) ($corpo['destino'] ?? '')) ?? '';
+        $destino = ClickToCall::numeroLimpo((string) ($corpo['destino'] ?? ''));
         if ($destino === '') {
             return Resposta::erro($res, 'Informe o número a discar.', 422, ['campo' => 'destino']);
         }
-
         $numero = (string) $r['numero'];
-        $contexto = (string) ($r['contexto_custom'] ?: $r['contexto']);
 
-        // Conferir ANTES de originar. Com Async o AMI responde "Success"
-        // no instante em que aceita o pedido, mesmo quando o canal não
-        // pode ser criado — e o console dizia "seu ramal vai tocar" para
-        // um telefone que não estava registrado. Quem clicou ficava
-        // olhando para um aparelho mudo sem nenhuma explicação.
-        $contatos = Ami::tentarComando('pjsip show contacts');
-        if ($contatos !== null) {
-            $alcancavel = Diagnostico::contatoAlcancavel($contatos, $numero);
-
-            if ($alcancavel === null) {
-                return Resposta::erro(
-                    $res,
-                    "O seu telefone (ramal {$numero}) não está registrado na central agora. "
-                    . 'Confira se o aparelho está ligado e conectado à rede.',
-                    409
-                );
-            }
-            if ($alcancavel === false) {
-                return Resposta::erro(
-                    $res,
-                    "A central não consegue falar com o seu telefone (ramal {$numero}): ele está "
-                    . 'registrado, mas não responde. Costuma ser o aparelho fora da rede ou um '
-                    . 'firewall no caminho.',
-                    409
-                );
-            }
-        }
-
+        // A mesma chamada da API de click to call (Integrações).
         try {
-            // doAmbiente(), não new Ami(): o construtor nu usa
-            // credenciais vazias e o AMI recusa a autenticação.
-            $ami = Ami::doAmbiente();
-            $ami->conectar();
-            $resposta = $ami->acao([
-                'Action'   => 'Originate',
-                'Channel'  => "PJSIP/{$numero}",
-                'Context'  => $contexto,
-                'Exten'    => $destino,
-                'Priority' => '1',
-                // Quem vê o número no visor é o ramal, e o que ele
-                // precisa ver é para onde a chamada vai.
-                'CallerID' => "{$destino} <{$numero}>",
-                'Timeout'  => '30000',
-                'Async'    => 'true',
-            ]);
-            $ami->desconectar();
+            ClickToCall::originar($r, $destino);
+        } catch (\DomainException $e) {
+            return Resposta::erro($res, $e->getMessage(), 409);
         } catch (\Throwable $e) {
             return Resposta::erro($res, 'A central não respondeu: ' . $e->getMessage(), 502);
-        }
-
-        if (!str_contains($resposta, 'Success')) {
-            return Resposta::erro(
-                $res,
-                'A central recusou a originação. Confira se o ramal está registrado.',
-                502,
-                ['saida' => trim($resposta)]
-            );
         }
 
         Auditoria::registrar(

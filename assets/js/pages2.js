@@ -1596,15 +1596,231 @@ PAGES['conn.provisionamento'] = paginaCrud({
 });
 
 /* ------------------------- Integrações ------------------------- */
+
+/*
+ * Click to call para outros sistemas: o CRM manda o ramal e o número, a
+ * central toca o ramal e, quando ele atende, disca o cliente. A seção fica
+ * acima da lista de webhooks; os nomes data-c2c-* não se confundem com os
+ * data-id/data-editar da lista genérica.
+ */
+const C2C = {
+  url: () => `${location.origin}/api/click2call`,
+
+  html(pagina, ctx) {
+    const d = pagina._c2c;
+    if (!d) return '';
+    const pode = ctx.can('editar');
+    const url = this.url();
+
+    const chaves = d.chaves.length ? `<div class="table-wrap"><table class="table">
+      <thead><tr><th>Sistema</th><th>Chave</th><th>Ramais</th><th>Origem</th><th>Último uso</th><th>Estado</th><th></th></tr></thead>
+      <tbody>${d.chaves.map(c => `<tr>
+        <td><b>${esc(c.nome)}</b>${Number(c.atender_auto) ? ' <span class="badge" title="Pede ao telefone que atenda sozinho">atende sozinho</span>' : ''}</td>
+        <td class="mono small">tlm_c2c_…${esc(c.token_fim)}</td>
+        <td class="small">${c.ramais ? `<span class="mono">${esc(c.ramais)}</span>` : '<span class="muted">todos</span>'}</td>
+        <td class="small">${c.ips ? `<span class="mono">${esc(c.ips)}</span>` : '<span class="muted">qualquer lugar</span>'}</td>
+        <td class="small dim">${c.ultimo_uso ? dataHora(c.ultimo_uso) : 'nunca'}</td>
+        <td>${Number(c.ativo) ? '<span class="badge badge-ok"><i class="dot"></i>Ativa</span>' : '<span class="badge"><i class="dot"></i>Desativada</span>'}</td>
+        <td class="col-actions"><span class="row-actions">${pode ? `
+          <button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar" data-c2c-editar="${c.id}">${icon('edit','ico ico-sm')}</button>
+          <button class="btn btn-ghost btn-sm btn-icon" data-tip="Gerar nova chave (a atual para de valer)" data-c2c-renovar="${c.id}">${icon('refresh','ico ico-sm')}</button>` : ''}
+          ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-c2c-excluir="${c.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+        </span></td></tr>`).join('')}</tbody></table></div>`
+      : vazio('phone', 'Nenhuma chave de click to call',
+              'Crie uma chave para cada sistema que vai pedir chamadas: o CRM, o ERP, o site.',
+              ctx.can('criar') ? `<button class="btn btn-primary btn-sm" data-c2c-nova>${icon('plus','ico ico-sm')} Nova chave</button>` : '');
+
+    const pedidos = d.pedidos.length ? `<div class="table-wrap"><table class="table">
+      <thead><tr><th>Quando</th><th>Quem pediu</th><th>Ramal</th><th>Número</th><th>Resultado</th></tr></thead>
+      <tbody>${d.pedidos.map(x => `<tr>
+        <td class="small dim">${dataHora(x.criado_em)}</td>
+        <td class="small">${x.origem === 'console' ? 'teste pelo console' : esc(x.chave || 'chave inválida')}
+          <div class="tiny muted mono">${esc(x.ip || '')}</div></td>
+        <td class="mono">${esc(x.ramal || '—')}</td>
+        <td class="mono">${esc(x.numero || '—')}</td>
+        <td class="small">${Number(x.ok) ? '<span class="badge badge-ok">ligou</span>' : '<span class="badge badge-danger">recusado</span>'}
+          ${esc(x.resultado)}${x.uniqueid ? `<div class="tiny muted mono">id ${esc(x.uniqueid)}</div>` : ''}</td>
+      </tr>`).join('')}</tbody></table></div>`
+      : '<p class="small muted" style="padding:14px 16px;margin:0">Nenhum pedido ainda.</p>';
+
+    return `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head"><div><div class="card-title">Click to call</div>
+          <div class="card-sub">Outro sistema manda o ramal e o número do cliente; a central toca o ramal e,
+            quando ele atende, disca o cliente — com as permissões e a rota de saída do próprio ramal.</div></div>
+          ${ctx.can('criar') && d.chaves.length ? `<button class="btn btn-primary btn-sm" data-c2c-nova>${icon('plus','ico ico-sm')} Nova chave</button>` : ''}</div>
+        <div class="card-body tight">${chaves}</div>
+      </div>
+      <div class="grid g-2" style="margin-bottom:16px">
+        <div class="card">
+          <div class="card-head"><div class="card-title">Como o outro sistema chama</div></div>
+          <div class="card-body small">
+            <p style="margin-top:0">Um <b>GET</b> ou <b>POST</b> em <span class="mono">${esc(url)}</span> com
+              <span class="mono">ramal</span>, <span class="mono">numero</span> e, se quiser,
+              <span class="mono">nome</span> (o que aparece no visor do ramal). A chave vai no cabeçalho
+              <span class="mono">X-Api-Key</span>.</p>
+            <pre class="mono tiny" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:10px;border-radius:8px;margin:0 0 10px">curl -X POST '${esc(url)}' \\
+  -H 'X-Api-Key: SUA_CHAVE' \\
+  -d ramal=1001 -d numero=11999990000 -d nome='Maria Souza'</pre>
+            <p>Para sistema que só sabe abrir um link, a chave pode ir na própria URL — mas aí ela fica
+              no histórico do navegador e nos logs; prefira o cabeçalho:</p>
+            <pre class="mono tiny" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:10px;border-radius:8px;margin:0 0 10px">${esc(url)}?token=SUA_CHAVE&amp;ramal=1001&amp;numero=11999990000</pre>
+            <p style="margin-bottom:0">Responde em JSON: <span class="mono">{"ok":true,"id":"c2c-…"}</span>
+              — o <span class="mono">id</span> é o da chamada no registro de chamadas — ou
+              <span class="mono">{"ok":false,"erro":"…"}</span> com o motivo: 401 chave inválida, 403 ramal ou
+              origem não permitidos, 404 ramal inexistente, 409 telefone não registrado.</p>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div class="card-title">Testar</div></div>
+          <div class="card-body">${pode ? `<form id="c2cTeste" autocomplete="off"><div class="form-grid">
+            <div class="field" data-campo="ramal"><label class="label">Ramal</label>
+              <input class="input mono" name="ramal" inputmode="numeric" placeholder="1001" value="${esc(Auth.sessao?.ramal || '')}"></div>
+            <div class="field" data-campo="numero"><label class="label">Número a discar</label>
+              <input class="input mono" name="numero" inputmode="tel" placeholder="11999990000"></div>
+            <div class="field full"><label class="label">Nome no visor (opcional)</label>
+              <input class="input" name="nome" placeholder="Maria Souza"></div>
+            <div class="field full"><label class="check small"><input type="checkbox" name="atender_auto"> Pedir ao telefone que atenda sozinho</label></div>
+          </div>
+          <button class="btn btn-primary btn-sm" type="submit" style="margin-top:8px">${icon('phone','ico ico-sm')} Ligar</button>
+          <p class="hint" style="margin-bottom:0">A mesma chamada da API, sem chave: o ramal toca, e ao atender a central disca o número.</p>
+          </form>` : '<p class="small muted">Testar pede permissão de edição em Integrações.</p>'}</div>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head"><div><div class="card-title">Últimos pedidos</div>
+          <div class="card-sub">Os 50 mais recentes, atendidos ou recusados — é o que se olha quando o outro lado diz que clicou e nada aconteceu.</div></div></div>
+        <div class="card-body tight">${pedidos}</div>
+      </div>
+      <h3 style="margin:24px 0 12px">Webhooks e outras integrações</h3>`;
+  },
+
+  /** A chave só existe agora: depois, nem a central sabe mostrá-la. */
+  mostrarChave(token, nome) {
+    Drawer.open({
+      titulo: `Chave de ${nome}`,
+      sub: 'Copie agora: ela não aparece de novo. Perdeu? Gere outra pelo botão da lista.',
+      corpo: `<div class="field"><label class="label">Chave de API</label>
+          <input class="input mono" id="c2cChave" readonly value="${esc(token)}"></div>
+        <button class="btn btn-outline btn-sm" id="c2cCopiar" style="margin-top:8px">${icon('copy','ico ico-sm')} Copiar</button>
+        <p class="hint" style="margin-top:14px">Guarde-a no sistema que vai pedir as chamadas, como um segredo:
+          quem tiver a chave faz os ramais permitidos tocarem.</p>`,
+      rodape: '<button class="btn btn-primary" data-drawer-close>Já copiei</button>',
+      aoAbrir: dw => dw.querySelector('#c2cCopiar').onclick = () => {
+        const campo = dw.querySelector('#c2cChave');
+        campo.select();
+        navigator.clipboard?.writeText(campo.value)
+          .then(() => toast('Chave copiada.', 'ok'))
+          .catch(() => toast('Copie manualmente: o navegador não liberou a área de transferência.', 'warn'));
+      },
+      aoFechar: () => App.route()
+    });
+  },
+
+  formulario(c) {
+    Drawer.open({
+      titulo: c ? `Chave ${c.nome}` : 'Nova chave de click to call',
+      sub: 'Uma chave por sistema: dá para desligar um sem mexer nos outros.',
+      corpo: `<form id="c2cForm" autocomplete="off"><div class="form-grid">
+        <div class="field full" data-campo="nome"><label class="label">Sistema *</label>
+          <input class="input" name="nome" maxlength="80" value="${esc(c?.nome || '')}" placeholder="CRM da empresa"></div>
+        <div class="field full" data-campo="ramais"><label class="label">Ramais que pode fazer tocar</label>
+          <input class="input mono" name="ramais" value="${esc(c?.ramais || '')}" placeholder="1001, 1002, 1003">
+          <span class="hint">Vazio: qualquer ramal. Separe por vírgula.</span></div>
+        <div class="field full" data-campo="ips"><label class="label">De onde pode ser usada</label>
+          <input class="input mono" name="ips" value="${esc(c?.ips || '')}" placeholder="200.1.2.3, 10.0.0.0/8">
+          <span class="hint">O IP do servidor do outro sistema. Vazio: de qualquer lugar — aí a chave sozinha é a proteção.</span></div>
+        <div class="field"><label class="label">Atender sozinho</label>
+          <label class="switch"><input type="checkbox" name="atender_auto" ${Number(c?.atender_auto) ? 'checked' : ''}><span class="track"></span></label>
+          <span class="hint">O telefone atende em viva-voz e a chamada sai na hora. Depende do aparelho aceitar.</span></div>
+        <div class="field"><label class="label">Chave ativa</label>
+          <label class="switch"><input type="checkbox" name="ativo" ${!c || Number(c.ativo) ? 'checked' : ''}><span class="track"></span></label></div>
+      </div></form>`,
+      rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+               <button class="btn btn-primary" id="c2cSalvar">${icon('check','ico ico-sm')} ${c ? 'Salvar' : 'Criar chave'}</button>`,
+      aoAbrir: dw => dw.querySelector('#c2cSalvar').onclick = async () => {
+        const form = dw.querySelector('#c2cForm');
+        limparErros(form);
+        const v = lerFormulario(form);
+        const corpo = { nome: v.nome, ramais: v.ramais, ips: v.ips,
+                        atender_auto: v.atender_auto ? 1 : 0, ativo: v.ativo ? 1 : 0 };
+        try {
+          if (c) {
+            await Api.put(`/click2call/chaves/${c.id}`, corpo);
+            Drawer.close();
+            toast('Chave salva.', 'ok');
+            App.route();
+          } else {
+            const r = await Api.post('/click2call/chaves', corpo);
+            Drawer.close();
+            this.mostrarChave(r.token, corpo.nome);
+          }
+        } catch (e) {
+          Object.entries(e.detalhe?.campos || {}).forEach(([k, m]) => marcarErro(form, k, m));
+          toast(e.message, 'err');
+        }
+      }
+    });
+  },
+
+  montar(pagina) {
+    const d = pagina._c2c;
+    if (!d) return;
+    const achar = id => d.chaves.find(c => c.id === Number(id));
+
+    document.querySelectorAll('[data-c2c-nova]').forEach(b => b.onclick = () => this.formulario(null));
+    document.querySelectorAll('[data-c2c-editar]').forEach(b => b.onclick = () => this.formulario(achar(b.dataset.c2cEditar)));
+    document.querySelectorAll('[data-c2c-renovar]').forEach(b => b.onclick = async () => {
+      const c = achar(b.dataset.c2cRenovar);
+      if (!await Modal.confirm({ titulo: `Gerar uma chave nova para ${c.nome}?`,
+        texto: 'A chave atual para de valer na hora: o sistema que a usa precisa receber a nova.',
+        ok: 'Gerar nova chave', tone: 'warn' })) return;
+      try { const r = await Api.post(`/click2call/chaves/${c.id}/renovar`, {}); this.mostrarChave(r.token, c.nome); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+    document.querySelectorAll('[data-c2c-excluir]').forEach(b => b.onclick = async () => {
+      const c = achar(b.dataset.c2cExcluir);
+      if (!await Modal.confirm({ titulo: `Excluir a chave de ${c.nome}?`,
+        texto: 'O sistema que a usa para de conseguir pedir chamadas. Os pedidos já feitos continuam no histórico.',
+        ok: 'Excluir' })) return;
+      try { await Api.delete(`/click2call/chaves/${c.id}`); toast('Chave excluída.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
+    });
+
+    document.getElementById('c2cTeste')?.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const form = ev.currentTarget;
+      const v = lerFormulario(form);
+      const botao = form.querySelector('[type="submit"]');
+      botao.disabled = true;
+      try {
+        const r = await Api.post('/click2call/testar', { ramal: v.ramal, numero: v.numero, nome: v.nome,
+                                                          atender_auto: v.atender_auto ? 1 : 0 });
+        toast(r.mensagem, 'ok');
+        setTimeout(() => App.route(), 1500);
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally {
+        botao.disabled = false;
+      }
+    });
+  }
+};
+
 PAGES['telium.integracoes'] = paginaCrud({
   recurso: 'integracoes',
   titulo: 'Integrações e API',
-  sub: 'Webhooks, chaves de API e conectores.',
+  sub: 'Click to call para outros sistemas, webhooks e conectores.',
+  aoCarregar: async pagina => {
+    pagina._c2c = await Api.get('/click2call/chaves').catch(() => null);
+  },
+  antesDaLista: (pagina, ctx) => C2C.html(pagina, ctx),
+  aoMontar: pagina => C2C.montar(pagina),
   ico: 'layers',
   plural: 'integrações',
   rotuloNovo: 'Nova integração',
   tituloNovo: 'Nova integração',
-  vazioTitulo: 'Nenhuma integração configurada',
+  vazioTitulo: 'Nenhum webhook configurado',
   vazioTexto: 'Webhooks avisam outros sistemas quando uma chamada começa ou termina.',
   placeholderBusca: 'Buscar…',
   textoBusca: i => i.nome,

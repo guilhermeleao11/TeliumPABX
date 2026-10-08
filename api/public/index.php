@@ -10,6 +10,7 @@ use Telium\Http\Controllers\Pesquisas as CtrlPesquisas;
 use Telium\Http\Controllers\Certificados;
 use Telium\Http\Controllers\Provisionar;
 use Telium\Http\Controllers\CallCenter as CtrlCallCenter;
+use Telium\Http\Controllers\ClickToCall as CtrlClickToCall;
 use Telium\Http\Controllers\Conferencias;
 use Telium\Http\Controllers\Contatos;
 use Telium\Http\Controllers\Destinos;
@@ -983,6 +984,10 @@ $app->get('/prov/{segredo}/{arquivo}', [Provisionar::class, 'entregar']);
 // minutos, uma vez só.
 $app->get('/p/{token}', [Provisionar::class, 'linphone']);
 $app->post('/auth/login', [CtrlAuth::class, 'login']);
+// Click to call para outros sistemas (CRM, ERP): a chave de API, criada
+// em Telium › Integrações / API, é o que protege. GET também, porque há
+// sistema que só sabe abrir uma URL.
+$app->map(['GET', 'POST'], '/click2call', [CtrlClickToCall::class, 'pedir']);
 
 /* ---------------------------------------------------------
    Rotas autenticadas
@@ -1000,6 +1005,15 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     // Click-to-call: o ramal de origem é sempre o da sessão, então a
     // porta é a mesma do "Meu Ramal". As telas que oferecem o botão —
     // agenda, relatório de chamadas — entram por referência.
+    // As chaves da API de click to call e o teste dela.
+    $g->get('/click2call/chaves', [CtrlClickToCall::class, 'listar'])->add(new Permissao('telium.integracoes'));
+    $g->post('/click2call/chaves', [CtrlClickToCall::class, 'criar'])->add(new Permissao('telium.integracoes', 'criar'));
+    $g->put('/click2call/chaves/{id}', [CtrlClickToCall::class, 'salvar'])->add(new Permissao('telium.integracoes', 'editar'));
+    $g->post('/click2call/chaves/{id}/renovar', [CtrlClickToCall::class, 'renovar'])
+      ->add(new Permissao('telium.integracoes', 'editar'));
+    $g->delete('/click2call/chaves/{id}', [CtrlClickToCall::class, 'remover'])->add(new Permissao('telium.integracoes', 'excluir'));
+    $g->post('/click2call/testar', [CtrlClickToCall::class, 'testar'])->add(new Permissao('telium.integracoes', 'editar'));
+
     $g->post('/discar', [Portal::class, 'discar'])
       ->add(new Permissao('pcu.meuramal', null,
             ['pcu.contatos', 'pcu.chamadas', 'admin.contatos', 'rel.cdr', 'conn.ramais', 'fone.webrtc']));
