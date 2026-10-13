@@ -2,8 +2,16 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.1.2 — 2026-10-13
+## 1.1.3 — 2026-10-13
 Commits:
+O backup da empresa leva tudo o que a central precisa para voltar só copiando os arquivos, e o dump do banco passa a existir sempre.
+
+### Mudanças
+- **Backup da empresa**: o bloco em `/root/.backup_telium` passa a levar `/etc`, `/home`, `/root`, `/opt`, `/usr/local/sbin`, `/var/Backup`, `/var/spool/asterisk` e `/var/lib/asterisk`. O `/var/lib/mysql` cru fica de fora de propósito: o banco vai no dump.
+- **Backup**: sem nenhuma rotina automática ligada, a atualização liga a rotina diária de fábrica, que gera o dump do banco em `/var/Backup/pabx-telium`. Quem já tem uma rotina fica com ela; `backup_ligar_rotina: false` no `servidor.yml` desliga.
+
+## 1.1.2 — 2026-10-13
+Commits: 6e920ee
 O essencial da central entra sozinho na lista do backup da empresa.
 
 ### Novidades

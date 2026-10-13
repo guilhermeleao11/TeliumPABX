@@ -59,6 +59,10 @@ backup_dir: /var/Backup/pabx-telium   # dentro do /var/Backup, que o backup da e
 # backup). Se o arquivo não existir no servidor, não mexe em nada; para
 # desligar, deixe vazio no servidor.yml.
 backup_empresa_lista: /root/.backup_telium
+# Liga a rotina diária de backup de fábrica quando nenhuma rotina
+# automática estiver ligada: é ela que gera o dump do banco que o backup
+# da empresa leva. false deixa como está.
+backup_ligar_rotina: true
 audios_dir: /var/lib/asterisk/sounds/telium
 gravacoes_dir: /var/spool/asterisk/monitor
 

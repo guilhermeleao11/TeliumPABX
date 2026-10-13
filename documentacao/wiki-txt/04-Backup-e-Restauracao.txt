@@ -288,27 +288,50 @@ O backup do console não cobre tudo (seção 3). A ferramenta de backup da empre
 O bloco automático em /root/.backup_telium
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A cada instalação e atualização, o playbook mantém no arquivo da ferramenta da empresa, /root/.backup_telium, um bloco com o essencial da central. As outras linhas do arquivo não são tocadas. Se o arquivo não existir no servidor, nada é feito. Para outro caminho, use backup_empresa_lista no servidor.yml; vazio desliga.
+A cada instalação e atualização, o playbook mantém no arquivo da ferramenta da empresa, /root/.backup_telium, um bloco com tudo o que a central precisa para voltar só copiando os arquivos. As outras linhas do arquivo não são tocadas. Se o arquivo não existir no servidor, nada é feito. Para outro caminho, use backup_empresa_lista no servidor.yml; vazio desliga.
 
     # BEGIN Telium PABX — gerado pelo Ansible, não edite este bloco
-    I /var/Backup/pabx-telium
-    I /etc/telium
-    I /etc/asterisk
-    I /etc/ssl/telium
+    I /etc
+    I /home
+    I /root
+    I /opt
+    I /usr/local/sbin
+    I /var/Backup
     I /var/spool/asterisk
-    I /var/lib/asterisk/sounds/telium
-    I /var/lib/asterisk/astdb.sqlite3
-    I /opt/TeliumPABX/infra/ansible/group_vars/all/servidor.yml
+    I /var/lib/asterisk
     # END Telium PABX — gerado pelo Ansible, não edite este bloco
 
-- /var/Backup/pabx-telium: O banco num dump consistente. Copiar o /var/lib/mysql com o MariaDB rodando não serve: deixe ligada a rotina diária em Administrador › Backup & Restauração, para sempre haver um dump recente
-- /etc/telium: Senhas de serviço e certificados enviados pelo console
-- /etc/asterisk: Configuração do Asterisk, inclusive os _custom.conf
-- /etc/ssl/telium: Certificado do console
+- /etc: Sistema e serviços, /etc/telium (senhas de serviço, certificados enviados), /etc/asterisk (com os _custom.conf), /etc/ssl/telium, nginx, coturn, fail2ban
+- /home, /root: Contas dos administradores, a própria lista da ferramenta e backups manuais
+- /opt: O clone /opt/TeliumPABX (com o servidor.yml, fora do Git) e o código publicado /opt/telium (com o api/.env)
+- /usr/local/sbin: Os executores da central (backup, certificados, despertador, fax)
+- /var/Backup: O banco em dump consistente (/var/Backup/pabx-telium)
 - /var/spool/asterisk: Gravações, recados (correio de voz e caixas postais) e fax
-- /var/lib/asterisk/sounds/telium: Áudios enviados pelo console (URA, anúncios, música de espera)
-- /var/lib/asterisk/astdb.sqlite3: Siga-me, desvio e não perturbe ligados pelo telefone
-- servidor.yml: Os ajustes deste servidor, que ficam fora do Git
+- /var/lib/asterisk: Áudios enviados, música de espera, chaves e a base interna (siga-me, desvio, não perturbe)
+
+O banco: o /var/lib/mysql cru fica de fora de propósito. Copiado com o MariaDB rodando, ele não volta. Quem garante o banco é o dump em /var/Backup/pabx-telium, gerado pela rotina diária do console. O playbook liga a rotina de fábrica quando nenhuma rotina automática está ligada (backup_ligar_rotina: false no servidor.yml desliga isso). Ponha a rotina um pouco antes do horário da ferramenta da empresa.
+
+
+Voltar a central a partir desses arquivos
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Mesma VPS (arquivo apagado ou configuração estragada): devolva os diretórios afetados e, se o banco também se perdeu, restaure o dump mais recente:
+
+    sudo systemctl stop telium-cc asterisk
+    sudo mkdir -p /tmp/restaura
+    sudo tar -xzf /var/Backup/pabx-telium/telium-AAAAMMDD-HHMMSS.tar.gz -C /tmp/restaura ./banco.sql
+    sudo mariadb telium_pabx < /tmp/restaura/banco.sql
+    sudo systemctl start asterisk telium-cc
+    sudo -u teliumpbx php /opt/telium/api/bin/telium aplicar-config
+
+VPS nova (a antiga se perdeu):
+1. Instale o Debian 13 e devolva /opt e /etc/telium do backup (é o clone com o servidor.yml e as senhas de serviço).
+2. Rode o playbook de instalação (Instalação (ver página 01)): ele instala os pacotes e compila o Asterisk usando as mesmas senhas e o mesmo nome.
+3. Devolva /var/Backup, /var/spool/asterisk e /var/lib/asterisk.
+4. Restaure o banco pelo console (Administrador › Backup & Restauração › Restaurar, no backup mais recente) ou pelo terminal, como acima.
+5. Aplicar configurações e faça uma ligação de teste.
+
+Não devolva o /etc inteiro numa VPS nova: rede, discos e chaves do SSH são da máquina antiga. Dele, só o que a central usa (/etc/telium, /etc/asterisk/telium/*_custom.conf, /etc/asterisk/manager_custom.conf, /etc/asterisk/ari_custom.conf).
 
 
 Lista de diretórios

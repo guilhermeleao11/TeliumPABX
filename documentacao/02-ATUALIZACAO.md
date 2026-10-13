@@ -154,6 +154,10 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.1.3 — a central inteira no backup da empresa
+- O bloco em **`/root/.backup_telium`** passa a levar `/etc`, `/home`, `/root`, `/opt`, `/usr/local/sbin`, `/var/Backup`, `/var/spool/asterisk` e `/var/lib/asterisk`: tudo para voltar a central copiando os arquivos.
+- Onde nenhuma rotina de backup automática estava ligada, a atualização liga a **rotina diária** (03:00). Ajuste a hora para um pouco antes da ferramenta da empresa, em Administrador › Backup & Restauração.
+
 ### 1.1.2 — o essencial no backup da empresa
 - O playbook mantém em **`/root/.backup_telium`** um bloco "Telium PABX" com o essencial da central, sem mexer nas outras linhas. Sem o arquivo, nada é feito.
 - Para o banco entrar consistente, **deixe ligada a rotina diária** de backup em Administrador › Backup & Restauração: é ela que gera o dump em `/var/Backup/pabx-telium`.

@@ -62,16 +62,17 @@
     group: "{{ telium_user }}"
     mode: "0750"
 
-# O que é essencial da central no backup da empresa, num bloco marcado
-# dentro do arquivo da ferramenta — as outras linhas ficam como estão.
-#   /var/Backup/pabx-telium  o banco em dump consistente (copiar o
-#                            /var/lib/mysql com o MariaDB rodando não serve)
-#   /etc/telium              senhas de serviço e certificados enviados
-#   /etc/asterisk            configuração, inclusive os _custom.conf
-#   /etc/ssl/telium          certificado do console
-#   /var/spool/asterisk      gravações, recados, caixas postais e fax
-#   /var/lib/asterisk/...    áudios enviados e a base interna (siga-me…)
-#   servidor.yml             os ajustes deste servidor (fora do Git)
+# O que a central precisa para voltar só copiando os arquivos de volta,
+# num bloco marcado dentro do arquivo da ferramenta da empresa — as
+# outras linhas ficam como estão.
+#   /etc /home /root /opt     sistema, contas, clone com o servidor.yml e o
+#                             código publicado (api/.env)
+#   /usr/local/sbin           os executores da central (backup, certificados…)
+#   /var/Backup               o banco em dump consistente; o /var/lib/mysql
+#                             cru, copiado com o MariaDB rodando, não volta
+#   /var/spool/asterisk       gravações, recados, caixas postais e fax
+#   /var/lib/asterisk         áudios, música de espera, chaves e a base
+#                             interna (siga-me, desvio, não perturbe)
 - name: Procurar a lista do backup da empresa
   ansible.builtin.stat:
     path: "{{ backup_empresa_lista }}"
@@ -84,14 +85,14 @@
     marker: "# {mark} Telium PABX — gerado pelo Ansible, não edite este bloco"
     create: false
     block: |
-      I {{ backup_dir }}
-      I {{ telium_etc }}
-      I {{ asterisk_conf_dir }}
-      I /etc/ssl/telium
+      I /etc
+      I /home
+      I /root
+      I /opt
+      I /usr/local/sbin
+      I {{ backup_dir | dirname }}
       I /var/spool/asterisk
-      I {{ audios_dir }}
-      I /var/lib/asterisk/astdb.sqlite3
-      I {{ playbook_dir }}/group_vars/all/servidor.yml
+      I /var/lib/asterisk
   when:
     - backup_empresa_lista | default('') | length > 0
     - backup_empresa.stat.exists | default(false)
@@ -176,3 +177,20 @@
       - sox
       - libsox-fmt-all
     state: present
+
+# O banco só entra inteiro no backup da empresa se houver um dump recente
+# em /var/Backup. A rotina diária vem desligada de fábrica; sem nenhuma
+# rotina automática ligada, o playbook liga a de fábrica (a hora fica a
+# do cadastro, 03:00 se ninguém mudou). Quem já tem a sua, fica com ela.
+- name: Ligar a rotina diária de backup se nenhuma estiver ligada
+  ansible.builtin.command:
+    cmd: >-
+      mariadb --protocol=socket -uroot -N -B {{ db_nome }} -e
+      "UPDATE backup_rotinas SET ativo = 1 WHERE id = 1 AND NOT EXISTS
+       (SELECT 1 FROM (SELECT id FROM backup_rotinas WHERE ativo = 1 AND periodicidade <> 'manual') r);
+       SELECT ROW_COUNT();"
+  register: backup_rotina
+  changed_when: (backup_rotina.stdout | default('0') | trim | last) == '1'
+  failed_when: false
+  when: backup_ligar_rotina | default(true) | bool
+
