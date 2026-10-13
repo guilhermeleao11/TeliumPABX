@@ -1,0 +1,829 @@
+# Administrador — Telium PABX
+
+Manual das telas do grupo **Administrador**: contas de acesso, perfis e permissões, backup, certificados, listas de bloqueio, CLI do Asterisk, agenda de contatos, destinos personalizados, códigos de recurso, áudios do sistema e auditoria.
+
+> Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
+
+---
+
+## Sumário
+
+1. [Visão geral](#1-visão-geral)
+2. [Gerenciador de Usuários](#2-gerenciador-de-usuários)
+3. [Perfis e Permissões](#3-perfis-e-permissões)
+4. [Backup & Restauração](#4-backup--restauração)
+5. [Certificados](#5-certificados)
+6. [Lista Negra](#6-lista-negra)
+7. [Allowlist](#7-allowlist)
+8. [CLI Asterisk](#8-cli-asterisk)
+9. [Gerenciador de Contatos](#9-gerenciador-de-contatos)
+10. [Destinos Personalizados](#10-destinos-personalizados)
+11. [Códigos de Recurso](#11-códigos-de-recurso)
+12. [Gravações do Sistema](#12-gravações-do-sistema)
+13. [Auditoria](#13-auditoria)
+14. [Problemas comuns](#14-problemas-comuns)
+
+---
+
+## 1. Visão geral
+
+O grupo **Administrador** reúne o que cuida da central como um todo, e não de uma chamada ou de um ramal.
+
+| Tela | Para que serve |
+|---|---|
+| Gerenciador de Usuários | Contas de acesso ao console, perfil de cada uma e ramal vinculado |
+| Perfis e Permissões | O que cada perfil vê no menu e o que pode fazer |
+| Backup & Restauração | Backups manuais e agendados, cópia para fora do servidor e restauração |
+| Certificados | O certificado TLS de cada serviço (web, SIP TLS, TURN, WebRTC) |
+| Lista Negra | Números barrados na entrada |
+| Allowlist | Exceções que a lista negra nunca barra |
+| CLI Asterisk | Comandos no console do Asterisk pelo navegador |
+| Gerenciador de Contatos | Agenda da empresa e agendas pessoais |
+| Destinos Personalizados | Atalhos para trechos de dialplan escritos à mão |
+| Códigos de Recurso | O que se disca no telefone para cada facilidade |
+| Gravações do Sistema | Áudios de URA, anúncios, filas e música em espera |
+| Auditoria | Quem fez o quê, quando e de onde |
+
+**Antes de começar:**
+- Toda tela respeita o perfil de quem está logado. Sem a ação **criar**, **editar** ou **excluir**, os botões correspondentes não aparecem, e a tela mostra um aviso de somente leitura.
+- O servidor confere a permissão de novo a cada pedido. Esconder um botão não é a única barreira.
+- Mudanças em Lista Negra, Allowlist, Destinos Personalizados e Códigos de Recurso só valem no Asterisk depois de **Aplicar configurações** (faixa amarela no topo do console).
+
+> 📷 **Print:** menu lateral aberto na seção **Administrador**.
+
+---
+
+## 2. Gerenciador de Usuários
+
+**Administrador › Gerenciador de Usuários**
+
+As contas de acesso ao console e o vínculo de cada uma com um ramal.
+
+No topo aparece um cartão por perfil, com a quantidade de contas em cada um. Abaixo, a lista de usuários.
+
+> 📷 **Print:** tela com os cartões de perfil e a lista de usuários.
+
+### A lista
+
+| Coluna | O que mostra |
+|---|---|
+| Usuário | Nome e login |
+| Perfil | Perfil de acesso, com a cor dele |
+| Ramal | Ramal vinculado, ou "—" |
+| Setor | Setor informado no cadastro |
+| E-mail | E-mail da conta |
+| Último acesso | Data e hora do último login, ou "nunca" |
+| Estado | **Ativo**, **Inativo** ou **Bloqueado**, mais as etiquetas **2FA** (verificação em dois passos ligada) e **Travada** (bloqueio temporário por senha errada) |
+
+### Novo usuário e edição
+
+Clique em **Novo usuário**. O formulário abre na lateral.
+
+| Campo | O que faz |
+|---|---|
+| Nome completo * | Como a pessoa aparece no console. Até 120 caracteres |
+| Usuário de login * | O que se digita para entrar. De 3 a 64 letras, números, ponto, hífen ou sublinhado. Único. **Não muda depois de criado** |
+| E-mail | Opcional. Conferido o formato |
+| Ramal vinculado | Liga a conta ao ramal no Meu Painel (PCU) e no softphone. Opcional |
+| Setor | Texto livre, até 80 caracteres |
+| Perfil de acesso * | Define o que a pessoa enxerga e pode fazer (veja a [seção 3](#3-perfis-e-permissões)) |
+| Estado | Ativo, Inativo ou Bloqueado |
+| Senha de acesso / Repetir a senha | Só na criação. A conta só entra depois de ter senha |
+
+**Política de senha** (a mesma em todo o console):
+- pelo menos 8 caracteres;
+- pelo menos um número;
+- pelo menos um símbolo (por exemplo `@ # ! _ -`).
+
+O formulário mostra, enquanto se digita, o que ainda falta.
+
+> 📷 **Print:** formulário **Novo usuário** com a lista de requisitos da senha.
+
+### Para que serve o ramal vinculado
+
+O ramal vinculado é o que liga a pessoa ao telefone:
+- o **Meu Painel** mostra as chamadas, o correio de voz e o siga-me **desse** ramal ([Meu Painel (PCU)](21-Meu-Painel-PCU.md));
+- o **Telefone (WebRTC)** registra esse ramal no navegador ([Telefone WebRTC](11-Telefone-WebRTC.md));
+- no call center, é o ramal que toca quando o supervisor usa **Escutar**, **Sussurrar** ou **Intervir** ([Call Center](16-Call-Center.md)).
+
+### Estados da conta
+
+| Estado | Efeito |
+|---|---|
+| Ativo | Entra normalmente |
+| Inativo | Não entra. Ao tentar, ouve "Usuário inativo. Procure o administrador." |
+| Bloqueado | Não entra. Ao tentar, ouve "Usuário bloqueado. Procure o administrador." |
+| Travada (etiqueta) | Bloqueio **temporário** e automático por senha errada. Não é um estado que se escolhe |
+
+Uma conta que deixa de estar **Ativa** perde as sessões abertas na hora: a próxima ação no console já é recusada.
+
+### Ações de cada linha
+
+| Botão | O que faz |
+|---|---|
+| Editar (lápis) | Abre o cadastro |
+| Definir senha (chave) | Define uma senha nova. **As sessões abertas da pessoa são encerradas** e o bloqueio por senha errada é liberado |
+| Liberar o bloqueio por senha errada (cadeado aberto) | Aparece só em conta **Travada**. Libera a conta sem trocar a senha |
+| Desligar a verificação em dois passos (escudo) | Aparece só em conta com **2FA**. Para quando a pessoa perdeu o celular. As sessões dela caem e ela precisa ligar a verificação de novo no próprio painel |
+| Excluir (lixeira) | A conta perde o acesso imediatamente. Não aparece para a conta `admin` |
+
+> 📷 **Print:** linha de um usuário com as etiquetas **2FA** e **Travada** e os botões de ação.
+
+### Verificação em dois passos (2FA)
+
+- **Quem liga é a própria pessoa**, em **PCU — Meu Painel › Meu Perfil e Segurança**, lendo o QR code com um aplicativo autenticador. Veja [Meu Painel (PCU)](21-Meu-Painel-PCU.md).
+- O administrador **não liga** a 2FA de ninguém; ele só pode **desligar** (celular perdido ou trocado).
+- Com a 2FA ligada, o login pede o código de seis dígitos depois da senha. Cada código vale uma vez só.
+
+### Bloqueio por senha errada
+
+- **5 tentativas erradas** travam a conta por **15 minutos**. A trava vale para quem errou (a mesma origem); o dono da conta, de outro lugar, continua entrando.
+- Uma origem com **20 falhas em 10 minutos**, em qualquer conta, passa a ser recusada por alguns minutos ("Tentativas demais desta origem").
+- Para liberar antes do prazo: botão **Liberar o bloqueio por senha errada**, ou **Definir senha**.
+
+### Regras e validações
+
+O servidor recusa, com a mensagem no campo:
+- **Login repetido** ("Já existe uma conta com o usuário …").
+- **Ramal que não existe.** Cadastre antes em **Conectividade › Ramais**, ou deixe em branco.
+- **Ramal que já é de outra conta.** Duas contas no mesmo ramal veriam as chamadas e ouviriam o correio de voz uma da outra.
+- **Mexer numa conta mais poderosa que a sua.** Só quem tem pelo menos as mesmas permissões altera, troca a senha, destrava ou desliga a 2FA dela.
+- **Dar a alguém um perfil com mais permissões que o seu.**
+- **Trocar o perfil da própria conta**, ou **desativar/bloquear a própria conta**. Peça a outro administrador.
+- **Excluir a própria conta.**
+- **Deixar o console sem administrador.** Se a conta é a última ativa capaz de abrir e editar o Gerenciador de Usuários, ela não pode ser excluída, desativada nem movida para um perfil sem esse acesso.
+
+### A conta `admin`
+
+- É criada na instalação, com o perfil **Administrador**.
+- Não aparece o botão de excluir para ela.
+- Cada atualização da central reativa a conta `admin`, tira a trava por senha errada e a mantém no perfil Administrador. A senha **não** é reimposta.
+- Senha perdida: recupera-se pelo terminal do servidor. Veja [Segurança](08-Seguranca.md) e [Comandos e serviços](05-Servidor-Comandos-e-Servicos.md).
+
+---
+
+## 3. Perfis e Permissões
+
+**Administrador › Perfis e Permissões**
+
+Cada conta tem um perfil. O perfil define **quais telas** aparecem no menu (módulos) e **o que pode ser feito** nelas (ações).
+
+> 📷 **Print:** cartões dos perfis e a matriz de permissões.
+
+### Perfis de fábrica
+
+Todos são **perfis do sistema**: podem ter as permissões alteradas, mas não podem ser excluídos.
+
+| Perfil | Para quem | Módulos | Ações |
+|---|---|---|---|
+| **Administrador** | TI, quem administra a central | Todos (curinga `*`) | criar, editar, excluir, exportar, aplicar configurações, gerenciar perfis |
+| **Supervisor** | Coordenação da operação | Painel de Indicadores (todo), Relatórios (todos), Meu Painel (todo), Call Center (todo), Filas, Pesquisa de Satisfação, Grupos de Toque, URA, Conferências, Gravação de Chamadas, Anúncios, Condições Horárias, Grupos de Horário, Caixas Postais, Ramais, Tarifação | criar, editar, exportar |
+| **Operador** | Atendente com ramal próprio | Visão Geral, Meu Painel (todo), Meu Atendimento | criar, editar, excluir (só alcançam o que é dele) |
+| **Auditoria** | Quem só confere | Visão Geral, Relatórios (todos), Gravação de Chamadas, Minhas Chamadas | exportar |
+| **Call Center** | Agente que só atende | Meu Atendimento | nenhuma |
+
+Observações:
+- O **Operador** não tem as telas de administração de Siga-me e Correio de Voz (elas listam todos os ramais). O que ele usa é o **Meu Painel**, que só alcança o ramal vinculado à conta.
+- A **Auditoria** (trilha de atividades) é só do Administrador. Os scripts de atualização tiram essa permissão de qualquer outro perfil que a tenha recebido.
+- O perfil **Call Center** também precisa que a pessoa esteja cadastrada em **Call Center › Agentes**. Veja [Call Center](16-Call-Center.md).
+- **Telefone (WebRTC)** é um módulo próprio, e nos perfis de fábrica só o Administrador o tem. Para outro perfil usar o softphone do navegador, marque **Telefone (WebRTC)** na matriz.
+
+### As ações
+
+As ações valem para **todos os módulos liberados** ao perfil.
+
+| Ação na matriz | O que libera |
+|---|---|
+| Criar registros | Adicionar ramais, filas, rotas, usuários… |
+| Editar registros | Alterar o que já está cadastrado |
+| Excluir registros | Remover cadastros em definitivo |
+| Exportar relatórios | Baixar CDR, gravações e tarifação; baixar e enviar arquivos de backup |
+| Aplicar configurações | Recarregar o Asterisk e reiniciar aparelhos; também restaurar backup, aplicar certificado e rodar comando que altera estado no CLI |
+| Gerenciar perfis | Criar perfis e alterar a própria matriz |
+
+### Os módulos
+
+A matriz lista os módulos na ordem do menu. Cada linha mostra o nome da tela e o identificador interno.
+
+| Grupo | Módulos (identificador) |
+|---|---|
+| Painel de Indicadores | Visão Geral (`dash.visaogeral`), Tempo Real (`dash.temporeal`), Estatísticas do Sistema (`dash.sistema`), Asterisk Info (`dash.asterisk`) |
+| Telefone | Telefone WebRTC (`fone.webrtc`) |
+| Administrador | Usuários (`admin.usuarios`), Perfis e Permissões (`admin.permissoes`), Backup (`admin.backup`), Certificados (`admin.certificados`), Lista Negra (`admin.listanegra`), Allowlist (`admin.allowlist`), CLI Asterisk (`admin.cli`), Contatos (`admin.contatos`), Destinos Personalizados (`admin.destinos`), Códigos de Recurso (`admin.codigos`), Gravações do Sistema (`admin.gravacoes`), Auditoria (`admin.auditoria`) |
+| Aplicações | Filas (`apps.filas`), Pesquisa de Satisfação (`apps.pesquisas`), Grupos de Toque (`apps.grupostoque`), URA (`apps.ura`), Conferências (`apps.conferencias`), Gravação de Chamadas (`apps.gravacao`), Anúncios (`apps.anuncios`), Condições Horárias (`apps.condicoes`), Grupos de Horário (`apps.grupohorario`), Siga-me (`apps.sigame`), Correio de Voz (`apps.correiovoz`), Caixas Postais (`apps.caixaspostais`), DISA (`apps.disa`), Estacionamento (`apps.estacionamento`), Megafonia e Interfonia (`apps.paging`), Chamadas de Despertar (`apps.despertar`) |
+| Call Center | Meu Atendimento (`cc.agente`), Monitor ao Vivo (`cc.supervisor`), Agentes (`cc.agentes`), Motivos de Pausa (`cc.pausas`), Tabulações (`cc.tabulacoes`), Retornos (`cc.retornos`), Relatórios (`cc.relatorios`), Configurações (`cc.config`) |
+| Conectividade | Ramais (`conn.ramais`), Troncos (`conn.troncos`), Rotas de Entrada (`conn.rotasentrada`), Rotas de Saída (`conn.rotassaida`), DIDs (`conn.did`), Firewall (`conn.firewall`), Provisionamento (`conn.provisionamento`), Rede (`conn.rede`), WebRTC / Softphone (`conn.webrtc`) |
+| Relatórios | CDR (`rel.cdr`), Desempenho de Filas (`rel.filas`), Desempenho de Ramais (`rel.ramais`), Ocupação de Troncos (`rel.troncos`), Eventos de Canal (`rel.cel`), Produtividade de Agentes (`rel.agentes`) |
+| Configurações | Arquivos e Aplicação (`cfg.avancadas`), SIP / PJSIP (`cfg.sip`), Correio de Voz (`cfg.correiovoz`), Música em Espera (`cfg.musica`), Conjuntos de PIN (`cfg.pinsets`), Fax (`cfg.fax`), Notificações e E-mail (`cfg.notificacoes`), Tabela de Tarifas (`cfg.tarifas`), Dados da Empresa (`cfg.empresa`) |
+| Telium | Tarifação (`telium.tarifacao`), Integrações / API (`telium.integracoes`), Suporte (`telium.suporte`) |
+| PCU — Meu Painel | Meu Ramal (`pcu.meuramal`), Minhas Chamadas (`pcu.chamadas`), Meu Correio de Voz (`pcu.correiovoz`), Meu Siga-me (`pcu.sigame`), Meus Contatos (`pcu.contatos`), Meu Perfil e Segurança (`pcu.perfil`) |
+
+### Botões
+
+| Botão | O que faz |
+|---|---|
+| **Novo perfil** | Cria um perfil. Ele **nasce sem nenhuma permissão**: marque na matriz o que ele pode ver e fazer |
+| Editar (no cartão) | Muda nome, cor da etiqueta e descrição. A chave interna não muda |
+| Excluir (no cartão) | Só em perfil criado por você, e só sem contas nele |
+| Filtrar módulo… | Busca uma linha da matriz |
+| **Salvar alterações** | Grava a matriz de **todos** os perfis de uma vez |
+
+**Campos do perfil:**
+
+| Campo | O que faz |
+|---|---|
+| Nome do perfil * | Como aparece nos cartões, na lista de usuários e no formulário do usuário |
+| Chave (opcional) | Só na criação. Identificador interno: começa com letra, depois letras minúsculas, números, hífen e sublinhado (até 32). Em branco, é gerada a partir do nome |
+| Cor da etiqueta | Azul (padrão), Azul claro, Verde, Âmbar ou Vermelho |
+| Descrição | O que o perfil acompanha ou administra |
+
+### Regras e validações
+
+- **Ninguém dá o que não tem.** Quem não é Administrador só consegue marcar módulos e ações que o próprio perfil já tem.
+- **Não se pode deixar o console sem administrador.** Se tirar **Gerenciador de Usuários** (ou a ação **Editar registros**) deixaria sem ninguém ativo capaz de administrar contas, o salvamento é recusado.
+- **Perfil em uso não se exclui.** Mova as contas para outro perfil antes.
+- **Perfil do sistema não se exclui.** As permissões dele podem ser alteradas.
+
+### Comportamentos automáticos
+
+- A mudança vale para cada usuário **no próximo carregamento** da página.
+- Ao salvar, a matriz grava a **lista exata** de módulos marcados. Curingas de fábrica como "Relatórios (todos)" viram a lista dos módulos que existem hoje; um módulo que entrar numa atualização futura não é dado sozinho a esse perfil. O perfil com tudo marcado que já tinha o curinga total (o Administrador) continua com ele.
+- Mudanças de perfil que afetam o telefone (por exemplo, quem pode escutar chamadas no call center) só chegam ao Asterisk depois de **Aplicar configurações**.
+
+---
+
+## 4. Backup & Restauração
+
+**Administrador › Backup & Restauração**
+
+Backups manuais e agendados da central, o histórico, a restauração e a cópia para um servidor externo. O detalhe técnico (o que vai no arquivo, onde fica, como restaurar pelo terminal) está em [Backup e Restauração](04-Backup-e-Restauracao.md).
+
+> 📷 **Print:** tela com o cartão de espaço livre, a rotina e o histórico.
+
+### O que a tela mostra
+
+| Bloco | Conteúdo |
+|---|---|
+| Espaço livre | Espaço em disco do diretório de backup. Fica vermelho acima de 85% de uso |
+| Cartão da rotina | Nome, quando roda, o que inclui, quantos arquivos mantém e a chave para ligar/desligar |
+| Histórico | Os últimos backups: arquivo, origem, conteúdo, tamanho, quando e estado |
+| Cópia para fora do servidor | Envio automático por FTP, FTPS ou SFTP depois de cada backup |
+
+A central vem com uma rotina **Backup diário**, às 03:00, com banco, configuração e áudios, mantendo 5 arquivos, **desligada**. Ligue-a.
+
+### Fazer backup agora
+
+| Campo | O que faz |
+|---|---|
+| Banco de dados | Ramais, filas, rotas, usuários, CDR: tudo o que o console guarda |
+| Configuração | Arquivos do Asterisk, do Janus e do Telium |
+| Áudios do sistema | Saudações de URA, anúncios e música em espera |
+| Gravações de chamadas | Pode ficar muito grande. Desligado por padrão |
+| Quantos arquivos manter | Ao passar disso, os mais antigos são apagados. De 1 a 20 |
+
+O backup roda em segundo plano. Só um por vez: com outro em andamento, o pedido é recusado.
+
+### Ajustar a rotina
+
+Botão **Ajustar** no cartão: nome, **Quando executar** (Todo dia, Uma vez por semana, Uma vez por mês, Só quando eu mandar), horário, dia da semana ou do mês, o conteúdo, quantos arquivos manter e **Rotina ativa**.
+
+### Ações do histórico
+
+| Botão | Permissão | O que faz |
+|---|---|---|
+| Ver detalhes | ver | Mostra a saída do script de backup |
+| Baixar o arquivo | exportar | Baixa o arquivo para o seu computador |
+| Enviar para o destino remoto | exportar | Reenvia o arquivo por FTP/SFTP (com o destino ligado) |
+| Restaurar | aplicar configurações | Substitui o conteúdo atual pelo do backup. **O Asterisk para durante a restauração e as chamadas em andamento caem** |
+| Excluir | excluir | Apaga o arquivo do servidor |
+
+### Cópia para fora do servidor
+
+| Campo | O que faz |
+|---|---|
+| Enviar para fora depois de cada backup | Liga o envio automático |
+| Protocolo | FTP com TLS (recomendado), FTP simples ou SFTP (sobre SSH). FTP simples manda usuário e senha em texto claro |
+| Endereço do servidor / Porta | Para onde enviar |
+| Usuário / Senha | Credenciais. A senha guardada nunca volta para a tela; em branco, continua a mesma |
+| Pasta no servidor remoto | Criada se não existir |
+| Modo passivo | Desligue só se o servidor exigir modo ativo |
+| Aceitar certificado autoassinado | Só para servidor interno |
+
+Botões **Salvar destino** e **Testar agora** (o teste salva antes de testar). Se o PHP estiver sem a extensão `curl`, a tela avisa.
+
+> 📷 **Print:** bloco **Cópia para fora do servidor** com o último envio.
+
+---
+
+## 5. Certificados
+
+**Administrador › Certificados**
+
+O certificado TLS que cada serviço apresenta. Envie um certificado (ou gere aqui) e escolha onde ele vale.
+
+> 📷 **Print:** os quatro cartões de serviço e o cofre de certificados.
+
+### Os serviços
+
+| Serviço | Arquivo no servidor |
+|---|---|
+| Interface web (nginx) | `/etc/ssl/telium/pabx.crt` |
+| SIP TLS (Asterisk) | `/etc/asterisk/keys/asterisk.crt` |
+| TURN / STUN (coturn) | `/etc/coturn/turn.crt` |
+| WebRTC (Janus) | `/etc/janus/certs/janus.crt` |
+
+Cada cartão mostra o **Certificado em uso**, o nome e a validade, e o estado: **Autoassinado de fábrica**, **Aplicado**, **Aplicando…** ou **Falhou** (com o motivo).
+
+Sem nada escolhido, cada serviço usa o **certificado de fábrica**, autoassinado, gerado na instalação. Funciona, mas o navegador e os telefones avisam que não confiam nele.
+
+### Botões
+
+| Botão | O que faz |
+|---|---|
+| **Enviar certificado** | Guarda no cofre um par que uma autoridade emitiu |
+| **Autoassinado** | Gera aqui um certificado autoassinado, para rede interna e laboratório |
+| **Novo pedido** | Gera a chave privada aqui e devolve o pedido (CSR) para mandar à autoridade |
+| **Aplicar nos serviços** | Aplica as trocas feitas nos cartões |
+
+### Enviar certificado
+
+| Campo | O que faz |
+|---|---|
+| Certificado * | Arquivo `.crt`, `.pem` ou `.cer`, ou o texto PEM colado. Pode vir com a cadeia junto |
+| Chave privada * | O arquivo `.key` do mesmo pedido, ou o PEM colado. Fica só no servidor e nunca volta pela tela |
+| Cadeia intermediária | Opcional. Sem ela, alguns navegadores e telefones recusam o certificado |
+| Senha da chave privada | Só se a chave estiver protegida por senha |
+| Nome no console | Para reconhecer na lista. Em branco, usa o nome do certificado |
+| Observação | Texto livre |
+
+O servidor confere se o certificado é PEM válido e se bate com a chave. Certificado vencido entra com aviso.
+
+### Autoassinado e Novo pedido
+
+| Campo | O que faz |
+|---|---|
+| Nome principal * | O endereço pelo qual o PABX é acessado. Vem preenchido com o endereço atual do navegador |
+| Outros nomes e IPs | Um por linha. Todo endereço usado para chegar ao PABX precisa estar aqui |
+| Organização, Setor, Cidade, Estado (UF), País | Dados do titular. País vem com BR |
+| Nome no console | Em branco, usa o nome principal |
+| Validade em dias | Só no autoassinado. Padrão 825, aceita de 1 a 3650 |
+
+**Fluxo do pedido (CSR):**
+1. **Novo pedido**: a tela mostra o texto do CSR, com o botão **Copiar**.
+2. Mande o texto à autoridade certificadora. O certificado fica no cofre como **Aguardando assinatura**.
+3. Quando a autoridade devolver, clique em **Concluir com o certificado emitido** na linha dele, e envie o certificado e a cadeia. O servidor confere se ele bate com a chave guardada.
+
+### O cofre
+
+A lista dos certificados guardados: nome, nome no certificado (CN e nomes alternativos), emissor, tipo de chave, validade e onde está em uso.
+
+| Validade | Cor |
+|---|---|
+| Mais de 45 dias | verde |
+| De 16 a 45 dias | amarelo |
+| 15 dias ou menos, ou vencido | vermelho |
+
+Ações: **Ver o certificado** (só a parte pública), **Concluir** (pedido aguardando), **Renomear** (só o nome no console) e **Excluir**.
+
+### Aplicar nos serviços
+
+1. Em cada cartão, escolha em **Certificado em uso** o certificado (ou o de fábrica).
+2. O resumo mostra quantos serviços mudaram. Clique em **Aplicar nos serviços** e confirme.
+3. A tela acompanha até o fim e diz se deu certo em cada serviço.
+
+- Precisa da ação **Aplicar configurações**.
+- O nginx é validado antes de recarregar; o Janus reinicia.
+- **Se algo der errado, o certificado anterior volta sozinho** e nada sai do ar.
+- Ao trocar o da interface web, o navegador pode pedir para aceitar o certificado novo.
+
+### Regras
+
+- Só certificado **pronto** (não o que aguarda assinatura) pode ser aplicado.
+- Certificado **em uso** num serviço não pode ser excluído.
+- Excluir apaga o certificado e a chave do servidor, sem volta.
+- Não há emissão automática (Let's Encrypt/ACME) nesta tela. O certificado público vem de uma autoridade, pelo envio ou pelo pedido.
+- Se o PHP estiver sem a extensão `openssl`, ou o cofre não estiver gravável, a tela avisa.
+
+---
+
+## 6. Lista Negra
+
+**Administrador › Lista Negra**
+
+Números barrados na **entrada**. A verificação acontece em todas as rotas de entrada, antes de a chamada seguir para o destino.
+
+> 📷 **Print:** lista de números bloqueados.
+
+### Campos
+
+Clique em **Bloquear número**.
+
+| Campo | O que faz |
+|---|---|
+| Número ou padrão * | Número exato (ex.: `1199998888`) ou padrão do dialplan: `_115555X.` barra a faixa 115555, um dígito de 0 a 9 e mais dígitos. Único |
+| Motivo | Texto livre, ex.: "Telemarketing insistente" |
+| O que fazer com a chamada | Veja a tabela abaixo |
+| Anúncio (se escolher tocar um) | Um anúncio de **Aplicações › Anúncios**. Sem anúncio, toca a mensagem de número fora de serviço do Asterisk |
+| Bloqueio ativo | Desligado, a linha fica na lista como **Pausado** e não barra |
+
+| Tratamento | O que quem ligou ouve |
+|---|---|
+| Desligar na hora | A chamada cai sem ser atendida |
+| Sinal de ocupado | Ocupado |
+| Tocar um anúncio e desligar | A central atende, toca o anúncio e desliga |
+| Atender e ficar em silêncio | A central atende e fica muda (até 10 minutos) |
+
+### Pelo telefone
+
+| Código | O que faz |
+|---|---|
+| `*30` + número | Bloqueia o número |
+| `*32` | Bloqueia quem acabou de ligar para o seu ramal |
+| `*31` + número | Desbloqueia |
+
+O bloqueio pelo telefone vale na hora, entra na lista com o motivo "Bloqueado pelo ramal …" e o tratamento **Desligar na hora**. Os códigos podem ser trocados em **Códigos de Recurso** ([Códigos de Recurso](15-Codigos-de-Recurso.md)).
+
+### Regras
+
+- A **Allowlist vem antes**: um número que esteja nela nunca é barrado.
+- Chamada **sem número de origem** não passa pela lista negra. Para recusar chamadas anônimas, use a opção da rota de entrada ([Conectividade](17-Conectividade.md)).
+- O número comparado é o que chega da operadora, depois da normalização do tronco. Cadastre no mesmo formato que aparece no CDR.
+- Mudanças feitas no console valem depois de **Aplicar configurações**.
+
+---
+
+## 7. Allowlist
+
+**Administrador › Allowlist**
+
+Números que **nunca** são barrados, mesmo que casem com algum padrão da lista negra. Use quando um padrão da lista negra for amplo demais e pegar um número que você quer atender.
+
+> 📷 **Print:** lista de exceções.
+
+| Campo | O que faz |
+|---|---|
+| Número ou padrão * | Número exato ou padrão do dialplan. Único |
+| Motivo | Texto livre |
+| Ativo | Desligado, a exceção fica **Pausada** |
+
+### Pelo telefone
+
+| Código | O que faz |
+|---|---|
+| `*38` + número | Libera o número |
+| `*39` | Libera quem acabou de ligar para o seu ramal |
+| `*36` + número | Tira o número da allowlist |
+| `*37` | Pausa ou retoma a allowlist **na central inteira**. Disque de novo para religar |
+
+Mudanças no console valem depois de **Aplicar configurações**; as feitas pelo telefone valem na hora.
+
+---
+
+## 8. CLI Asterisk
+
+**Administrador › CLI Asterisk**
+
+Roda comandos no console do Asterisk e mostra a saída na tela, sem acessar o servidor por SSH.
+
+> 📷 **Print:** CLI com a saída de `pjsip show endpoints`.
+
+### Como usar
+
+- Digite o comando e tecle **Enter** ou clique em **Executar**.
+- Os botões de sugestão rodam o comando direto.
+- Cada saída aparece no topo, com a etiqueta **leitura**, **alterou estado** ou **recusado**.
+- No canto superior, a etiqueta **Só leitura** ou **Pode alterar estado** mostra o que o seu perfil pode fazer.
+
+**Sugestões prontas:**
+
+| Comando | Para que serve |
+|---|---|
+| `core show version` | Versão e build do Asterisk |
+| `core show channels` | Canais e chamadas ativas |
+| `core show uptime` | Há quanto tempo está no ar |
+| `pjsip show endpoints` | Ramais e troncos, com estado de registro |
+| `pjsip show registrations` | Registros de saída nos provedores |
+| `pjsip show aors` | Contatos registrados por ramal |
+| `queue show` | Filas, agentes e chamadas em espera |
+| `dialplan show interno` | Dialplan do contexto dos ramais |
+| `module show like odbc` | Módulos ODBC carregados |
+| `odbc show all` | Conexões ODBC e seu estado |
+| `manager show users` | Usuários do AMI |
+| `core show translation` | Custo de transcodificação entre codecs |
+
+### O que é permitido
+
+| Tipo de comando | Quem pode |
+|---|---|
+| Leitura: comandos que começam com `core show`, `pjsip show`, `pjsip list`, `sip show`, `queue show`, `dialplan show`, `module show`, `database show`, `cdr show`, `cel show`, `manager show`, `odbc show`, `voicemail show`, `confbridge list`, `http show`, `rtp show`, `stun show`, `features show`, `agi show`, `ari show`, `devstate list`, `moh show` e `help` | Quem abre a tela |
+| Qualquer outro (reload, hangup, module load…) | Só quem tem a ação **Aplicar configurações** |
+
+**Sempre recusado:**
+- comando com `!`, `;`, barra vertical, crase, `$(`, `&&`, `>`, `<` ou quebra de linha (permitiriam sair do CLI para o shell);
+- comando com mais de 200 caracteres.
+
+**Segurança:**
+- Senhas e segredos na saída (por exemplo, a senha SIP em `pjsip show auth`) aparecem mascarados como `••••••••`.
+- **Todo comando fica registrado na auditoria**, com usuário e IP.
+
+> Comandos que alteram estado agem na hora sobre a central em produção. Um `reload` ou `hangup` errado derruba chamadas.
+
+---
+
+## 9. Gerenciador de Contatos
+
+**Administrador › Gerenciador de Contatos**
+
+A agenda da empresa, visível para todo mundo, e as agendas pessoais dos usuários. Os contatos aparecem na busca rápida, no softphone e na identificação de quem liga.
+
+> 📷 **Print:** agenda em cartões, com a barra de filtros.
+
+### A tela
+
+| Elemento | O que faz |
+|---|---|
+| Da empresa / Meus contatos / Todos | Abas. **Da empresa** abre por padrão. **Todos** junta a agenda da empresa com a sua pessoal |
+| Busca | Nome, empresa, cargo, número ou e-mail |
+| Todos os grupos | Filtra por grupo (aparece quando há grupos) |
+| só favoritos | Mostra só os favoritos |
+| **Ligar** (no cartão) | Disca o telefone principal pelo softphone do navegador |
+| **Ver ficha** | Todos os dados do contato, com um botão **Ligar** por telefone |
+
+### Campos do contato
+
+O formulário tem quatro abas.
+
+| Aba | Campo | O que faz |
+|---|---|---|
+| Pessoa | Nome completo * | Obrigatório |
+| Pessoa | Empresa, Cargo, Setor | Texto livre |
+| Pessoa | Grupo na agenda | Ex.: Clientes, Fornecedores. Serve para filtrar |
+| Pessoa | Aniversário | Data |
+| Pessoa | Favorito | Favoritos vêm primeiro na lista |
+| Pessoa | Ativo | Contato inativo fica marcado como **inativo** |
+| Telefones e e-mail | Telefone principal | É o número que o botão **Ligar** usa |
+| Telefones e e-mail | Celular, Telefone fixo | Outros números |
+| Telefones e e-mail | Ramal interno | Se a pessoa também tem ramal neste PABX |
+| Telefones e e-mail | Discagem rápida | Código curto: de qualquer ramal, disque `*0` e o código para ligar para o contato |
+| Telefones e e-mail | E-mail, E-mail alternativo | Conferido o formato |
+| Endereço | Logradouro, Complemento, Bairro, Cidade, UF, CEP, País | País vem com Brasil |
+| Mais | Site | Endereço `https://…` |
+| Mais | Outros links | Um por linha, no formato rótulo, barra vertical, endereço (ex.: LinkedIn e o link do perfil) |
+| Mais | Anotações | Texto livre |
+| Mais | Agenda | **Da empresa** (todo mundo vê) ou **Pessoal** (só de quem criou) |
+
+**Foto:** depois de salvar o contato, edite-o para enviar a foto. JPG, PNG, WebP ou GIF, até 4 MB; é reduzida para 512 px. A foto é salva na hora.
+
+> 📷 **Print:** formulário do contato na aba **Telefones e e-mail**.
+
+### Regras
+
+- O contato precisa de **um nome** e de **pelo menos um telefone** (principal, celular, fixo ou ramal) **ou um e-mail**.
+- **Discagem rápida:** só dígitos, até oito, e única em toda a agenda. A tela diz de quem é o código repetido.
+- Quem tem esta tela administra a agenda da empresa e pode mover contatos entre as agendas. Os demais usuários só mexem na agenda pessoal, em **PCU — Meu Painel › Meus Contatos** ([Meu Painel (PCU)](21-Meu-Painel-PCU.md)).
+- Excluir um contato da empresa o tira da agenda de todos os usuários.
+- Esta tela não tem importação de planilha: os contatos são cadastrados um a um.
+
+---
+
+## 10. Destinos Personalizados
+
+**Administrador › Destinos Personalizados**
+
+Saídas para contextos de dialplan escritos à mão em `/etc/asterisk/telium/extensions_custom.conf`. Depois de cadastrados, aparecem como destino nas **rotas de entrada**, nas **URAs** e nas **condições de horário**.
+
+Use quando o PABX precisar saltar para um trecho de dialplan seu: uma integração, um roteamento fora do padrão, um AGI.
+
+> 📷 **Print:** lista de destinos com a coluna **Contexto no dialplan**.
+
+### Campos
+
+| Campo | O que faz |
+|---|---|
+| Nome * | Como o destino aparece nas listas de rota e de URA |
+| Contexto * | O nome entre colchetes no `extensions_custom.conf`. Só letras, números, hífen e sublinhado |
+| Extensão * | Quase sempre `s`. É o rótulo da linha `exten =>` |
+| Prioridade * | Normalmente `1`, ou um rótulo como `inicio` |
+| Para que serve | Descrição para quem mexer depois |
+| Ativo | Desativado, some das listas de destino e o dialplan deixa de gerá-lo |
+
+A combinação **contexto + extensão + prioridade** é única.
+
+### Conferência do contexto
+
+A coluna **Contexto no dialplan** pergunta ao Asterisk se o contexto existe:
+
+| Etiqueta | Significado |
+|---|---|
+| Existe | O contexto está carregado no Asterisk |
+| Não existe | Ninguém escreveu o contexto, ou o nome está diferente. A chamada que cair aqui se perde |
+| não verificado | O Asterisk não respondeu |
+
+No topo, a tela avisa quantos destinos apontam para contexto inexistente, ou que o Asterisk está fora.
+
+### Regras
+
+- O console **não escreve** o contexto: escreva-o no `extensions_custom.conf` e recarregue o dialplan.
+- Excluir o destino não toca no `extensions_custom.conf`, só remove o atalho. **Rotas que apontavam para ele ficam sem saída.**
+- Mudanças valem depois de **Aplicar configurações**.
+
+---
+
+## 11. Códigos de Recurso
+
+**Administrador › Códigos de Recurso**
+
+O que o usuário disca no telefone para usar cada facilidade: siga-me, não perturbe, correio de voz, captura, estacionamento e outras. **Todo código pode ser trocado**; o que ele faz é fixo e já está no dialplan. A lista completa, com os códigos de fábrica, está em [Códigos de Recurso](15-Codigos-de-Recurso.md).
+
+> 📷 **Print:** tela com a busca e as categorias.
+
+### A tela
+
+- Os códigos ficam agrupados por categoria (Núcleo, Correio de Voz, Siga-me, Filas, Call Center, Lista Negra, Allowlist…).
+- A busca procura pelo nome, pelo código ou pela facilidade.
+- O rodapé da busca mostra quantos estão habilitados e quantos valem durante a chamada.
+- A coluna **Onde vale** diz se o código é discado (**ao discar**) ou apertado no meio da conversa (**durante a chamada**).
+- A chave ao lado de cada código habilita ou desabilita.
+
+### Personalizar
+
+| Campo | O que faz |
+|---|---|
+| Código discado * | Só dígitos, `*` e `#`, até 12. Comece com `*` ou `#` para não colidir com número de ramal |
+| Habilitado | Liga ou desliga o código |
+
+Nome, argumento e descrição são do catálogo e não mudam.
+
+### Código próprio
+
+Para uma facilidade escrita por você no `extensions_custom.conf`.
+
+| Campo | O que faz |
+|---|---|
+| Código discado * | Como acima |
+| Facilidade * | Nome |
+| Chave interna * | Letras minúsculas, números e sublinhado. O gerador só monta o dialplan das chaves que ele conhece: o contexto de uma chave nova você escreve no `extensions_custom.conf` |
+| Categoria | Em qual grupo aparece |
+| Onde vale | Ao discar, ou apertado durante a chamada |
+| O que se disca depois | Ex.: ramal, destino. Em branco quando o código é discado sozinho |
+| O que ele faz | Descrição |
+
+### Regras
+
+- Um código discado não pode ser **igual** a outro, nem ser o **começo** de outro (ou ter outro como começo), incluindo os códigos de pausa do call center e das caixas postais. Exemplo: com `*1` em uso, `*14` é recusado. A tela diz com qual bateu.
+- A conferência vale ao trocar o código ou ao religar um código desligado.
+- **Toda mudança só vale no telefone depois de Aplicar configurações.**
+
+---
+
+## 12. Gravações do Sistema
+
+**Administrador › Gravações do Sistema**
+
+Os áudios usados por URAs, filas, anúncios e música em espera. O envio é convertido para os formatos que o Asterisk toca. As gravações de **chamadas** ficam em outra tela: **Aplicações › Gravação de Chamadas** ([Aplicações](13-Aplicacoes-Filas-URA-e-Atendimento.md)).
+
+> 📷 **Print:** lista de áudios agrupada por categoria.
+
+### A lista
+
+Os áudios aparecem agrupados por categoria, com nome, arquivo, duração, formatos gerados e quem enviou.
+
+### Enviar áudio
+
+| Campo | O que faz |
+|---|---|
+| Arquivo * | O áudio. Aceita `wav`, `mp3`, `ogg`, `gsm`, `g722`, `alaw`, `ulaw`, `flac` e `m4a`, até 20 MB |
+| Nome * | Ex.: "Saudação principal" |
+| Nome do arquivo no Asterisk | É o que se escolhe na URA e nas filas. Em branco, é gerado a partir do nome: minúsculas, sem acento, espaços viram hífen, até 60 caracteres. Único |
+| Categoria | Saudação de URA, Anúncio, Música em espera, Mensagem de fila ou Aviso do sistema |
+| Descrição | Texto livre |
+
+> 📷 **Print:** formulário **Enviar áudio**.
+
+### O que acontece no envio
+
+- O servidor converte o áudio para **WAV 8 kHz mono 16 bits** e para **GSM**, com o programa `sox`.
+- Os arquivos ficam em `/var/lib/asterisk/sounds/telium`.
+- Sem o `sox` no servidor, a tela mostra **sox ausente no servidor**: só um arquivo `.wav` é aceito, guardado como veio; outros formatos são recusados.
+
+### Editar e excluir
+
+- **Editar** muda só nome, categoria e descrição. Para trocar o som, envie outro áudio e exclua este.
+- **Excluir** apaga os arquivos do servidor. É recusado se o áudio ainda estiver em uso numa URA, como música de espera de uma fila, num anúncio ou num bloqueio da lista negra; a mensagem diz onde.
+
+### Regras
+
+- Não há gravação de áudio pelo telefone nesta tela: o áudio é sempre enviado como arquivo.
+- Para usar um áudio numa URA ou fila, normalmente ele é ligado a um **anúncio** em **Aplicações › Anúncios**.
+
+---
+
+## 13. Auditoria
+
+**Administrador › Auditoria**
+
+A trilha de atividades: quem fez o quê, quando e de onde. A tela abre com o título **Registro de Atividades**.
+
+Só o perfil **Administrador** tem esta tela.
+
+> 📷 **Print:** auditoria com filtros de período e ação.
+
+### Filtros
+
+| Filtro | O que faz |
+|---|---|
+| De / até | Período. Sem escolha, mostra a **última semana**. No máximo **92 dias** por consulta: um período maior é cortado, contado da data final |
+| Todas as ações | Filtra por tipo de ação |
+| Todos os módulos | Filtra pelo módulo onde aconteceu (a lista mostra só os que já têm registro) |
+| Usuário… | Parte do nome de quem fez |
+| Objeto ou IP… | Procura no objeto alterado ou no IP de origem |
+
+Os resultados vêm do mais recente para o mais antigo, 30 por página.
+
+### Colunas
+
+| Coluna | O que mostra |
+|---|---|
+| Quando | Data e hora |
+| Usuário | Quem fez. **sistema** quando não há usuário (ex.: login com usuário inexistente) |
+| Ação | O tipo de ação |
+| Módulo | Onde foi feito, pelo identificador (ex.: `admin.usuarios`) |
+| Objeto | O que foi alterado: login, número, chave do perfil, comando… |
+| IP | Endereço de origem |
+
+### O que é registrado
+
+| Ação | Quando |
+|---|---|
+| `criar`, `editar`, `excluir` | Todo cadastro feito pelo console, incluindo troca de senha, desbloqueio e desligamento de 2FA de outra pessoa |
+| `aplicar` | Aplicar configurações |
+| `login`, `logout` | Entrada e saída do console |
+| `login_falha` | Senha errada, usuário inexistente ou código de 2FA inválido |
+| `login_bloqueio_ip` | Origem recusada por excesso de falhas |
+| `senha_propria`, `senha_falha` | A pessoa trocou a própria senha, ou errou a senha atual ao tentar |
+| `2fa_ligado`, `2fa_desligado` | A pessoa ligou ou desligou a própria verificação em dois passos |
+| `exportar` | Download de gravações, CDR, backup, pesquisa e planilha de ramais |
+| `importar` | Importação de ramais por planilha |
+| `backup`, `restaurar` | Backup manual iniciado e restauração pedida |
+| `testar` | Testes de e-mail e de click to call |
+| `cli_leitura`, `cli_escrita` | Cada comando do CLI Asterisk |
+
+O filtro **Todas as ações** lista só parte dessas ações. Para achar as outras (como os comandos do CLI ou os eventos de 2FA), filtre pelo **módulo** ou procure pelo **objeto**.
+
+---
+
+## 14. Problemas comuns
+
+**A pessoa diz que a senha está certa e não entra.**
+- Veja se a conta está **Travada** na lista de usuários. Clique em **Liberar o bloqueio por senha errada**.
+- Confira o **Estado**: inativa ou bloqueada não entra.
+- Se ela tem **2FA** e trocou de celular, desligue a verificação dela e peça para ligar de novo no próprio painel.
+
+**Ao salvar um usuário: "O ramal … já está vinculado a …".**
+- Cada ramal pertence a uma conta só. Tire o ramal da outra conta primeiro.
+
+**"Esta conta tem permissões que o seu perfil não tem".**
+- Só quem tem pelo menos as mesmas permissões altera a conta. Peça a um Administrador.
+
+**Não consigo desativar, excluir ou mudar o perfil de uma conta de administrador.**
+- É a última conta ativa capaz de administrar usuários. Dê esse acesso a outra conta antes. A sua própria conta, só outro administrador altera.
+
+**Um perfil novo não vê nada.**
+- Perfil novo nasce sem permissão. Marque os módulos e as ações na matriz e clique em **Salvar alterações**. A pessoa precisa recarregar a página.
+
+**A pessoa não consegue usar o softphone do navegador.**
+- O perfil dela precisa do módulo **Telefone (WebRTC)**, e a conta precisa de **ramal vinculado**.
+
+**O supervisor não consegue escutar chamadas.**
+- O usuário dele precisa de ramal vinculado, e depois disso alguém precisa clicar em **Aplicar configurações**.
+
+**O navegador continua avisando que o site não é seguro.**
+- O serviço **Interface web (nginx)** ainda está com o certificado de fábrica, ou o certificado não tem o endereço usado no navegador em **Outros nomes e IPs**, ou falta a **cadeia intermediária**.
+
+**"Aplicar nos serviços" deu falha.**
+- Leia o motivo no cartão do serviço. O certificado anterior continua no ar.
+
+**Bloqueei um número e ele continua ligando.**
+- Faltou **Aplicar configurações** (bloqueio feito pelo console).
+- O número está na **Allowlist**, ou a allowlist foi pausada/retomada com `*37`.
+- O número chega em formato diferente do cadastrado (com ou sem 0, DDD ou 55). Confira no CDR como ele aparece.
+
+**O comando no CLI é recusado.**
+- Ele altera o estado da central e o seu perfil não tem **Aplicar configurações**, ou contém um caractere proibido (`;`, `|`, `>`…).
+
+**O destino personalizado aparece como "Não existe".**
+- O contexto não está no `extensions_custom.conf`, o nome está diferente, ou o dialplan não foi recarregado.
+
+**Troquei um código de recurso e o telefone não reconhece.**
+- Faltou **Aplicar configurações**, ou o código está desabilitado.
+
+**O envio de áudio falha.**
+- Formato fora da lista ou arquivo acima de 20 MB.
+- Etiqueta **sox ausente no servidor**: instale o `sox` ou envie em `.wav`.
+- "Já existe um áudio com o nome …": escolha outro **Nome do arquivo no Asterisk**.
+
+**Não consigo excluir um áudio.**
+- Ele ainda está em uso. Troque na URA, fila, anúncio ou lista negra indicados na mensagem.
+
+**A auditoria não mostra um evento antigo.**
+- A consulta vai até 92 dias. Ajuste as datas **De** e **até** para o período do evento.

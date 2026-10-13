@@ -1,0 +1,489 @@
+==============================================================================
+REFERÊNCIA DA API — TELIUM PABX
+==============================================================================
+
+A API REST que o console usa e que outros sistemas podem chamar. Todas as rotas estão declaradas em api/public/index.php; esta página foi extraída de lá. Se as duas divergirem, vale o código.
+
+Veja também: 31-Arquitetura.md (ver página 31) e 30-Desenvolvimento.md (ver página 30).
+
+
+SUMÁRIO
+-------
+
+1. Base e convenções
+2. Autenticação
+3. Formato de resposta e erros
+4. Recursos genéricos: listagem, filtros e paginação
+5. Rotas públicas
+6. Click to call para outros sistemas
+7. Rotas autenticadas por área
+8. Recursos CRUD genéricos
+
+
+1. BASE E CONVENÇÕES
+--------------------
+
+- Base: https://<central>/api. Exceções: o provisionamento, em /prov/... e /p/... (sem o /api).
+- Corpo: JSON (Content-Type: application/json). Upload de arquivo é multipart/form-data.
+- Respostas: JSON UTF-8, exceto downloads (áudio, CSV, backup, PEM) e o provisionamento.
+- Cabeçalhos em toda resposta: X-Content-Type-Options: nosniff, Cache-Control: no-store, X-Telium-Api: 1.0.
+- Limites do nginx: 30 pedidos/s por IP no /api/ (com folga de 60), 10 por minuto no /api/auth/login (folga de 5). Passou do limite: 429.
+- Coluna "Permissão" nas tabelas: módulo exige o módulo no perfil; módulo + ação exige também a ação (criar, editar, excluir, exportar, reiniciar, permissoes). "Também:" lista módulos que abrem a mesma porta (em geral, só para ler por referência). "sessão" quer dizer só estar logado.
+
+
+2. AUTENTICAÇÃO
+---------------
+
+
+Login
+~~~~~
+
+    POST /api/auth/login
+    { "usuario": "admin", "senha": "...", "codigo": "123456" }
+
+codigo é o TOTP, só para contas com verificação em dois passos.
+
+- 200 { "token": "...", "usuario": {...} } + cookie telium_sessao: Entrou
+- 200 { "precisa_2fa": true }: A conta tem 2FA e o codigo não veio: repita o pedido com ele
+- 401: Usuário ou senha inválidos (mensagem genérica), código 2FA inválido ou já usado
+- 403: Usuário inativo/bloqueado no cadastro, ou 2FA ligado sem segredo
+- 422: Faltou usuário ou senha
+- 429: Conta bloqueada por 15 min após 5 erros (para a origem que errou) ou 20 falhas da mesma origem em 10 min
+
+
+Usando a sessão
+~~~~~~~~~~~~~~~
+
+Mande o token em um destes:
+
+- Authorization: Bearer <token>
+- cookie telium_sessao (HttpOnly, SameSite=Strict, Secure), gravado pelo login
+
+A sessão vale SESSAO_MINUTOS (padrão 30) de inatividade e é renovada a cada pedido. Sem sessão válida, toda rota autenticada responde 401 ("Não autenticado" ou "Sessão expirada ou inválida"). Sem permissão, 403 com modulo ou acao no corpo.
+
+
+Conta própria e 2FA
+~~~~~~~~~~~~~~~~~~~
+
+- POST — Caminho: /auth/logout; O que faz: Encerra a sessão e apaga o cookie
+- GET — Caminho: /me; O que faz: Usuário, permissões (allow, caps), empresa, versão e dados do softphone
+- POST — Caminho: /me/senha; O que faz: Troca a própria senha (atual, nova); encerra as outras sessões
+- POST — Caminho: /me/2fa/iniciar; O que faz: Gera o segredo TOTP e a URI do QR Code (ainda não liga)
+- POST — Caminho: /me/2fa/confirmar; O que faz: Liga o 2FA provando um codigo
+- DELETE — Caminho: /me/2fa; O que faz: Desliga o 2FA (corpo com senha)
+
+
+3. FORMATO DE RESPOSTA E ERROS
+------------------------------
+
+api/src/Suporte/Resposta.php:
+
+- Sucesso: o JSON do recurso, com status 200 (ou 201 na criação).
+- Erro: { "erro": "mensagem para o usuário" } mais campos extras quando houver, por exemplo { "erro": "...", "campo": "numero" } (o console marca o campo no formulário), { "modulo": "..." } ou { "acao": "..." } no 403.
+- Arquivos (Resposta::arquivo): fluxo com suporte a Range (206 Partial Content, 416 fora da faixa).
+- Erro não tratado: 500 { "erro": "Erro interno na API" }. Com APP_DEBUG=true, a mensagem real, arquivo e linha. Rota inexistente: 404; método errado: 405.
+
+Exceção: o click to call responde no formato { "ok": false, "erro": "..." } (seção 6).
+
+Códigos usados:
+
+- 200 / 201: Sucesso / criado
+- 401: Sem sessão (ou chave de API inválida no click to call)
+- 403: Sem o módulo ou a ação
+- 404: Registro não encontrado
+- 409: Conflito: valor duplicado em coluna única, registro em uso, impedimento de regra de negócio
+- 422: Validação: campo obrigatório, formato, valor fora da lista
+- 429: Limite de tentativas ou de pedidos
+- 502: Serviço externo falhou (AMI no click to call, SMTP, destino de backup)
+- 503: /api/health com alguma dependência fora
+
+
+4. RECURSOS GENÉRICOS: LISTAGEM, FILTROS E PAGINAÇÃO
+----------------------------------------------------
+
+Os cadastros da seção 8 usam o CRUD genérico (api/src/Http/Recurso.php).
+
+
+Listar
+~~~~~~
+
+    GET /api/ramais?q=joao&setor=Suporte&limite=50&pagina=2
+
+- q: Busca textual (LIKE) nas colunas de busca do recurso
+- <coluna>=<valor>: Igualdade, só nas colunas declaradas como filtro
+- limite: 1 a 500 (padrão 200)
+- pagina: A partir de 1
+
+Resposta:
+
+    { "dados": [ { "id": 1, "numero": "1001", ... } ], "total": 73, "pagina": 2, "limite": 50 }
+
+Colunas sensíveis (senha SIP, PINs, segredos) nunca voltam. Quem lê a lista só por referência (outra tela com seletor) pode receber menos colunas.
+
+
+Obter, criar, atualizar, remover
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- GET /api/<recurso>/{id}: O registro, ou 404
+- POST /api/<recurso> com os campos: 201 e o registro criado
+- PUT /api/<recurso>/{id} com só os campos que mudam: 200 e o registro atualizado
+- DELETE /api/<recurso>/{id}: { "removido": true }
+
+Regras da escrita:
+
+- Campos fora da lista de colunas graváveis são ignorados. Nenhum campo válido: 422.
+- Campo secreto em branco na edição = manter o valor atual; null = remover (se o campo não tiver tamanho mínimo).
+- Recursos que viram configuração do Asterisk recusam ${ e $[ em qualquer campo (422) e marcam a configuração como pendente (aplicar com POST /api/config/aplicar).
+- Erros de banco traduzidos: duplicado → 409 com campo; vínculo inexistente → 422; registro em uso → 409.
+
+
+5. ROTAS PÚBLICAS
+-----------------
+
+Sem sessão. São só estas:
+
+- GET — Caminho: /api/health; O que faz: Saúde da API
+- POST — Caminho: /api/auth/login; O que faz: Login (seção 2)
+- GET, POST — Caminho: /api/click2call; O que faz: Click to call com chave de API (seção 6)
+- GET — Caminho: /prov/{segredo}/{arquivo}; O que faz: Configuração do telefone IP
+- GET — Caminho: /p/{token}; O que faz: Configuração do Linphone lida pelo QR Code
+
+
+GET /api/health
+~~~~~~~~~~~~~~~
+
+Confere PHP, banco, esquema (o banco acompanha o código?) e Asterisk (AMI).
+
+- Sem sessão: { "servico", "versao", "saudavel" }.
+- Com sessão válida (Bearer ou cookie): também ambiente, horario e checagens com o detalhe de cada uma (inclusive config_pendente).
+- Status 200 quando tudo está bem, 503 quando algo falhou. É a rota para monitoramento.
+
+
+GET /prov/{segredo}/{arquivo}
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+O telefone busca a própria configuração no boot. O MAC vem do nome do arquivo (cfg<mac>.xml na Grandstream, <mac>.cfg nos outros). Entrega se: o segredo confere, a origem é rede local (quando a central exige), o MAC está cadastrado em Dispositivos e o dispositivo tem ramal ativo. Responde o arquivo (text/xml ou text/plain, Cache-Control: no-store). Qualquer recusa responde 404, sem dizer o motivo; o motivo fica no registro de provisionamento. O nginx dá a este caminho um limite maior (folga de 120) para os aparelhos que sobem juntos.
+
+
+GET /p/{token}
+~~~~~~~~~~~~~~
+
+O Linphone lendo o QR Code gerado em POST /api/provisionamento/linphone. O token é aleatório, vale 10 minutos e uma vez só. Token desconhecido: 404; token usado ou vencido: 410. Também responde pela porta 80, para centrais sem certificado de confiança.
+
+
+6. CLICK TO CALL PARA OUTROS SISTEMAS
+-------------------------------------
+
+A central toca o ramal e, quando ele atende, disca o número. Para CRM, ERP ou páginas. A chave é criada no console em Telium › Integrações / API e só é mostrada na criação (o banco guarda o hash). Começa com tlm_c2c_.
+
+Controller: api/src/Http/Controllers/ClickToCall.php; regras: api/src/Dominio/ClickToCall.php.
+
+
+Pedido
+~~~~~~
+
+    GET  /api/click2call?ramal=1001&numero=11999990000&nome=Maria
+    POST /api/click2call   { "ramal": "1001", "numero": "11999990000", "nome": "Maria" }
+
+- ramal — Obrigatório: sim; Descrição: Ramal que vai tocar. Só os dígitos são considerados
+- numero — Obrigatório: sim; Descrição: Número a discar. Ficam só dígitos, *, # e +
+- nome — Obrigatório: não; Descrição: Nome mostrado no visor do ramal (até 40 caracteres; aspas e < > são retirados). Vazio: mostra o número
+- token — Obrigatório: um dos três; Descrição: A chave, como parâmetro (para sistemas que só abrem URL)
+
+A chave pode ir em X-Api-Key: <chave>, Authorization: Bearer <chave> ou no parâmetro token, nessa ordem de preferência. Query string e corpo são mesclados.
+
+    curl -X POST https://pabx.exemplo.com.br/api/click2call \
+      -H 'X-Api-Key: tlm_c2c_...' -H 'Content-Type: application/json' \
+      -d '{"ramal":"1001","numero":"11999990000","nome":"Maria"}'
+
+A chamada entra pelo contexto do próprio ramal: passa pela permissão de discagem, limite de chamadas e rota de saída como se a pessoa tivesse discado. Se a chave tem "atender automaticamente", o ramal recebe os cabeçalhos de atendimento automático (Call-Info e Alert-Info).
+
+
+Resposta de sucesso (200)
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    { "ok": true, "id": "c2c-0123456789abcdef", "ramal": "1001",
+      "numero": "11999990000", "mensagem": "O ramal 1001 vai tocar; ao atender, a central disca 11999990000." }
+
+O id é o uniqueid da chamada no CDR: guarde-o para achar o registro e a gravação depois.
+
+
+Erros
+~~~~~
+
+Formato: { "ok": false, "erro": "..." }.
+
+- 401: Chave ausente, inválida ou desativada
+- 403: A chave não pode ser usada deste IP, ou não pode fazer este ramal tocar
+- 404: O ramal não existe ou está desativado
+- 409: O ramal não está registrado na central, ou está registrado mas não responde
+- 422: Faltou ramal ou numero (ou o número ficou vazio depois da limpeza)
+- 429: 20 ou mais pedidos com chave inválida do mesmo IP nos últimos 10 minutos
+- 502: A central não respondeu ou recusou a chamada (falha no AMI)
+
+Todo pedido, aceito ou recusado, fica em click2call_pedidos e aparece na tela de Integrações.
+
+
+Administração das chaves (autenticado)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- GET — Caminho: /click2call/chaves; Permissão: telium.integracoes; O que faz: Chaves (sem o texto) e os últimos 50 pedidos
+- POST — Caminho: /click2call/chaves; Permissão: telium.integracoes + criar; O que faz: Cria; devolve token uma única vez
+- PUT — Caminho: /click2call/chaves/{id}; Permissão: telium.integracoes + editar; O que faz: Nome, ramais, IPs, atender automático, ativo
+- POST — Caminho: /click2call/chaves/{id}/renovar; Permissão: telium.integracoes + editar; O que faz: Gera chave nova; a antiga para na hora
+- DELETE — Caminho: /click2call/chaves/{id}; Permissão: telium.integracoes + excluir; O que faz: Remove
+- POST — Caminho: /click2call/testar; Permissão: telium.integracoes + editar; O que faz: A mesma chamada, pelo console
+
+
+7. ROTAS AUTENTICADAS POR ÁREA
+------------------------------
+
+Todos os caminhos abaixo são relativos a /api.
+
+
+Meu Painel e telefone do navegador
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- POST — Caminho: /discar; Permissão: pcu.meuramal. Também: pcu.contatos, pcu.chamadas, admin.contatos, rel.cdr, conn.ramais, fone.webrtc; O que faz: Click to call a partir do ramal da sessão
+- GET — Caminho: /me/telefone; Permissão: fone.webrtc; O que faz: Dados da tela do telefone
+- PUT — Caminho: /me/telefone/dnd; Permissão: fone.webrtc; O que faz: Não perturbe do próprio ramal
+- GET — Caminho: /me/ramal; Permissão: pcu.meuramal. Também: pcu.sigame, pcu.perfil; O que faz: O próprio ramal
+- PUT — Caminho: /me/ramal; Permissão: pcu.meuramal. Também: pcu.sigame; O que faz: Altera o próprio ramal (siga-me e afins)
+- GET — Caminho: /me/chamadas; Permissão: pcu.chamadas; O que faz: Chamadas do próprio ramal
+- POST — Caminho: /me/webrtc/chamada; Permissão: pcu.meuramal. Também: fone.webrtc; O que faz: Resumo do áudio de uma chamada do softphone
+- GET — Caminho: /me/correiovoz; Permissão: pcu.correiovoz; O que faz: Recados do próprio correio
+- GET — Caminho: /me/correiovoz/audio; Permissão: pcu.correiovoz; O que faz: Áudio de um recado
+- DELETE — Caminho: /me/correiovoz; Permissão: pcu.correiovoz; O que faz: Apaga recado
+
+
+Painel e relatórios
+~~~~~~~~~~~~~~~~~~~
+
+- GET — Caminho: /painel/visaogeral; Permissão: dash.visaogeral; O que faz: Indicadores da visão geral
+- GET — Caminho: /tempo-real; Permissão: dash.temporeal; O que faz: Wallboard
+- GET — Caminho: /sistema/estatisticas; Permissão: dash.sistema; O que faz: Estatísticas do servidor
+- GET — Caminho: /sistema/asterisk; Permissão: dash.asterisk; O que faz: Informações do Asterisk
+- GET — Caminho: /cdr; Permissão: rel.cdr; O que faz: Relatório de chamadas
+- GET — Caminho: /relatorios/filas; Permissão: rel.filas; O que faz: Relatório de filas
+- GET — Caminho: /relatorios/agentes; Permissão: rel.agentes; O que faz: Relatório de agentes
+- GET — Caminho: /relatorios/ramais; Permissão: rel.ramais; O que faz: Relatório por ramal
+- GET — Caminho: /relatorios/troncos; Permissão: rel.troncos; O que faz: Relatório por tronco
+- GET — Caminho: /relatorios/eventos; Permissão: rel.cel; O que faz: Eventos (CEL)
+- GET — Caminho: /relatorios/tarifacao; Permissão: telium.tarifacao; O que faz: Tarifação
+- POST — Caminho: /relatorios/tarifacao; Permissão: telium.tarifacao + editar; O que faz: Tarifa as chamadas agora
+- GET — Caminho: /auditoria; Permissão: admin.auditoria; O que faz: Trilha de auditoria
+- GET — Caminho: /gravacoes; Permissão: apps.gravacao; O que faz: Lista gravações (não há rota de exclusão, de propósito)
+- GET — Caminho: /gravacoes/arquivo; Permissão: apps.gravacao; O que faz: Áudio de uma gravação
+- POST — Caminho: /gravacoes/pacote; Permissão: apps.gravacao + exportar; O que faz: Pacote de gravações para baixar
+
+
+Usuários, perfis e empresa
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- GET — Caminho: /perfis; Permissão: admin.permissoes. Também: admin.usuarios; O que faz: Lista perfis
+- POST — Caminho: /perfis; Permissão: admin.permissoes + permissoes; O que faz: Cria perfil
+- PUT — Caminho: /perfis/{id}; Permissão: admin.permissoes + permissoes; O que faz: Altera perfil
+- DELETE — Caminho: /perfis/{id}; Permissão: admin.permissoes + permissoes; O que faz: Remove perfil
+- PUT — Caminho: /perfis/{id}/permissoes; Permissão: admin.permissoes + permissoes; O que faz: Grava módulos e ações do perfil
+- POST — Caminho: /usuarios; Permissão: admin.usuarios + criar; O que faz: Cria usuário (com senha). Os demais métodos de /usuarios são do CRUD genérico
+- POST — Caminho: /usuarios/{id}/senha; Permissão: admin.usuarios + editar; O que faz: Redefine a senha
+- POST — Caminho: /usuarios/{id}/2fa/desligar; Permissão: admin.usuarios + editar; O que faz: Desliga o 2FA de outro usuário
+- POST — Caminho: /usuarios/{id}/destravar; Permissão: admin.usuarios + editar; O que faz: Destrava conta bloqueada por tentativas
+- GET — Caminho: /empresa; Permissão: sessão; O que faz: Dados da empresa
+- PUT — Caminho: /empresa; Permissão: cfg.empresa + editar; O que faz: Altera dados da empresa
+
+
+Ramais (além do CRUD)
+~~~~~~~~~~~~~~~~~~~~~
+
+- GET — Caminho: /ramais/csv/modelo; Permissão: conn.ramais; O que faz: Planilha modelo
+- GET — Caminho: /ramais/csv; Permissão: conn.ramais + exportar; O que faz: Exporta ramais em CSV
+- POST — Caminho: /ramais/csv; Permissão: conn.ramais + criar; O que faz: Importa ramais de CSV
+- GET — Caminho: /ramais/{id}/credenciais; Permissão: conn.ramais + editar; O que faz: Credenciais SIP do ramal
+
+
+Diagnóstico, rede e firewall
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- GET — Caminho: /diagnostico/rede; Permissão: conn.rede; O que faz: Endereço público e redes locais
+- PUT — Caminho: /diagnostico/rede; Permissão: conn.rede + editar; O que faz: Altera IP público e redes locais (NAT)
+- GET — Caminho: /diagnostico/rede/descobrir; Permissão: conn.rede; O que faz: Descobre o IP público
+- GET — Caminho: /diagnostico/webrtc; Permissão: conn.webrtc; O que faz: O caminho do softphone: transporte wss, WebSocket do Asterisk, ICE e ramal WebRTC
+- POST — Caminho: /diagnostico/webrtc; Permissão: conn.webrtc + editar; O que faz: Liga ou desliga o telefone do navegador
+- GET — Caminho: /diagnostico/seguranca; Permissão: conn.firewall; O que faz: Estado da proteção
+- GET — Caminho: /diagnostico/banidos; Permissão: conn.firewall; O que faz: IPs banidos
+- POST — Caminho: /diagnostico/desbanir; Permissão: conn.firewall + editar; O que faz: Desbane um IP
+- GET — Caminho: /firewall/confiaveis; Permissão: conn.firewall; O que faz: Lista "nunca bloquear"
+- POST — Caminho: /firewall/confiaveis; Permissão: conn.firewall + editar; O que faz: Acrescenta à lista
+- DELETE — Caminho: /firewall/confiaveis/{id}; Permissão: conn.firewall + editar; O que faz: Remove da lista
+- GET — Caminho: /diagnostico/sip; Permissão: cfg.sip; O que faz: Estado do SIP
+- GET — Caminho: /diagnostico/dids; Permissão: conn.did; O que faz: DIDs
+- GET — Caminho: /diagnostico/troncos; Permissão: conn.troncos; O que faz: Estado dos troncos na central
+
+
+E-mail, backup, áudios e certificados
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- GET — Caminho: /email; Permissão: cfg.notificacoes; O que faz: Configuração de envio
+- PUT — Caminho: /email; Permissão: cfg.notificacoes + editar; O que faz: Grava a configuração
+- POST — Caminho: /email/testar; Permissão: cfg.notificacoes + editar; O que faz: Envia e-mail de teste
+- GET — Caminho: /backup; Permissão: admin.backup; O que faz: Backups e estado
+- POST — Caminho: /backup/executar; Permissão: admin.backup + criar; O que faz: Faz backup agora
+- GET — Caminho: /backup/destino; Permissão: admin.backup; O que faz: Destino remoto
+- PUT — Caminho: /backup/destino; Permissão: admin.backup + editar; O que faz: Grava destino remoto
+- POST — Caminho: /backup/destino/testar; Permissão: admin.backup + editar; O que faz: Testa o destino remoto
+- POST — Caminho: /backup/{id}/enviar; Permissão: admin.backup + exportar; O que faz: Envia ao destino remoto
+- GET — Caminho: /backup/{id}/baixar; Permissão: admin.backup + exportar; O que faz: Baixa o arquivo
+- POST — Caminho: /backup/{id}/restaurar; Permissão: admin.backup + reiniciar; O que faz: Restaura
+- DELETE — Caminho: /backup/{id}; Permissão: admin.backup + excluir; O que faz: Remove
+- GET — Caminho: /audios; Permissão: admin.gravacoes. Também: telas que escolhem destino; O que faz: Lista áudios do sistema
+- POST — Caminho: /audios; Permissão: admin.gravacoes + criar. Também: cfg.musica; O que faz: Envia áudio
+- GET — Caminho: /audios/{id}/ouvir; Permissão: admin.gravacoes. Também: cfg.musica; O que faz: Toca o áudio
+- PUT — Caminho: /audios/{id}; Permissão: admin.gravacoes + editar. Também: cfg.musica; O que faz: Altera
+- DELETE — Caminho: /audios/{id}; Permissão: admin.gravacoes + excluir. Também: cfg.musica; O que faz: Remove
+- GET — Caminho: /certificados; Permissão: admin.certificados; O que faz: Lista certificados
+- POST — Caminho: /certificados; Permissão: admin.certificados + criar; O que faz: Envia certificado
+- POST — Caminho: /certificados/autoassinado; Permissão: admin.certificados + criar; O que faz: Gera autoassinado
+- POST — Caminho: /certificados/csr; Permissão: admin.certificados + criar; O que faz: Gera CSR
+- POST — Caminho: /certificados/aplicar; Permissão: admin.certificados + reiniciar; O que faz: Atribui certificados aos serviços e dispara o aplicador
+- GET — Caminho: /certificados/{id}/pem; Permissão: admin.certificados; O que faz: Baixa o PEM
+- POST — Caminho: /certificados/{id}/assinar; Permissão: admin.certificados + editar; O que faz: Recebe o certificado emitido para um CSR
+- PUT — Caminho: /certificados/{id}; Permissão: admin.certificados + editar; O que faz: Altera
+- DELETE — Caminho: /certificados/{id}; Permissão: admin.certificados + excluir; O que faz: Remove
+
+
+Call center
+~~~~~~~~~~~
+
+O fluxo ao vivo (SSE) está em GET /api/cc/eventos, servido pelo serviço telium-cc (127.0.0.1:8095) por trás do nginx, e não pelo PHP. Ele confere a sessão pelo cabeçalho Authorization. Detalhes do módulo em 16-Call-Center.md (ver página 16).
+
+- GET — Caminho: /cc/estado; Permissão: cc.agente. Também: cc.supervisor; O que faz: Foto do call center
+- GET — Caminho: /cc/eu; Permissão: cc.agente; O que faz: Estado do agente logado
+- POST — Caminho: /cc/eu/entrar; Permissão: cc.agente; O que faz: Entra no atendimento
+- POST — Caminho: /cc/eu/sair; Permissão: cc.agente; O que faz: Sai do atendimento
+- POST — Caminho: /cc/eu/pausa; Permissão: cc.agente; O que faz: Entra em pausa
+- POST — Caminho: /cc/eu/volta; Permissão: cc.agente; O que faz: Volta da pausa
+- POST — Caminho: /cc/atendimentos/{id}/tabular; Permissão: cc.agente; O que faz: Registra a tabulação
+- POST — Caminho: /cc/agentes/{id}/comando; Permissão: cc.supervisor + editar; O que faz: Comando do supervisor: acao = pausar, voltar, sair, escutar, sussurrar ou intervir (motivo_id na pausa)
+- GET — Caminho: /cc/agentes; Permissão: cc.agentes. Também: cc.supervisor; O que faz: Lista agentes
+- POST — Caminho: /cc/agentes; Permissão: cc.agentes + criar; O que faz: Cria agente
+- PUT — Caminho: /cc/agentes/{id}; Permissão: cc.agentes + editar; O que faz: Altera agente
+- DELETE — Caminho: /cc/agentes/{id}; Permissão: cc.agentes + excluir; O que faz: Remove agente
+- GET — Caminho: /cc/retornos; Permissão: cc.retornos. Também: cc.supervisor; O que faz: Lista retornos
+- POST — Caminho: /cc/retornos/{id}; Permissão: cc.retornos + editar; O que faz: Atualiza um retorno
+- GET — Caminho: /cc/config; Permissão: cc.config; O que faz: Configuração do módulo
+- PUT — Caminho: /cc/config; Permissão: cc.config + editar; O que faz: Grava a configuração
+- GET — Caminho: /cc/relatorio; Permissão: cc.relatorios; O que faz: Relatório do call center
+
+
+Aplicações (além do CRUD)
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- GET — Caminho: /filas/{id}/agentes; Permissão: apps.filas; O que faz: Membros da fila
+- PUT — Caminho: /filas/{id}/agentes; Permissão: apps.filas + editar; O que faz: Grava membros (ramais)
+- PUT — Caminho: /filas/{id}/cc-agentes; Permissão: apps.filas + editar; O que faz: Grava agentes do call center na fila
+- GET — Caminho: /filas/{id}/situacao; Permissão: apps.filas; O que faz: Situação da fila no Asterisk
+- GET — Caminho: /pesquisas/resultados; Permissão: apps.pesquisas; O que faz: Resultados da pesquisa de satisfação
+- GET — Caminho: /pesquisas/respostas; Permissão: apps.pesquisas; O que faz: Respostas
+- GET — Caminho: /pesquisas/respostas/csv; Permissão: apps.pesquisas + exportar; O que faz: Respostas em CSV
+- GET — Caminho: /ura/{id}/opcoes; Permissão: apps.ura; O que faz: Opções do menu da URA
+- PUT — Caminho: /ura/{id}/opcoes; Permissão: apps.ura + editar; O que faz: Grava as opções
+- GET — Caminho: /conferencias/{id}/situacao; Permissão: apps.conferencias; O que faz: Quem está na sala
+- GET — Caminho: /grupos-horario/{id}/faixas; Permissão: apps.grupohorario; O que faz: Faixas de horário
+- PUT — Caminho: /grupos-horario/{id}/faixas; Permissão: apps.grupohorario + editar; O que faz: Grava as faixas
+- GET — Caminho: /condicoes-horarias/{id}/agora; Permissão: apps.condicoes; O que faz: Situação da condição agora
+- POST — Caminho: /condicoes-horarias/{id}/forcar; Permissão: apps.condicoes + editar; O que faz: Força aberta, fechada ou automática (modo: aberto, fechado, auto)
+- GET — Caminho: /destinos/contextos; Permissão: admin.destinos; O que faz: Contextos disponíveis para destino personalizado
+
+
+Agenda de contatos
+~~~~~~~~~~~~~~~~~~
+
+Não usa o CRUD genérico: quem tem só a agenda pessoal vê os contatos da empresa mas mexe apenas nos seus (decidido por linha no controller).
+
+- GET — Caminho: /contatos; Permissão: pcu.contatos. Também: admin.contatos, fone.webrtc; O que faz: Lista
+- GET — Caminho: /contatos/{id}; Permissão: pcu.contatos. Também: admin.contatos; O que faz: Obtém
+- POST — Caminho: /contatos; Permissão: pcu.contatos + criar. Também: admin.contatos; O que faz: Cria
+- PUT — Caminho: /contatos/{id}; Permissão: pcu.contatos + editar. Também: admin.contatos; O que faz: Altera
+- DELETE — Caminho: /contatos/{id}; Permissão: pcu.contatos + excluir. Também: admin.contatos; O que faz: Remove
+- POST — Caminho: /contatos/{id}/foto; Permissão: pcu.contatos + editar. Também: admin.contatos; O que faz: Envia foto
+- DELETE — Caminho: /contatos/{id}/foto; Permissão: pcu.contatos + editar. Também: admin.contatos; O que faz: Remove foto
+
+
+Provisionamento (console)
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- GET — Caminho: /provisionamento; Permissão: conn.provisionamento; O que faz: Configuração e registro de pedidos
+- PUT — Caminho: /provisionamento; Permissão: conn.provisionamento + editar; O que faz: Grava a configuração
+- GET — Caminho: /provisionamento/{id}/previa; Permissão: conn.provisionamento + editar; O que faz: Prévia do arquivo de um dispositivo
+- POST — Caminho: /provisionamento/linphone; Permissão: conn.provisionamento + editar; O que faz: Gera o convite (QR Code) do Linphone
+
+
+Console do Asterisk e configuração
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- GET — Caminho: /cli/sugestoes; Permissão: admin.cli; O que faz: Sugestões de comando
+- POST — Caminho: /cli; Permissão: admin.cli; O que faz: Executa um comando do Asterisk
+- GET — Caminho: /config/estado; Permissão: sessão; O que faz: Há configuração pendente? Quantos arquivos mudariam e a última aplicação
+- GET — Caminho: /config/arquivos; Permissão: cfg.avancadas; O que faz: Arquivos gerados, personalizados, permissão e histórico
+- POST — Caminho: /config/gerar; Permissão: cfg.avancadas + editar; O que faz: Gera os .conf sem recarregar; devolve arquivos e problemas
+- POST — Caminho: /config/aplicar; Permissão: cfg.avancadas + reiniciar; O que faz: Gera e recarrega o Asterisk. Sempre 200, com aplicado, etapas, saida, arquivos e problemas
+
+
+8. RECURSOS CRUD GENÉRICOS
+--------------------------
+
+Cada linha abaixo tem as cinco rotas do CRUD genérico (seção 4):
+
+    GET    /api/<caminho>        listar   (módulo, ou "leitura também")
+    GET    /api/<caminho>/{id}   obter    (módulo, ou "escrita também")
+    POST   /api/<caminho>        criar    (módulo + criar)
+    PUT    /api/<caminho>/{id}   editar   (módulo + editar)
+    DELETE /api/<caminho>/{id}   excluir  (módulo + excluir)
+
+Exceção: POST /api/usuarios é a rota própria de Cadastros::criarUsuario (com senha), com a mesma permissão.
+
+"Destino" na coluna de leitura é a lista ESCOLHEM_DESTINO: as telas com seletor de destino (URA, filas, anúncios, condições, rotas de entrada e saída, siga-me, correio de voz etc.) podem listar sem ter o módulo dono.
+
+- ramais — Tabela: ramais; Módulo: conn.ramais; Leitura também: destino, fone.webrtc; Aplica no Asterisk: sim
+- troncos — Tabela: troncos; Módulo: conn.troncos; Leitura também: destino; Aplica no Asterisk: sim
+- filas — Tabela: filas; Módulo: apps.filas; Leitura também: destino, cc.tabulacoes, cc.agentes, cc.relatorios, cc.retornos; Aplica no Asterisk: sim
+- estacionamentos — Tabela: estacionamentos; Módulo: apps.estacionamento; Leitura também: destino; Aplica no Asterisk: sim
+- despertadores — Tabela: despertadores; Módulo: apps.despertar; Leitura também: —; Aplica no Asterisk: não
+- grupos-horario — Tabela: grupos_horario; Módulo: apps.grupohorario; Leitura também: destino; Aplica no Asterisk: sim
+- condicoes-horarias — Tabela: condicoes_horarias; Módulo: apps.condicoes; Leitura também: destino; Aplica no Asterisk: sim
+- anuncios — Tabela: anuncios; Módulo: apps.anuncios; Leitura também: destino; Aplica no Asterisk: sim
+- caixas-postais — Tabela: caixas_postais; Módulo: apps.caixaspostais; Leitura também: destino; Aplica no Asterisk: sim
+- conferencias — Tabela: conferencias; Módulo: apps.conferencias; Leitura também: destino; Aplica no Asterisk: sim
+- pesquisas — Tabela: pesquisas; Módulo: apps.pesquisas; Leitura também: destino; Aplica no Asterisk: sim
+- rotas-entrada — Tabela: rotas_entrada; Módulo: conn.rotasentrada; Leitura também: —; Aplica no Asterisk: sim
+- rotas-saida — Tabela: rotas_saida (+ padroes na mesma gravação); Módulo: conn.rotassaida; Leitura também: —; Aplica no Asterisk: sim
+- ura — Tabela: ura; Módulo: apps.ura; Leitura também: destino; Aplica no Asterisk: sim
+- ura-opcoes — Tabela: ura_opcoes; Módulo: apps.ura; Leitura também: —; Aplica no Asterisk: sim
+- grupos-toque — Tabela: grupos_toque; Módulo: apps.grupostoque; Leitura também: destino; Aplica no Asterisk: sim
+- usuarios — Tabela: usuarios; Módulo: admin.usuarios; Leitura também: —; Aplica no Asterisk: não
+- destinos-personalizados — Tabela: destinos_personalizados; Módulo: admin.destinos; Leitura também: destino; Aplica no Asterisk: sim
+- dispositivos — Tabela: dispositivos; Módulo: conn.provisionamento; Leitura também: —; Aplica no Asterisk: não
+- grupos-paging — Tabela: grupos_paging; Módulo: apps.paging; Leitura também: destino; Aplica no Asterisk: sim
+- disa — Tabela: disa; Módulo: apps.disa; Leitura também: destino; Aplica no Asterisk: sim
+- voicemail-geral — Tabela: voicemail_geral; Módulo: cfg.correiovoz; Leitura também: —; Aplica no Asterisk: sim
+- fax-geral — Tabela: fax_geral; Módulo: cfg.fax; Leitura também: —; Aplica no Asterisk: sim
+- pin-sets — Tabela: pin_sets; Módulo: cfg.pinsets; Leitura também: destino; Aplica no Asterisk: sim
+- tarifas — Tabela: tarifas; Módulo: telium.tarifacao; Leitura também: cfg.tarifas (também grava); Aplica no Asterisk: não
+- codigos-recurso — Tabela: codigos_recurso; Módulo: admin.codigos; Leitura também: —; Aplica no Asterisk: sim
+- lista-negra — Tabela: lista_negra; Módulo: admin.listanegra; Leitura também: —; Aplica no Asterisk: sim
+- lista-permitida — Tabela: lista_permitida; Módulo: admin.allowlist; Leitura também: —; Aplica no Asterisk: sim
+- backup-rotinas — Tabela: backup_rotinas; Módulo: admin.backup; Leitura também: —; Aplica no Asterisk: não
+- cc-pausas — Tabela: cc_pausas_motivos; Módulo: cc.pausas; Leitura também: cc.agente, cc.supervisor; Aplica no Asterisk: sim
+- cc-tabulacoes — Tabela: cc_tabulacoes; Módulo: cc.tabulacoes; Leitura também: cc.agente, cc.supervisor; Aplica no Asterisk: não
+- integracoes — Tabela: integracoes; Módulo: telium.integracoes; Leitura também: —; Aplica no Asterisk: não
+
+Colunas graváveis, regras de validação, colunas ocultas, filtros e busca de cada recurso estão na declaração dele em api/public/index.php. Alguns pontos que costumam surpreender:
+
+- ramais: senha_sip (mínimo 12 caracteres), vm_senha e pin nunca voltam. Marcar webrtc força DTLS, ICE, AVPF, rtcp-mux, transporte wss, max_contatos = 1 e codecs do navegador. Quem lê por referência recebe só id, numero, nome, setor, ativo, webrtc.
+- troncos: tipo só aceita pjsip; senha nunca volta.
+- usuarios: senha_hash e totp_secret nunca voltam; impedimentos (último administrador, própria conta, ramal de outra pessoa) em Usuarios::conferir.
+- codigos-recurso, cc-pausas, caixas-postais: o código discado não pode colidir com outro (igual ou começo de outro): 409 com campo: codigo.
+- cc-pausas: os motivos da central (sistema = 1) não podem ser excluídos, renomeados nem ganhar código.
+- rotas-saida: os padrões de discagem vão no campo padroes do corpo e voltam na resposta; gravados na mesma transação.
+- conferencias, disa, pin-sets, caixas-postais, integracoes: PINs, senhas e segredos nunca voltam.

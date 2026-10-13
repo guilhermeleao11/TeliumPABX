@@ -1,0 +1,435 @@
+# Aplicações — Recursos do Ramal
+
+Telas do menu **Aplicações** que mudam como cada ramal recebe chamadas e o que o usuário faz pelo telefone: siga-me, correio de voz, caixas postais sem ramal, DISA, estacionamento, megafonia e despertador.
+
+> Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
+
+> Os códigos citados aqui são os de fábrica. Se o administrador trocou algum, vale o que está em **Administrador › Códigos de Recurso**. A lista completa está em [15-Codigos-de-Recurso.md](15-Codigos-de-Recurso.md).
+
+---
+
+## Sumário
+
+1. [Antes de começar](#1-antes-de-começar)
+2. [Siga-me](#2-siga-me)
+3. [Correio de Voz (dos ramais)](#3-correio-de-voz-dos-ramais)
+4. [Caixas Postais (sem ramal)](#4-caixas-postais-sem-ramal)
+5. [DISA](#5-disa)
+6. [Estacionamento de Chamadas](#6-estacionamento-de-chamadas)
+7. [Megafonia e Interfonia](#7-megafonia-e-interfonia)
+8. [Chamadas de Despertar](#8-chamadas-de-despertar)
+9. [Problemas comuns](#9-problemas-comuns)
+
+---
+
+## 1. Antes de começar
+
+- Quase tudo aqui só vale no telefone depois de **Aplicar configurações** (faixa amarela no topo do console). A tela avisa com "Salvo. Aplique as configurações para valer no Asterisk."
+- A exceção são as **Chamadas de Despertar**: o disparador lê o cadastro a cada minuto, sem precisar aplicar.
+- Siga-me e correio de voz são do ramal. O próprio usuário também os ajusta pelo **Meu Painel** ([21-Meu-Painel-PCU.md](21-Meu-Painel-PCU.md)) e pelos códigos do telefone.
+- Caixa postal, DISA e grupo de megafonia viram **destinos**: aparecem no seletor de destino de rotas de entrada, URAs e condições horárias ([13-Aplicacoes-Filas-URA-e-Atendimento.md](13-Aplicacoes-Filas-URA-e-Atendimento.md), [17-Conectividade.md](17-Conectividade.md)).
+
+---
+
+## 2. Siga-me
+
+**Aplicações › Siga-me**
+
+Faz as chamadas do ramal tocarem também em outro lugar: outro ramal ou um celular. A tela lista os ramais ativos com o destino, como toca e se está ligado.
+
+> 📷 **Print:** lista do Siga-me, com o filtro "Com siga-me ligado".
+
+### Lista
+
+| Coluna | O que mostra |
+|---|---|
+| Ramal | Número, nome e setor |
+| Destino | O número configurado. Mais de 6 dígitos aparece como "número externo" |
+| Como toca | "junto com o ramal" ou "depois de N s sem atender" |
+| Estado | Ligado ou Desligado |
+
+A busca procura por ramal, nome ou setor. O seletor filtra **Todos os ramais**, **Com siga-me ligado** ou **Sem siga-me**.
+
+### Configurar
+
+Clique em **Configurar** na linha do ramal.
+
+| Campo | O que faz |
+|---|---|
+| Destino | Outro ramal ou número externo com DDD (ex.: `1002` ou `11988887777`). Fica guardado mesmo com o siga-me desligado |
+| Siga-me ligado | Liga ou desliga |
+| Como tocar | **Junto com o ramal, ao mesmo tempo**, ou **Só depois que o ramal não atender** |
+| Tempo de toque do ramal (s) | Quanto o ramal toca. No modo "depois", é o tempo antes de o siga-me entrar. Padrão 20 |
+
+> 📷 **Print:** gaveta "Siga-me — ramal 1001".
+
+### Pelo telefone
+
+| Código | O que faz |
+|---|---|
+| `*21` + destino | Liga o siga-me para o destino (ex.: `*2111988887777`) |
+| `*22` | Desliga |
+| `*23` | Alterna: liga com o último destino usado, ou desliga |
+
+A central confirma com "ativado" ou "desativado". O que se faz pelo telefone aparece no console.
+
+### Regras e validações
+
+- Destino: de 2 a 20 caracteres, só dígitos, `*`, `#` ou `+`.
+- Não dá para ligar o siga-me sem destino: a tela pede "Informe o destino antes de ligar o siga-me."
+- `*23` num ramal que nunca teve destino responde "inválido".
+
+### Comportamentos automáticos
+
+- A chamada para o destino sai com a **permissão de discagem do ramal dono**. Ramal sem permissão de celular não consegue siga-me para celular.
+- No modo "depois", se o destino também não atende, a chamada cai no correio de voz do ramal (se ele tiver caixa).
+- **Desvio de todas as chamadas** (`*72`) vence o siga-me; **Não perturbe** também: o ramal responde ocupado antes de o siga-me ser tentado.
+
+---
+
+## 3. Correio de Voz (dos ramais)
+
+**Aplicações › Correio de Voz**
+
+A caixa postal de cada ramal: senha, aviso por e-mail e limites. Quem liga e não é atendido (ou encontra o ramal ocupado ou fora do ar) deixa recado aqui.
+
+> 📷 **Print:** lista do Correio de Voz, com a etiqueta "sem e-mail cadastrado" em algum ramal.
+
+### Lista
+
+| Coluna | O que mostra |
+|---|---|
+| Caixa | `número@telium` quando a caixa está ativa |
+| E-mail | O e-mail do ramal; "anexa o áudio" quando o envio do áudio está ligado; "sem e-mail cadastrado" quando falta |
+| Limites | Quantos recados e quantos segundos cada |
+| Estado | Ativa ou Desativada |
+
+### Configurar
+
+| Campo | O que faz |
+|---|---|
+| Caixa postal ativa | Desligada, quem não for atendido ouve ocupado em vez de deixar recado |
+| Senha da caixa | Só dígitos, até 10. Em branco, a senha é o **próprio número do ramal** |
+| E-mail para aviso | É o mesmo e-mail do cadastro do ramal |
+| Anexar o áudio no e-mail | Manda o recado junto com o aviso |
+| Apagar o recado depois de enviar | O recado só existe no e-mail, não fica para ouvir pelo telefone |
+| Máximo de recados guardados | Padrão 100 |
+| Duração máxima de cada recado (s) | Padrão 180 |
+| Falar a data e a hora do recado | Ao ouvir, a central diz quando o recado chegou |
+| Falar o número de quem ligou | Ao ouvir, a central diz o número de origem |
+
+> 📷 **Print:** gaveta "Caixa postal — ramal 1001".
+
+### Ouvir pelo telefone
+
+| Código | O que faz |
+|---|---|
+| `*97` | Entra na **sua** caixa (a do ramal de onde discou). Pede a senha |
+| `*98` | Pede o número da caixa e a senha. Serve para ouvir de outro ramal |
+| `*95` + ramal | Deixa recado direto na caixa do ramal, sem fazer o telefone tocar |
+
+Dentro da caixa vale o menu padrão do correio de voz do Asterisk (ouvir, apagar, gravar saudação etc.).
+
+### Regras e validações
+
+- Para mandar o áudio por e-mail o ramal precisa de e-mail: a tela pede "Para enviar por e-mail, cadastre o endereço do usuário."
+- O envio depende do servidor de e-mail configurado em **Configurações** ([19-Configuracoes.md](19-Configuracoes.md)). O remetente do recado é o mesmo do teste de e-mail do console.
+- Mínimos aplicados ao gerar: pelo menos 1 recado e 10 segundos por recado, mesmo que se digite menos.
+- Os padrões gerais (formato, assunto e corpo do e-mail, tentativas de senha) ficam em **Configurações** e valem para todas as caixas.
+
+---
+
+## 4. Caixas Postais (sem ramal)
+
+**Aplicações › Caixas Postais**
+
+Caixas de recado que não são de ramal nenhum: o cliente que liga fora do horário, o SAC sem atendente. Aponte uma rota de entrada, URA ou condição horária para a caixa; no dia seguinte, o código dela abre os recados no telefone, dizendo quem ligou e quando.
+
+> 📷 **Print:** lista de caixas postais, com a coluna "Ouvir os recados".
+
+### Lista
+
+| Coluna | O que mostra |
+|---|---|
+| Caixa | Número e nome |
+| Ouvir os recados | O código da caixa; etiqueta "sem senha" quando o código abre sem pedir senha; sem código, "pelo *98, com o número e a senha" |
+| Saudação | O anúncio escolhido, ou "a da própria caixa" |
+| Cópia por e-mail | O e-mail, quando a cópia está ligada |
+| Estado | Ativa ou Desativada |
+
+### Cadastrar ou editar
+
+Clique em **Nova caixa**.
+
+| Campo | O que faz |
+|---|---|
+| Número da caixa * | De 2 a 10 dígitos. **Não pode ser número de ramal**: os dois dividem o mesmo correio de voz |
+| Nome * | De 2 a 80 caracteres (ex.: "Recados fora do horário") |
+| Senha | De 4 a 12 dígitos. Obrigatória ao criar. Ao editar, em branco mantém a atual |
+| Código para ouvir | `*` seguido de 1 a 6 dígitos (ex.: `*981`). Discado de qualquer ramal, abre esta caixa. Vazio: só pelo `*98` |
+| Pedir a senha ao usar o código | Desligado, qualquer ramal que discar o código ouve os recados |
+| Saudação | O anúncio que quem liga ouve antes do bipe. Vazio: vale a saudação gravada pelo menu da caixa (código, senha e opção 0) ou, sem ela, a padrão da central |
+| E-mail para cópia | Para onde vai a cópia do recado |
+| Mandar cópia do recado por e-mail | Liga o envio, com o áudio anexado |
+| Apagar da caixa depois de mandar | Só vale com a cópia por e-mail ligada |
+| Máximo de recados | Padrão 100 |
+| Duração máxima do recado (segundos) | Padrão 180 |
+| Caixa ativa | Inativa sai do correio de voz, do seletor de destino e do código |
+
+> 📷 **Print:** gaveta "Nova caixa postal" preenchida.
+
+### Usar como destino fora do horário
+
+1. Crie a caixa (ex.: `800`, "Recados fora do horário", código `*981`).
+2. Em **Aplicações › Condições Horárias**, no destino **fora do horário**, escolha o grupo **Caixas postais** e a caixa `800`.
+3. **Aplicar configurações**.
+4. Ligue de fora no horário fechado e deixe um recado de teste.
+5. No dia seguinte, de qualquer ramal, disque `*981`, digite a senha e ouça.
+
+A mesma caixa pode ser destino de uma opção de URA ou de uma rota de entrada.
+
+### Ouvir pelo telefone
+
+| Jeito | Como |
+|---|---|
+| Código da caixa | Disque o código (ex.: `*981`). Pede a senha, a não ser que **Pedir a senha** esteja desligado |
+| `*98` | Digite o número da caixa e a senha |
+
+Ao ouvir, a central sempre diz o número de quem ligou e a data e hora do recado.
+
+### Regras e validações
+
+- O código não pode ser **igual** a outro código da central, nem ser o **começo** de outro, nem ter outro como começo. A tela diz com qual bateu (veja [15-Codigos-de-Recurso.md](15-Codigos-de-Recurso.md#3-regras-de-colisão)).
+- Número e código são únicos entre as caixas.
+- Se depois alguém criar um **ramal** com o número da caixa, a caixa do ramal ganha e a avulsa deixa de existir no correio de voz.
+
+---
+
+## 5. DISA
+
+**Aplicações › DISA**
+
+Ligar de fora, ouvir o tom da central e discar como se estivesse na mesa. Depois de criada, aponte uma rota de entrada ou uma opção de URA para ela (grupo **DISA** no seletor de destino).
+
+> ⚠️ DISA é, junto com correio de voz sem senha, o caminho mais explorado por **fraude de tarifação**. Use senha longa e o contexto mais restrito que resolver. Veja [08-Seguranca.md](08-Seguranca.md).
+
+> 📷 **Print:** lista de DISAs com a coluna "Até onde disca".
+
+### Cadastrar ou editar
+
+| Campo | O que faz |
+|---|---|
+| Nome * | Até 80 caracteres, único (ex.: "Diretoria em viagem") |
+| Senha * | **De 6 a 20 dígitos.** Não use 1234 nem número de ramal. Ao editar, em branco mantém a atual |
+| Até onde quem entrou pode discar | **Só ramais internos — mais seguro** (padrão); **Ramais e rotas de saída, menos internacional**; **Nenhuma saída** (para desativar sem excluir) |
+| Número de saída | O número que a operadora recebe nas chamadas feitas pela DISA. Em branco, vale o do tronco |
+| Atender a chamada antes de pedir a senha | Desligado, a operadora não tarifa enquanto ninguém digita |
+| DISA ativa | Liga ou desliga |
+
+> 📷 **Print:** gaveta "Nova DISA".
+
+### Como se usa
+
+1. Ligue para o número (DID) que aponta para a DISA.
+2. Digite a senha.
+3. Com o tom de discar, disque o ramal ou o número externo.
+
+### Regras e comportamentos automáticos
+
+- A API recusa senha com menos de 6 dígitos ou com letras. Se ainda assim a senha gravada tiver menos de 6 dígitos (cadastro antigo), a DISA **não abre**: toca "serviço indisponível" e desliga.
+- Quem entra pela DISA disca com permissão de **emergência, local, celular, DDD e especiais**. **Internacional nunca**, qualquer que seja a opção escolhida.
+- A senha não volta para a tela depois de salva.
+
+---
+
+## 6. Estacionamento de Chamadas
+
+**Aplicações › Estacionamento**
+
+Estacionar é deixar a chamada esperando numa vaga para outra pessoa assumir de qualquer ramal. Exemplo: a recepção atende, estaciona, anuncia "ligação para o João na vaga 71" e o João retoma de onde estiver.
+
+A tela mostra um cartão por **lote**. O lote **padrão** já vem criado: número `70`, vagas `71` a `80`, 45 segundos.
+
+> 📷 **Print:** cartão do lote padrão.
+
+### Campos do lote
+
+| Campo | O que faz |
+|---|---|
+| Nome do lote * | Letras, números, hífen e sublinhado (2 a 30). No lote padrão não se muda |
+| Descrição | Livre |
+| Número para estacionar * | Transferir a chamada para este número a põe numa vaga (ex.: `70`). Só dígitos, `*` ou `#` |
+| Primeira vaga * / Última vaga * | A faixa de vagas (ex.: `71` a `80`). Só dígitos |
+| Tempo máximo na vaga (s) | Padrão 45 |
+| Música na vaga | Classe de música de espera. Padrão `default` |
+| Falar o número da vaga a quem estacionou | Ligado, quem estacionou ouve a vaga |
+| Usar sempre a primeira vaga livre | Desligado, a central segue para a vaga seguinte a cada chamada, para não repetir número logo depois de alguém retomar |
+| Estourado o tempo, voltar para quem estacionou | Ligado, a chamada volta a tocar em quem estacionou |
+| Tempo de toque na volta (s) | Padrão 30 |
+| Se ninguém retomar a chamada › Para onde ela vai | Só vale com a volta desligada. Vazio: desliga |
+| Lote ativo | Liga ou desliga |
+
+> 📷 **Print:** gaveta de edição do lote.
+
+### Pelo telefone
+
+| Ação | Como |
+|---|---|
+| Estacionar | Transfira a chamada para o número do lote (`70`) ou para `*85` |
+| Retomar | Disque o número da vaga (ex.: `71`) ou `*86` + vaga (ex.: `*8671`) |
+
+- Os códigos `*85` e `*86` sempre usam o **lote padrão**. Para outros lotes, use o número de estacionar e as vagas deles.
+- Telefones com tecla BLF podem ter uma tecla por vaga.
+
+### Regras
+
+- O lote padrão não pode ser excluído (o botão não aparece).
+- Excluir um lote faz o número de estacionar dele deixar de atender.
+- Quem está na vaga não consegue transferir nem desligar a chamada de outra pessoa.
+
+---
+
+## 7. Megafonia e Interfonia
+
+**Aplicações › Megafonia e Interfonia**
+
+Um número que abre o viva-voz de vários aparelhos ao mesmo tempo: o "atenção, loja" do balcão, ou o interfone entre duas salas.
+
+> 📷 **Print:** lista de grupos com as colunas Aparelhos e Sentido.
+
+### Cadastrar ou editar
+
+| Campo | O que faz |
+|---|---|
+| Número do grupo * | O que se disca para falar com o grupo (ex.: `700`). De 2 a 10 caracteres: dígitos, `*` ou `#`. Único |
+| Nome * | Até 80 caracteres |
+| Aparelhos do grupo * | Números dos ramais separados por hífen (ex.: `1001-1002-1003`) |
+| Todos podem falar (interfonia) | Desligado, os aparelhos só ouvem. Ligado, vira conversa de mão dupla |
+| Interromper quem está em chamada | Ligado, abre o som até em quem está falando. Desligado, só aparelhos livres recebem |
+| Tocar antes de abrir o som | Um anúncio curto (um bipe, um aviso) antes de abrir o áudio |
+| Tempo máximo (segundos) | Padrão 60 |
+| Grupo ativo | Liga ou desliga |
+
+> 📷 **Print:** gaveta "Novo grupo de megafonia".
+
+### Atendimento automático
+
+Para o aparelho abrir o viva-voz sozinho, a central manda no convite dois cabeçalhos:
+
+- `Call-Info: <uri>;answer-after=0` — entendido por Polycom, Yealink, Grandstream e Fanvil;
+- `Alert-Info: Auto Answer` — entendido por Intelbras e alguns modelos antigos.
+
+O aparelho precisa estar com o **atendimento automático por cabeçalho (intercom)** permitido na configuração dele. Se ele só toca, o problema está no telefone, não na central.
+
+### Pelo telefone
+
+| Código | O que faz |
+|---|---|
+| Número do grupo | Abre o som em todos os aparelhos do grupo |
+| `*80` + ramal | Interfonia com um ramal só: o aparelho dele atende sozinho em viva-voz |
+| `*87` | Volta a aceitar interfonia no seu ramal |
+| `*88` | Recusa interfonia no seu ramal: quem tentar `*80` + seu ramal faz o seu telefone tocar normalmente |
+
+### Regras
+
+- `*87` e `*88` valem para a interfonia de um ramal só (`*80`). **Não** tiram o ramal de um grupo de megafonia.
+- O grupo pode ser destino de rota, URA ou condição horária (grupo **Megafonia** no seletor).
+
+---
+
+## 8. Chamadas de Despertar
+
+**Aplicações › Chamadas de Despertar**
+
+A central liga para o ramal na hora marcada e toca um anúncio. Serve de despertador, lembrete de reunião e alarme.
+
+> 📷 **Print:** lista de chamadas programadas com a coluna "Quando".
+
+### Lista
+
+| Coluna | O que mostra |
+|---|---|
+| Chamada | O nome |
+| Ramal | Número e nome; "ramal não existe" se o ramal foi excluído |
+| Quando | "uma vez, em …", "todo dia às …" ou os dias da semana e a hora |
+| Toca | O anúncio, ou "hora falada pelo PABX" |
+| Última vez | Quando tocou pela última vez |
+| Estado | Ativa ou Parada |
+
+### Cadastrar ou editar
+
+Clique em **Nova chamada**.
+
+| Campo | O que faz |
+|---|---|
+| Nome * | Ex.: "Acordar o plantão" |
+| Ligar para o ramal * | Um ramal ativo |
+| Anúncio a tocar | Sem anúncio, a central diz a hora e desliga |
+| Repetição | **Uma vez, em data e hora**; **Todo dia, no mesmo horário**; **Em dias escolhidos da semana** |
+| Data e hora | Só para "uma vez" |
+| Horário | Para "todo dia" e "dias da semana" |
+| Dias da semana | Marque ao menos um (só para "dias escolhidos") |
+| Chamada ativa | Liga ou desliga |
+
+> 📷 **Print:** gaveta "Nova chamada de despertar" com "Em dias escolhidos da semana".
+
+### Pelo telefone
+
+| Código | O que faz |
+|---|---|
+| `*68` | A central atende, toca um aviso e um bipe. Digite a hora com **4 dígitos** (ex.: `0730` para 7h30). Ela repete a hora e confirma |
+| `*67` | Cancela o despertador marcado pelo telefone no seu ramal |
+
+### Comportamentos automáticos
+
+- O serviço **telium-despertador** (um timer do sistema) roda **a cada minuto** e dispara o que bate com a hora do servidor. Não precisa aplicar configurações.
+- Uma chamada de **uma vez** se desliga sozinha depois de tocar (fica como "Parada").
+- O despertador marcado pelo telefone vale **uma vez** e é apagado depois de tocar. Ele **não aparece** na lista do console.
+- A hora é a do servidor da central. Veja [05-Servidor-Comandos-e-Servicos.md](05-Servidor-Comandos-e-Servicos.md) para conferir o timer e o fuso.
+
+---
+
+## 9. Problemas comuns
+
+**Mudei o siga-me (ou a caixa, o lote, o grupo) e nada mudou no telefone.**
+- Falta **Aplicar configurações**.
+
+**O siga-me para celular não toca.**
+- O ramal não tem permissão de celular ou DDD: a chamada sai com a permissão do dono.
+- O ramal está com **Não perturbe** ou **desvio de todas** ligado.
+- Confira o número com DDD e sem espaços.
+
+**O recado não chega por e-mail.**
+- O ramal (ou a caixa) está sem e-mail, ou o envio de e-mail da central não está configurado. Teste em **Configurações**.
+- Na caixa sem ramal, confira se **Mandar cópia do recado por e-mail** está ligado.
+
+**Ninguém consegue ouvir os recados pelo telefone.**
+- A opção **Apagar o recado depois de enviar** está ligada: o recado só existe no e-mail.
+
+**"É número de ramal" ao salvar a caixa postal.**
+- Escolha um número que não seja de ramal (ex.: faixa 800).
+
+**O código da caixa é recusado com "Colide com…".**
+- Ele é igual ou começo de outro código. Escolha outro (ex.: `*981` em vez de `*98`).
+
+**A DISA atende e desliga com "serviço indisponível".**
+- A senha gravada tem menos de 6 dígitos. Edite e grave uma senha de 6 a 20 dígitos.
+
+**Pela DISA não sai ligação externa.**
+- O contexto está em **Só ramais internos** ou **Nenhuma saída**.
+- Internacional nunca sai pela DISA.
+
+**A megafonia só toca, não abre o viva-voz.**
+- Libere o atendimento automático (intercom) na configuração do aparelho.
+- Sem **Interromper quem está em chamada**, aparelho ocupado não recebe.
+
+**`*80` faz o telefone tocar normal em vez de abrir o viva-voz.**
+- O ramal chamado recusou interfonia com `*88`. Ele volta a aceitar com `*87`.
+
+**`*68` responde "inválido".**
+- A hora precisa de 4 dígitos: `0730`, não `730`.
+
+**O despertador não tocou.**
+- Confira o relógio do servidor e se o timer `telium-despertador` está ativo ([05-Servidor-Comandos-e-Servicos.md](05-Servidor-Comandos-e-Servicos.md)).
+- A chamada de "uma vez" já tocou e ficou **Parada**.
+- O ramal não estava registrado na hora.

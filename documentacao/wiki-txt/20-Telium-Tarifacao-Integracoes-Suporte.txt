@@ -1,0 +1,474 @@
+==============================================================================
+TELIUM: TARIFAÇÃO, INTEGRAÇÕES E SUPORTE — TELIUM PABX
+==============================================================================
+
+Manual das telas do menu Telium: o custo das chamadas, o click to call para outros sistemas (com exemplos para o desenvolvedor do outro lado) e a tela de suporte.
+
+NOTA: Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
+
+
+SUMÁRIO
+-------
+
+1. Tarifação
+2. Integrações / API: visão geral
+3. Chaves de click to call
+4. Testar e Últimos pedidos
+5. A API de click to call (para o desenvolvedor)
+6. Webhooks e outras integrações
+7. Suporte
+8. Problemas comuns
+
+
+1. TARIFAÇÃO
+------------
+
+Telium › Tarifação
+
+Mostra quanto custaram as chamadas saintes de um mês, calculado com a Tabela de Tarifas (veja 19-Configuracoes.md (ver página 19)).
+
+[PRINT: a tela com os quatro indicadores e o gráfico de custo por setor]
+
+
+O que a tela mostra
+~~~~~~~~~~~~~~~~~~~
+
+- Seletor de mês: Escolhe o mês. Abre no mês atual
+- Custo total: Soma do custo das chamadas saintes do mês
+- Minutos falados: Tempo conversado, em minutos
+- Chamadas: Número de chamadas saintes
+- Custo médio / min: Custo total ÷ minutos
+- Custo por setor: Gráfico de barras pelo setor do ramal que ligou. Ramal sem setor entra em Sem setor
+- Tabela de tarifas: As tarifas ativas, com o botão Gerenciar que leva à Tabela de Tarifas. Tarifa sem preço aparece com a etiqueta sem preço
+
+
+Avisos da tela
+~~~~~~~~~~~~~~
+
+Um total de R$ 0,00 tem causas diferentes, e a tela separa cada uma:
+
+- As tarifas estão todas com preço zero — Causa: Ninguém digitou os preços; O que fazer: Preencher a Tabela de Tarifas
+- N chamada(s) ainda não tarifada(s) neste mês — Causa: A tarifação ainda não passou por elas, ou não há tarifa para a classe delas; O que fazer: Recalcular o mês; se continuar, falta uma tarifa para a classe
+- N chamada(s) saíram sem classificação — Causa: Não passaram por uma rota de saída (chamadas antigas ou originadas por fora do plano de discagem); O que fazer: Nenhuma tarifa se aplica; ficam fora do total
+
+
+Como o custo é calculado
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Só chamadas de saída entram.
+- A classe (local, celular, DDD, DDI, emergência, especial) vem da rota de saída que completou a chamada e é gravada no registro de chamadas.
+- A tarifa escolhida é a mais específica: a que tem padrão de número vence a da classe inteira; depois vale a menor Ordem.
+- Tempo cobrado: o mínimo e depois de fração em fração, arredondando para cima. Ex.: mínimo 30 s e fração 6 s: 5 s custam 30 s; 31 s custam 36 s.
+- Custo = taxa fixa + (tempo cobrado ÷ 60) × custo por minuto, com 4 casas decimais.
+- Chamada não atendida não custa.
+- O preço fica congelado: a chamada já tarifada não é recalculada se o preço mudar depois.
+
+
+Quando o cálculo roda
+~~~~~~~~~~~~~~~~~~~~~
+
+- Temporizador telium-tarifar: Sozinho, de hora em hora
+- Botão Recalcular o mês: Na hora, só o mês escolhido. Precisa de permissão de edição em Tarifação
+- Comando php bin/telium tarifar [AAAA-MM]: No servidor, quando quiser
+
+O botão e o comando tarifam só as chamadas que ainda não têm custo. Ao terminar, dizem quantas foram tarifadas e quantas ficaram sem tarifa que se aplique.
+
+No servidor:
+
+    # o estado do temporizador
+    systemctl status telium-tarifar.timer
+    systemctl list-timers telium-tarifar.timer
+    
+    # tarifar agora todas as pendentes, ou só um mês
+    cd /opt/telium/api
+    sudo -u teliumpbx php bin/telium tarifar
+    sudo -u teliumpbx php bin/telium tarifar 2026-09
+
+O comando avisa quando todas as tarifas estão com preço zero e quando há chamadas sem tarifa que se aplique. Mês em formato errado é recusado com a mensagem de uso.
+
+Para os relatórios de chamadas, veja 18-Relatorios.md (ver página 18).
+
+
+2. INTEGRAÇÕES / API: VISÃO GERAL
+---------------------------------
+
+Telium › Integrações / API
+
+A tela tem, de cima para baixo:
+
+1. Click to call: as chaves de API dos outros sistemas.
+2. Como o outro sistema chama: o endereço e um exemplo pronto.
+3. Testar: faz uma chamada de click to call pelo console.
+4. Últimos pedidos: os 50 pedidos mais recentes, atendidos ou recusados.
+5. Webhooks e outras integrações: a lista de cadastro de integrações.
+
+[PRINT: a tela inteira, com o quadro Click to call e uma chave cadastrada]
+
+
+O que é o click to call
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Outro sistema (CRM, ERP, site) manda à central o ramal e o número do cliente. A central:
+
+1. Toca o ramal (por até 30 segundos).
+2. Quando o ramal atende, disca o número do cliente.
+
+A chamada sai com as permissões e a rota de saída do próprio ramal, como se a pessoa tivesse discado no aparelho. Uma chave de API não alcança o que o ramal não alcançaria: se o ramal não pode ligar para celular, o click to call também não.
+
+No visor do ramal aparece o nome enviado pelo outro sistema (ou o número, se não vier nome) e o número que será discado.
+
+
+3. CHAVES DE CLICK TO CALL
+--------------------------
+
+Crie uma chave por sistema: assim dá para desligar um sem mexer nos outros.
+
+
+A lista de chaves
+~~~~~~~~~~~~~~~~~
+
+- Sistema: Nome da chave. A etiqueta atende sozinho aparece quando a opção está ligada
+- Chave: Só o final: tlm_c2c_…abcd. A chave inteira nunca mais aparece
+- Ramais: Os ramais que ela pode fazer tocar, ou todos
+- Origem: IPs ou faixas de onde pode ser usada, ou qualquer lugar
+- Último uso: Data do último pedido com esta chave, ou nunca
+- Estado: Ativa ou Desativada
+
+Botões por linha: Editar, Gerar nova chave e Excluir.
+
+
+Criar uma chave
+~~~~~~~~~~~~~~~
+
+Clique em Nova chave.
+
+- Sistema * — Regra: 2 a 80 caracteres; O que faz: Nome do sistema que vai usar a chave (ex.: CRM da empresa)
+- Ramais que pode fazer tocar — Regra: Números de 2 a 10 dígitos, separados por vírgula; O que faz: Vazio: qualquer ramal
+- De onde pode ser usada — Regra: IPv4 (200.1.2.3) ou faixa (10.0.0.0/8), separados por vírgula; O que faz: O IP do servidor do outro sistema. Vazio: de qualquer lugar, e aí só a chave protege
+- Atender sozinho — Regra: Liga/desliga; O que faz: O telefone atende em viva-voz e a chamada sai na hora. Depende do aparelho aceitar
+- Chave ativa — Regra: Liga/desliga; O que faz: Desativada, a chave é recusada
+
+Ao clicar em Criar chave, abre o painel Chave de <sistema>:
+
+- A chave completa começa com tlm_c2c_.
+- Copie agora: ela não aparece de novo. A central guarda só uma impressão (hash) dela e os quatro últimos caracteres.
+- Use o botão Copiar e feche com Já copiei.
+- Guarde a chave como um segredo: quem a tiver faz os ramais permitidos tocarem.
+
+[PRINT: o painel com a chave recém-criada (com a chave borrada)]
+
+
+Editar
+~~~~~~
+
+Muda nome, ramais, origens, atender sozinho e estado. A chave continua a mesma.
+
+
+Desativar
+~~~~~~~~~
+
+Edite e desligue Chave ativa. A chave passa a ser recusada (401) até ser religada. Bom para suspender um sistema sem perder a configuração.
+
+
+Gerar nova chave (renovar)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+O botão Gerar nova chave pede confirmação: "A chave atual para de valer na hora: o sistema que a usa precisa receber a nova." A nova chave aparece uma vez, como na criação. Use quando a chave vazou ou foi perdida.
+
+
+Excluir
+~~~~~~~
+
+O sistema que a usa para de conseguir pedir chamadas. Os pedidos já feitos continuam em Últimos pedidos.
+
+
+Permissões
+~~~~~~~~~~
+
+- Ver a tela e as chaves: Ver
+- Criar chave: Criar
+- Editar, renovar, testar: Editar
+- Excluir: Excluir
+
+Criar, editar, renovar, excluir e testar ficam no Registro de Atividades.
+
+
+4. TESTAR E ÚLTIMOS PEDIDOS
+---------------------------
+
+
+Testar
+~~~~~~
+
+Faz a mesma chamada da API, sem chave, pelo console. Precisa de permissão de edição em Integrações.
+
+- Ramal: Já vem preenchido com o ramal do usuário logado, se houver
+- Número a discar: O número do cliente
+- Nome no visor (opcional): O que aparece no visor do ramal
+- Pedir ao telefone que atenda sozinho: Igual à opção da chave
+
+Clique em Ligar: o ramal toca e, ao atender, a central disca o número. O teste aparece em Últimos pedidos como teste pelo console.
+
+[PRINT: o quadro Testar preenchido]
+
+
+Últimos pedidos
+~~~~~~~~~~~~~~~
+
+Os 50 mais recentes, atendidos ou recusados. É o que se olha quando o outro lado diz que clicou e nada aconteceu.
+
+- Quando: Data e hora
+- Quem pediu: Nome da chave, teste pelo console ou chave inválida, com o IP de origem
+- Ramal: Ramal pedido
+- Número: Número a discar
+- Resultado: ligou ou recusado, com o motivo e, quando ligou, o id da chamada
+
+[PRINT: Últimos pedidos com um pedido ligou e um recusado]
+
+
+5. A API DE CLICK TO CALL (PARA O DESENVOLVEDOR)
+------------------------------------------------
+
+Esta seção pode ser entregue ao desenvolvedor do outro sistema.
+
+
+Endereço
+~~~~~~~~
+
+    https://<endereço-da-central>/api/click2call
+
+- Aceita GET e POST.
+- Use https. Em http, a central redireciona para https, e muitos clientes não repetem o POST depois do redirecionamento.
+- Se a central usar certificado autoassinado, o cliente HTTP vai recusar a conexão até confiar nele. O ideal é a central ter um certificado válido.
+
+
+Autenticação
+~~~~~~~~~~~~
+
+A chave pode ir de três formas. A primeira encontrada vale, nesta ordem:
+
+- Cabeçalho X-Api-Key (recomendado): X-Api-Key: tlm_c2c_...
+- Cabeçalho Authorization: Authorization: Bearer tlm_c2c_...
+- Parâmetro token na URL ou no corpo: ?token=tlm_c2c_...
+
+O parâmetro token existe para sistemas que só sabem abrir um link, mas a chave fica no histórico do navegador e nos logs. Prefira o cabeçalho.
+
+
+Parâmetros
+~~~~~~~~~~
+
+Podem ir na URL (query string) ou no corpo do POST (formulário ou JSON).
+
+- ramal — Obrigatório: Sim; O que é: O ramal que vai tocar. Só os dígitos são considerados
+- numero — Obrigatório: Sim; O que é: O número a discar, como o ramal discaria (com o prefixo de saída, se a central usar). Só dígitos, *, # e + são considerados
+- nome — Obrigatório: Não; O que é: O que aparece no visor do ramal (ex.: o nome do cliente). Até 40 caracteres; aspas e < > são removidos
+
+Se a chave estiver marcada como atender sozinho, a central pede ao telefone que atenda em viva-voz. Isso é definido na chave, não por parâmetro.
+
+
+Resposta de sucesso (HTTP 200)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    {
+      "ok": true,
+      "id": "c2c-1a2b3c4d5e6f7a8b",
+      "ramal": "1001",
+      "numero": "11999990000",
+      "mensagem": "O ramal 1001 vai tocar; ao atender, a central disca 11999990000."
+    }
+
+O id é o identificador da chamada no registro de chamadas da central. O outro sistema pode guardá-lo para achar o registro e a gravação depois.
+
+Sucesso quer dizer que o ramal vai tocar, não que o cliente atendeu.
+
+
+Respostas de erro
+~~~~~~~~~~~~~~~~~
+
+Sempre no formato {"ok": false, "erro": "<motivo>"}.
+
+- 401: Chave ausente, inválida ou desativada
+- 403: A chave não pode ser usada deste IP, ou não pode fazer este ramal tocar
+- 404: O ramal não existe ou está desativado
+- 409: O ramal não está registrado na central, ou está registrado mas não responde
+- 422: Faltou ramal ou numero
+- 429: Muitas chaves inválidas do mesmo IP (20 em 10 minutos). Espere alguns minutos
+- 502: A central (Asterisk) não respondeu ou recusou a chamada
+
+Além disso, o servidor web limita a quantidade de pedidos por IP; um volume muito alto em pouco tempo pode ser recusado antes de chegar à central.
+
+
+Exemplos
+~~~~~~~~
+
+curl (POST, chave no cabeçalho):
+
+    curl -X POST 'https://pabx.suaempresa.com.br/api/click2call' \
+      -H 'X-Api-Key: SUA_CHAVE' \
+      -d ramal=1001 -d numero=11999990000 -d nome='Maria Souza'
+
+curl (POST com JSON e Bearer):
+
+    curl -X POST 'https://pabx.suaempresa.com.br/api/click2call' \
+      -H 'Authorization: Bearer SUA_CHAVE' \
+      -H 'Content-Type: application/json' \
+      -d '{"ramal":"1001","numero":"11999990000","nome":"Maria Souza"}'
+
+Link (GET, para sistema que só abre URL):
+
+    https://pabx.suaempresa.com.br/api/click2call?token=SUA_CHAVE&ramal=1001&numero=11999990000
+
+JavaScript (Node.js 18 ou mais novo, no servidor):
+
+    const resp = await fetch('https://pabx.suaempresa.com.br/api/click2call', {
+      method: 'POST',
+      headers: {
+        'X-Api-Key': process.env.TELIUM_C2C_CHAVE,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ ramal: '1001', numero: '11999990000', nome: 'Maria Souza' })
+    });
+    const r = await resp.json();
+    if (!r.ok) console.error(resp.status, r.erro);
+    else console.log('Chamada', r.id);
+
+Faça a chamada a partir do servidor do outro sistema, não do navegador do usuário: a central não responde a pedidos de outra origem feitos pelo navegador (CORS), e a chave ficaria exposta no código da página.
+
+PHP (cURL):
+
+    <?php
+    $ch = curl_init('https://pabx.suaempresa.com.br/api/click2call');
+    curl_setopt_array($ch, [
+        CURLOPT_POST           => true,
+        CURLOPT_HTTPHEADER     => ['X-Api-Key: ' . getenv('TELIUM_C2C_CHAVE')],
+        CURLOPT_POSTFIELDS     => http_build_query([
+            'ramal'  => '1001',
+            'numero' => '11999990000',
+            'nome'   => 'Maria Souza',
+        ]),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 15,
+    ]);
+    $corpo  = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    
+    $r = json_decode((string) $corpo, true);
+    if (empty($r['ok'])) {
+        error_log("click to call recusado ({$status}): " . ($r['erro'] ?? 'sem resposta'));
+    }
+
+Para a referência completa da API, veja 32-API-Referencia.md (ver página 32).
+
+
+6. WEBHOOKS E OUTRAS INTEGRAÇÕES
+--------------------------------
+
+Abaixo do click to call fica a lista Webhooks e outras integrações, com o botão Nova integração.
+
+- Integração: Nome
+- Tipo: webhook, api_key, syslog ou app
+- Eventos: Os eventos informados
+- Último disparo: Data do último disparo, ou nunca
+- Estado: Ativa ou Inativa
+
+- Nome *: Nome da integração (ex.: Webhook do CRM)
+- Tipo: Webhook, Chave de API, Syslog ou Aplicativo
+- URL de destino: Endereço que receberia os avisos
+- Eventos: Lista de eventos, separados por vírgula (ex.: call.answered, call.ended)
+- Segredo (HMAC): Nunca volta para a tela. Em branco mantém o atual
+- Integração ativa: Liga/desliga
+
+NOTA: Atenção: nesta versão este é apenas um cadastro. A central não envia nenhum webhook, não usa as chaves deste cadastro e não manda syslog a partir dele: o Último disparo fica sempre em nunca. Para outro sistema pedir chamadas, use as chaves de click to call (seção 3).
+
+
+7. SUPORTE
+----------
+
+Telium › Suporte
+
+O que informar ao abrir um chamado, e o que conferir antes.
+
+[PRINT: a tela de Suporte com o quadro Esta instalação]
+
+
+Esta instalação
+~~~~~~~~~~~~~~~
+
+- php: Versão do PHP
+- banco: Se o MariaDB responde, com a versão
+- esquema: Se o banco tem as tabelas e colunas que esta versão espera
+- asterisk: Se o Asterisk responde pelo AMI, com a versão
+- Configuração pendente: sim — aplique antes de testar ou não
+
+Cada linha é verde quando está bem e vermelha com o motivo quando não está (sem resposta, se não houve resposta). Embaixo aparece a versão do Telium PABX: cite-a no chamado.
+
+Os mesmos dados vêm de GET /api/health. Sem login, esse endereço só diz o nome, a versão e se está saudável; o detalhe de cada serviço só vai para quem está logado.
+
+
+Antes de abrir o chamado
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+A tela lista o que levantar:
+
+- O que foi discado, de qual ramal, e a hora com minuto. Com isso, o relatório de eventos da chamada (Relatórios › Eventos de Canal (CEL)) mostra cada passo.
+- Se for áudio: falta nos dois lados ou em um só? São problemas diferentes; um lado só costuma ser NAT ou falta de TURN.
+- Se for chamada que não completa: veja Relatórios › Ocupação de Troncos. Completamento baixo é a operadora, não a central.
+- Se for registro de aparelho: Conectividade › Firewall mostra se a tentativa chegou e foi recusada, ou se nem chegou.
+
+
+Comandos que respondem rápido no servidor
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A tela traz estes comandos prontos:
+
+    sudo asterisk -rx "core show channels"          # o que está em curso agora
+    sudo asterisk -rx "pjsip show contacts"         # quais aparelhos estão registrados
+    sudo asterisk -rx "pjsip show registrations"    # se o tronco está registrado na operadora
+    sudo tail -f /var/log/asterisk/full             # o que a central está fazendo, ao vivo
+    cd /opt/telium/api && php bin/telium testar     # confere a instalação inteira
+
+Mais comandos em 05-Servidor-Comandos-e-Servicos.md (ver página 05) e o roteiro de diagnóstico em 07-Solucao-de-Problemas.md (ver página 07).
+
+
+8. PROBLEMAS COMUNS
+-------------------
+
+O custo do mês está em R$ 0,00.
+Veja o aviso no topo de Tarifação: preços zerados, chamadas pendentes ou chamadas sem classificação. Digite os preços na Tabela de Tarifas e use Recalcular o mês.
+
+Mudei o preço e o custo das chamadas antigas não mudou.
+É o comportamento esperado: a chamada tarifada fica com o preço da época. Só as chamadas ainda sem custo recebem o preço novo.
+
+Continua aparecendo "chamada(s) ainda não tarifada(s)" depois de recalcular.
+Não há tarifa ativa para a classe dessas chamadas. Crie uma linha para a classe (ou uma de Qualquer chamada) na Tabela de Tarifas.
+
+O temporizador não está tarifando.
+Confira systemctl list-timers telium-tarifar.timer e o log com journalctl -u telium-tarifar.service. Rode php bin/telium tarifar à mão para ver a mensagem.
+
+O outro sistema diz que clicou e nada aconteceu.
+Abra Últimos pedidos. Se o pedido não está lá, ele não chegou à central (endereço errado, http em vez de https, firewall). Se está como recusado, o motivo está na coluna Resultado.
+
+401 com a chave certa.
+A chave foi renovada (a antiga parou de valer), desativada ou excluída. Ou está sendo enviada com espaço, quebra de linha ou cortada. Toda chave começa com tlm_c2c_.
+
+403 "não pode ser usada do endereço…".
+O IP que a central vê não está em De onde pode ser usada. A mensagem mostra o IP recebido: acrescente-o (ou a faixa) na chave.
+
+409 "não está registrado na central agora".
+O telefone do ramal está desligado, fora da rede ou sem registro. Confira em Conectividade › Ramais ou com pjsip show contacts.
+
+O ramal toca, atende e a chamada para o cliente não sai.
+O ramal não tem permissão para aquele tipo de número, ou o número não casa com nenhuma rota de saída (falta o prefixo de saída, por exemplo). Teste discando o mesmo número no aparelho.
+
+"Atender sozinho" não atende.
+Depende do aparelho aceitar atendimento automático e de a opção estar habilitada nele.
+
+429 "Muitas chaves inválidas deste endereço".
+O IP errou a chave 20 vezes em 10 minutos. Corrija a chave e espere alguns minutos.
+
+Cadastrei um webhook e ele nunca dispara.
+Nesta versão os webhooks são só um cadastro (seção 6).
+
+A tela de Suporte mostra "sem resposta" no asterisk.
+O Asterisk está parado ou o AMI não autentica. Veja 07-Solucao-de-Problemas.md (ver página 07).

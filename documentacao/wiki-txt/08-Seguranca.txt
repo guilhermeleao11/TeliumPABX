@@ -1,0 +1,390 @@
+==============================================================================
+SEGURANÇA — TELIUM PABX
+==============================================================================
+
+Tudo o que protege a central: firewall, bloqueio de quem erra senha, acesso ao console, perfis, proteção contra fraude de tarifação, segredos do servidor e boas práticas de implantação.
+
+NOTA: Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
+
+
+SUMÁRIO
+-------
+
+1. Visão geral
+2. Firewall (ufw)
+3. Bloqueio automático (fail2ban)
+4. A tela Firewall e Segurança
+5. Login do console
+6. Sessão
+7. Política de senha
+8. Verificação em dois passos
+9. Perfis e permissões
+10. Auditoria
+11. Fraude de tarifação: ramais, DISA e rotas
+12. Lista Negra e Allowlist
+13. Escuta de chamadas (*555)
+14. Segredos do servidor
+15. Certificados TLS
+16. Provisionamento de telefones
+17. API de click to call
+18. Limites do nginx e cabeçalhos
+19. Softphone do navegador e TURN
+20. Gravações e LGPD
+21. Boas práticas de implantação
+
+
+1. VISÃO GERAL
+--------------
+
+- ufw: Fecha tudo que entra, menos as portas da central
+- fail2ban: Bane por IP quem erra senha no SIP, no console ou no SSH
+- Console: Bloqueio por conta e por origem, sessão curta, senha forte, 2FA opcional
+- Perfis: Cada usuário vê só os módulos do seu perfil; o servidor confere tudo
+- Discagem: Permissão por classe em cada ramal; DISA com PIN e sem internacional
+- Serviços internos: AMI, banco, WebSocket do Asterisk e call center escutam só em 127.0.0.1
+- Segredos: Senhas de serviço geradas na instalação, em arquivos só do root
+
+
+2. FIREWALL (UFW)
+-----------------
+
+O papel seguranca do Ansible instala o ufw, nega toda entrada por padrão, libera a saída e abre só estas portas:
+
+- 22 — Protocolo: TCP; Uso: SSH
+- 80 — Protocolo: TCP; Uso: Redireciona para o 443 (e o QR do Linphone em /p/)
+- 443 — Protocolo: TCP; Uso: Console, API e WebSocket do softphone (/ws)
+- 5060 — Protocolo: UDP e TCP; Uso: SIP
+- 5061 — Protocolo: TCP; Uso: SIP sobre TLS
+- 10000–20000 — Protocolo: UDP; Uso: Áudio (RTP)
+- 4000–4999 — Protocolo: UDP; Uso: Fax T.38 (UDPTL)
+- 20000–20200 — Protocolo: UDP; Uso: RTP do Janus
+- 3478 — Protocolo: UDP e TCP; Uso: TURN/STUN
+- 5349 — Protocolo: TCP; Uso: TURN sobre TLS
+- 49152–49500 — Protocolo: UDP; Uso: Relay do TURN
+
+Ficam fechadas, porque escutam só em 127.0.0.1: AMI (5038), HTTP/WebSocket do Asterisk (8090), MariaDB (3306) e o serviço de tempo real do call center (8095).
+
+Conferir no servidor:
+    sudo ufw status verbose
+
+instalar_firewall: false no servidor.yml desliga essa parte do playbook. Portas e faixas completas em 03 — Requisitos de Rede e Portas (ver página 03).
+
+
+3. BLOQUEIO AUTOMÁTICO (FAIL2BAN)
+---------------------------------
+
+As cadeias ficam em /etc/fail2ban/jail.d/telium.conf:
+
+- asterisk — Vigia: Falhas SIP em UDP (/var/log/asterisk/security); Limite: 5 em 10 min; Bloqueio: 24 horas
+- asterisk-tcp — Vigia: Falhas SIP em TCP/TLS (mesmo log); Limite: 5 em 10 min; Bloqueio: 24 horas
+- telium-console — Vigia: Respostas 401 e 429 do login do console (/var/log/nginx/access.log); Limite: 15 em 10 min; Bloqueio: 1 hora
+- sshd — Vigia: SSH; Limite: 5 em 10 min; Bloqueio: 1 hora
+
+A cadeia nginx-http-auth fica desligada de propósito: o login do console é uma chamada JSON, e ela não o enxergaria.
+
+Ver e desbloquear pelo terminal:
+    sudo fail2ban-client status
+    sudo fail2ban-client status asterisk
+    sudo fail2ban-client set asterisk unbanip 200.170.201.2
+
+Ver e desbloquear pelo console: seção 4. O console fala com o fail2ban por uma ponte, /usr/local/sbin/telium-fail2ban, que aceita só três comandos (listar, desbanir <cadeia> <ip>, confiaveis) e valida a cadeia e o IP antes de passar adiante. A regra de sudo da API aponta só para esse programa.
+
+
+4. A TELA FIREWALL E SEGURANÇA
+------------------------------
+
+Em Conectividade › Firewall:
+
+- Origens com falha de autenticação SIP: IPs com tentativas, do log de segurança do Asterisk
+- Falhas de entrada no console (7 dias): IPs com login errado no console
+- Bloqueados agora pelo firewall: IP e cadeia, com o botão Desbloquear
+- Nunca bloquear: IPs ou faixas que o fail2ban ignora
+- O que a central bloqueou: Eventos recentes: tipo, conta tentada, IP
+- Restrição de rede dos ramais: Saída de acl show
+
+Nunca bloquear: aceita um IP (200.170.201.2) ou uma faixa (200.170.201.0/24). Faixas maiores que /8 (IPv4) são recusadas, para ninguém desligar o firewall sem perceber. Ao incluir, o endereço é solto em todas as cadeias e passa a ser ignorado; a lista é reaplicada a cada execução do playbook. Use para o escritório do cliente e o monitoramento, nunca para faixas de provedor.
+
+Uma varredura de ramal aparece aqui dias antes de virar conta de telefone: um IP com dezenas de falhas é robô, não usuário errando a senha.
+
+[PRINT: Conectividade › Firewall com os quadros de origens, bloqueados e "Nunca bloquear"]
+
+
+5. LOGIN DO CONSOLE
+-------------------
+
+- Bloqueio por conta: 5 senhas erradas bloqueiam a conta por 15 minutos, só para o IP que errou
+- Bloqueio por origem: 20 falhas do mesmo IP em 10 minutos: os palpites errados recebem "Tentativas demais desta origem..."
+- Mensagem genérica: "Usuário ou senha inválidos", sem dizer se o usuário existe
+- Tempo igual: Usuário inexistente gasta o mesmo tempo de um hash real, para não revelar contas válidas
+- Limite do nginx: 10 pedidos de login por minuto por IP (folga de 5)
+- fail2ban: 15 respostas 401/429 em 10 minutos: 1 hora de bloqueio
+
+O bloqueio por conta vale só para quem errou porque, do contrário, bastaria alguém na internet errar o admin cinco vezes a cada quinze minutos para o dono nunca mais entrar. Pelo mesmo motivo, quem acerta a senha entra mesmo vindo de uma origem marcada.
+
+O administrador libera um bloqueio em Administrador › Gerenciador de Usuários sem precisar trocar a senha da pessoa. Cada falha e cada bloqueio ficam na auditoria.
+
+
+6. SESSÃO
+---------
+
+- Expira após 30 minutos sem atividade (SESSAO_MINUTOS no .env da API). Cada pedido renova o prazo.
+- O token vai num cookie HttpOnly, Secure e SameSite=Strict. O banco guarda só o hash dele.
+- Trocar a própria senha encerra as outras sessões da pessoa (a atual continua).
+- Quando o administrador define a senha de alguém ou desliga o 2FA dessa pessoa, todas as sessões dela caem.
+- O comando telium senha também derruba as sessões do usuário.
+
+
+7. POLÍTICA DE SENHA
+--------------------
+
+Console (todas as contas):
+- pelo menos 8 caracteres;
+- pelo menos um número;
+- pelo menos um símbolo (por exemplo @ # ! _ -).
+
+A mensagem diz exatamente o que falta ("A senha precisa de: ..."). A senha nova tem de ser diferente da atual. O armazenamento é PBKDF2-SHA256 com 390.000 iterações; hashes antigos são regravados no próximo login.
+
+Trocar a própria senha: PCU — Meu Painel › Meu Perfil e Segurança › Trocar minha senha, informando a atual.
+
+Outras senhas da central:
+
+- SIP do ramal: Mínimo de 12 caracteres
+- Correio de voz: Só dígitos; em branco, vale o próprio número do ramal
+- DISA: 6 a 20 dígitos, obrigatória
+
+
+8. VERIFICAÇÃO EM DOIS PASSOS
+-----------------------------
+
+Código de seis dígitos que muda a cada 30 segundos (TOTP), em aplicativos como Google Authenticator, Microsoft Authenticator, Aegis ou 1Password. Cada usuário liga a sua.
+
+Para ligar:
+1. PCU — Meu Painel › Meu Perfil e Segurança.
+2. Ligar verificação em dois passos.
+3. Ler o QR Code no aplicativo (ou digitar o Código para digitação manual, mostrado em grupos de quatro).
+4. Digitar o código que o aplicativo mostra e clicar em Confirmar e ligar.
+
+Só depois da confirmação o código passa a ser exigido; assim ninguém se tranca para fora. Se o código não confere: "O código não confere. Confira se o relógio do celular está certo e tente o próximo."
+
+No login: depois da senha, o console pede o código. Um código usado não vale de novo na mesma janela ("Este código já foi usado..."). Código errado conta como tentativa errada para o bloqueio da conta.
+
+Para desligar: na mesma tela, informando a senha (Sua senha, para desligar).
+
+Celular perdido: o administrador desliga o 2FA da pessoa em Administrador › Gerenciador de Usuários. As sessões dela caem, e ela liga de novo com o celular novo.
+
+[PRINT: Meu Perfil e Segurança com o QR Code e o campo do código]
+
+
+9. PERFIS E PERMISSÕES
+----------------------
+
+Perfis de fábrica (não podem ser excluídos):
+
+- Administrador — Chave: admin; Acesso: Tudo
+- Supervisor — Chave: supervisor; Acesso: Painéis, relatórios, Meu Painel, filas, grupos de toque, URA, conferências, gravação, anúncios, horários, ramais, tarifação, pesquisas, caixas postais e todo o call center
+- Operador — Chave: operador; Acesso: Visão geral, Meu Painel (só o próprio ramal) e Meu Atendimento
+- Call Center — Chave: callcenter; Acesso: Só Meu Atendimento
+- Auditoria — Chave: auditor; Acesso: Visão geral, relatórios, gravações e Minhas Chamadas, somente leitura
+
+Ações que cada perfil pode executar, além de ver os módulos:
+
+- criar — Administrador: sim; Supervisor: sim; Operador: sim; Auditoria: não; Call Center: não
+- editar — Administrador: sim; Supervisor: sim; Operador: sim; Auditoria: não; Call Center: não
+- excluir — Administrador: sim; Supervisor: não; Operador: sim; Auditoria: não; Call Center: não
+- exportar — Administrador: sim; Supervisor: sim; Operador: não; Auditoria: sim; Call Center: não
+- reiniciar — Administrador: sim; Supervisor: não; Operador: não; Auditoria: não; Call Center: não
+- permissoes — Administrador: sim; Supervisor: não; Operador: não; Auditoria: não; Call Center: não
+
+- A ação reiniciar é a que mostra o botão Aplicar configurações.
+- O operador tem criar/editar/excluir, mas só alcança o que é dele (agenda, siga-me, correio de voz do próprio ramal), porque os módulos dele resolvem o ramal pela sessão.
+- O menu escondido é só conveniência: toda permissão é conferida de novo no servidor. Quem tenta um módulo sem acesso recebe "Seu perfil não tem acesso ao módulo ...".
+- Ninguém altera senha, 2FA ou bloqueio de uma conta que tenha mais permissões que o próprio perfil: "Esta conta tem permissões que o seu perfil não tem...".
+- O telefone do navegador é uma permissão própria (Telefone (WebRTC)): sem ela, a senha SIP não é entregue ao navegador.
+
+Ajuste em Administrador › Perfis e Permissões. Mais em 12 — Administrador (ver página 12).
+
+[PRINT: Administrador › Perfis e Permissões com a matriz de módulos]
+
+
+10. AUDITORIA
+-------------
+
+Administrador › Auditoria registra quem fez o quê, de qual IP e quando: entrada e saída do console, falhas de login, bloqueio por origem, troca de senha, ligar e desligar 2FA, criação, edição e exclusão de cadastros, aplicação de configuração, desbloqueio no firewall, mudanças na lista "Nunca bloquear", testes de e-mail, entre outros.
+
+É exclusiva do administrador: nenhum outro perfil, nem por curinga de relatórios, enxerga a trilha.
+
+[PRINT: Administrador › Auditoria filtrada por ação de login]
+
+
+11. FRAUDE DE TARIFAÇÃO: RAMAIS, DISA E ROTAS
+---------------------------------------------
+
+Permissão de discagem do ramal (aba Permissões):
+
+- Ligações locais e 0800/0300: Local e números de serviço (0800, 0300, 4004)
+- Celular: Celular
+- DDD nacional: Longa distância nacional
+- Internacional: Internacional (desligado de fábrica)
+
+- Emergência é sempre permitida.
+- Discagem sem permissão ouve "não é possível completar a ligação como discada".
+- A permissão vale também para siga-me, desvio e transferência às cegas: um ramal só-local não manda a chamada para um celular nem para o exterior por esses caminhos. Ela é reposta na base do Asterisk a cada Aplicar configurações.
+- O contexto do ramal só aceita interno (discagem normal) ou telium-bloqueado (sem saída). Um contexto personalizado pula a checagem de permissão: use com cuidado.
+
+DISA:
+- Senha obrigatória de 6 a 20 dígitos. Uma DISA com senha menor fica desativada no dialplan (toca aviso de serviço indisponível e desliga).
+- Quem entra pela DISA disca local, celular, DDD e serviço, nunca internacional.
+- A senha da DISA não volta para a tela; editar sem informá-la mantém a atual.
+- O contexto escolhido limita o alcance: telium-ramais só ramais internos; interno libera as rotas de saída permitidas.
+
+Click to call segue a permissão do ramal: a chamada entra pelo contexto e canal do próprio ramal (seção 17).
+
+Senha SIP forte: mínimo de 12 caracteres, e as senhas geradas pela central são aleatórias. Use Restringir a redes (aba Rede do ramal) para ramais que só existem dentro do escritório.
+
+
+12. LISTA NEGRA E ALLOWLIST
+---------------------------
+
+Administrador › Lista Negra recusa chamadas de entrada de números ou padrões. O tratamento pode ser: ocupado, silêncio, anúncio (um anúncio escolhido ou o aviso de serviço indisponível) ou desligar.
+
+Administrador › Allowlist lista as exceções: números que a lista negra nunca barra, mesmo casando com um padrão dela.
+
+Também pelo telefone, com os códigos de recurso:
+
+- *30 + número: Põe na lista negra
+- *32: Põe na lista negra quem acabou de ligar
+- *31 + número: Tira da lista negra
+- *38 + número: Põe na allowlist
+- *39: Põe na allowlist quem acabou de ligar
+- *36 + número: Tira da allowlist
+- *37: Pausa ou retoma a allowlist na central inteira
+
+Esses códigos funcionam em qualquer ramal. Se o cliente não quiser isso, desative-os em Administrador › Códigos de Recurso (15 — Códigos de Recurso (ver página 15)).
+
+
+13. ESCUTA DE CHAMADAS (*555)
+-----------------------------
+
+O código *555 + ramal escuta uma chamada em curso. Só funciona no ramal vinculado a um usuário ativo cujo perfil tenha a permissão de supervisor do call center (Monitor ao Vivo). De fábrica: Administrador e Supervisor. Qualquer outro ramal ouve "acesso negado".
+
+A lista de quem pode escutar é montada a cada Aplicar configurações: depois de mudar o perfil ou o ramal de um supervisor, aplique.
+
+
+14. SEGREDOS DO SERVIDOR
+------------------------
+
+Gerados na instalação (28 caracteres aleatórios cada), em /etc/telium/credenciais/, um arquivo por senha, permissão 0600, só root:
+
+- db_senha: Usuário da API no MariaDB
+- db_cdr_senha: Usuário do CDR (ODBC)
+- ami_senha: AMI do Asterisk
+- ari_senha: ARI do Asterisk
+- turn_segredo: Segredo das credenciais temporárias do TURN
+
+- Reexecutar o playbook reaproveita as mesmas; elas não aparecem na tela nem entram no Git.
+- Para escolher as próprias, use group_vars/all/vault.yml (copiado de vault.yml.exemplo), que tem precedência, e cifre com ansible-vault encrypt.
+- O AMI escuta em 127.0.0.1:5038 e aceita só 127.0.0.1. O MariaDB também escuta só em 127.0.0.1.
+- A configuração de e-mail (msmtp) é escrita com permissão 0600, uma cópia para o Asterisk e outra para a API.
+- O diagnostico-ami.sh compara as senhas sem mostrá-las (só tamanho e quatro primeiros caracteres).
+
+Nunca mande esses arquivos num chamado.
+
+
+15. CERTIFICADOS TLS
+--------------------
+
+- O nginx aceita só TLS 1.2 e 1.3; o SIP TLS do Asterisk usa TLS 1.2.
+- De fábrica (tls_autoassinado: true) a central gera um certificado autoassinado: o navegador reclama, e o softphone do navegador pode não funcionar.
+- Em produção, envie o certificado do cliente em Administrador › Certificados e aponte cada serviço: Interface web (nginx), SIP TLS (Asterisk), TURN / STUN (coturn) e WebRTC (Janus).
+- Os arquivos ficam num cofre da API (/etc/telium/certificados). Quem copia para os serviços e os recarrega é /usr/local/sbin/telium-certificados, como root, sem aceitar argumentos.
+- A central não renova certificado sozinha: acompanhe a validade na tela. Renovação em 07 — Solução de Problemas (ver página 07).
+
+[PRINT: Administrador › Certificados com a validade e os serviços de cada certificado]
+
+
+16. PROVISIONAMENTO DE TELEFONES
+--------------------------------
+
+O endereço que o aparelho consulta é /prov/<segredo>/<arquivo>. Para entregar a configuração (que leva a senha SIP), a central exige:
+
+1. o segredo certo no caminho;
+2. que o pedido venha das redes locais (padrão ligado; as redes são as de Conectividade › Configurações de Rede);
+3. o MAC cadastrado;
+4. um ramal ativo vinculado ao aparelho.
+
+Qualquer recusa responde 404, sem dizer o motivo ao aparelho, e fica registrada no console com o IP. A resposta sai com Cache-Control: no-store. Mantenha "só rede local" ligado.
+
+QR Code do Linphone: o convite é de uso único e vale 10 minutos. O banco guarda só o hash do token, e a senha vai cifrada com uma chave que só o token abre.
+
+
+17. API DE CLICK TO CALL
+------------------------
+
+Configurada em Telium › Integrações / API. O endereço é https://<central>/api/click2call.
+
+- A chave começa com tlm_c2c_ e aparece uma única vez, ao criar ou renovar. O banco guarda o hash e os quatro últimos caracteres.
+- A chave vai no cabeçalho X-Api-Key, em Authorization: Bearer ou no parâmetro token.
+- Filtro de IP: a chave pode ficar restrita a IPs ou faixas. Fora delas: "Esta chave não pode ser usada do endereço ...".
+- Filtro de ramal: a chave pode ficar restrita a uma lista de ramais.
+- 20 chaves inválidas do mesmo IP em 10 minutos bloqueiam esse IP: "Muitas chaves inválidas deste endereço. Tente de novo em alguns minutos." (HTTP 429).
+- A chamada entra pelo contexto e canal do próprio ramal: passa pela permissão de discagem, pelo limite de chamadas e pela rota de saída. Uma chave não alcança o que o ramal não alcançaria.
+- Cada pedido, aceito ou recusado, fica registrado com o IP.
+
+Prefira sempre o filtro de IP e de ramais, e renove a chave quando um sistema integrado for desativado. Mais em 20 — Telium: Tarifação, Integrações e Suporte (ver página 20).
+
+
+18. LIMITES DO NGINX E CABEÇALHOS
+---------------------------------
+
+- /api/auth/login: 10 por minuto, folga de 5
+- /api/: 30 por segundo, folga de 60, até 40 conexões simultâneas
+- /prov/: 30 por segundo, folga de 120 (telefones subindo juntos)
+- /p/ (QR do Linphone): 30 por segundo, folga de 20
+
+Excedeu, a resposta é 429.
+
+Cabeçalhos enviados: Strict-Transport-Security, X-Frame-Options: SAMEORIGIN, X-Content-Type-Options: nosniff e Referrer-Policy. Arquivos ocultos (/.algo) são negados. As gravações só saem pela API, depois da checagem de permissão: o diretório não é publicado diretamente.
+
+O /api/health sem sessão devolve só versão e "saudável": a versão do PHP, do banco e o erro do AMI aparecem só para quem está logado.
+
+
+19. SOFTPHONE DO NAVEGADOR E TURN
+---------------------------------
+
+- O telefone do navegador vem desligado de fábrica e é ligado em Conectividade › WebRTC / Softphone.
+- A senha SIP só vai ao navegador do próprio usuário, se o ramal dele estiver marcado como WebRTC e o perfil tiver a permissão Telefone (WebRTC).
+- O WebSocket do Asterisk escuta só em 127.0.0.1; o navegador chega a ele pelo /ws do nginx, com o mesmo certificado do console.
+- O TURN usa credencial com prazo, gerada a cada pedido a partir de um segredo que não sai do servidor. Não existe senha fixa no JavaScript.
+- O relay do TURN não alcança redes privadas (10.x, 172.16–31.x, 192.168.x, loopback): ele não serve de ponte para a rede interna do cliente.
+
+
+20. GRAVAÇÕES E LGPD
+--------------------
+
+- Gravação é dado pessoal. O cliente decide o que gravar (regras por ramal, fila e rota) e por quanto tempo guardar.
+- O console não apaga gravações: não há botão de excluir, de propósito (gravação é prova de atendimento).
+- A central não apaga gravações antigas sozinha. A retenção da tela de backup vale para os arquivos de backup, não para /var/spool/asterisk/monitor. Combine com o cliente a política de retenção e quem executa a limpeza.
+- Acesso às gravações: módulo Gravação de Chamadas (Supervisor e Auditoria de fábrica, além do Administrador). Revise quem tem esse módulo.
+- Backups que incluem gravações levam o mesmo dado pessoal: proteja o destino remoto.
+- Avise quem liga que a chamada é gravada (anúncio na URA ou na fila).
+
+
+21. BOAS PRÁTICAS DE IMPLANTAÇÃO
+--------------------------------
+
+1. Troque a senha do admin na entrega. A senha inicial é a mesma em toda instalação e está no repositório. O playbook define a senha só na primeira execução; depois, a troca feita pelo console fica. Use Meu Perfil e Segurança ou sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin.
+2. Crie contas nominais para cada pessoa, com o perfil mínimo necessário, em vez de compartilhar o admin.
+3. Ligue a verificação em dois passos nas contas de administrador e supervisor.
+4. Senhas SIP fortes: mantenha as geradas pela central; não troque por número de ramal.
+5. Defina a senha do correio de voz: em branco, ela é o número do ramal.
+6. Internacional desligado em todos os ramais que não precisam.
+7. Restringir a redes nos ramais que só existem no escritório.
+8. Não exponha AMI, banco nem porta 8090. Eles já escutam só em 127.0.0.1; não redirecione essas portas no roteador.
+9. Revise "Nunca bloquear": só IPs fixos de confiança, nunca faixas grandes.
+10. Certificado válido no console e no SIP TLS, com a validade acompanhada.
+11. Provisionamento só da rede local e click to call com filtro de IP.
+12. Acompanhe Conectividade › Firewall nas primeiras semanas: varredura aparece ali antes de virar prejuízo.
+13. Combine a retenção das gravações com o cliente (LGPD).
+14. Guarde fora do servidor o vault.yml cifrado, se usado, e nunca o anexe a chamados.
+
+[PRINT: Meu Perfil e Segurança com o cartão "Trocar minha senha"]

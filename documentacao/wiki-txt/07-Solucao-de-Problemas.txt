@@ -1,0 +1,541 @@
+==============================================================================
+SOLUÇÃO DE PROBLEMAS — TELIUM PABX
+==============================================================================
+
+Guia de diagnóstico organizado por sintoma: para cada problema, as causas mais prováveis, como confirmar e como resolver. Antes de mexer em qualquer coisa, rode a bateria de testes da seção 1.
+
+NOTA: Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
+
+
+SUMÁRIO
+-------
+
+1. Antes de tudo: a central está de pé?
+2. Onde olhar: telas e logs
+3. Ramal não registra
+4. Ramal registra, mas não toca
+5. Chamada conecta e ninguém ouve (ou áudio de um lado só)
+6. Tronco não registra
+7. Chamada de entrada não chega ou cai na rota errada
+8. Chamada de saída recusada
+9. Softphone do navegador (WebRTC) não registra ou fica mudo
+10. Console não abre, erro 502 ou erro de banco depois do git pull
+11. Faixa "Alterações ainda não aplicadas" e falha ao aplicar
+12. Fila não distribui chamadas
+13. Correio de voz por e-mail não chega
+14. Certificado vencido ou renovação
+15. Login bloqueado ou senha do admin perdida
+16. Backup falhou
+17. Disco cheio
+18. Reinício do Asterisk agendado
+19. Provisionamento de telefone não funciona
+20. DTMF não funciona na URA
+21. Gravação não aparece
+22. Coletar informações para o suporte
+
+
+1. ANTES DE TUDO: A CENTRAL ESTÁ DE PÉ?
+---------------------------------------
+
+1. A bateria de testes. Confere banco, esquema, geração da configuração, Asterisk, áudios, certificados, e-mail, backup e mais. Tem de terminar sem falha.
+
+    sudo -u teliumpbx php /opt/telium/api/bin/telium testar
+
+- Termina em ✓ N testes, nenhuma falha quando está tudo certo.
+- Com falha, a saída lista cada teste reprovado e o motivo. Resolva isso primeiro: nada que se teste depois é confiável.
+- Sem o Asterisk no ar, o grupo Aplicar no Asterisk é pulado com o aviso sem AMI — este grupo precisa do Asterisk no ar.
+
+2. Os serviços. Todos têm de responder active:
+
+    systemctl is-active mariadb nginx php8.4-fpm asterisk telium-cc coturn fail2ban
+
+3. O diagnóstico rápido das dependências:
+
+    sudo -u teliumpbx php /opt/telium/api/bin/telium doctor
+
+Confere banco, AMI, Janus (opcional; aparece como "não instalado" quando desligado) e a permissão de escrita em /etc/asterisk/telium.
+
+4. A saúde pela API:
+
+    curl -sk https://127.0.0.1/api/health
+
+Sem sessão, a resposta traz só a versão e saudavel (verdadeiro ou falso), com código 200 ou 503. O detalhe de cada checagem (php, banco, esquema, asterisk) aparece para quem está logado, e é o que a tela Telium › Suporte mostra.
+
+[PRINT: tela Telium › Suporte com o quadro "Esta instalação" (checagens, configuração pendente e versão)]
+
+
+2. ONDE OLHAR: TELAS E LOGS
+---------------------------
+
+Telas do console que ajudam no diagnóstico:
+
+- Telium › Suporte: Checagens da API, configuração pendente, versão e comandos úteis
+- Conectividade › Firewall: Falhas de autenticação SIP por origem, falhas de login no console, IPs bloqueados, lista "Nunca bloquear"
+- Conectividade › Troncos: Situação de cada tronco (publicado, registrado, no ar)
+- Conectividade › DIDs / Numeração: Os números de entrada e para onde vão
+- Conectividade › Configurações de Rede: IP público, redes locais, transportes, RTP e STUN
+- Conectividade › WebRTC / Softphone: Transporte wss, domínio, servidores ICE, ramais WebRTC e últimas chamadas do navegador
+- Configurações › SIP / PJSIP: Saída de pjsip show settings, transports, endpoints, registrations e tabela de codecs
+- Configurações › Arquivos e Aplicação: Arquivos gerados, histórico das últimas aplicações
+- Administrador › CLI Asterisk: Terminal do Asterisk pelo navegador
+- Relatórios › CDR — Registro de Chamadas: Cada chamada, com o número que chegou e o motivo de não completar
+- Relatórios › Eventos de Canal (CEL): Passo a passo de uma chamada
+
+Logs no servidor:
+
+- /var/log/asterisk/full: Tudo do Asterisk, inclusive verbose e DTMF
+- /var/log/asterisk/messages: Só avisos e erros do Asterisk
+- /var/log/asterisk/security: Eventos de autenticação SIP (é o que o fail2ban lê)
+- /var/log/telium/php-api.log: Erros da API
+- /var/log/nginx/error.log e access.log: Servidor web
+- /var/log/telium-smtp.log: Envio de e-mail (msmtp)
+- journalctl -u telium-cc: Serviço de tempo real do call center
+- journalctl -u telium-backup: Execuções do backup
+
+Os logs do Asterisk giram todo dia (14 cópias, até 200 MB cada); os da API e do e-mail, toda semana (8 cópias).
+
+Comandos do Asterisk mais usados:
+
+    sudo asterisk -rx "core show uptime"
+    sudo asterisk -rx "core show channels"          # chamadas em curso
+    sudo asterisk -rx "pjsip show transports"       # udp, tcp, tls e wss
+    sudo asterisk -rx "pjsip show contacts"         # aparelhos registrados
+    sudo asterisk -rx "pjsip show registrations"    # registro na operadora
+    sudo asterisk -rx "pjsip set logger on"         # trace SIP no log
+    sudo asterisk -rvvv                             # console interativo
+
+
+3. RAMAL NÃO REGISTRA
+---------------------
+
+Causas prováveis:
+- Senha SIP errada ou aparelho apontando para outro servidor/porta.
+- O IP do aparelho foi bloqueado pelo fail2ban depois de cinco senhas erradas (bloqueio de 24 horas no SIP).
+- O aparelho está fora das redes de Restringir a redes (aba Rede do ramal).
+- Ramal inativo, ou criado e ainda não aplicado.
+- Transporte do aparelho diferente do configurado no ramal (UDP, TCP ou TLS).
+- A porta 5060 (ou 5061 em TLS) não chega ao servidor.
+
+Como verificar:
+
+1. Conectividade › Firewall: veja se o IP aparece em Bloqueados agora pelo firewall e em Origens com falha de autenticação SIP. Se a tentativa nem aparece, o pacote não está chegando.
+2. No servidor:
+       sudo asterisk -rx "pjsip show contacts" | grep 1001
+       sudo grep 1001 /var/log/asterisk/security | tail
+       sudo fail2ban-client status asterisk
+3. Confira se a faixa amarela Alterações ainda não aplicadas está no topo do console.
+
+Como resolver:
+- IP bloqueado: em Conectividade › Firewall, clique em Desbloquear ao lado do IP. Endereços de confiança (escritório, monitoramento) podem ir para Nunca bloquear. Detalhes em 08 — Segurança (ver página 08).
+- Corrija a senha no aparelho (a senha SIP aparece no cadastro do ramal).
+- Ajuste ou esvazie Restringir a redes e aplique.
+- Clique em Aplicar configurações.
+
+[PRINT: Conectividade › Firewall com a tabela "Bloqueados agora pelo firewall" e o botão Desbloquear]
+
+
+4. RAMAL REGISTRA, MAS NÃO TOCA
+-------------------------------
+
+Causas prováveis:
+- Não perturbe ou siga-me ligado no ramal (pelo console ou por código no telefone).
+- O aparelho está registrado, mas não responde ao teste de presença (NAT fechou a porta, aparelho fora da rede).
+- Ramal marcado como WebRTC usado por um softphone comum (UDP): ver seção 9.
+- A chamada de fora não está chegando ao ramal: ver seção 7.
+
+Como verificar:
+    sudo asterisk -rx "pjsip show contacts"     # o estado do contato do ramal (Avail / Unavail)
+    sudo tail -f /var/log/asterisk/full         # ligue para o ramal e acompanhe
+- No cadastro do ramal, confira o estado de não perturbe e siga-me.
+
+Como resolver:
+- Desligue não perturbe e siga-me (no cadastro do ramal ou pelo próprio usuário em PCU — Meu Painel).
+- Aparelho atrás de NAT: mantenha ligados Forçar rport, Reescrever contato e RTP simétrico (aba Rede do ramal; vêm ligados de fábrica) e ajuste Verificar o aparelho a cada (s).
+- Se o ramal toca em mais de um aparelho, confira Máximo de aparelhos (padrão 2).
+
+
+5. CHAMADA CONECTA E NINGUÉM OUVE (OU ÁUDIO DE UM LADO SÓ)
+----------------------------------------------------------
+
+É quase sempre o áudio (RTP) que não chega. A falha não gera erro: a chamada conecta e fica muda.
+
+Causas prováveis:
+- A faixa UDP 10000–20000 não chega ao servidor (firewall da nuvem, do roteador ou do provedor). O firewall do próprio servidor já é aberto pelo playbook.
+- Servidor atrás de NAT sem a faixa de RTP redirecionada para ele.
+- IP público errado em Conectividade › Configurações de Rede: a central anuncia o endereço errado no SDP (external_media_address).
+- Redes locais incompletas: a rede dos telefones não está na lista, e a central trata o aparelho interno como externo.
+- Codec sem tradução (g729 no tronco e ramal sem g729): nesse caso a chamada costuma cair logo ao atender.
+
+Como verificar:
+1. Conectividade › Configurações de Rede: confira IP público e redes locais. O botão Descobrir consulta um STUN e mostra o IP público visto de fora.
+2. No servidor, durante uma chamada:
+       sudo asterisk -rx "rtp show settings"
+       sudo asterisk -rx "core show channels"
+3. Áudio de um lado só: anote qual lado não ouve. A tela Telium › Suporte lembra que costuma ser NAT ou falta de TURN.
+
+Como resolver:
+- Abra e redirecione a faixa UDP 10000–20000 para a central.
+- Corrija o IP público e as redes locais e clique em Aplicar configurações. Essas mudanças recarregam sem reiniciar o Asterisk.
+- Codec: siga o aviso que a conferência mostra ao aplicar ("oferece g729, que o Asterisk não sabe traduzir...") e tire o codec do tronco ou coloque em todos os ramais.
+
+Portas completas em 03 — Requisitos de Rede e Portas (ver página 03).
+
+[PRINT: Conectividade › Configurações de Rede com IP público, redes locais e o botão Descobrir]
+
+
+6. TRONCO NÃO REGISTRA
+----------------------
+
+Como verificar: Conectividade › Troncos mostra a situação de cada tronco. As mensagens e o que fazer:
+
+- desativado no cadastro: Ative o tronco
+- não publicado — aplique as configurações: Clique em Aplicar configurações
+- usuário de autenticação sem senha — informe a senha da operadora: Preencha a senha
+- marcado para registrar, mas sem usuário e senha da operadora: Preencha usuário e senha ou desmarque o registro
+- a central não carregou a autenticação deste tronco — aplique de novo: Aplique; se persistir, veja o log
+- operadora recusou o registro — confira usuário e senha: Confira credenciais com a operadora
+- publicado, operadora não registrou o tronco: Veja o trace SIP
+- registrando na operadora…: Aguarde alguns segundos
+- publicado, operadora não respondeu ao teste: Rota até a operadora, firewall, endereço
+- sem resposta da central: O Asterisk não respondeu ao console (veja a seção 1)
+
+No servidor:
+    sudo asterisk -rx "pjsip show registrations"
+    sudo asterisk -rx "pjsip set logger on"
+    sudo tail -f /var/log/asterisk/full
+
+[PRINT: Conectividade › Troncos com a coluna de situação]
+
+
+7. CHAMADA DE ENTRADA NÃO CHEGA OU CAI NA ROTA ERRADA
+-----------------------------------------------------
+
+Causas prováveis:
+- O número que a operadora entrega não casa com o DID da rota (+5511..., 11..., só 8 dígitos).
+- Não existe rota "qualquer número" (DID em branco ou *).
+- A rota tem regra de origem (quem ligou) e o número não casou com nenhuma.
+- O destino da rota foi apagado ou desativado.
+- O número está na Lista Negra.
+
+O que quem liga ouve:
+- DID sem rota e sem rota coringa: a central atende e toca o aviso de serviço indisponível. No log aparece DID ... chegou pelo tronco ... e não tem rota de entrada.
+- Todas as rotas daquele DID exigem origem e nenhuma casou: o mesmo aviso, com nenhuma rota de origem casou no log.
+
+Como verificar:
+1. Relatórios › CDR — Registro de Chamadas: veja o número exato que chegou.
+2. Conectividade › DIDs / Numeração: confira para onde cada número vai.
+3. No log:
+       sudo grep -i "não tem rota de entrada\|nenhuma rota" /var/log/asterisk/full | tail
+4. Ao aplicar, a conferência avisa rota de entrada X aponta para ..., que não existe ou está inativo.
+
+Como resolver:
+- Normalize o número no tronco (Conectividade › Troncos): Tirar do começo do número recebido (ex.: +55) e Ficar só com os últimos N dígitos.
+- Crie uma rota de entrada com DID em branco ou * para pegar o que não casar.
+- Precedência quando há regra de origem: número exato vence padrão, que vence a rota sem origem.
+- Corrija o destino apontado e aplique.
+
+
+8. CHAMADA DE SAÍDA RECUSADA
+----------------------------
+
+Causas prováveis:
+- O ramal não tem permissão para a classe da rota (local, celular, DDD, internacional). Quem ouve: "não é possível completar a ligação como discada" e o log mostra Ramal X sem permissão para <classe>.
+- O número discado não casa com nenhum padrão de rota de saída.
+- Duas rotas com o mesmo padrão: só a primeira na ordem vale.
+- Rota ativa sem nenhum padrão: nenhum número sai por ela.
+- Rota usando um tronco desativado.
+- Ramal no contexto telium-bloqueado (sem saída).
+- Teto de chamadas de saída do ramal atingido.
+- Tronco fora do ar (ver seção 6).
+
+Como verificar:
+- Aba Permissões do ramal: Ligações locais e 0800/0300, Celular, DDD nacional, Internacional. Emergência é sempre permitida.
+- Ao aplicar, a conferência lista: usa o mesmo padrão ... da rota ..., não tem nenhum padrão de discagem, usa o tronco ..., que está desativado.
+- No log:
+      sudo grep "sem permissão para" /var/log/asterisk/full | tail
+- Relatórios › CDR mostra o motivo de a ligação não completar.
+
+Como resolver: ajuste a permissão do ramal ou o padrão/ordem das rotas em Conectividade › Rotas de Saída e clique em Aplicar configurações. A permissão também vale para siga-me, desvio e transferência às cegas: um ramal só-local não consegue desviar para celular.
+
+
+9. SOFTPHONE DO NAVEGADOR (WEBRTC) NÃO REGISTRA OU FICA MUDO
+------------------------------------------------------------
+
+Comece por Conectividade › WebRTC / Softphone: ela confere o caminho inteiro e o botão Testar agora diz, do navegador de quem está olhando, se há caminho de áudio até a central.
+
+[PRINT: Conectividade › WebRTC / Softphone com as checagens e o resultado de "Testar agora"]
+
+Não registra (fica em "registrando"):
+
+- Telefone do navegador desligado na central: É o padrão. Ligue em Conectividade › WebRTC / Softphone; cada usuário recarrega o console
+- Perfil sem a permissão Telefone (WebRTC): Mensagem: "O telefone pelo navegador não está liberado para o seu perfil." Ajuste em Administrador › Perfis e Permissões
+- Usuário sem ramal vinculado: Mensagem: "A sua conta não está vinculada a nenhum ramal."
+- Ramal sem WebRTC marcado: Mensagem: "O ramal X não está marcado como WebRTC..."
+- pabx_hostname inválido: Precisa começar por letra, sem _, e não terminar em .local. Fora disso, o navegador descarta tudo em silêncio
+- Certificado não aceito: Com o certificado de fábrica o navegador avisa e às vezes bloqueia. Envie um certificado válido (seção 14)
+- WebSocket bloqueado: No navegador, F12 › Rede › filtro WS: a conexão com /ws deve aparecer com status 101
+
+Registra, mas a chamada fica muda:
+- Transporte wss no loopback. Se o wss estiver preso em 127.0.0.1, o RTP nasce no loopback, o ICE não fecha e o log enche de Error sending STUN request: Invalid argument. A tela mostra onde o wss está amarrado. O WebSocket continua só no 127.0.0.1:8090 do http.conf, atrás do nginx.
+- TURN inalcançável. O nome do TURN (vem do pabx_hostname) precisa resolver e ser alcançável da máquina do usuário. A mensagem do navegador é "ICE failed, your TURN server appears to be broken". Sem DNS, aponte turn_dominio para o IP público no servidor.yml e rode o playbook.
+- Portas do TURN fechadas: 3478 UDP/TCP, 5349 TCP e 49152–49500 UDP.
+- Ramal WebRTC usado por softphone comum. A tela marca como "aparelho incompatível": a chamada conecta e ninguém ouve.
+
+A tela também guarda as últimas chamadas do navegador com o veredito medido (mudo, só ouviu, só falou, não fechou). Mais em 11 — Telefone WebRTC (ver página 11).
+
+
+10. CONSOLE NÃO ABRE, ERRO 502 OU ERRO DE BANCO DEPOIS DO GIT PULL
+------------------------------------------------------------------
+
+Console não abre ou dá 502:
+    systemctl status nginx php8.4-fpm
+    sudo tail -20 /var/log/nginx/error.log
+    sudo tail -20 /var/log/telium/php-api.log
+- 502 é o nginx sem resposta do PHP-FPM (socket /run/php/telium.sock). Reinicie o php8.4-fpm e veja o log da API.
+- Entra pelo IP, mas não pelo nome: confira o DNS (nslookup), o certificado e o pabx_hostname. Teste do próprio servidor:
+      curl -k --resolve voz.cliente.com.br:443:127.0.0.1 https://voz.cliente.com.br/api/health
+  Se responder, o problema está entre o navegador e o servidor.
+- Tela ou botão novo não aparece depois de atualizar: Ctrl + Shift + R. Confira também a versão (git log --oneline -1 em /opt/TeliumPABX) e a permissão do perfil.
+
+Erro de banco depois de git pull (migração faltando):
+
+Quem faz git pull sem rodar o playbook ou a migração fica com o banco atrás do código. A checagem esquema do /api/health e da tela Telium › Suporte acusa:
+
+NOTA: O banco está atrás do código: falta tabela ... Rode "php bin/telium migrar" no servidor, ou o playbook do Ansible.
+
+Ao aplicar ou abrir uma tela, a mensagem pode ser: "O banco está desatualizado para esta versão do código — ...".
+
+Como resolver:
+    sudo -u teliumpbx php /opt/telium/api/bin/telium migrar
+Os scripts são idempotentes; reaplicar é seguro. O caminho completo de atualização (com playbook) está em 02 — Atualização (ver página 02).
+
+
+11. FAIXA "ALTERAÇÕES AINDA NÃO APLICADAS" E FALHA AO APLICAR
+-------------------------------------------------------------
+
+Tudo o que é salvo no console vai para o banco. O Asterisk só passa a usar quando alguém clica em Aplicar configurações na faixa amarela do topo. Só perfis com a ação reiniciar veem o botão; os demais leem "Peça a um administrador para aplicar."
+
+[PRINT: a faixa amarela "Alterações ainda não aplicadas no Asterisk" com o botão Aplicar configurações]
+
+O que acontece ao aplicar: os arquivos são gerados a partir do banco, as listas são repostas na base interna do Asterisk (lista negra, allowlist, siga-me, não perturbe, permissões de discagem, quem pode escutar) e os módulos são recarregados um a um (ramais e troncos, dialplan, filas, correio de voz, conferências, estacionamento, música em espera, códigos de recurso, colunas do CDR, candidatos ICE e portas de voz). No fim, a central confere se cada ramal e tronco ativo carregou de fato.
+
+Resultados possíveis na faixa:
+
+- Configuração aplicada no Asterisk: Tudo certo; a faixa some sozinha
+- Configuração aplicada, com N problemas no cadastro: Aplicou, mas a conferência achou erros de cadastro (lista abaixo)
+- O Asterisk recusou parte da recarga: Uma etapa falhou; use Ver a saída
+
+Etapas que falham com mais frequência:
+- ramais e troncos carregados — a saída diz O Asterisk não carregou: 1005, .... Uma opção do ramal ou tronco foi recusada pelo PJSIP. Veja o motivo:
+      sudo grep -i "1005" /var/log/asterisk/full | tail
+- conexão com o Asterisk — o Asterisk está parado ou o AMI recusou a senha. sudo systemctl status asterisk; para o AMI, rode sudo bash /opt/TeliumPABX/infra/diagnostico-ami.sh, que compara a senha do manager.conf com a de origem (sem mostrá-la) e testa o login.
+- aplicação em curso — "Outra aplicação de configuração está em andamento. Espere ela terminar e tente de novo."
+
+Problemas que a conferência do cadastro mostra:
+
+- rota de entrada, fila, URA, grupo: aponta para ..., que não existe ou está inativo — a chamada vai cair sem destino
+- fila: está sem nenhum agente — ninguém vai atender (aviso)
+- grupo de toque: inclui o ramal X, que não existe ou está inativo
+- tronco: oferece g729, que o Asterisk não sabe traduzir (aviso)
+- rota de saída: mesmo padrão de outra rota; sem nenhum padrão; tronco desativado
+- arquivos gerados: modo ou grupo errado: o Asterisk não consegue ler o arquivo
+
+O histórico fica em Configurações › Arquivos e Aplicação (últimas aplicações, com resultado). Pelo terminal, o mesmo processo:
+    sudo -u teliumpbx php /opt/telium/api/bin/telium aplicar-config
+
+Mudança na porta de um transporte não vale com recarga: o Asterisk mantém a porta anterior até reiniciar.
+
+
+12. FILA NÃO DISTRIBUI CHAMADAS
+-------------------------------
+
+Causas prováveis:
+- Fila sem nenhum agente (a conferência avisa ao aplicar).
+- Agentes com o telefone não registrado.
+- Fila de call center: ninguém está logado, todos estão em pausa ou em pós-atendimento esperando tabulação.
+- A fila foi criada ou alterada e não foi aplicada.
+- O destino da rota não aponta para a fila.
+
+Como verificar:
+    sudo asterisk -rx "queue show 3000"
+    journalctl -u telium-cc -n 50
+- Em fila de call center, o Monitor ao Vivo mostra quem está livre, falando ou em pausa.
+
+Como resolver: aplique as configurações, registre os aparelhos e siga 16 — Call Center (ver página 16) (seção de problemas comuns) para login, pausa e tabulação.
+
+
+13. CORREIO DE VOZ POR E-MAIL NÃO CHEGA
+---------------------------------------
+
+O envio é feito pelo msmtp (relay; não há servidor de e-mail na central). A configuração vem de Configurações › Notificações e E-mail.
+
+Causas prováveis:
+- Envio de e-mail desligado, sem servidor ou sem remetente: a configuração do msmtp é apagada.
+- Credenciais, porta ou segurança (TLS, STARTTLS) erradas.
+- O ramal sem e-mail cadastrado. A tela Aplicações › Correio de Voz mostra "sem e-mail cadastrado".
+- O correio de voz do ramal desligado.
+- Mensagem caindo no spam do destinatário.
+
+Como verificar:
+1. Em Configurações › Notificações e E-mail, use o teste de envio. Mensagens possíveis:
+   - "Mensagem entregue ao servidor de saída. Confira a caixa de ... — e o spam, na primeira vez."
+   - "O servidor de saída recusou: ..." (com o motivo do servidor).
+   - "Não foi possível publicar a configuração de envio no servidor..." — a ponte /usr/local/sbin/telium-smtp ou a regra de sudo não foi instalada: rode o playbook.
+2. No servidor:
+       sudo tail -30 /var/log/telium-smtp.log
+       sudo /usr/local/sbin/telium-smtp
+   O segundo comando republica a configuração e diz "configuração de e-mail publicada para servidor:porta" ou "envio de e-mail desligado".
+
+[PRINT: Configurações › Notificações e E-mail com o resultado do teste de envio]
+
+
+14. CERTIFICADO VENCIDO OU RENOVAÇÃO
+------------------------------------
+
+Sintomas: o navegador avisa que a conexão não é segura, o softphone do navegador não conecta, telefones em TLS não registram.
+
+Como verificar: Administrador › Certificados mostra cada certificado, a validade e os serviços em que está em uso: Interface web (nginx), SIP TLS (Asterisk), TURN / STUN (coturn) e WebRTC (Janus).
+
+Como renovar: a central não renova sozinha. Pela mesma tela:
+- envie o novo par (certificado .crt/.pem/.cer e a chave .key), ou
+- gere o pedido (CSR) no console, mande à autoridade e cole o certificado emitido;
+- depois, aponte cada serviço para o certificado novo e aplique.
+
+Mensagens comuns ao enviar: "O certificado enviado não corresponde ao pedido gerado aqui.", "A chave privada deste pedido não está mais no cofre.", "Este certificado está em uso em: ... Aponte esses serviços para outro certificado antes de excluir." Ao enviar um certificado já vencido, a tela avisa.
+
+A bateria telium testar (grupo Certificados TLS) confere se o certificado chegou a cada serviço. Mais em 08 — Segurança (ver página 08).
+
+
+15. LOGIN BLOQUEADO OU SENHA DO ADMIN PERDIDA
+---------------------------------------------
+
+Mensagens de login:
+
+- Usuário ou senha inválidos — Motivo: Senha errada ou usuário inexistente; Saída: Conferir
+- Conta temporariamente bloqueada por excesso de tentativas — Motivo: 5 erros nesta conta, a partir deste IP: 15 minutos; Saída: Esperar ou o administrador libera
+- Tentativas demais desta origem. Tente de novo em alguns minutos. — Motivo: 20 falhas do mesmo IP em 10 minutos; Saída: Esperar (quem digita a senha certa ainda entra)
+- Código de verificação inválido — Motivo: Código do 2FA errado; Saída: Conferir o relógio do celular
+- Este código já foi usado. Espere o próximo aparecer no aplicativo. — Motivo: Código de 2FA repetido; Saída: Esperar 30 s
+- Usuário inativo. Procure o administrador. (ou "Usuário bloqueado.") — Motivo: Situação da conta no cadastro; Saída: O administrador muda para ativo
+
+O nginx também limita o login a 10 pedidos por minuto por IP (com folga de 5). Quem insiste (15 respostas 401/429 em 10 minutos) é banido pelo fail2ban por 1 hora na cadeia telium-console; veja e desbloqueie em Conectividade › Firewall.
+
+Liberar pelo console: em Administrador › Gerenciador de Usuários, o administrador pode liberar o bloqueio ("Bloqueio liberado."), definir uma nova senha ou desligar a verificação em dois passos de quem perdeu o celular.
+
+Senha do admin perdida (pelo servidor):
+    sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin
+O comando pede a senha nova sem eco, aplica a política (8 caracteres, um número, um símbolo), zera o bloqueio e derruba as sessões abertas. Em script, aceita a senha por pipe. O comando não desliga a verificação em dois passos.
+
+
+16. BACKUP FALHOU
+-----------------
+
+Como verificar:
+- Administrador › Backup & Restauração mostra o estado de cada backup e a saída da execução (o que entrou, tamanho, erro do tar).
+- No servidor:
+      systemctl status telium-backup.timer
+      journalctl -u telium-backup -n 50
+      ls -lh /var/backup/pabx-telium/
+
+Causas prováveis: disco cheio (as gravações pesam), falha do tar, ou o destino remoto recusou o envio. Sem destino remoto ligado, o envio responde "nenhum destino remoto ligado — o backup fica só no servidor", o que não é erro.
+
+Detalhes em 04 — Backup e Restauração (ver página 04).
+
+
+17. DISCO CHEIO
+---------------
+
+Sintomas: backup falhando, gravações sem arquivo, banco recusando gravação, erros estranhos na API.
+
+Como verificar:
+    df -h
+    sudo du -sh /var/spool/asterisk/monitor /var/backup/pabx-telium /var/log/asterisk /var/lib/mysql
+A tela Aplicações › Gravação de Chamadas mostra o uso do disco das gravações.
+
+Onde costuma crescer:
+- Gravações (/var/spool/asterisk/monitor): a central não apaga gravações sozinha, e o console não tem botão de excluir.
+- Backups (/var/backup/pabx-telium): a retenção de cada rotina mantém só os N arquivos mais recentes (padrão 5). Backup com gravações incluídas ocupa muito.
+- Logs: giram sozinhos (ver seção 2).
+
+Como resolver: reduza a retenção do backup, tire as gravações do backup local (mande para o destino remoto) e defina com o cliente a política de retenção das gravações, apagando as antigas pelo terminal conforme o combinado.
+
+
+18. REINÍCIO DO ASTERISK AGENDADO
+---------------------------------
+
+Duas coisas o Asterisk só lê ao subir: o asterisk.conf e a lista de módulos (modules.conf). Quando o playbook muda uma delas, ele agenda core restart when convenient e avisa no final que o reinício fica para quando não houver chamada em curso.
+
+Como verificar se já aconteceu:
+    sudo asterisk -rx "core show uptime"
+
+Central que nunca fica vazia: o reinício fica pendurado. Para forçar, derrubando as chamadas em curso, faça num horário combinado:
+    sudo systemctl restart asterisk
+
+
+19. PROVISIONAMENTO DE TELEFONE NÃO FUNCIONA
+--------------------------------------------
+
+O aparelho busca a configuração em /prov/<segredo>/<arquivo>. Toda recusa responde 404 para o aparelho, e cada pedido fica registrado no console (Conectividade › Provisionamento), com o resultado:
+
+- segredo_errado — Causa: O endereço no aparelho não tem o segredo certo; Como resolver: Copie o endereço exibido na tela
+- rede_negada — Causa: Pedido de fora das redes locais, com "só rede local" ligado; Como resolver: Inclua a rede em Configurações de Rede ou provisione de dentro
+- mac_desconhecido — Causa: MAC não cadastrado ou nome de arquivo fora do padrão; Como resolver: Cadastre o aparelho com o MAC certo
+- sem_ramal — Causa: Aparelho sem ramal ativo vinculado; Como resolver: Vincule o ramal
+- entregue — Causa: Configuração entregue; Como resolver: —
+
+Os aparelhos usam o caminho /prov/ com limite próprio no nginx, para que vários telefones subindo juntos depois de uma queda de energia não sejam barrados. Para o QR Code do Linphone, o convite tem validade de 10 minutos e uso único. Mais em 14 — Recursos do Ramal (ver página 14).
+
+[PRINT: Conectividade › Provisionamento com o registro dos pedidos]
+
+
+20. DTMF NÃO FUNCIONA NA URA
+----------------------------
+
+Causas prováveis:
+- Modo de DTMF do ramal diferente do que o aparelho envia.
+- A operadora envia DTMF de um jeito diferente do padrão RFC 4733. O tronco não tem modo de DTMF configurável no console e usa o padrão do Asterisk.
+- Áudio da URA não toca (anúncio inativo ou não aplicado), e o cliente não sabe o que digitar.
+
+Como verificar: o log full registra os dígitos recebidos. Ligue para a URA, digite e acompanhe:
+    sudo tail -f /var/log/asterisk/full | grep -i dtmf
+Se nenhum dígito aparece, o DTMF não está chegando.
+
+Como resolver: no ramal, aba Mídia, campo Sinalização DTMF: RFC 4733 (padrão), No áudio (inband), SIP INFO, Automático ou Automático, com INFO. Combine com o modo configurado no aparelho e aplique.
+
+
+21. GRAVAÇÃO NÃO APARECE
+------------------------
+
+Causas prováveis:
+- Nenhuma regra mandou gravar. No ramal (aba Gravação) há quatro regras (externa recebida, externa feita, interna recebida, interna feita) e a gravação sob demanda (*1). "Nunca" de qualquer lado proíbe e "Forçar" de qualquer lado obriga.
+- A chamada não foi atendida.
+- O arquivo foi apagado ou não chegou ao disco (disco cheio).
+- O perfil do usuário não tem acesso a Aplicações › Gravação de Chamadas.
+
+Como verificar: a tela de gravações cruza o CDR com o disco; quando o registro existe e o arquivo não, a gravação aparece sem arquivo e o download responde "Gravação não encontrada no servidor." No servidor:
+    ls -lt /var/spool/asterisk/monitor | head
+
+
+22. COLETAR INFORMAÇÕES PARA O SUPORTE
+--------------------------------------
+
+Antes de abrir o chamado, junte:
+
+1. A versão. Aparece em Telium › Suporte e em curl -sk https://127.0.0.1/api/health.
+2. O que aconteceu: o que foi discado, de qual ramal, e a hora com minuto. Se for áudio, se falta nos dois lados ou em um só.
+3. A bateria de testes:
+       sudo -u teliumpbx php /opt/telium/api/bin/telium testar
+4. O relatório de diagnóstico (curto, para colar inteiro):
+       sudo bash /opt/TeliumPABX/infra/diagnostico.sh
+   Traz serviços, versões, portas em escuta, contagens do banco, endpoints e ODBC do Asterisk, saúde da API, arquivos gerados e os últimos erros do Asterisk, nginx e API.
+5. O diagnóstico completo pelo Ansible:
+       cd /opt/TeliumPABX/infra/ansible
+       sudo ansible-playbook verificar.yml
+6. Problema de AMI (console diz que o Asterisk não responde, mas ele está no ar):
+       sudo bash /opt/TeliumPABX/infra/diagnostico-ami.sh
+   A senha não aparece na saída: só o tamanho e os quatro primeiros caracteres.
+7. Os trechos de log do horário do problema: /var/log/asterisk/full, /var/log/telium/php-api.log e, se for o caso, /var/log/telium-smtp.log.
+
+Não mande senhas: o arquivo /etc/telium/credenciais/ e o vault.yml nunca entram no chamado.
+
+[PRINT: Telium › Suporte, quadro "Antes de abrir o chamado"]

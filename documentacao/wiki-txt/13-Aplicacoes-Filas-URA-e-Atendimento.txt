@@ -1,0 +1,840 @@
+==============================================================================
+APLICAÇÕES: FILAS, URA E ATENDIMENTO — TELIUM PABX
+==============================================================================
+
+Manual das aplicações que decidem o caminho de uma chamada dentro da central: filas, pesquisa de satisfação, grupos de toque, URA, conferências, gravações, anúncios, condições horárias e grupos de horário.
+
+NOTA: Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
+
+A parte de call center das filas (agentes como pessoas, pausas, tabulação, retorno, monitor) está em 16-Call-Center.md (ver página 16). Aqui ela aparece só resumida.
+
+
+SUMÁRIO
+-------
+
+1. Destinos: para onde uma chamada pode ir
+2. Exemplo de fluxo completo de atendimento
+3. Filas de Atendimento
+4. Pesquisa de Satisfação
+5. Grupos de Toque
+6. URA / Atendimento Digital
+7. Conferências
+8. Gravação de Chamadas
+9. Anúncios
+10. Condições Horárias
+11. Grupos de Horário
+12. Problemas comuns
+
+
+ANTES DE TUDO: APLICAR CONFIGURAÇÕES
+------------------------------------
+
+Tudo o que se cria ou altera nestas telas é gravado no banco, mas só vale no telefone depois de Aplicar configurações (faixa amarela no topo do console). Ao aplicar, a central também confere os destinos e avisa, por exemplo, quando uma rota, URA, fila ou grupo aponta para algo que não existe ou está inativo, ou quando uma fila comum não tem nenhum agente.
+
+As exceções, que valem na hora sem aplicar, estão indicadas em cada seção (forçar uma condição horária pelo console, agentes de fila de call center).
+
+
+1. DESTINOS: PARA ONDE UMA CHAMADA PODE IR
+------------------------------------------
+
+Quase toda aplicação termina mandando a chamada para um destino: a rota de entrada, cada tecla da URA, o "dentro" e o "fora" da condição horária, o fim de um anúncio, o tempo esgotado da URA e assim por diante.
+
+Nessas telas o destino é escolhido num seletor único, agrupado por tipo. Só aparecem os itens ativos. Um destino já gravado que foi desativado continua aparecendo como escolhido, com a observação "(desativado ou fora do seu acesso)", para que salvar a tela não o apague sem querer.
+
+[PRINT: seletor de destino aberto, mostrando os grupos (Ramais, Filas, URAs…)]
+
+- Ramais: Toca o ramal com as regras dele: desvio, não perturbe, siga-me, chamada em espera e, se o ramal tiver correio de voz, cai na caixa quando não atende ou está ocupado
+- Filas: Entra na fila, com anúncio de entrada, pesquisa e destinos de falha da fila
+- URAs: Atende e toca o menu da URA
+- Grupos de toque: Toca todos os ramais do grupo ao mesmo tempo
+- Correio de voz: Vai direto para a caixa do ramal escolhido (mensagem de "indisponível") e desliga depois do recado
+- Caixas postais: Vai para uma caixa postal avulsa, sem ramal
+- Anúncios: Toca o anúncio e segue o que ele manda (outro destino ou desligar)
+- Condições horárias: Consulta o relógio e manda para o destino de dentro ou de fora do horário
+- Conferências: Entra na sala (pede PIN, se a sala tiver)
+- DISA: Entrega a chamada à DISA escolhida
+- Megafonia: Abre o grupo de megafonia
+- Pesquisa de satisfação: Faz a pesquisa e desliga
+- Destinos personalizados: Salta para um contexto escrito à mão (cadastrado em Administrador › Destinos Personalizados)
+- Fora da central › Número externo — transbordo: Liga para um número de fora. Aparece um campo para digitar o número
+- Encerrar › Desligar a chamada: Desliga em silêncio
+- Encerrar › Tom de ocupado: Toca o tom de ocupado e desliga
+- Encerrar › Tom de congestionamento: Toca o tom de "todos os circuitos ocupados" e desliga
+
+Regras importantes:
+
+- Número externo sai pelas rotas de saída: escreva o número do jeito que um ramal discaria (com o prefixo que a rota espera). Se nenhuma rota de saída aceitar aquele formato, a chamada não sai. Veja 17-Conectividade.md (ver página 17).
+- Destino em branco, quando a tela permite, é escolha: a chamada desliga.
+- Destino que aponta para algo excluído ou desativado faz a chamada cair. O aviso aparece ao Aplicar configurações.
+- Na rota de entrada, Tom de ocupado e Tom de congestionamento recusam a chamada sem atendê-la (não é tarifada).
+
+Destinos na aba Failover da fila: essa aba é diferente. Ela tem um campo de tipo (Ramal, Outra fila, URA, Correio de voz, Anúncio, Destino personalizado, Desligar, ou "— nada, apenas desliga —") e um campo de valor digitado à mão. Veja a seção 3.
+
+
+2. EXEMPLO DE FLUXO COMPLETO DE ATENDIMENTO
+-------------------------------------------
+
+Cenário: empresa atende de segunda a sexta, das 8h às 18h. No expediente, a URA oferece Vendas (fila) e Suporte (fila); fora dele, o cliente deixa recado.
+
+Montagem, na ordem:
+
+1. Áudios: envie as gravações (saudação da URA, aviso de fora do horário) em Administrador › Gravações do Sistema.
+2. Anúncios (Aplicações › Anúncios): crie "Saudação URA" com a gravação da saudação (sem destino; ela só será usada como saudação). Crie "Fora do horário" com a gravação do aviso e destino Caixas postais › Recados.
+3. Filas (Aplicações › Filas de Atendimento): crie 3001 Vendas e 3002 Suporte e monte os agentes de cada uma. Na aba Failover, mande o tempo esgotado para Correio de voz de um ramal, por exemplo.
+4. URA (Aplicações › URA / Atendimento Digital): "URA Principal", saudação "Saudação URA", entradas 1 → fila 3001, 2 → fila 3002, 0 → ramal da recepção. Tempo esgotado → ramal da recepção.
+5. Grupo de horário (Aplicações › Grupos de Horário): "Horário comercial", uma faixa Segunda a sexta, 08:00 às 18:00.
+6. Condição horária (Aplicações › Condições Horárias): "Expediente", grupo "Horário comercial", Dentro → URA Principal, Fora → anúncio "Fora do horário".
+7. Rota de entrada (Conectividade › Rotas de Entrada): o número da empresa com destino Condições horárias › Expediente.
+8. Aplicar configurações.
+
+O que o cliente vive:
+
+    Rota de entrada (DID da empresa)
+      └─ Condição horária "Expediente"
+           ├─ dentro  → URA Principal
+           │             ├─ 1 → Fila 3001 Vendas ──(tempo esgotado)→ correio de voz
+           │             ├─ 2 → Fila 3002 Suporte ──(pesquisa ao final, se ligada)
+           │             ├─ 0 → Ramal da recepção
+           │             ├─ 2xx/3xx/4 dígitos → ramal direto (se permitido)
+           │             └─ ninguém digita → Ramal da recepção
+           └─ fora    → Anúncio "Fora do horário" → Caixa postal Recados
+
+Testar sem ligar de fora: de um ramal, disque o código Simular chamada de entrada (de fábrica *7777) seguido do DID. A chamada segue exatamente a rota de entrada daquele número. Veja 15-Codigos-de-Recurso.md (ver página 15).
+
+Fechar num feriado sem mexer na configuração: disque o código da condição (ex.: *271) ou use Forçar fechado no cartão da condição (seção 10).
+
+
+3. FILAS DE ATENDIMENTO
+-----------------------
+
+Aplicações › Filas de Atendimento
+
+A fila recebe as chamadas, toca música de espera, anuncia a posição e distribui entre os atendentes (agentes). Também mede o nível de serviço.
+
+[PRINT: lista de filas, com as etiquetas call center, grava, pesquisa e confirma]
+
+
+A lista
+~~~~~~~
+
+- Fila: O número que se disca
+- Nome: Nome e descrição, com etiquetas: call center, grava, pesquisa (tem pesquisa de satisfação), confirma (exige confirmação do agente)
+- Estratégia: Como a chamada é distribuída
+- SLA: Meta de atendimento, em segundos
+- Espera máx.: Tempo máximo de espera
+- Estado: Ativa ou Parada
+
+Botões de cada linha:
+
+- Situação agora (ícone de atividade): Mostra os agentes neste instante (veja abaixo)
+- Agentes: Monta quem atende a fila (veja abaixo)
+- Editar: Abre o cadastro
+- Excluir: Pede confirmação. Os agentes são desvinculados e as rotas que apontavam para a fila ficam sem destino
+
+No topo há Nova fila e, para quem tem acesso, o atalho Pesquisas de satisfação.
+
+
+Cadastro: aba Geral
+~~~~~~~~~~~~~~~~~~~
+
+- Número da fila *: O número que se disca para cair na fila. Só dígitos, de 2 a 10. Não pode repetir outra fila
+- Nome *: Até 80 caracteres
+- Descrição: Texto livre
+- Estratégia de toque: Como a chamada é distribuída (tabela abaixo). Padrão: rodízio com memória
+- Toque por agente (s): Quanto tempo toca em cada agente antes de passar ao próximo. Padrão 20
+- Intervalo entre tentativas (s): Pausa entre uma rodada de toques e a seguinte. Padrão 5
+- Pausa pós-atendimento (s): Tempo em que o agente fica sem receber depois de desligar. Padrão 10
+- Meta de SLA (s): Atender dentro deste tempo conta como dentro da meta nos relatórios. Padrão 20
+- Gravar as chamadas: Grava as conversas da fila. Vem ligado (seção 8)
+- Fila ativa: Fila parada não existe no telefone
+- Fila de call center: Os agentes passam a ser as pessoas cadastradas em Call Center › Agentes. Veja 16-Call-Center.md (ver página 16)
+
+Estratégias de toque:
+
+- Tocar em todos ao mesmo tempo: Toca todos os livres; quem atender primeiro leva
+- Rodízio com memória (mais justo): Rodízio que lembra quem foi o último a receber
+- Quem está há mais tempo sem atender: Prioriza o agente ocioso há mais tempo
+- Quem atendeu menos chamadas: Equilibra pela quantidade
+- Na ordem da lista, sempre do começo: Sempre começa pelo primeiro
+- Aleatório: Sorteia
+- Aleatório com peso da penalidade: Sorteia, levando em conta a penalidade de cada agente
+
+[PRINT: aba Geral de uma fila nova]
+
+
+Aba Call center
+~~~~~~~~~~~~~~~
+
+Vale só para fila marcada como Fila de call center: Exigir tabulação, Tecla de retorno, Anúncio de confirmação do retorno, Tentativas de retorno, Ampliar habilidade a cada (s) e Até o nível. Explicação completa em 16-Call-Center.md (ver página 16).
+
+
+Aba Áudios
+~~~~~~~~~~
+
+- Música em espera: Música tocada a quem espera. "Padrão do sistema" ou um áudio da categoria espera (19-Configuracoes.md (ver página 19), Música em Espera)
+- Anúncio de entrada, para o cliente: Toca uma vez, assim que a chamada entra. Ex.: "Você ligou para o suporte, aguarde"
+- Sussurro, para quem vai atender: Só o agente ouve, antes de a conversa começar. É como ele sabe de que fila veio a chamada
+- Anúncio periódico, para quem espera: Repetido durante a espera
+- A cada quantos segundos: Intervalo do anúncio periódico. Padrão 60 (mínimo efetivo 10)
+
+Todos os áudios das filas são anúncios (seção 9): o seletor mostra só os anúncios ativos.
+
+
+Aba Espera
+~~~~~~~~~~
+
+- Anunciar a posição na fila: Diz ao cliente em que posição ele está. Vem ligado
+- Anunciar o tempo estimado: Diz o tempo estimado, calculado pelo Asterisk pela média das últimas chamadas
+- Repetir os anúncios a cada (s): Intervalo dos anúncios de posição e tempo. Padrão 30 (mínimo efetivo 10)
+- Espera máxima (s): Passou disso, a chamada sai para o destino de tempo esgotado. Padrão 300. 0 = sem limite
+- Máximo de chamadas na fila: 0 = sem limite. Ao encher, a chamada vai para o destino de fila cheia
+
+
+Aba Comportamento
+~~~~~~~~~~~~~~~~~
+
+- Entrar quando não há agente logado: Sim — entra e espera mesmo assim (padrão); Não — vai direto para o destino de fila vazia; Não, e conta pausado como ausente
+- Sair se a fila ficar sem agente: Mesmas opções: se quem já espera sai quando a fila esvazia. Padrão: não
+- Peso da fila: Entre filas que dividem os mesmos agentes, a de maior peso é servida primeiro
+- Tocar em agente que já está em chamada: Deixe desligado, salvo se os agentes usam softphone com várias linhas
+- Pausar quem não atende: Não pausar, Pausar nesta fila ou Pausar em todas as filas dele. Evita a chamada rodar em quem saiu da mesa
+- Atraso antes de conectar (s): Um ou dois segundos ajudam o agente a se preparar depois do sussurro
+- Exigir confirmação do agente: O agente ouve o sussurro e precisa apertar 1 para assumir. Evita a chamada cair na caixa postal de um celular. Vale para os agentes montados na tela da fila; numa fila de call center fica desabilitado
+
+Sobre a confirmação: com ela ligada, o sussurro não toca separado. O mesmo áudio do sussurro passa a ser a pergunta do "aperte 1".
+
+
+Aba Failover
+~~~~~~~~~~~~
+
+Para onde a chamada vai quando sai da fila sem ser atendida, por motivo.
+
+- Tempo de espera esgotado — tipo / Tempo esgotado — destino: Passou a espera máxima. É também a saída padrão: se o motivo for fila vazia ou cheia e o destino daquele motivo estiver em branco, vale este
+- Fila sem agente — tipo / Sem agente — destino: Não há agente para atender (fila vazia ou esvaziou durante a espera, conforme a aba Comportamento)
+- Fila cheia — tipo / Fila cheia — destino: A fila atingiu o máximo de chamadas
+
+Tipos: — nada, apenas desliga —, Ramal, Outra fila, URA, Correio de voz, Anúncio, Destino personalizado, Desligar.
+
+O valor é digitado, e precisa ser:
+
+- Ramal: Número do ramal
+- Outra fila: Número da fila
+- Correio de voz: Número do ramal dono da caixa
+- URA: O identificador interno da URA (não é um número de discagem)
+- Anúncio: O identificador interno do anúncio
+- Destino personalizado: O identificador do destino personalizado
+- Desligar / nada: Deixe em branco
+
+NOTA: Para URA, anúncio e destino personalizado, o identificador não aparece nessas telas. Prefira Ramal, Outra fila ou Correio de voz no failover; se precisar de URA ou anúncio, confira depois de Aplicar configurações se apareceu aviso de destino inexistente.
+
+[PRINT: aba Failover preenchida com tempo esgotado → correio de voz]
+
+
+Aba Pesquisa
+~~~~~~~~~~~~
+
+- Pesquisa de satisfação: Quando o atendente desliga, o cliente vai automaticamente para a pesquisa em vez de a chamada cair. Só aparecem pesquisas ativas. "— não perguntar nada —" desliga
+
+Veja a seção 4.
+
+
+Agentes fixos e agentes que entram por código
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Botão Agentes na lista de filas (fila comum, não call center).
+
+[PRINT: gaveta Agentes da fila com um agente Fixo e um "Entra por código"]
+
+1. Escolha um ramal em "Escolha um ramal para adicionar…" e clique em Adicionar.
+2. Ajuste a Penalidade (0 a 255): penalidade menor atende primeiro. Quem tem penalidade maior só recebe quando os de menor estão ocupados.
+3. Escolha Como entra:
+   - Fixo: o ramal fica sempre na fila, gravado na configuração.
+   - Entra por código: o ramal não fica na fila sozinho; o próprio usuário entra e sai pelo telefone.
+4. Clique em Salvar agentes e depois Aplicar configurações.
+
+O x da linha tira o ramal da lista.
+
+Códigos de fila no telefone (de fábrica; confira em Administrador › Códigos de Recurso):
+
+- *45 + número da fila (ex.: *453001): Entra na fila; se já estava, sai. Ouve "login ok" ou "logged off"
+- *46 + número da fila (ex.: *463001): Pausa na fila; de novo, volta a receber. Ouve "ativado" / "desativado"
+- *47 + número da fila: Diz quantas chamadas estão esperando
+
+- O *45 funciona para qualquer ramal, mesmo que não esteja na lista como "Entra por código". A lista serve para documentar quem deve usar.
+- Para ramal Fixo, use *46 para pausar e voltar. O *45 é para quem entra por código: o membro fixo é recriado a cada Aplicar configurações.
+- Em fila de call center, *45 e *46 não funcionam: o telefone responde "operação falhou". Lá se usa o código do agente (*11). Veja 16-Call-Center.md (ver página 16).
+
+Fila de call center: o botão Agentes abre outra gaveta, com os agentes cadastrados (pessoas), uma caixa para marcar quem atende nesta fila e o Nível (0 a 9; 0 recebe primeiro). Essa gravação vale na hora para quem está logado, sem aplicar configurações.
+
+
+Situação agora
+~~~~~~~~~~~~~~
+
+O ícone de atividade da linha abre Fila N agora:
+
+- Agente: Ramal, nome e canal
+- Estado: Estado do Asterisk (ex.: "Not in use" em verde = livre; "In use", "Ringing", "Unavailable") ou Pausado — motivo
+- Penalidade: A penalidade (ou nível) do agente
+- Atendidas: Chamadas atendidas desde que entrou
+
+O subtítulo diz quantas chamadas estão esperando. Em Saída bruta do Asterisk fica o texto original do comando, útil para o suporte. Sem comunicação com o Asterisk, aparece "Asterisk fora do ar".
+
+[PRINT: gaveta Situação agora com um agente livre e um pausado]
+
+
+O que acontece numa chamada para a fila
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. A central atende a chamada e marca a fila no registro (CDR).
+2. Decide a gravação (seção 8).
+3. Toca o anúncio de entrada, se houver.
+4. A chamada espera, com música, anúncios de posição/tempo e periódico, enquanto a fila toca nos agentes pela estratégia.
+5. Atendida: quando o agente desliga, a chamada termina, ou vai para a pesquisa, se a fila tiver uma.
+6. Não atendida: sai pelo destino do motivo (tempo esgotado, sem agente, cheia).
+
+
+Exemplos práticos
+~~~~~~~~~~~~~~~~~
+
+- Suporte com escala: técnicos N1 com penalidade 0 e N2 com penalidade 5. Os N2 só recebem quando todos os N1 estão ocupados.
+- Recepção que sai para almoçar: recepcionistas como "Entra por código"; antes do almoço discam *453000 (sai), na volta discam de novo (entra).
+- Agentes com celular no siga-me: ligue Exigir confirmação do agente para a chamada não ser "atendida" pela caixa postal do celular.
+
+
+4. PESQUISA DE SATISFAÇÃO
+-------------------------
+
+Aplicações › Pesquisa de Satisfação
+
+O cliente dá uma nota pelo teclado logo depois que o atendente desliga (pesquisa ligada à fila), ou quando é transferido para o número da pesquisa.
+
+A tela tem duas abas: Resultados e Pesquisas (N). Abre em Resultados quando já existe pesquisa.
+
+
+Aba Pesquisas
+~~~~~~~~~~~~~
+
+Cada pesquisa aparece num cartão com a escala (ex.: "1 a 5 · 5 é a melhor"), o número para transferir, tentativas e segundos, as quatro mensagens e as filas que a usam. Botões: Resultados, Editar e excluir.
+
+[PRINT: cartão de uma pesquisa ligada a uma fila]
+
+Campos (Nova pesquisa / Editar):
+
+- Nome da pesquisa *: Até 80 caracteres
+- Descrição: Só para reconhecer
+- Número para transferir: O atendente transfere o cliente para este número no fim da conversa. 2 a 10 dígitos. Em branco, a pesquisa é feita só pela fila. Não pode ser número de ramal, fila, grupo de toque, sala de conferência, grupo de megafonia, número de estacionar ou de outra pesquisa
+- Pesquisa ativa: Pesquisa parada não é feita
+- Mensagem de saudação: Anúncio tocado primeiro. Sem ela, vai direto à pergunta
+- Mensagem das notas: A pergunta, que deve dizer a escala ("Digite de 1 a 5…"). Sem ela, o cliente só ouve um bipe
+- Mensagem de agradecimento: Sem ela, toca o agradecimento padrão do Asterisk
+- Mensagem de tecla inválida: Toca quando o cliente digita fora da escala. Sem ela, toca o aviso padrão
+- Nota mínima: 0 a 9
+- Nota máxima: 1 a 10. Tem de ser maior que a mínima
+- Qual é a melhor nota?: A maior nota é a melhor ou A menor nota é a melhor
+- Tentativas: 1 a 5: quantas vezes a pergunta se repete se o cliente não digita ou erra
+- Segundos para digitar: 3 a 30
+
+O quadro Como cada nota conta mostra cada nota colorida: verde conta como satisfeito, vermelho como insatisfeito.
+
+Como a nota é lida no telefone:
+- O cliente digita um dígito. Para a nota 10, digita 1 e 0: quem digita 1 tem dois segundos para completar com 0; se não completar, fica 1.
+- Fora da escala: toca a mensagem de tecla inválida e pergunta de novo, até as tentativas.
+- Sem digitar nada: pergunta de novo, até as tentativas.
+- Cada pesquisa registra um desfecho: Respondida, Não respondeu, Tecla inválida ou Desligou no meio.
+- O registro guarda a fila, o ramal que atendeu (ou o agente de call center) e o número de quem ligou.
+
+Índice de satisfação: cada nota vira um índice de 0 (pior) a 100 (melhor), já no sentido da escala. Índice 70 ou mais = satisfeito; 30 ou menos = insatisfeito; o resto é neutro.
+
+Excluir: não é permitido enquanto a pesquisa estiver em alguma fila (tire da fila ou desative). As respostas já dadas continuam no relatório.
+
+Como usar a pesquisa:
+- Pela fila: aba Pesquisa da fila. Ao fim de cada atendimento, o cliente cai na pesquisa.
+- Por transferência: o atendente transfere para o Número para transferir.
+- Como destino: a pesquisa aparece no seletor de destinos (URA, rota, condição).
+
+
+Aba Resultados
+~~~~~~~~~~~~~~
+
+Filtros: Pesquisa, De, Até (abre nos últimos 30 dias), Fila, Atendente. Botão Exportar respostas (CSV), para quem tem permissão de exportar.
+
+- Índice de satisfação: De 0 a 100
+- Satisfeitos: % satisfeitos, neutros e insatisfeitos
+- Respostas: Respondidas, de quantas pesquisas feitas, e a taxa de resposta
+- Média da nota: Na escala da pesquisa
+- Notas dadas: Distribuição por nota
+- Não completaram: Não responderam, tecla inválida, desligaram no meio
+- Por fila / Por atendente: Feitas, respostas, média, % satisfeitos e índice
+- Dia a dia: Índice de cada dia, quando o período tem mais de um dia
+- Respostas: Cada resposta, com quem ligou (com botão Ligar de volta), fila, atendente, situação, nota e avaliação
+
+Se a escala da pesquisa mudou, as respostas antigas aparecem com * ("Respondida na escala…").
+
+[PRINT: aba Resultados com os quatro indicadores]
+
+
+5. GRUPOS DE TOQUE
+------------------
+
+Aplicações › Grupos de Toque
+
+Um número que toca em vários ramais ao mesmo tempo. Quem atender primeiro leva.
+
+[PRINT: lista de grupos de toque]
+
+- Número do grupo *: O número que se disca. Só dígitos, 2 a 10
+- Nome *: Como aparece nas listas
+- Ramais *: Os ramais, separados por hífen: 1000-1001-1002. Só números de ramal
+- Tempo de toque (s): Quanto tempo o grupo toca. Padrão 20
+- Grupo ativo
+
+Comportamento:
+- Todos tocam ao mesmo tempo.
+- O grupo chama o aparelho de cada ramal direto: não passa pelo siga-me, desvio ou não perturbe do ramal.
+- Se ninguém atender no tempo de toque, a chamada é desligada. A tela não tem destino de falha.
+- Ramal excluído ou inativo que ficou na lista gera aviso ao Aplicar configurações.
+
+Quando usar grupo e quando usar fila: grupo é para "toca todo mundo da sala" sem espera; fila é para quando o cliente pode esperar com música, há métricas e regras de distribuição.
+
+
+6. URA / ATENDIMENTO DIGITAL
+----------------------------
+
+Aplicações › URA / Atendimento Digital
+
+A URA atende, toca a saudação e manda a chamada para onde o cliente escolher pelo teclado ("digite 1 para vendas, 2 para suporte").
+
+Cada URA aparece num cartão: o anúncio de saudação (ou o aviso sem anúncio de saudação), a espera pelo dígito, as tentativas, se aceita discagem direta de ramal, a árvore das entradas (tecla → destino) e os destinos de Tempo esgotado e Opção inválida.
+
+[PRINT: cartão de uma URA com três entradas]
+
+
+Campos
+~~~~~~
+
+- Nome da URA *: Só para reconhecer nas rotas e nos destinos
+- Anúncio de saudação *: O que o cliente ouve ao cair na URA. É um anúncio (seção 9); só o áudio dele é usado
+- Espera pelo dígito (s): Quanto tempo a URA aguarda depois da saudação. Padrão 8
+- Tentativas: Quantas vezes a saudação se repete antes de ir para o tempo esgotado. Padrão 3
+- Permitir discar o ramal direto: Quem sabe o ramal digita e vai direto, sem passar pelo menu. Vem ligado
+- URA ativa
+
+
+Entradas da URA
+~~~~~~~~~~~~~~~
+
+Botão Adicionar entrada. Cada linha:
+
+- Dígitos: O que o cliente aperta: um dígito, * ou # (até 4 caracteres), ou um padrão do dialplan começando com _, como _2XX (qualquer ramal da faixa 200)
+- Descrição: Para que serve. Em branco, vira "Opção N"
+- Destino: Qualquer destino do seletor (seção 1)
+
+Validações ao salvar: toda entrada precisa de dígitos e de destino; a mesma tecla não pode aparecer duas vezes; dígitos fora do formato são recusados com o erro marcado na linha.
+
+
+Se ninguém escolher nada
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Tempo esgotado: O cliente não digitou nada depois de repetir a saudação o número de Tentativas
+- Opção inválida: O cliente insistiu numa tecla que não existe, tantas vezes quanto as Tentativas. Em branco, vale o destino de Tempo esgotado
+
+
+Como a URA se comporta no telefone
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. Atende, espera 1 segundo e toca a saudação. O cliente pode digitar durante a saudação (não precisa esperar terminar).
+2. Espera o dígito pelo tempo de Espera pelo dígito.
+3. Sem dígito: toca a saudação de novo. Esgotadas as tentativas, vai para Tempo esgotado.
+4. Tecla que não existe: ouve "opção inválida" e volta ao menu. Depois de insistir o número de Tentativas, vai para Opção inválida.
+5. Tecla válida: segue para o destino da entrada.
+
+Discagem direta: com Permitir discar o ramal direto, a URA aceita números de 3 ou 4 dígitos e manda para o ramal. Ramais com outro tamanho precisam de uma entrada com padrão (ex.: _5XXXX).
+
+Repetir o menu: uma entrada cujo destino é a própria URA volta ao começo do menu (ex.: 9 → URA Principal = "para ouvir de novo, tecle 9").
+
+Voltar à URA depois de um anúncio: a URA marca de onde a chamada saiu. Um anúncio com Retornar para a URA ligado volta para ela depois de tocar (seção 9).
+
+DTMF: a URA lê as teclas enviadas pelo tronco. Se o cliente aperta e nada acontece, o problema costuma ser o modo de DTMF do tronco. Veja 17-Conectividade.md (ver página 17) e 07-Solucao-de-Problemas.md (ver página 07).
+
+
+Exemplos práticos
+~~~~~~~~~~~~~~~~~
+
+- Menu simples: 1 → fila Vendas, 2 → fila Suporte, 3 → anúncio "Endereço e horário" com Retornar para a URA, 0 → recepção.
+- Submenu: 2 → outra URA "Suporte" com 1 → fila Internet, 2 → fila Telefonia, 9 → URA Principal (voltar).
+- Faixa de ramais: entrada _2XX → Ramais não serve, porque o destino é um ramal fixo; para faixa, use Permitir discar o ramal direto.
+
+Excluir: as entradas somem junto, e as rotas que apontavam para a URA ficam sem destino.
+
+
+7. CONFERÊNCIAS
+---------------
+
+Aplicações › Conferências
+
+Salas fixas em que várias pessoas conversam ao mesmo tempo. Basta discar o número da sala (de um ramal, ou mandando uma chamada externa para a sala pelo seletor de destinos).
+
+Cada sala aparece num cartão com o número, o nome, o limite de pessoas, o anúncio de entrada e as etiquetas PIN, PIN de admin, grava, espera o admin, entra mudo.
+
+[PRINT: cartões de salas de conferência]
+
+
+Aba Sala
+~~~~~~~~
+
+- Número da sala *: O que se disca para entrar. Só dígitos, 2 a 10. Não pode repetir outra sala
+- Nome da sala *
+- Descrição
+- Limite de usuários: 0 = sem limite. Cheia, quem disca não entra
+- Gravar a conferência: O áudio da sala inteira vira um arquivo, que aparece em Gravação de Chamadas
+- Sala ativa
+
+
+Aba Entrada
+~~~~~~~~~~~
+
+- PIN para entrar: Só dígitos (até 10). Sem PIN, qualquer um que disque o número entra. Ao editar, em branco mantém o atual
+- PIN de administrador: Quem entra com ele administra a sala. Tem de ser diferente do PIN comum. Ao editar, em branco mantém o atual
+- Mensagem de anúncio de entrada: Anúncio tocado para quem entra, antes de cair na sala
+- Só começar quando o administrador entrar: Quem chega antes ouve música. Quando o administrador sai, a sala encerra
+- Entrar com o microfone mudo: Cada um se libera com a tecla 1. Útil em sala grande
+
+Como o PIN é pedido:
+- A central pede o PIN e lê exatamente o tamanho do maior PIN: não precisa terminar com #.
+- PIN de administrador → entra como administrador. PIN comum → participante.
+- Sala só com PIN de administrador: quem não digita nada entra como participante.
+- PIN errado: ouve "PIN inválido" e tenta de novo. Na quarta tentativa errada, a chamada desliga.
+
+
+Aba Na sala
+~~~~~~~~~~~
+
+- Anunciar quem entra e quem sai: A central pede o nome de quem entra e toca para a sala na entrada e na saída. Vem ligado
+- Dizer quantas pessoas já estão na sala: Vem ligado
+- Música em espera enquanto está sozinho: Vem ligado
+
+
+Teclas dentro da sala
+~~~~~~~~~~~~~~~~~~~~~
+
+- * — Participante: Ouve o menu; Administrador: Ouve o menu de administrador
+- 1 — Participante: Silencia / libera o microfone; Administrador: Igual
+- 2 — Participante: —; Administrador: Tranca / destranca a sala
+- 3 — Participante: —; Administrador: Tira o último que entrou
+- 4 / 6 — Participante: Diminui / aumenta o volume que ouve; Administrador: Igual
+- 7 / 9 — Participante: Diminui / aumenta o volume com que fala; Administrador: Igual
+- 0 — Participante: Diz quantas pessoas estão na sala; Administrador: Igual
+
+
+Quem está na sala
+~~~~~~~~~~~~~~~~~
+
+O botão Quem está na sala mostra, ao vivo: canal, quem, papel (administra / participante) e microfone (mudo / aberto), com a saída bruta do Asterisk.
+
+[PRINT: gaveta Quem está na sala com dois participantes]
+
+Código útil: o código Estado de uma conferência (de fábrica *82; veja 15-Codigos-de-Recurso.md (ver página 15)) + número da sala diz quantas pessoas estão nela.
+
+Excluir: o número deixa de atender; as gravações já feitas continuam guardadas.
+
+
+8. GRAVAÇÃO DE CHAMADAS
+-----------------------
+
+Aplicações › Gravação de Chamadas
+
+Lista todas as gravações: de chamadas e de conferências. Aqui se ouve, baixa uma ou baixa várias num pacote. Nada é apagado por esta tela: quem limpa o disco é a retenção do backup (04-Backup-e-Restauracao.md (ver página 04)).
+
+No topo aparece o espaço livre do disco (em vermelho acima de 85% de uso).
+
+[PRINT: lista de gravações com o player aberto numa linha]
+
+
+Onde se liga a gravação
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Esta tela não tem regras: a gravação é decidida em quatro lugares.
+
+- Conectividade › Ramais, aba Gravação — Campo: Externa recebida, Externa feita, Interna recebida, Interna feita; Efeito: Regra do ramal para cada tipo de chamada
+- Aplicações › Filas de Atendimento, aba Geral — Campo: Gravar as chamadas; Efeito: Grava as chamadas da fila (vem ligado)
+- Conectividade › Rotas de Entrada, aba Atendimento — Campo: Gravar chamadas desta rota; Efeito: Grava tudo que entra pela rota
+- Aplicações › Conferências, aba Sala — Campo: Gravar a conferência; Efeito: Grava a sala inteira
+
+Opções de regra no ramal:
+
+- Não importa — quem decide é a fila ou a rota: Segue o outro lado
+- Sim, gravar: Grava, a não ser que alguém diga "nunca"
+- Não gravar: Não grava, a não ser que alguém force
+- Forçar — grava mesmo se outra regra disser que não: Obriga, salvo "nunca"
+- Nunca — não grava nem se outra regra mandar: Proíbe, e para uma gravação já iniciada pela rota
+
+Ordem de desempate (fixa): "nunca" de qualquer lado proíbe; depois, "forçar" de qualquer lado obriga; só então vale a preferência de cada um. Uma chamada é gravada uma vez só, mesmo passando por rota, fila e ramal.
+
+Gravação sob demanda (aba Gravação do ramal): Não permitir, Permitir o código *1 durante a chamada, ou Permitir e deixar vencer as regras acima. O código *1 apertado durante a conversa começa ou para a gravação. Detalhes em 17-Conectividade.md (ver página 17).
+
+
+Onde ficam os arquivos
+~~~~~~~~~~~~~~~~~~~~~~
+
+- Diretório no servidor: /var/spool/asterisk/monitor, organizado por data: AAAA/MM/DD/.
+- Nome da gravação de chamada: HHMMSS-sentido-origem-destino-identificador.wav.
+- Nome da gravação de conferência: conferencia-<sala>-HHMMSS-identificador.wav.
+- Grava-se só a parte em que as duas pontas estão conectadas (não grava a espera na fila).
+
+Veja também 06-Diretorios-Arquivos-e-Logs.md (ver página 06).
+
+
+Filtros
+~~~~~~~
+
+De, Até, sentido (Todos os sentidos, Entrada, Saída, Interna), busca por origem ou destino, Filtrar e Limpar. Filtrar por sentido esconde as conferências, que não têm sentido.
+
+
+Colunas e ações
+~~~~~~~~~~~~~~~
+
+- Data: Início
+- Origem / Destino: Números
+- Sentido: Entrada, Saída, Interna ou Conferência, com a etiqueta da fila quando passou por uma
+- Duração: Tempo de conversa
+- Tamanho: Tamanho do arquivo
+
+- Ouvir (play): Abre um player na própria linha. Clicar de novo fecha
+- Baixar: Baixa o arquivo (fica na auditoria)
+- Caixas de seleção + Baixar selecionadas: Monta um .zip com até 200 gravações por vez (fica na auditoria)
+
+A etiqueta sem arquivo indica que o registro existe mas o arquivo não está mais no disco (apagado pela retenção, por exemplo). A lista mostra 50 por página.
+
+
+9. ANÚNCIOS
+-----------
+
+Aplicações › Anúncios
+
+O anúncio é uma gravação mais o que fazer com ela: deixar pular, repetir numa tecla, voltar para a URA e para onde ir depois. É o anúncio que URA, filas, conferências, pesquisas e rotas apontam; nenhum módulo usa o arquivo de áudio direto.
+
+Antes, envie o áudio em Administrador › Gravações do Sistema. Sem nenhum áudio, a tela avisa e não deixa criar.
+
+[PRINT: lista de anúncios com as colunas Comportamento e Destino após tocar]
+
+- Anúncio: Nome e descrição
+- Gravação: O áudio usado, ou gravação removida
+- Comportamento: pode pular, repete no N, volta à URA, não atende
+- Destino após tocar: O destino, ou Desliga
+- Estado: Ativo ou Parado
+
+
+Campos
+~~~~~~
+
+- Descrição *: É como o anúncio aparece nas listas de destino
+- Gravação *: O áudio, vindo de Gravações do Sistema
+- Repetir: Desabilitar ou Tecla 0–9, *, #: a tecla que o cliente aperta para ouvir de novo
+- Permitir pular: Qualquer tecla interrompe o anúncio e segue para o destino
+- Retornar para a URA: Se a chamada veio de uma URA, volta para ela depois de tocar, em vez de ir ao destino
+- Não atender o canal: Toca sem atender: a operadora não tarifa, mas alguns aparelhos não reproduzem o áudio
+- Anúncio ativo
+- Para onde a chamada vai (opcional): Destino após a reprodução. "— nenhum: desligar depois do anúncio —" é permitido: o anúncio toca e a chamada desliga
+
+Regras:
+- O anúncio não pode ter ele mesmo como destino (prenderia a chamada num laço).
+- Com Retornar para a URA, o destino só vale quando a chamada não veio de uma URA. Sem destino e sem URA de origem, desliga.
+- Com Repetir ou Permitir pular, depois do áudio a central espera 1 segundo por uma tecla; sem tecla, segue para o destino.
+- Quando um módulo usa o anúncio só como áudio (saudação da URA, anúncio de entrada e sussurro da fila, mensagens da pesquisa, entrada da conferência), só a gravação conta; o destino e as opções do anúncio são ignorados.
+
+Excluir: a gravação continua em Gravações do Sistema. Quem apontava para o anúncio fica sem o áudio.
+
+
+Exemplos práticos
+~~~~~~~~~~~~~~~~~
+
+- Aviso e desliga: "Estamos em recesso até dia 5" sem destino. Aponte a condição de fora do horário para ele.
+- Aviso e recado: "Deixe seu recado após o sinal" com destino Caixas postais › Recados.
+- Informação dentro da URA: "Nosso endereço é…" com Repetir na tecla * e Retornar para a URA.
+- Recusa sem custo: anúncio com Não atender o canal e sem destino, para avisar sem tarifar quem liga.
+
+
+10. CONDIÇÕES HORÁRIAS
+----------------------
+
+Aplicações › Condições Horárias
+
+Se o momento da chamada está dentro do grupo de horário, a chamada vai para um destino; fora dele, para outro. Cada condição tem um código no telefone para forçar a entrada aberta ou fechada na mão.
+
+Precisa de ao menos um grupo de horário criado antes (seção 11).
+
+
+O cartão
+~~~~~~~~
+
+[PRINT: cartão de condição com o estado Dentro do horário e o código no telefone]
+
+- Estado: Dentro do horário, Fora do horário, forçado aberto / forçado fechado, ou estado desconhecido. Calculado pelo relógio do servidor
+- Grupo: O grupo de horário e quantas faixas tem
+- Dentro → / Fora →: Os dois destinos
+- No telefone: O código da condição (ex.: *271), o que ele faz e se pede PIN
+- Pelo relógio / Forçar aberto / Forçar fechado: Força pelo console (para quem pode editar)
+
+Forçar pelo console vale na hora, sem aplicar configurações, e fica até alguém voltar para Pelo relógio. A ação fica registrada na auditoria. Sem comunicação com o Asterisk, a condição continua seguindo o relógio e a tela avisa.
+
+
+Campos
+~~~~~~
+
+- Nome *
+- Observação
+- Grupo de horário *: As faixas deste grupo dizem se estamos dentro ou fora
+- Condição ativa
+- O código no telefone: Fecha a entrada (padrão): vai para "Fora do horário" mesmo dentro dele. Abre a entrada: vai para "Dentro do horário" mesmo fora dele. Inverte: faz o contrário do que o horário diz agora
+- PIN para usar o código: Só dígitos, 4 a 10. Em branco: sem PIN
+- Dentro do horário *: Destino quando alguma faixa do grupo cobre o momento da chamada
+- Fora do horário *: Destino no resto do tempo (fim de semana, madrugada, feriado)
+
+
+O código no telefone
+~~~~~~~~~~~~~~~~~~~~
+
+- O código é o prefixo de Administrador › Códigos de Recurso (de fábrica *27) seguido do número da condição: *271, *272… O ajuda do campo e o cartão mostram o código exato.
+- Discar uma vez força (fecha, abre ou inverte, conforme o campo); ouve "ativado".
+- Discar de novo volta a seguir o relógio; ouve "desativado".
+- Com PIN, o telefone pede o PIN antes; são três tentativas e desliga.
+- Inverter grava o contrário do que o relógio diz no momento em que se disca: fica nesse estado até discar de novo.
+- O código e o console usam a mesma marca: forçar por um e desfazer pelo outro funciona.
+- Se o prefixo estiver desligado em Códigos de Recurso, as condições não têm código.
+
+Tecla BLF: programe o código (ex.: *271) numa tecla BLF do telefone. Ela fica acesa enquanto a condição está forçada, venha a força do telefone ou do console.
+
+
+Como a condição decide
+~~~~~~~~~~~~~~~~~~~~~~
+
+1. Forçada aberta → destino Dentro. Forçada fechada → destino Fora.
+2. Sem força, confere as faixas do grupo. Basta uma faixa casar para estar dentro.
+3. Grupo sem faixas: nunca está dentro.
+
+
+Exemplos práticos
+~~~~~~~~~~~~~~~~~
+
+- Expediente: grupo "Horário comercial", Dentro → URA, Fora → anúncio de fora do horário.
+- Recepção fecha para reunião geral: a recepcionista aperta a tecla BLF *271; a entrada vai para o anúncio de fora. Ao voltar, aperta de novo.
+- Feriados: veja a seção 11.
+- Plantão de sábado: condição "Sábado" com grupo "Sábado 8h–12h", Dentro → fila de plantão, Fora → condição "Expediente". Uma condição pode apontar para outra.
+
+Excluir: as rotas que apontavam para ela ficam sem destino.
+
+
+11. GRUPOS DE HORÁRIO
+---------------------
+
+Aplicações › Grupos de Horário
+
+As faixas de tempo que uma condição horária consulta: hora, dia da semana, dia do mês e mês. Um grupo pode ter várias faixas, e cada faixa vale por si: basta uma casar para estar dentro.
+
+Cada cartão mostra o nome, a observação, a quantidade de faixas e cada faixa em português (ex.: "segunda a sexta · 08:00 às 18:00").
+
+[PRINT: gaveta de edição de um grupo com duas faixas]
+
+
+Campos
+~~~~~~
+
+- Descrição *: O nome do grupo
+- Observação
+
+
+Horários (faixas)
+~~~~~~~~~~~~~~~~~
+
+Botão Adicionar horário. Em cada faixa, deixe em branco o que não importa.
+
+- Hora: Início às fim. Em branco: o dia inteiro. Preencha as duas ou nenhuma
+- Dia da semana: Todos os dias, Segunda a sexta, Sábado e domingo ou Dias escolhidos… (marque os dias). Nenhum dia marcado vale como todos
+- Dia do mês: De / até (1 a 31). Só o primeiro = um dia só
+- Mês: De / até (janeiro a dezembro). Só o primeiro = um mês só
+
+Validações: hora de início sem a de término (ou o contrário) é recusada; "até" preenchido sem "de" é recusado.
+
+
+Exemplos de faixas
+~~~~~~~~~~~~~~~~~~
+
+- Comercial — Hora: 08:00 às 18:00; Dia da semana: Segunda a sexta; Dia do mês: —; Mês: —
+- Almoço fechado (duas faixas) — Hora: 08:00 às 12:00 e 13:00 às 18:00; Dia da semana: Segunda a sexta; Dia do mês: —; Mês: —
+- Sábado de manhã — Hora: 08:00 às 12:00; Dia da semana: Dias escolhidos: sáb; Dia do mês: —; Mês: —
+- Natal — Hora: em branco; Dia da semana: Todos os dias; Dia do mês: 25; Mês: dezembro
+- Recesso de fim de ano — Hora: em branco; Dia da semana: Todos os dias; Dia do mês: 24 a 31; Mês: dezembro
+
+
+Feriados
+~~~~~~~~
+
+Não há um campo próprio de feriado: o feriado é uma faixa com dia do mês e mês. Como as faixas de um grupo só somam horários, o feriado não pode ficar no mesmo grupo do expediente. Monte assim:
+
+1. Grupo "Feriados" com uma faixa por feriado (dia do mês + mês, hora em branco).
+2. Condição "Feriado?": grupo "Feriados", Dentro → anúncio "Hoje é feriado", Fora → condição "Expediente".
+3. A rota de entrada aponta para "Feriado?".
+
+Feriados de data móvel (Carnaval, Sexta-feira Santa, Corpus Christi) precisam ser atualizados todo ano. Para um feriado imprevisto, use o código da condição ou Forçar fechado.
+
+Excluir: as faixas somem junto, e as condições que usam o grupo ficam sem referência (e passam a nunca estar dentro).
+
+
+12. PROBLEMAS COMUNS
+--------------------
+
+Mudei a configuração e nada mudou no telefone.
+- Faltou Aplicar configurações. Só forçar condição pelo console e agentes de fila de call center valem na hora.
+
+A chamada cai logo depois de entrar.
+- O destino aponta para algo excluído ou desativado. Ao Aplicar configurações, procure o aviso "aponta para … que não existe ou está inativo".
+- O anúncio usado não tem mais a gravação (gravação removida na lista de anúncios).
+
+A fila toca, mas ninguém recebe.
+- Fila comum sem agente: aviso "está sem nenhum agente" ao aplicar.
+- Agentes "Entra por código" não entraram (*45 + fila).
+- Agentes pausados: veja Situação agora.
+- Entrar quando não há agente logado em "Não" manda direto para o destino de fila vazia.
+
+O cliente fica esperando para sempre na fila.
+- Espera máxima está em 0 (sem limite). Defina um tempo e o destino de tempo esgotado.
+
+Ao estourar a fila, a chamada desliga.
+- O destino de tempo esgotado está em "— nada, apenas desliga —". Preencha o tipo e o valor na aba Failover.
+- Failover para URA ou anúncio com valor errado: o valor é o identificador interno, não um número de discagem. Use Ramal, Outra fila ou Correio de voz.
+
+*45 responde "operação falhou".
+- A fila é de call center: o agente entra com *11. Veja 16-Call-Center.md (ver página 16).
+
+A pesquisa de satisfação nunca toca.
+- A pesquisa está parada, ou não foi escolhida na aba Pesquisa da fila.
+- Faltou aplicar configurações.
+- O cliente desligou junto com o atendente. A pesquisa só acontece se o atendente desligar primeiro.
+
+A URA não reage às teclas.
+- DTMF do tronco. Teste de um ramal com *7777 + DID: se funciona do ramal e não de fora, é o tronco.
+- A URA está sem anúncio de saudação (sem anúncio de saudação no cartão): ela fica muda, mas ainda espera o dígito.
+
+Digitar o ramal na URA não funciona.
+- Permitir discar o ramal direto está desligado, ou o ramal não tem 3 ou 4 dígitos.
+
+A condição mostra "Dentro" mas a chamada vai para "Fora" (ou o contrário).
+- A condição está forçada (etiqueta "forçado…" no cartão, tecla BLF acesa). Volte para Pelo relógio ou disque o código de novo.
+- Confira a hora do servidor: é o relógio dele que vale. Veja 05-Servidor-Comandos-e-Servicos.md (ver página 05).
+- Faixa salva com hora de início e fim, mas os dias marcados não incluem hoje.
+
+O código *27N diz que o número não existe.
+- O prefixo está desligado em Administrador › Códigos de Recurso, a condição está inativa, ou faltou aplicar.
+
+Na conferência, todo mundo fica ouvindo música e a reunião não começa.
+- Só começar quando o administrador entrar está ligado e ninguém entrou com o PIN de administrador. Sem PIN de administrador cadastrado, ninguém consegue ser administrador: desligue a opção ou cadastre o PIN.
+
+A conferência derrubou todos de uma vez.
+- Com Só começar quando o administrador entrar, a sala encerra quando o administrador sai.
+
+A gravação não aparece.
+- Nenhuma regra mandou gravar (ramal, fila, rota), ou alguém tem "Nunca".
+- sem arquivo: o arquivo foi apagado pela retenção do backup.
+
+O grupo de toque não toca um ramal.
+- O ramal foi excluído ou desativado (aviso ao aplicar), ou o número na lista está errado.

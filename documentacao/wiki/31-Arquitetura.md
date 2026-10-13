@@ -1,0 +1,347 @@
+# Arquitetura — Telium PABX
+
+Como as peças da central se encaixam: quem atende o navegador, quem fala com o Asterisk, de onde vem cada arquivo de configuração e onde cada coisa mora no repositório. Leitura obrigatória antes de mexer no código.
+
+Veja também: [30-Desenvolvimento.md](30-Desenvolvimento.md) (como trabalhar no projeto) e [32-API-Referencia.md](32-API-Referencia.md) (as rotas).
+
+---
+
+## Sumário
+
+1. [Visão geral](#1-visão-geral)
+2. [Componentes](#2-componentes)
+3. [Diagrama](#3-diagrama)
+4. [Do cadastro ao Asterisk: config pendente e Aplicar](#4-do-cadastro-ao-asterisk-config-pendente-e-aplicar)
+5. [Destinos de chamada](#5-destinos-de-chamada)
+6. [Dialplan: contextos principais](#6-dialplan-contextos-principais)
+7. [Autenticação, sessão e permissões](#7-autenticação-sessão-e-permissões)
+8. [Provisionamento fora do /api](#8-provisionamento-fora-do-api)
+9. [Estrutura do repositório](#9-estrutura-do-repositório)
+
+---
+
+## 1. Visão geral
+
+- **Uma central, um cliente.** O sistema é single-tenant: não há seletor de empresa nem filial.
+- **O banco é a fonte da verdade.** O console grava no MariaDB pela API. Os arquivos do Asterisk são gerados a partir do banco e nunca editados à mão (a não ser os `*_custom.conf`).
+- **O Asterisk é controlado só pelo AMI** em 127.0.0.1. A API não usa sudo: recarrega módulos pelo AMI e escreve arquivos num diretório onde o grupo `asterisk` lê.
+- **Console sem framework.** HTML estático (`index.html` para o login, `app.html` para o console) e JavaScript puro em `assets/js/`.
+- **Tudo é instalado pelo Ansible** (`infra/ansible/site.yml`).
+
+---
+
+## 2. Componentes
+
+| Componente | Onde roda | Papel |
+|---|---|---|
+| nginx | 80/443 | TLS, arquivos estáticos do console, repassa `/api/`, `/prov/` e `/p/` ao PHP-FPM, faz proxy de `/api/cc/eventos`, `/ws` e (opcional) `/janus` |
+| PHP-FPM 8.4 + Slim | socket `unix:/run/php/telium.sock` | A API (`api/public/index.php`) |
+| Console | arquivos estáticos | `index.html` (login), `app.html` (console), `assets/js/*.js` |
+| Asterisk 22 | local | PBX. Lê a configuração base (templates do Ansible) e os arquivos gerados em `/etc/asterisk/telium` |
+| AMI | 127.0.0.1 | Por onde a API recarrega módulos, consulta estado e origina chamadas (`api/src/Suporte/Ami.php`) |
+| MariaDB | local | Cadastro, sessões, auditoria e também CDR, CEL e `queue_log`, gravados pelo Asterisk via ODBC |
+| telium-cc | 127.0.0.1:8095 | Serviço de tempo real do call center (`php bin/telium cc-servico`, classe `Telium\Servico\TempoReal`). O nginx publica só `/api/cc/eventos` (SSE) |
+| telium-tarifar | timer systemd, de hora em hora | `php bin/telium tarifar`: calcula o custo das chamadas fora da ligação |
+| coturn | portas do TURN | Relay para o telefone do navegador quando a rede bloqueia UDP direto. A credencial é temporária, gerada pela API a partir de um segredo do servidor |
+| Janus | opcional (`instalar_janus`, desligado por padrão) | Gateway WebRTC alternativo. O softphone normal fala SIP sobre WebSocket direto com o Asterisk pelo `/ws` |
+| msmtp | cliente de relay | Envio de e-mail (correio de voz, avisos); fornece o `/usr/sbin/sendmail` |
+
+### Detalhes que importam
+
+- **CDR, CEL e queue_log por ODBC.** O DSN `telium-cdr` é configurado pelo role `mariadb` (`odbc.ini.j2`). O `cdr_adaptive_odbc.conf` grava na tabela `cdr`; o `extconfig.conf` liga `queue_log => odbc,telium,queue_log`. Coluna nova no CDR só passa a ser gravada depois de `module reload cdr_adaptive_odbc.so`, que faz parte do Aplicar.
+- **SSE do call center.** `location = /api/cc/eventos` no nginx faz `proxy_pass http://127.0.0.1:8095/eventos`, sem buffer e com timeout de 1 h. Quem confere a sessão é o próprio serviço, pelo cabeçalho Authorization. Sem o serviço o console continua funcionando (as telas consultam a cada 3 s), mas os códigos de agente no telefone não funcionam.
+- **WebSocket do softphone.** `location /ws` faz proxy para o HTTP do Asterisk em 127.0.0.1 (`/asterisk/ws`). O TLS é o do nginx.
+- **Gravações** são entregues pela API; o nginx tem `location /gravacoes/` marcado como `internal`.
+- **Limites do nginx:** zona `telium_api` (30 req/s por IP), `telium_login` (10 req/min) e `limit_req_status 429`.
+
+---
+
+## 3. Diagrama
+
+```
+ Navegador (console)            Telefones IP / Linphone          Outros sistemas (CRM)
+        |                               |                                |
+        | HTTPS 443                     | GET /prov/... e /p/...         | GET/POST /api/click2call
+        v                               v                                v
+ +------------------------------------------------------------------------------+
+ | nginx                                                                        |
+ |  /            -> arquivos estáticos (index.html, app.html, assets/)          |
+ |  /api/, /prov/, /p/ -> PHP-FPM (api/public/index.php)                        |
+ |  /api/cc/eventos    -> 127.0.0.1:8095 (telium-cc, SSE)                       |
+ |  /ws                -> Asterisk HTTP 127.0.0.1 (SIP sobre WebSocket)         |
+ +------------------------------------------------------------------------------+
+        |                         |                              |
+        v                         v                              v
+ +----------------+      +------------------+          +------------------+
+ | API Slim (PHP) |----->| MariaDB          |<---ODBC--| Asterisk 22      |
+ |  Recurso, ...  |      | cadastro, sessão |  CDR,CEL | dialplan, PJSIP, |
+ |  Gerador       |      | cdr, cel,        | queue_log| filas, voicemail |
+ +----------------+      | queue_log        |          +------------------+
+   |       |             +------------------+             ^        ^
+   |       | escreve /etc/asterisk/telium/*.conf          |        |
+   |       +----------------------------------------------+        |
+   |                                                                |
+   +---------------- AMI 127.0.0.1 (reload, Originate, status) -----+
+                                                                    |
+ telium-cc (127.0.0.1:8095) ------ AMI (eventos e ações) -----------+
+```
+
+---
+
+## 4. Do cadastro ao Asterisk: config pendente e Aplicar
+
+O fluxo que todo cadastro que afeta a telefonia segue:
+
+```
+ 1. Console salva           PUT /api/ramais/12
+ 2. Recurso grava           UPDATE ramais ...  + auditoria
+ 3. Recurso marca           sistema.config_pendente = '1'   (só se afetaAsterisk: true)
+ 4. Console mostra          faixa "Aplicar configurações" (GET /api/config/estado)
+ 5. Usuário aplica          POST /api/config/aplicar        (cfg.avancadas + ação reiniciar)
+ 6. Gerador escreve         /etc/asterisk/telium/*.conf     (atômico: .tmp + rename)
+ 7. Aplicador recarrega     comandos pelo AMI, confere o resultado
+ 8. Sucesso                 sistema.config_pendente = '0' + linha em config_aplicacoes
+```
+
+### Passo a passo no código
+
+| Etapa | Onde |
+|---|---|
+| Marcar pendente ao gravar | `Recurso::depoisDeGravar()` em `api/src/Http/Recurso.php` |
+| Aviso no console | `Api.avisarPendencia()` em `assets/js/api.js` chama `App.verificarConfig()` depois de qualquer escrita |
+| Estado e contagem de arquivos | `Configuracao::estado()` usa `Gerador::simular()` (gera em memória, não escreve) |
+| Gerar os arquivos | `Gerador::gerar()` em `api/src/Gerador/Gerador.php` |
+| Recarregar | `Aplicador::aplicar()` em `api/src/Gerador/Aplicador.php` |
+| Conferir o cadastro | `Conferencia::problemas()` em `api/src/Gerador/Conferencia.php`: destinos que apontam para algo que não existe ou está inativo. Volta na resposta de gerar e aplicar |
+
+### O Gerador
+
+`Gerador` junta a saída de cada gerador especializado e grava em `ASTERISK_GERADO_DIR` (padrão `/etc/asterisk/telium`):
+
+| Classe | Arquivos |
+|---|---|
+| `GeradorTransportes` | `pjsip.transports.conf`, `rtp.ice.conf` |
+| `GeradorPjsip` | `pjsip.endpoints.conf`, `pjsip.trunks.conf`, `pjsip.acl.conf` |
+| `GeradorDialplan` | `extensions.listanegra.conf`, `extensions.allowlist.conf`, `extensions.ramais.conf`, `extensions.grupos.conf`, `extensions.filas.conf`, `extensions.pesquisa.conf`, `extensions.confirmacao.conf`, `extensions.conferencias.conf`, `extensions.anuncios.conf`, `extensions.condicoes.conf`, `extensions.estacionamento.conf`, `extensions.ura.conf`, `extensions.saida.conf`, `extensions.entrada.conf`, `extensions.paging.conf`, `extensions.disa.conf` |
+| `GeradorRecursos` | `extensions.recursos.conf` (contexto `telium-recursos` e `telium-caixas`), `features.conf` |
+| `GeradorFilas` | `queues.conf`, `queuerules.conf` |
+| `GeradorCallCenter` | `extensions.callcenter.conf` |
+| `GeradorConferencias` | `confbridge.conf` |
+| `GeradorEstacionamento` | `res_parking.conf` |
+| `GeradorVoicemail` | `voicemail.conf` |
+| `GeradorPins` | `pin-<id>.txt` (um por conjunto de PINs) |
+| `GeradorMusica` | `musicaespera.conf` |
+
+Classes de apoio: `Bloco` (monta o texto do .conf), `Destino` (seção 5), `Padrao` (normaliza padrões de discagem), `Som` (resolve o nome do áudio para o prompt).
+
+Regras do Gerador:
+
+- **Escrita atômica** (`.tmp.<pid>` + `rename`), modo 0640 e grupo `ASTERISK_GRUPO` (padrão `asterisk`). O diretório deve ter setgid (2775).
+- **Só marca mudança de verdade:** compara ignorando a linha `; Gerado em ...`.
+- **Trava** `telium_aplicar` (`api/src/Suporte/Trava.php`), a mesma do Aplicador: duas gerações ou aplicações simultâneas não se atropelam.
+- **Confere o diretório antes** e devolve mensagem acionável (pai inexistente, sem permissão de atravessar, sem escrita).
+- `problemaDePermissao()` confere se o Asterisk consegue ler cada .conf gerado.
+
+### O Aplicador
+
+1. Sincroniza a base interna do Asterisk (AstDB) a partir do banco: famílias `listanegra`, `allowlist`, `dnd`, `cw` e as do siga-me (`sigame`, `sigame-modo`, `sigame-toque`).
+2. Executa pelo AMI, nesta ordem:
+
+| Comando | O que recarrega |
+|---|---|
+| `module reload res_pjsip.so` | ramais e troncos |
+| `dialplan reload` | dialplan |
+| `module reload app_queue` | filas |
+| `voicemail reload` | correio de voz |
+| `module reload app_confbridge.so` | conferências |
+| `module reload res_parking.so` | estacionamento |
+| `module reload res_musiconhold.so` | música em espera |
+| `module reload features` | códigos de recurso |
+| `module reload cdr_adaptive_odbc.so` | colunas do CDR |
+| `module reload res_rtp_asterisk.so` | candidatos ICE e portas de voz |
+
+3. Confere se todos os endpoints carregaram (o reload do PJSIP responde "ok" mesmo descartando um objeto inválido), esperando até ~4 s.
+4. Grava o resultado em `config_aplicacoes`. Só zera `config_pendente` se tudo deu certo.
+
+> `pjsip reload` não existe no Asterisk 22. Não o coloque na lista.
+
+A resposta de `POST /api/config/aplicar` é sempre 200, com `aplicado`, `etapas` e `saida`: a falha de uma etapa é relatório, não erro do servidor.
+
+### O que o gerador não toca
+
+Os arquivos `*_custom.conf` no mesmo diretório (por exemplo `extensions_custom.conf`, `pjsip_custom.conf`) são do administrador. A configuração base (`extensions.conf`, `pjsip.conf`, `manager.conf`...) vem dos templates em `infra/ansible/roles/asterisk/templates/` e só o playbook reescreve.
+
+Também pela linha de comando: `php bin/telium gerar-config` e `php bin/telium aplicar-config` (o playbook usa os dois).
+
+---
+
+## 5. Destinos de chamada
+
+Os destinos são **polimórficos**: cada cadastro guarda um par `<campo>_tipo` + `<campo>_valor` (por exemplo `destino_tipo`/`destino_valor`, `destino_fora_tipo`/`destino_fora_valor`). O banco não tem chave estrangeira para o alvo; quem confere é a `Conferencia`.
+
+`api/src/Gerador/Destino.php` traduz o par para aplicações de dialplan:
+
+| Tipo | Valor | Vira |
+|---|---|---|
+| `ramal` | número | `GoSub(sub-ramal,s,1(numero,toque,caixa,opcoes))` |
+| `fila` | número | `Goto(telium-filas,<n>,1)` |
+| `ura` | id | `Goto(telium-ura-<id>,s,1)` |
+| `grupo` | número | `Goto(telium-grupos,<n>,1)` |
+| `voicemail` | ramal | `VoiceMail(<n>@telium,u)` |
+| `caixa` | número | `Goto(telium-caixas,<n>,1)` |
+| `anuncio` | id | `Goto(telium-anuncios,<id>,1)` |
+| `externo` | número | `Goto(telium-saida,<n>,1)` |
+| `condicao` | id | `Goto(telium-condicoes,<id>,1)` |
+| `disa` | id | `Goto(telium-disa,disa-<id>,1)` |
+| `conferencia` | número | `Goto(telium-conferencias,<n>,1)` |
+| `paging` | número | `Goto(telium-paging,<n>,1)` |
+| `pesquisa` | id | `Goto(telium-pesquisa,<id>,1)` |
+| `personalizado` | id | `Goto(contexto,extensao,prioridade)` do destino personalizado |
+| `desligar` | — | `Hangup()` |
+| `ocupado` | — | `Busy(20)` |
+| `congestionado` | — | `Congestion(20)` |
+| outro / vazio | — | `NoOp(Destino não configurado)` + `Hangup()` |
+
+Para acrescentar um tipo novo: `Destino::linhas()` e `Destino::descricao()`, a conferência em `Conferencia::problemas()`, o seletor no console (`opcoesDestino()` e `destinoSelect()` em `assets/js/pages2.js`) e um caso em `Testes::destinos()`.
+
+No console, o campo de formulário `tipo: 'destino'` grava as duas colunas (`<campo>_tipo` e `<campo>_valor`).
+
+---
+
+## 6. Dialplan: contextos principais
+
+A base fica em `infra/ansible/roles/asterisk/templates/extensions.conf.j2`, que inclui os arquivos gerados com `#include "telium/extensions.*.conf"` e por último `telium/extensions_custom.conf`.
+
+| Contexto | Origem | Para que serve |
+|---|---|---|
+| `interno` | base | Contexto dos ramais. Inclui `telium-recursos`, `telium-ramais`, `telium-grupos`, `telium-filas`, `telium-conferencias`, `telium-paging`, `telium-estacionamento`, `telium-pesquisa-numeros`, `telium-condicoes-codigos`, `telium-ura`, `telium-saida` e `telium-custom`. Trata `i` (número inválido) e `t` |
+| `de-tronco` | base | Entrada dos troncos. Inclui `telium-entrada` |
+| `telium-bloqueado` | base | Ramal sem saída: qualquer número toca `cannot-complete-as-dialed` |
+| `telium-custom` | base | Vazio; o conteúdo vai em `extensions_custom.conf` |
+| `telium-despertador` | base | Chamada do despertador |
+| `sub-ramal`, `sub-gravar`, `sub-decidir-gravacao`, `sub-permissao`, `sub-limite-saida`, `sub-cid-saida`, `sub-cid-tronco`, `sub-listanegra`, `sub-confirma`, `sub-autoatende`, `sub-perdida`, `sub-desvio-dono`, `sub-confirmar-atendimento` | base | Sub-rotinas chamadas pelos contextos gerados |
+| `telium-recursos` | gerado | Códigos de recurso (`*xx`), pausas do call center e códigos das caixas postais |
+| `telium-ramais`, `telium-grupos`, `telium-filas`, `telium-ura-<id>`, `telium-anuncios`, `telium-condicoes`, `telium-conferencias`, `telium-paging`, `telium-disa`, `telium-pesquisa`, `telium-caixas`, `telium-estacionamento` | gerado | Um por tipo de destino |
+| `telium-saida` | gerado | Rotas de saída (padrões, PIN, tronco e tronco de falha) |
+| `telium-entrada` e `telium-de-<tronco>` | gerado | Rotas de entrada e normalização do número recebido por tronco |
+| `telium-listanegra`, `telium-allowlist` | gerado | Padrões das listas (números exatos ficam na AstDB) |
+
+O contexto de um ramal só pode ser `interno` ou `telium-bloqueado` (regra do cadastro em `index.php`). Um contexto personalizado não pode começar com `telium`, `sub-` nem ser contexto do sistema: isso pularia a checagem de permissão de discagem.
+
+---
+
+## 7. Autenticação, sessão e permissões
+
+### Sessão
+
+- `POST /api/auth/login` confere usuário e senha (e o código TOTP, se a conta tiver 2FA). Devolve `token` e grava o cookie `telium_sessao` (HttpOnly, SameSite=Strict, Secure).
+- O token é 64 hex aleatórios; o banco guarda só o SHA-256 (`sessoes.id`). Validade por inatividade: `SESSAO_MINUTOS` (padrão 30), renovada a cada pedido (`Telium\Dominio\Sessao`).
+- Proteções no login: bloqueio da conta após 5 erros por 15 min (só para a origem que errou), teto de 20 falhas por IP em 10 min (resposta 429), tempo constante para usuário inexistente.
+
+### Middlewares (`api/src/Http/Middleware/`)
+
+| Middleware | O que faz |
+|---|---|
+| `Seguranca` | Em toda resposta: `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `X-Telium-Api: 1.0` |
+| `Autenticacao` | Lê o token do `Authorization: Bearer` ou do cookie `telium_sessao`. Sem sessão: 401. Injeta no request `usuario`, `token`, `allow` (módulos) e `caps` (ações) |
+| `Permissao(modulo, acao, tambem)` | Exige o módulo (aceita `*` e `grupo.*`) e, se informada, a ação. `tambem` lista módulos que abrem a mesma porta só para leitura por referência (atributo `so_referencia`). Sem permissão: 403 |
+
+### Módulos e ações
+
+- **Módulo** = chave de menu (`conn.ramais`, `apps.filas`, `cc.agente`...). Fica em `perfil_modulos`. As chaves são as mesmas de `MENU` em `assets/js/data.js`.
+- **Ação** = `criar`, `editar`, `excluir`, `exportar`, `reiniciar`, `permissoes`. Fica em `perfil_acoes`.
+- O console esconde o que o perfil não pode (`Auth.can()` e `Auth.cap()`), mas **a decisão é sempre do servidor** (`Telium\Dominio\Permissoes`).
+- **Leitura por referência:** uma tela que tem seletor de destino precisa listar ramais, filas, URAs etc. sem ter o módulo dono. A lista `ESCOLHEM_DESTINO` em `index.php` e a chave `referencia` de cada recurso liberam só o `GET` da lista; com `colunasReferencia`, a resposta vem cortada.
+
+Perfis de fábrica (`infra/sql/03-seed.sql`): `admin` (`*`), `supervisor`, `operador`, `auditor`, e `callcenter` (migração 37).
+
+---
+
+## 8. Provisionamento fora do /api
+
+Duas rotas moram fora do prefixo `/api`, decidido no começo de `api/public/index.php` (`setBasePath('')` quando o caminho começa com `/prov/` ou `/p/`):
+
+| Rota | Quem busca | Por que fora do /api |
+|---|---|---|
+| `GET /prov/{segredo}/{arquivo}` | Telefone de mesa no boot | A URL é digitada à mão no aparelho; cada segmento a mais é chance de erro. No nginx tem burst próprio (120), porque trinta telefones voltando de uma queda de energia estourariam o limite do `/api/` |
+| `GET /p/{token}` | Linphone lendo o QR Code | QR menor é lido de mais longe. Token aleatório, válido por 10 minutos e uso único. Também responde em HTTP (porta 80), para centrais sem certificado de confiança |
+
+O provisionamento não tem sessão. O que protege é o conjunto: segredo no caminho, MAC cadastrado, rede de origem conferida e registro de cada pedido. Controller: `api/src/Http/Controllers/Provisionar.php`; regras em `api/src/Dominio/Provisionamento.php`.
+
+---
+
+## 9. Estrutura do repositório
+
+```
+TeliumPABX/
+  index.html, app.html        login e console
+  assets/                     CSS, JS, imagens e áudios do console
+  api/                        a API (PHP 8.4 + Slim)
+  infra/                      ansible, sql, dev, scripts de diagnóstico
+  AudiosCallCenter/           originais (mp3) das mensagens do call center
+  AudiosPt-br/                clone de outro projeto (fora do Git)
+  docs/                       documentos de trabalho (testes, pendências)
+  documentacao/               manuais e esta wiki
+  router.php                  (vazio; ver observação abaixo)
+```
+
+### api/
+
+| Caminho | Conteúdo |
+|---|---|
+| `public/index.php` | Monta o app Slim: middlewares, a tabela `$recursos` do CRUD genérico e todas as rotas |
+| `bin/telium` | CLI: `migrar`, `gerar-config`, `aplicar-config`, `doctor`, `senha`, `testar`, `backup-enviar`, `tarifar`, `cc-servico` |
+| `src/Http/Recurso.php` | CRUD genérico sobre uma tabela (listar, obter, criar, atualizar, remover), com validação, segredos, auditoria e config pendente |
+| `src/Http/Controllers/` | Rotas que não cabem no CRUD: `Autenticacao`, `Cadastros`, `CallCenter`, `ClickToCall`, `Configuracao`, `Diagnostico`, `Portal` (Meu Painel), `Provisionar`, `Relatorios`, `Saude` etc. |
+| `src/Http/Middleware/` | `Autenticacao`, `Permissao`, `Seguranca` |
+| `src/Dominio/` | Regras de negócio sem HTTP: `Sessao`, `Permissoes`, `Senha`, `Totp`, `Usuarios`, `CallCenter`, `ClickToCall`, `CodigosDiscagem`, `RotasSaida`, `Provisionamento`, `Rede`, `Certificado`, `Tarifa`, `Pesquisas`, `BackupRemoto`, `Auditoria`, `RelatorioFilas`, `Stun` |
+| `src/Gerador/` | Geração dos .conf (seção 4) |
+| `src/Servico/` | Processos longos: `TempoReal` (telium-cc) e `Retornos` |
+| `src/Suporte/` | Infraestrutura: `Bd` (PDO), `Ami`, `Ambiente` (.env), `Resposta` (JSON e arquivos com Range), `Esquema` (confere se o banco acompanha o código), `Trava`, `Versao`, `Testes` (bateria) |
+| `.env.exemplo` | Modelo do ambiente. O `.env` real é gerado pelo Ansible (`roles/api/templates/env.j2`) e não vai para o Git |
+
+### assets/js/
+
+Carregados em ordem por `app.html` (o `index.html` carrega só `icons.js`, `api.js`, `data.js` e `auth.js`):
+
+| Arquivo | Papel |
+|---|---|
+| `vendor/jssip.min.js`, `vendor/qrcode.min.js` | Bibliotecas de terceiros (SIP no navegador e QR Code) |
+| `icons.js` | Ícones SVG (`ICONS`) |
+| `api.js` | Cliente da API (`Api.get/post/put/delete`, `baixar`, `upload`, `ErroApi`). Manda o Bearer, redireciona para o login em 401 e acende o aviso de configuração pendente |
+| `data.js` | Árvore de menu (`MENU`) e constantes de exibição. Nenhum dado de negócio |
+| `auth.js` | `Auth` (sessão, `can`, `cap`, `menu`, `home`) e tema |
+| `sip.js` | Ligação SIP do navegador (JsSIP sobre o `/ws`) |
+| `ui.js` | Componentes: `Drawer`, `Modal`, softphone, paleta de comandos, player, modo TV |
+| `pages.js` | Helpers (`esc`, `paginaCrud`, `campoHtml`, validação), objeto `PAGES` e telas do núcleo (painel, ramais, troncos...) |
+| `pages2.js` | Rotas, URA, relatórios, tarifação, provisionamento e outras telas; `opcoesDestino()` e `destinoSelect()` |
+| `pcu.js` | Meu Painel (portal do usuário): o ramal vem sempre da sessão |
+| `callcenter.js` | Painel do agente, monitor do supervisor, cadastros, retornos, relatório; `CCVivo` (SSE) |
+| `pesquisas.js` | Pesquisa de satisfação |
+| `telefone.js` | Tela do telefone WebRTC (`PAGES['fone.webrtc']`) |
+| `app.js` | Shell: inicialização, sidebar, roteador por hash (`App.route`), barra de Aplicar, `toast()` |
+
+### infra/
+
+| Caminho | Conteúdo |
+|---|---|
+| `sql/NN-nome.sql` | Esquema e migrações, todas idempotentes, aplicadas em ordem. `sql/opcional/` tem `limpar.sql` e `cenario-teste.sql` (só sob pedido explícito) |
+| `ansible/site.yml` | Playbook principal. Roles na ordem: `common`, `mariadb`, `nginx`, `php`, `asterisk`, `janus` (opcional), `turn`, `backup`, `certificados`, `email`, `api`, `syslog`, `seguranca` |
+| `ansible/roles/asterisk/templates/` | Configuração base do Asterisk (`extensions.conf.j2`, `pjsip.conf.j2`, `manager.conf.j2`, ODBC...) |
+| `ansible/roles/asterisk/files/sons/` | Áudios publicados: `pt_BR.tar.xz` e `telium-cc/` |
+| `ansible/roles/api/` | Publica front-end, API e scripts SQL, gera o `.env`, gera e aplica a configuração, instala `telium-cc` e `telium-tarifar`, roda `bin/telium testar` |
+| `ansible/verificar.yml`, `gerar-vault.sh`, `vault.yml.exemplo` | Verificação e segredos do playbook |
+| `dev/` | Bancada de desenvolvimento em contêineres (ver [30-Desenvolvimento.md](30-Desenvolvimento.md)) |
+| `diagnostico.sh`, `diagnostico-ami.sh` | Diagnóstico no servidor |
+| `README.md` | Guia de infraestrutura |
+
+### Áudios e documentos
+
+| Pasta | Conteúdo |
+|---|---|
+| `AudiosCallCenter/` | Originais em mp3 das mensagens do call center (login, pausa, agente inválido...). O que a central usa já está em `infra/ansible/roles/asterisk/files/sons/telium-cc/` |
+| `AudiosPt-br/` | Clone de outro projeto (sons pt_BR), ignorado no Git. O pacote usado é `pt_BR.tar.xz` |
+| `docs/` | `BACKEND.md`, `CADERNO-DE-TESTE.md`, `CHECKLIST-FRONTEND.md`, `PENDENCIAS.md`, `TESTE-1.0.1.md`, `TESTE-FUNCIONAL.md` |
+| `documentacao/` | Manuais (instalação, atualização, backup, verificação, call center) e `wiki/` |
+
+> **Observação:** o `router.php` na raiz está vazio (0 bytes). O roteador em uso na bancada é `infra/dev/router-dev.php`.

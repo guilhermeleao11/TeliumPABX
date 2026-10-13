@@ -1,0 +1,272 @@
+# Atualização
+
+Como levar uma central que já está no ar para a versão nova do Git, sem perder dados, e como voltar atrás se precisar.
+
+O playbook é o mesmo da instalação e só mexe no que mudou: publica o código novo em `/opt/telium`, aplica as mudanças de banco, reescreve a configuração do Asterisk, recarrega o que precisa e roda a bateria de testes. **Chamadas em andamento não caem**: o Asterisk é recarregado, não reiniciado. Quando uma mudança exige reinício, ele é agendado para quando a central estiver sem chamada nenhuma.
+
+> Nos comandos abaixo o clone está em `/opt/TeliumPABX`, como na instalação padrão. Se o seu estiver em outra pasta, troque o caminho.
+
+---
+
+## Sumário
+
+1. [Resumo](#1-resumo)
+2. [O que nunca fazer numa central com cliente](#2-o-que-nunca-fazer-numa-central-com-cliente)
+3. [Antes](#3-antes)
+4. [Baixar a versão nova](#4-baixar-a-versão-nova)
+5. [Aplicar](#5-aplicar)
+6. [Conferir](#6-conferir)
+7. [Voltar atrás](#7-voltar-atrás)
+8. [Trocar o remoto do GitHub para o GitLab](#8-trocar-o-remoto-do-github-para-o-gitlab)
+9. [Problemas comuns](#9-problemas-comuns)
+10. [Notas das versões](#10-notas-das-versões)
+
+---
+
+## 1. Resumo
+
+```bash
+cd /opt/TeliumPABX && sudo git pull && cd infra/ansible && sudo ansible-playbook site.yml -e compilar_asterisk=false -e compilar_janus=false
+```
+
+O passo a passo, com o que conferir, vem a seguir.
+
+---
+
+## 2. O que nunca fazer numa central com cliente
+
+> **Nunca rode a atualização com `-e limpar_banco=true`.** Ele apaga ramais, troncos, filas, URAs, rotas, CDR, contatos, auditoria e todos os usuários menos o `admin`. Não tem volta.
+
+> **Nunca rode com `-e cenario_teste=true`.** Ele cria ramais de teste (1001 a 1004) com uma senha SIP fixa que está no repositório, além de fila, grupo, conferência, URA e rotas de teste, na base do cliente.
+
+O comando de atualização é sempre o da seção 1: só `-e compilar_asterisk=false -e compilar_janus=false`. A lista de todas as opções está em [Instalação](01-Instalacao.md#6-opções-da-linha-de-comando).
+
+Também não edite o `main.yml` no servidor: os ajustes do servidor ficam no `servidor.yml` (seção 9).
+
+---
+
+## 3. Antes
+
+**Faça um backup.** Pelo console, em **Administrador › Backup & Restauração › Fazer backup agora**, ou pelo terminal, como está em [Backup e restauração](04-Backup-e-Restauracao.md).
+
+**Anote a versão atual**, para saber para onde voltar:
+
+```bash
+cd /opt/TeliumPABX && git log --oneline -1
+```
+
+**Leia as notas da versão** (seção 10): algumas mudanças pedem aviso à equipe do cliente (por exemplo, códigos do telefone que mudaram).
+
+**Escolha a hora.** A atualização não derruba chamada, mas recarrega a central inteira. Num horário de pouco movimento, qualquer surpresa afeta menos gente.
+
+---
+
+## 4. Baixar a versão nova
+
+```bash
+cd /opt/TeliumPABX
+sudo git pull
+git log --oneline -1
+```
+
+A última linha mostra a versão que chegou.
+
+Se o clone ainda aponta para o GitHub, troque o remoto antes (seção 8).
+
+---
+
+## 5. Aplicar
+
+```bash
+cd /opt/TeliumPABX/infra/ansible
+sudo ansible-playbook site.yml -e compilar_asterisk=false -e compilar_janus=false
+```
+
+- Os dois `-e` pulam as compilações, que são a parte demorada. **Só rode sem eles** quando a nota da versão disser que a versão do Asterisk ou do Janus mudou. Sem eles, o playbook só compila se a versão fixada no `main.yml` for diferente da instalada.
+- Se a central ainda estiver com o nome de fábrica (`pabx.telium.local`), o playbook **pergunta o nome**. Responda com o nome do DNS; nas próximas vezes ele não pergunta mais.
+- Tem de terminar com `failed=0`. Se parar com erro, **não siga**: copie a saída e veja [Solução de problemas](07-Solucao-de-Problemas.md).
+- A senha do `admin` não é alterada pela atualização.
+
+Se só o banco estiver atrasado (alguém fez `git pull` sem rodar o playbook), `sudo -u teliumpbx php /opt/telium/api/bin/telium migrar` aplica os scripts que faltam. Eles são idempotentes: reaplicar é seguro. Mesmo assim, o caminho normal é o playbook.
+
+> 📷 **Print:** fim do playbook de atualização com `failed=0`.
+
+---
+
+## 6. Conferir
+
+```bash
+sudo -u teliumpbx php /opt/telium/api/bin/telium testar | tail -3
+sudo asterisk -rx "core show uptime"
+systemctl is-active telium-cc
+```
+
+- A bateria termina sem falha.
+- `telium-cc` (o serviço do call center) responde `active`.
+- Se `asterisk.conf` ou a lista de módulos mudaram, o playbook avisa no fim que deixou um **reinício do Asterisk agendado** para quando não houver chamada. O `core show uptime` mostra se ele já aconteceu. Para forçar na hora (**derruba as chamadas em curso**): `sudo systemctl restart asterisk`.
+
+No navegador:
+
+1. Recarregue o console. Na primeira atualização depois da versão `53b3c9f`, use **Ctrl + Shift + R** (no Mac, Cmd + Shift + R). A partir dela, basta recarregar.
+2. Se aparecer a faixa amarela **"Alterações ainda não aplicadas"**, clique em **Aplicar configurações** e confira que todas as etapas ficam ✓.
+3. Faça uma chamada de teste: de um ramal para outro, uma de fora para dentro e uma para fora.
+
+> 📷 **Print:** janela de **Aplicar configurações** com todas as etapas ✓.
+
+---
+
+## 7. Voltar atrás
+
+Volte o código para a versão anotada no passo 3 e rode o playbook de novo:
+
+```bash
+cd /opt/TeliumPABX
+sudo git checkout <versão anotada>
+cd infra/ansible
+sudo ansible-playbook site.yml -e compilar_asterisk=false -e compilar_janus=false
+```
+
+As mudanças de banco deste projeto só **acrescentam** tabelas e colunas, então o código anterior costuma funcionar com o banco já atualizado. Se não funcionar, restaure o backup do passo 3 ([Backup e restauração](04-Backup-e-Restauracao.md)).
+
+Para voltar a acompanhar o Git depois:
+
+```bash
+cd /opt/TeliumPABX && sudo git checkout main && sudo git pull
+```
+
+---
+
+## 8. Trocar o remoto do GitHub para o GitLab
+
+O repositório oficial agora é o GitLab da Telium: `gitlab.telium.com.br/Voip/teliumpabx`. Numa central instalada a partir do GitHub, aponte o clone para o endereço novo **uma vez**, antes do `git pull`.
+
+Veja para onde o clone aponta:
+
+```bash
+cd /opt/TeliumPABX
+git remote -v
+```
+
+Se `origin` aponta para `github.com`, troque:
+
+```bash
+sudo git remote set-url origin https://gitlab.telium.com.br/Voip/teliumpabx.git
+sudo git pull
+```
+
+- O GitLab pede usuário e token (ou use uma chave de implantação). Com chave SSH, o endereço é `git@gitlab.telium.com.br:Voip/teliumpabx.git`.
+- O `servidor.yml` e o `vault.yml` ficam fora do Git e não são afetados pela troca.
+
+---
+
+## 9. Problemas comuns
+
+### O git pull recusa por causa do main.yml
+
+```
+error: Your local changes to the following files would be overwritten by merge:
+        infra/ansible/group_vars/all/main.yml
+```
+
+Alguém editou o `main.yml` direto no servidor. Os ajustes deste servidor devem ficar no `servidor.yml`, fora do Git.
+
+1. Veja o que foi mudado:
+
+```bash
+cd /opt/TeliumPABX
+git diff infra/ansible/group_vars/all/main.yml
+```
+
+2. Passe cada valor mudado para o `servidor.yml` (a mesma linha, com o valor do servidor). Se ele ainda não existe, crie a partir do modelo:
+
+```bash
+cd /opt/TeliumPABX/infra/ansible/group_vars/all
+sudo cp -n servidor.yml.exemplo servidor.yml
+sudo nano servidor.yml
+```
+
+3. Desfaça a edição no `main.yml` e baixe de novo:
+
+```bash
+cd /opt/TeliumPABX
+sudo git checkout -- infra/ansible/group_vars/all/main.yml
+sudo git pull
+```
+
+### O git pull pede usuário e senha
+É o GitLab. Use o usuário e um token de acesso (não a senha), ou configure uma chave de implantação.
+
+### O playbook parou com erro
+Não siga. Rode `sudo ansible-playbook verificar.yml` (em `infra/ansible`) e veja [Solução de problemas](07-Solucao-de-Problemas.md). Se a central ficou ruim, volte atrás (seção 7).
+
+### Uma tela ou botão novo não aparece
+É o navegador mostrando a versão antiga: **Ctrl + Shift + R**. Se continuar, confira se o playbook rodou depois do `git pull` (`git log --oneline -1`) e se o perfil do usuário tem a permissão da tela.
+
+---
+
+## 10. Notas das versões
+
+O que muda na operação, e não só por dentro. A mais recente primeiro.
+
+### O projeto mudou para o GitLab da Telium
+O repositório agora é `gitlab.telium.com.br/Voip/teliumpabx`. Numa central instalada a partir do GitHub, troque o remoto uma vez (seção 8).
+
+### Click to call para outros sistemas
+- Em **Telium › Integrações / API**, crie uma **chave** para cada sistema (CRM, ERP, site). Ele chama `POST https://<central>/api/click2call` com `ramal` e `numero` (e, se quiser, `nome`), mandando a chave no cabeçalho `X-Api-Key`. A central toca o ramal e, quando ele atende, disca o número.
+- A chave aparece **uma vez só**, na criação. Ela pode ficar presa a alguns ramais e a alguns IPs, e pedir ao telefone que atenda sozinho.
+- A chamada segue a permissão e a rota de saída do ramal.
+- A mesma tela tem o botão **Testar** e os últimos pedidos, com o motivo de cada recusa.
+
+### Call center, caixas postais e rotas de saída com vários padrões
+- **Os códigos do agente mudaram de lugar** — avise quem atende. Entrar passa de `*40` para **`*11`**, sair de `*44` para **`*12`** e voltar da pausa de `*49` para **`*13`**. Só muda quem estava no código de fábrica.
+- **Cada pausa tem o seu código**, e o `*42` + número acabou: Almoço **`*14`**, Banheiro `*15`, Café `*16`, Treinamento `*17`, Reunião `*18`, Feedback `*19`. Motivos criados por vocês viram `*10` + dois dígitos (o 12 vira `*1012`). Confira e troque em **Call Center › Motivos de Pausa**.
+- O **agente não precisa mais de usuário** do console: nome, matrícula e PIN bastam para atender pelo telefone ou softphone.
+- `*45` e `*46` **não funcionam mais em fila de call center**: nela se entra e se pausa pelos códigos do agente.
+- Nenhum código pode ser igual a outro nem o começo de outro (códigos de recurso, pausas e caixas postais): a tela recusa ao salvar.
+- **Caixas postais sem ramal** em **Aplicações › Caixas Postais**: recado fora do horário, ouvido no dia seguinte pelo código da caixa.
+- **Rota de saída com vários padrões**: a atualização não junta as rotas que já existem. Duas rotas feitas só por causa do 0 (`9XXXXXXXX` e `09XXXXXXXX`) continuam duas; para juntar, acrescente o padrão `09…` (tirando o 0) numa delas e exclua a outra.
+- Depois do playbook, **Aplicar configurações** no console.
+
+### A senha do admin não volta mais ao padrão
+- Até aqui, cada atualização devolvia a senha do `admin` à de fábrica. Agora o playbook só a define **uma vez** por servidor. Na primeira atualização com esta versão ela ainda é definida, e daí em diante é preservada.
+- **Depois de atualizar, troque a senha do admin pelo console.**
+- Perdeu a senha? `sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin`.
+
+### Pente fino de produção
+- **Login:** errar a senha bloqueia a conta só para o IP que errou; quem entra de outro lugar continua entrando.
+- **Siga-me:** a atualização não religa mais o siga-me que o usuário desligou.
+- **Horários:** o grupo "Comercial" de fábrica volta a ser de segunda a sexta, e as faixas que se repetiam a cada atualização são limpas. **Confira em Aplicações › Grupos de Horário** se o expediente está certo.
+- O **nome da empresa** posto no console não volta mais ao de fábrica.
+- **Logs** do Asterisk, da API e do e-mail agora giram (logrotate).
+- O firewall abre a faixa do **fax T.38** (4000–4999 UDP).
+- **Pesquisa:** a nota fora da escala não some mais. Tirar a tela de pesquisas de um perfil agora é definitivo.
+
+### A central fala português
+- Os avisos do sistema (correio de voz, conferência, fila, números, "ativado", "número inválido") passam a ser em **português do Brasil**. O pacote vem com o projeto e é instalado pelo playbook.
+- A primeira atualização com ele agenda um **reinício do Asterisk** para quando não houver chamada: o idioma só muda depois dele. Para conferir, `sudo asterisk -rx "core show settings" | grep -i language` deve mostrar `pt_BR`.
+
+### Código de cada condição horária
+- Cada condição tem o seu código no telefone: `*27` + o número dela (`*271`, `*272`…), mostrado em **Aplicações › Condições Horárias**. Discar força a condição; discar de novo volta a seguir o horário. Numa tecla BLF do telefone, ela fica acesa enquanto a condição está forçada.
+- Na condição, escolha o que o código faz — **fechar** (padrão), abrir ou inverter — e, se quiser, um **PIN**.
+- Mudou: antes o mesmo código alternava entre três estados com o mesmo aviso. Agora é liga/desliga, com "activated" e "de-activated".
+
+### Rotas de saída e de entrada
+- O padrão aceita o jeito que se escreve: `x.` pega tudo, `0xx xxxx xxxx` vira `_0XXXXXXXXXX`. As telas têm modelos prontos e um teste "para onde vai este número".
+
+### O nome do servidor
+- A instalação **pergunta o nome** quando ele ainda é o de fábrica (`pabx.telium.local`) e o guarda no `servidor.yml`. Numa central que já estava no ar com o nome de fábrica, **a próxima atualização vai perguntar**: responda com o nome do DNS (ex.: `voz.telium.com.br`). Nas seguintes, não pergunta mais.
+- Com o nome novo, o certificado de fábrica é refeito. Se a central usa um certificado enviado pelo console, ele continua o mesmo.
+
+### Pesquisa de satisfação (`5f390c2`)
+- Novo módulo em **Aplicações › Pesquisa de Satisfação**. A pesquisa que já existia é mantida, com as respostas antigas.
+- No relatório de agentes do call center, a coluna "Nota" virou **Satisfação**: um índice de 0 a 100, que não mistura escalas diferentes.
+
+### Ramais por planilha (`43e7d6f`)
+- **Conectividade › Ramais** ganhou **Modelo CSV**, **Exportar** e **Importar CSV**.
+
+### Revisões de segurança e telefonia (`0214351`, `a2a26e3`)
+- **Siga-me, desvio e transferência às cegas** seguem a permissão do ramal dono. Um ramal só-local com siga-me para celular precisa ganhar a permissão "Celular".
+- **DISA** não disca internacional, e uma DISA com senha de menos de 6 dígitos fica desativada até ganhar uma senha nova.
+- **Escuta (*555)** só funciona no ramal de um usuário com perfil de supervisor.
+- **0800/0300** seguem a permissão de ligação local.
+- Os **áudios enviados pelo console** voltam a tocar (URA, filas, anúncios): vale ligar e conferir a saudação.

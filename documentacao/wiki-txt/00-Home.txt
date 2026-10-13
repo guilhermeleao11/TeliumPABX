@@ -1,0 +1,143 @@
+==============================================================================
+BEM-VINDO AO TELIUM PABX
+==============================================================================
+
+O Telium PABX é a central telefônica IP da Telium: ramais, troncos, filas, URA, call center, gravação, relatórios e softphone no navegador, tudo administrado por um console web.
+
+Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada tela, os comandos do servidor, o que vai no backup, como resolver problemas e como desenvolver.
+
+[PRINT: tela inicial do console (Painel de Indicadores › Visão Geral)]
+
+
+COMECE POR AQUI
+---------------
+
+- Técnico de implantação: Instalação (ver página 01) → Rede e portas (ver página 03) → Conectividade (ver página 17) → Aplicações (ver página 13)
+- Suporte: Solução de problemas (ver página 07) → Comandos e serviços (ver página 05) → Diretórios e logs (ver página 06)
+- Administrador da central (cliente): Administrador (ver página 12) → Conectividade (ver página 17) → Códigos de recurso (ver página 15)
+- Supervisor de call center: Call Center (ver página 16) → Relatórios (ver página 18)
+- Usuário do ramal: Meu Painel (PCU) (ver página 21) → Telefone no navegador (ver página 11) → Códigos de recurso (ver página 15)
+- Desenvolvedor: Arquitetura (ver página 31) → Desenvolvimento (ver página 30) → Referência da API (ver página 32)
+
+
+O PRODUTO EM UM MINUTO
+----------------------
+
+- Uma central completa num servidor só. Uma VM Debian 13 roda o Asterisk 22 (PJSIP), o banco MariaDB, o nginx com HTTPS, a API em PHP 8.4, o TURN para o softphone e o backup.
+- Tudo pelo console. Nada de editar arquivo .conf à mão: a configuração do Asterisk é gerada a partir do banco quando se clica em Aplicar configurações.
+- Instalação e atualização por Ansible. Um comando instala a central inteira; o mesmo comando atualiza sem perder dados.
+- Sem dado fictício. A central nasce vazia, só com a empresa, os perfis e a conta admin. Tudo o mais é cadastrado.
+- Em português. Console, mensagens e os áudios da central (correio de voz, fila, conferência, call center) são em português do Brasil.
+
+
+Componentes
+~~~~~~~~~~~
+
+- Telium PABX: 1.0.1
+- Debian: 13 (trixie); também roda em Ubuntu 24.04
+- Asterisk: 22.11.0, compilado do fonte, com PJSIP
+- MariaDB: 12.3.3
+- nginx: mainline 1.31.x
+- PHP: 8.4 + Slim 4
+- coturn: TURN/STUN próprio para o softphone do navegador
+- Janus: 1.4.1, opcional e desligado de fábrica
+
+
+O QUE A CENTRAL FAZ
+-------------------
+
+- Painel de Indicadores — Recursos: Visão geral, wallboard em tempo real com Modo TV, estatísticas do servidor e do Asterisk; Página: 10 (ver página 10)
+- Telefone — Recursos: Softphone no navegador (WebRTC); Página: 11 (ver página 11)
+- Administrador — Recursos: Usuários, perfis e permissões, backup, certificados, lista negra, allowlist, CLI do Asterisk, contatos, destinos personalizados, códigos de recurso, gravações do sistema, auditoria; Página: 12 (ver página 12)
+- Aplicações: atendimento — Recursos: Filas, pesquisa de satisfação, grupos de toque, URA, conferências, gravação de chamadas, anúncios, condições e grupos de horário; Página: 13 (ver página 13)
+- Aplicações: recursos do ramal — Recursos: Siga-me, correio de voz, caixas postais, DISA, estacionamento, megafonia e interfonia, despertador; Página: 14 (ver página 14)
+- Códigos de recurso — Recursos: Todos os códigos discados no telefone (*xx); Página: 15 (ver página 15)
+- Call Center — Recursos: Agentes, pausas, tabulação, retorno, monitor ao vivo com escuta, relatórios; Página: 16 (ver página 16)
+- Conectividade — Recursos: Ramais, troncos, rotas de entrada e saída, DIDs, firewall, provisionamento de telefones, rede, WebRTC; Página: 17 (ver página 17)
+- Relatórios — Recursos: CDR com gravações, filas, ramais, troncos, CEL, agentes; Página: 18 (ver página 18)
+- Configurações — Recursos: Arquivos e aplicação, SIP, correio de voz, música de espera, PINs, fax, e-mail, tarifas, dados da empresa; Página: 19 (ver página 19)
+- Telium — Recursos: Tarifação, integrações e API (click to call), suporte; Página: 20 (ver página 20)
+- Meu Painel (PCU) — Recursos: O painel do usuário: meu ramal, minhas chamadas, correio de voz, siga-me, contatos, perfil e segurança; Página: 21 (ver página 21)
+
+
+ÍNDICE COMPLETO
+---------------
+
+
+Implantação e operação
+~~~~~~~~~~~~~~~~~~~~~~
+
+- 01 — Página: Instalação (ver página 01); Conteúdo: Servidor novo, do zero ao primeiro atendimento
+- 02 — Página: Atualização (ver página 02); Conteúdo: Atualizar sem perder dados, voltar atrás, notas das versões
+- 03 — Página: Requisitos de rede e portas (ver página 03); Conteúdo: Portas, NAT, firewall do cliente e da operadora
+- 04 — Página: Backup e restauração (ver página 04); Conteúdo: Backup do console, destino remoto, restauração, o que levar no backup da empresa
+- 05 — Página: Comandos e serviços do servidor (ver página 05); Conteúdo: CLI telium, serviços e timers, comandos do Asterisk e do banco
+- 06 — Página: Diretórios, arquivos e logs (ver página 06); Conteúdo: Onde fica cada coisa na central
+- 07 — Página: Solução de problemas (ver página 07); Conteúdo: Por sintoma: causa, verificação e solução
+- 08 — Página: Segurança (ver página 08); Conteúdo: Firewall, fail2ban, senhas, 2FA, permissões, boas práticas
+
+
+Manual das telas
+~~~~~~~~~~~~~~~~
+
+- 10: Painel de Indicadores (ver página 10)
+- 11: Telefone (WebRTC) (ver página 11)
+- 12: Administrador (ver página 12)
+- 13: Aplicações: filas, URA e atendimento (ver página 13)
+- 14: Aplicações: recursos do ramal (ver página 14)
+- 15: Códigos de recurso (ver página 15)
+- 16: Call Center (ver página 16)
+- 17: Conectividade (ver página 17)
+- 18: Relatórios (ver página 18)
+- 19: Configurações (ver página 19)
+- 20: Telium: tarifação, integrações e suporte (ver página 20)
+- 21: Meu Painel (PCU) (ver página 21)
+
+
+Desenvolvimento
+~~~~~~~~~~~~~~~
+
+- 30 — Página: Desenvolvimento (ver página 30); Conteúdo: Ambiente, migrações, testes, como criar uma tela, fluxo git
+- 31 — Página: Arquitetura (ver página 31); Conteúdo: Componentes, fluxo do "Aplicar configurações", estrutura do código
+- 32 — Página: Referência da API (ver página 32); Conteúdo: Autenticação, formato das respostas, todas as rotas
+
+
+INFORMAÇÕES RÁPIDAS
+-------------------
+
+- Repositório: gitlab.telium.com.br/Voip/teliumpabx
+- Endereço do console: https://<nome ou IP do servidor>/
+- Primeiro acesso: Usuário admin, com a senha inicial informada na Instalação (ver página 01). Troque no primeiro acesso
+- Perdeu a senha do admin: sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin
+- Atualizar a central: cd /opt/TeliumPABX && sudo git pull && cd infra/ansible && sudo ansible-playbook site.yml -e compilar_asterisk=false -e compilar_janus=false
+- Conferir se está tudo de pé: sudo -u teliumpbx php /opt/telium/api/bin/telium testar
+- Saúde da API: https://<central>/api/health
+- Backups do console: /var/backup/pabx-telium
+- Gravações: /var/spool/asterisk/monitor
+- Senhas de serviço: /etc/telium/credenciais (só root)
+- Banco de dados: MariaDB, base telium_pabx
+
+NOTA: Nunca rode -e limpar_banco=true nem -e cenario_teste=true numa central de cliente. O primeiro apaga a operação inteira (ramais, filas, rotas, histórico); o segundo cria cadastros de teste.
+
+
+CONCEITOS QUE APARECEM EM TODA A WIKI
+-------------------------------------
+
+- Aplicar configurações: Salvar no console grava no banco; a central só passa a usar a mudança depois de Aplicar configurações (faixa amarela no topo). Ela gera os arquivos do Asterisk e recarrega sem derrubar chamadas
+- Destino: Para onde uma chamada vai: ramal, fila, URA, grupo de toque, anúncio, correio de voz, caixa postal, condição horária, conferência, desligar… Quase toda tela que encaminha chamadas usa o mesmo seletor de destinos
+- Código de recurso: Um código discado no telefone (*xx) que liga uma função: siga-me, correio de voz, pausa do call center… Nenhum código pode ser igual a outro nem começar outro
+- Perfil: O conjunto de telas e ações que um usuário do console pode acessar
+- Ramal: A linha interna (telefone de mesa, softphone ou navegador)
+- Tronco: A ligação com a operadora
+- DID: O número externo que chega pela operadora
+- CDR: O registro de cada chamada
+
+
+OUTROS DOCUMENTOS DO REPOSITÓRIO
+--------------------------------
+
+- docs/CADERNO-DE-TESTE.md: Caderno de aceitação: o que testar antes de entregar a central a um cliente
+- docs/TESTE-FUNCIONAL.md: Passeio pelas telas, módulo a módulo
+- docs/PENDENCIAS.md: O que ainda falta e as limitações conhecidas
+- docs/BACKEND.md: Notas de arquitetura do backend
+- infra/README.md: Referência técnica do provisionamento

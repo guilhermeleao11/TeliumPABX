@@ -1,0 +1,233 @@
+# Painel de Indicadores — Telium PABX
+
+As quatro telas que mostram como a central está agora: números do dia, filas ao vivo, recursos do servidor e a saída crua do Asterisk.
+
+> Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
+
+---
+
+## Sumário
+
+1. [Quem acessa](#1-quem-acessa)
+2. [Visão Geral](#2-visão-geral)
+3. [Tempo Real (Wallboard) e Modo TV](#3-tempo-real-wallboard-e-modo-tv)
+4. [Estatísticas do Sistema](#4-estatísticas-do-sistema)
+5. [Asterisk Info](#5-asterisk-info)
+6. [Problemas comuns](#6-problemas-comuns)
+
+---
+
+## 1. Quem acessa
+
+Cada tela é um módulo próprio em **Administrador › Perfis e Permissões**. Quem não tem o módulo não vê o item no menu e a API recusa a consulta.
+
+| Tela | Módulo |
+|---|---|
+| Visão Geral | dash.visaogeral |
+| Tempo Real (Wallboard) | dash.temporeal |
+| Estatísticas do Sistema | dash.sistema |
+| Asterisk Info | dash.asterisk |
+
+Nenhuma das quatro altera nada na central: são só leitura.
+
+> 📷 **Print:** menu lateral aberto na seção **Painel de Indicadores**.
+
+---
+
+## 2. Visão Geral
+
+**Painel de Indicadores › Visão Geral**
+
+O resumo do dia. Os números saem do CDR (registro de chamadas) e do estado atual do Asterisk. Com a base vazia, a tela mostra zeros e "—", nunca número inventado.
+
+> 📷 **Print:** Visão Geral com os quatro cartões e o gráfico preenchidos.
+
+### Cartões do topo
+
+| Cartão | O que mostra |
+|---|---|
+| Chamadas hoje | Total de registros do CDR com data de hoje. A seta compara com o total de ontem, em porcentagem, e o rodapé diz "vs. N ontem". Sem chamadas ontem, aparece "sem histórico de ontem" e não há seta |
+| Em atendimento | Chamadas ativas agora, lidas do Asterisk. O rodapé mostra quantos canais estão abertos. Se o Asterisk não responder, aparece "—" e "Asterisk não respondeu" |
+| Taxa de abandono | Chamadas de hoje com resultado Não atendida, Ocupado ou Falha, divididas pelo total de hoje. O rodapé mostra "N de M chamadas" |
+| TMA — tempo médio | Média do tempo falado das chamadas de hoje que tiveram conversa (as de tempo falado zero ficam fora da conta) |
+
+Atenção: a **Taxa de abandono** daqui é de todas as chamadas da central (internas e externas), não só de fila. O abandono de fila de verdade está em **Relatórios › Desempenho de Filas** ([18-Relatorios.md](18-Relatorios.md)).
+
+### Volume de chamadas por hora
+
+Gráfico de barras empilhadas de hoje, da primeira à última hora com movimento:
+
+| Série | Conta |
+|---|---|
+| Atendidas | Registros do CDR com resultado Atendida |
+| Perdidas | Todos os demais resultados (inclui Congestionada) |
+
+Passe o mouse sobre uma barra para ver os números e o total da hora.
+
+### Ramais mais ativos
+
+Os seis números de origem com mais chamadas **atendidas** hoje, com o nome do ramal quando ele existe no cadastro. Só entram origens de até 6 dígitos (ramais), não números externos.
+
+### Troncos
+
+| Coluna | O que mostra |
+|---|---|
+| Tronco | Nome do tronco |
+| Tipo | Tipo do cadastro |
+| Host | Endereço da operadora |
+| Canais | Máximo de canais cadastrado |
+| Estado | Registrado, Offline, Sem registro (o Asterisk não informou) ou Inativo (desativado no cadastro) |
+
+O link **Gerenciar** leva a **Conectividade › Troncos**. Sem tronco cadastrado, quem pode criar vê o botão **Cadastrar tronco**.
+
+### Atividade recente
+
+As oito últimas linhas da auditoria (quem fez o quê, em qual módulo, IP e hora). **Só aparece para quem tem o módulo Auditoria** (admin.auditoria); para os demais o quadro mostra "Nenhuma atividade registrada ainda.".
+
+### Botões
+
+| Botão | Ação |
+|---|---|
+| Atualizar | Recarrega a tela. A Visão Geral **não** se atualiza sozinha |
+
+---
+
+## 3. Tempo Real (Wallboard) e Modo TV
+
+**Painel de Indicadores › Tempo Real (Wallboard)**
+
+O título da tela é **Wallboard — Tempo Real**. Mostra as filas ativas e as chamadas em andamento, lidas direto do Asterisk. **Atualiza sozinha a cada 5 segundos** enquanto a tela está aberta.
+
+> 📷 **Print:** wallboard com duas ou três filas e a tabela de chamadas em andamento.
+
+### Indicador do cabeçalho
+
+| Etiqueta | Significado |
+|---|---|
+| Ao vivo | A API conseguiu falar com o Asterisk |
+| Asterisk não respondeu | A leitura falhou; passe o mouse para ver o erro |
+
+### Cartão de cada fila
+
+Só aparecem filas **ativas**, em ordem de número.
+
+| Campo | O que mostra |
+|---|---|
+| Nome e "Fila N · estratégia" | Cadastro da fila |
+| N na fila | Chamadas esperando agora. Fica amarelo com mais de 2 |
+| Agentes | Membros disponíveis agora / membros cadastrados. Numa fila de call center, o total é o número de agentes do cadastro do call center ligados à fila |
+| Atendidas | Contador do próprio Asterisk para a fila |
+| Abandonos | Contador do próprio Asterisk para a fila |
+
+Os contadores **Atendidas** e **Abandonos** são os do Asterisk (comando queue show), não do relatório: voltam a zero quando o Asterisk reinicia. Para números de um período, use **Relatórios › Desempenho de Filas**.
+
+Sem fila cadastrada, quem pode criar vê o botão **Criar fila**.
+
+### Chamadas em andamento
+
+| Coluna | O que mostra |
+|---|---|
+| Canal | Canal do Asterisk (ex.: PJSIP/1001-0000001a) |
+| Origem | Número de quem chama |
+| Destino | Número ou ramal discado |
+| Estado | Estado do canal no Asterisk (ex.: Up, Ring) |
+| Aplicação | Aplicação em execução (ex.: Dial, Queue) |
+| Duração | Tempo do canal |
+
+A etiqueta ao lado do título conta os canais. Uma chamada entre dois ramais aparece como **dois canais**.
+
+### Modo TV
+
+O botão **Modo TV**, no cabeçalho do wallboard, prepara a tela para ficar numa TV da operação:
+
+- esconde o menu lateral e a barra do topo;
+- aumenta os números dos cartões;
+- pede tela cheia ao navegador.
+
+Para sair, clique em **Sair do modo TV** (canto superior direito). A atualização a cada 5 segundos continua no Modo TV.
+
+> 📷 **Print:** wallboard em Modo TV, com o botão **Sair do modo TV** visível.
+
+O **Monitor ao Vivo** do call center tem o seu próprio Modo TV; veja [16-Call-Center.md](16-Call-Center.md).
+
+---
+
+## 4. Estatísticas do Sistema
+
+**Painel de Indicadores › Estatísticas do Sistema**
+
+Recursos do servidor, medidos no momento. **Atualiza sozinha a cada 5 segundos**; o botão **Atualizar** força a leitura na hora.
+
+> 📷 **Print:** Estatísticas do Sistema com os medidores e o quadro Sistema.
+
+### Recursos
+
+| Medidor | Como é medido | Cores |
+|---|---|---|
+| CPU | Uso real do processador, por duas leituras com 0,2 s de intervalo (a mesma conta do top). Ocioso e espera de disco não contam como uso | Amarelo acima de 60%, vermelho acima de 80% |
+| Memória | Total menos a memória disponível do sistema, em MB | Amarelo acima de 70%, vermelho acima de 85% |
+| Disco / | Ocupação da partição raiz, em GB | Amarelo acima de 70%, vermelho acima de 85% |
+
+### Sistema
+
+| Linha | O que mostra |
+|---|---|
+| Sistema | Nome da distribuição Linux |
+| Kernel | Versão do kernel |
+| Uptime | Tempo desde que o servidor ligou |
+| Carga (1/5/15 min) | Média de carga do Linux e número de núcleos. Carga não é uso de CPU: acima do número de núcleos, há processo esperando a vez |
+| PHP | Versão do PHP |
+| Banco | Versão do MariaDB |
+| Asterisk | Versão, ou "indisponível" se o Asterisk não respondeu |
+| Canais ativos | Canais abertos no Asterisk agora |
+| Chamadas ativas | Chamadas em curso no Asterisk agora |
+
+---
+
+## 5. Asterisk Info
+
+**Painel de Indicadores › Asterisk Info**
+
+A saída dos comandos de CLI do Asterisk, pedida pelo AMI. Serve ao suporte para conferir o estado sem abrir o terminal. Não atualiza sozinha: use **Recarregar**.
+
+| Quadro | Comando | Para que serve |
+|---|---|---|
+| core show channels | Canais e chamadas ativas | Ver o que está em curso |
+| pjsip show endpoints | Ramais e troncos e o estado de cada um | Ver quem está registrado |
+| pjsip show registrations | Registros da central nas operadoras | Ver se o tronco com registro está autenticado |
+| queue show | Filas, membros e contadores | Ver quem está logado em cada fila |
+
+Um comando sem resposta aparece como "(sem saída)". Se o Asterisk estiver fora do ar, a tela inteira mostra **Não foi possível carregar** com a mensagem "Asterisk indisponível".
+
+Para rodar outros comandos, use **Administrador › CLI Asterisk** ([12-Administrador.md](12-Administrador.md)).
+
+> 📷 **Print:** Asterisk Info com o quadro pjsip show endpoints.
+
+---
+
+## 6. Problemas comuns
+
+**O wallboard mostra "Asterisk não respondeu" ou "Sem comunicação com o Asterisk".**
+- O Asterisk está parado ou a API não consegue usar o AMI. Veja [07-Solucao-de-Problemas.md](07-Solucao-de-Problemas.md) e [05-Servidor-Comandos-e-Servicos.md](05-Servidor-Comandos-e-Servicos.md).
+- Os cartões das filas continuam aparecendo, mas com os números ao vivo zerados.
+
+**O wallboard mostra "Nenhuma chamada em andamento".**
+- Com o indicador **Ao vivo**, isso é normal: a central está conectada e ociosa.
+
+**Atendidas e Abandonos do wallboard não batem com o relatório.**
+- São contadores diferentes. O wallboard usa os do Asterisk, que zeram quando ele reinicia; o relatório conta o período escolhido no queue_log.
+
+**A fila não aparece no wallboard.**
+- A fila está desativada no cadastro. Só filas ativas aparecem.
+
+**Na Visão Geral, "Taxa de abandono" está alta, mas as filas estão bem.**
+- Esse cartão conta todas as chamadas não atendidas, ocupadas ou com falha da central, inclusive ligações entre ramais. Para abandono de fila, use o relatório de filas.
+
+**O quadro "Atividade recente" está sempre vazio.**
+- O seu perfil não tem o módulo Auditoria. É de propósito: a trilha mostra usuários e IPs.
+
+**CPU alta logo após o backup.**
+- Confira a **Carga**: ela sobe e desce mais devagar que a CPU. Se a CPU já voltou ao normal, era só o backup.
+
+**O Modo TV não ficou em tela cheia.**
+- Alguns navegadores recusam a tela cheia sem interação. Use F11 no navegador; o resto do Modo TV (sem menu, números grandes) já está ativo.

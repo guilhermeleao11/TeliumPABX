@@ -1,0 +1,264 @@
+==============================================================================
+TELEFONE (WEBRTC) — TELIUM PABX
+==============================================================================
+
+O telefone do ramal dentro do navegador: registrar, discar, atender, transferir, mandar teclas e ajustar o áudio, sem aparelho nenhum na mesa.
+
+NOTA: Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
+
+
+SUMÁRIO
+-------
+
+1. Visão geral
+2. O que precisa estar pronto
+3. A tela Telefone
+4. Discar
+5. Receber e atender
+6. Durante a chamada
+7. Transferir
+8. Áudio e microfone
+9. Não perturbe
+10. Contatos, ramais e histórico
+11. Ligar a partir de outras telas
+12. Atalhos de teclado
+13. Problemas comuns
+
+
+1. VISÃO GERAL
+--------------
+
+Telefone › Telefone (WebRTC)
+
+O console registra o ramal da pessoa no próprio navegador. Com o registro pronto, o ramal toca no computador e as ligações saem pelo microfone e alto-falante dele.
+
+- O telefone é do ramal vinculado à conta (Administrador › Gerenciador de Usuários). Não há como escolher outro ramal.
+- O registro acontece ao entrar no console, e não só ao abrir a tela: uma chamada que entra com a pessoa em outra tela aparece num aviso no topo.
+- Quando o telefone do navegador não pode ser usado, o discador continua funcionando pelo telefone de mesa: a central toca o aparelho da pessoa e completa a ligação quando ela atende.
+
+[PRINT: tela Telefone com o aparelho em repouso e a etiqueta Registrado]
+
+
+2. O QUE PRECISA ESTAR PRONTO
+-----------------------------
+
+Para falar pelo navegador, todas as condições abaixo valem ao mesmo tempo. A coluna da direita é a frase que o console mostra quando falta aquela condição.
+
+- A conta tem ramal vinculado — Onde se acerta: Administrador › Gerenciador de Usuários; Frase quando falta: A sua conta não está vinculada a nenhum ramal.
+- O perfil tem o módulo Telefone (WebRTC) (fone.webrtc) — Onde se acerta: Administrador › Perfis e Permissões; Frase quando falta: O telefone pelo navegador não está liberado para o seu perfil.
+- O softphone do navegador está ligado na central — Onde se acerta: Conectividade › WebRTC / Softphone; Frase quando falta: O telefone pelo navegador está desligado nesta central. O discador liga pelo seu telefone de mesa.
+- O ramal existe e está ativo — Onde se acerta: Conectividade › Ramais; Frase quando falta: O ramal desta conta não existe ou está inativo.
+- O ramal está marcado como Softphone do navegador (WebRTC) — Onde se acerta: Conectividade › Ramais; Frase quando falta: O ramal N não está marcado como WebRTC. O discador liga pelo seu telefone de mesa.
+- O navegador liberou o microfone — Onde se acerta: Pedido do próprio navegador, na primeira chamada; Frase quando falta: Você precisa permitir o microfone para ligar.
+
+O módulo Telefone (WebRTC) é uma permissão de verdade: sem ele, a senha SIP do ramal nem chega ao navegador e o console não tenta registrar.
+
+A parte do servidor (certificado, WebSocket, STUN/TURN, diagnóstico de áudio) está em 17-Conectividade.md (ver página 17), seção WebRTC / Softphone. Abra o console por https: o endereço do WebSocket segue o da página, e os navegadores só liberam o microfone em página segura.
+
+
+3. A TELA TELEFONE
+------------------
+
+O subtítulo mostra o ramal e o nome dele. À direita do título fica o estado do registro:
+
+- Registrado: O ramal está registrado neste navegador. Pode ligar e receber
+- Registrando…: Conectando à central
+- Sem registro: O registro falhou; passe o mouse para ver o motivo
+- Pelo telefone de mesa: O telefone do navegador não está disponível; o discador liga pelo aparelho de mesa
+- Desconectado: Sem registro e sem motivo informado
+
+Se o ramal não é WebRTC, ou se o softphone não está disponível, um aviso amarelo acima do aparelho explica o porquê.
+
+Sem ramal vinculado, a tela mostra apenas Sua conta não tem ramal.
+
+A tela tem, à esquerda, o aparelho, o cartão Não perturbe e o cartão Áudio; à direita, a lista de contatos e as Chamadas desta sessão.
+
+
+4. DISCAR
+---------
+
+1. Digite o número no visor (Digite o número) ou use o teclado na tela.
+2. Clique em Ligar ou tecle Enter.
+
+- Registrado — O botão diz: Ligar; O que acontece: A chamada sai pelo navegador. Na primeira vez, o navegador pede o microfone
+- Não registrado, com ramal — O botão diz: Ligar pelo meu telefone; O que acontece: A central toca o seu telefone de mesa. Ao atender, ela disca o número
+
+Regras:
+- Só valem dígitos, *, # e +; o resto é descartado.
+- Visor vazio: "Informe um número para discar.".
+- A chamada passa pelas mesmas regras do ramal (permissão de discagem, rotas de saída), como se a pessoa discasse no aparelho.
+- Com uma chamada em curso, não dá para discar outra: "Encerre a chamada atual antes de discar outra.".
+
+Ao ligar pelo telefone de mesa, a mensagem é "Seu ramal N vai tocar. Atenda para a central discar X.". Se o aparelho não estiver registrado ou não responder, a central avisa antes de tentar.
+
+[PRINT: aparelho com um número digitado e o botão Ligar]
+
+
+5. RECEBER E ATENDER
+--------------------
+
+Com o ramal registrado, a chamada que entra aparece:
+
+- na tela Telefone: o visor mostra o número, o nome e "chamada recebida", com os botões Recusar e Atender;
+- em qualquer outra tela: um aviso no topo com Recusar e Atender. Atender pelo aviso leva à tela Telefone.
+
+O ícone de telefone no cabeçalho do console pulsa enquanto há chamada.
+
+Se o navegador bloquear o som (chamada que entra sem nenhum clique recente na página), aparece "O navegador bloqueou o áudio. Clique na página para liberar o som.".
+
+[PRINT: aviso de chamada entrando no topo de outra tela]
+
+
+6. DURANTE A CHAMADA
+--------------------
+
+O aparelho mostra o número, o nome (ou "Conectado") e o cronômetro. Enquanto chama, aparece Chamando.
+
+- Mutar / Mudo: Corta o seu microfone. Clique de novo para voltar
+- Espera: Põe a chamada em espera. Clique de novo para retomar
+- Transferir: Abre a gaveta de transferência (seção 7)
+- Teclado: Mostra o teclado para mandar teclas (DTMF), por exemplo para navegar numa URA ou digitar uma senha
+- Desligar: Encerra a chamada
+
+Os botões só funcionam depois que a chamada é atendida.
+
+Teclas (DTMF): com o Teclado aberto, clique nas teclas ou digite 0–9, * e # no teclado do computador. As teclas mandadas aparecem no visor, como "teclas enviadas nesta chamada".
+
+Qualidade do áudio: abaixo do número pode aparecer:
+
+- Conectado: Áudio passando
+- Conectado, áudio instável: A rede oscilou
+- Conectado, sem áudio: O áudio não conseguiu passar pela rede
+
+Se o áudio não conseguir passar (ICE falhou), a chamada cai com o aviso: "O áudio não conseguiu passar pela rede (ICE falhou) e a chamada foi encerrada. Em rede com firewall restritivo é preciso um servidor TURN alcançável.".
+
+Ao fim de cada chamada, o navegador manda à central um resumo do áudio (caminho, pacotes, perdas). É o que o suporte usa para responder por que uma chamada ficou muda.
+
+[PRINT: aparelho em chamada, com o teclado aberto e teclas no visor]
+
+
+7. TRANSFERIR
+-------------
+
+Clique em Transferir durante a chamada. A gaveta Transferir chamada abre com o campo Destino (ramal, fila ou número externo) e a lista de Ramais cadastrados; clicar num ramal preenche o destino.
+
+- Transferir agora: Passa a chamada ao destino e você sai na hora (transferência direta)
+- Falar antes: Põe quem está na linha em espera e liga para o destino. Você conversa com ele antes de passar
+- Cancelar: Fecha a gaveta
+
+Com Falar antes:
+1. A gaveta mostra o destino com "Chamando… quem estava na linha está em espera.".
+2. Quando o destino atende: "Atendeu. Fale e confirme quando quiser passar a chamada.".
+3. Concluir transferência une as duas pontas e você sai. Voltar para a chamada desliga o destino e retoma a chamada original.
+
+Fechar a gaveta no meio da consulta cancela a consulta.
+
+Atalho pela lista: em chamada, cada número da lista de contatos e ramais ganha um botão Transferir a chamada para cá, que faz a transferência direta.
+
+Mensagens: "Transferência concluída." quando dá certo; "A central recusou a transferência" ou "A central não completou a transferência" com o código quando não.
+
+[PRINT: gaveta Transferir chamada no passo Concluir transferência]
+
+
+8. ÁUDIO E MICROFONE
+--------------------
+
+Cartão Áudio. As escolhas ficam guardadas neste navegador.
+
+- Volume de quem fala com você: 0 a 100%
+- Volume do seu microfone: 0 a 200%. 100% é como o microfone capta. Muda de verdade o que o outro lado ouve
+- Medidor: Mostra o nível que está saindo pelo microfone; mexe quando você fala, durante a chamada
+- Microfone: Escolhe o dispositivo de entrada. Vale a partir da próxima chamada
+- Alto-falante: Escolhe a saída. Alguns navegadores não permitem: aí aparece "Este navegador não deixa escolher o alto-falante: vale o padrão do sistema."
+
+- Os nomes dos dispositivos só aparecem depois que o navegador liberou o microfone uma vez. Antes, aparecem como "Microfone 1", "Alto-falante 1".
+- Se o microfone escolhido sumir (fone desplugado), a chamada usa o padrão do sistema.
+
+
+9. NÃO PERTURBE
+---------------
+
+Cartão Não perturbe. Ligado, o ramal não toca: quem ligar cai no correio de voz ou no desvio.
+
+- Vale na hora, sem Aplicar configurações: o mesmo efeito do código do telefone *78 (ligar) e *79 (desligar).
+- É o mesmo não perturbe de PCU › Meu Ramal (21-Meu-Painel-PCU.md (ver página 21)).
+- A mudança fica na auditoria.
+
+
+10. CONTATOS, RAMAIS E HISTÓRICO
+--------------------------------
+
+
+Lista de contatos
+~~~~~~~~~~~~~~~~~
+
+Três abas e uma busca (Buscar nome, empresa ou número…):
+
+- Meus contatos: A sua agenda pessoal (cadastrada em PCU › Meus Contatos)
+- Globais: A agenda da empresa
+- Ramais: Os ramais ativos da central
+
+Cada número tem o botão Ligar. Contatos inativos e sem nenhum número não aparecem. Favoritos aparecem com ★.
+
+
+Chamadas desta sessão
+~~~~~~~~~~~~~~~~~~~~~
+
+As últimas 30 chamadas feitas e recebidas por esta aba do navegador, com direção, número, duração e hora. Não atendidas aparecem como "não atendida". O botão Ligar de volta disca de novo.
+
+Essa lista some ao fechar ou recarregar o console. O histórico completo do ramal está em PCU › Minhas Chamadas.
+
+
+11. LIGAR A PARTIR DE OUTRAS TELAS
+----------------------------------
+
+O ícone de telefone que aparece em outras telas usa o mesmo discador:
+
+- Relatórios › CDR (ligar para o número da linha);
+- PCU › Meus Contatos e Administrador › Gerenciador de Contatos (botão Ligar e ficha do contato);
+- respostas da pesquisa de satisfação.
+
+Com o telefone do navegador registrado, a ligação sai por ele e o console abre a tela Telefone. Sem ele, a central toca o telefone de mesa e completa a ligação.
+
+
+12. ATALHOS DE TECLADO
+----------------------
+
+- D: Abre a tela Telefone (fora de campos de texto)
+- 0–9, *, #: Em chamada, com o Teclado aberto na tela Telefone, mandam a tecla (DTMF)
+- Enter: No visor, liga
+
+Quem não tem o módulo, ao apertar D, vê "O telefone pelo navegador não está liberado para o seu perfil.".
+
+
+13. PROBLEMAS COMUNS
+--------------------
+
+A etiqueta fica em "Pelo telefone de mesa".
+- Veja o aviso amarelo da tela: falta uma das condições da seção 2.
+
+"Sem registro" com "Ramal ou senha SIP não conferem."
+- A senha SIP do ramal mudou e a sessão do console ainda tem a antiga. Saia e entre de novo no console. Persistindo, confira o cadastro do ramal.
+
+"Sem conexão com a central. Tentando reconectar…"
+- O WebSocket caiu (rede ou serviço). O console reconecta sozinho quando a rede volta. Se não voltar, veja o diagnóstico em Conectividade › WebRTC / Softphone (17-Conectividade.md (ver página 17)).
+
+"Você precisa permitir o microfone para ligar." ou "O navegador não conseguiu abrir o microfone."
+- Libere o microfone para o endereço do console no cadeado da barra de endereço e tente de novo.
+- Confira se outro programa não está usando o microfone.
+- O console precisa estar aberto em https.
+
+A chamada conecta, mas não há áudio, ou cai com "ICE falhou".
+- Típico de firewall restritivo. A central precisa de um TURN alcançável; veja 17-Conectividade.md (ver página 17) e 03-Requisitos-Rede-e-Portas.md (ver página 03).
+
+A chamada entra e fica muda até eu clicar na página.
+- O navegador bloqueia som automático sem interação. Clique na página, como o aviso pede.
+
+"Ligar pelo meu telefone" responde que o ramal não está registrado.
+- O telefone de mesa está desligado ou fora da rede. Ligue o aparelho, ou peça para o ramal ser marcado como WebRTC.
+
+Não consigo escolher o alto-falante.
+- Limitação do navegador. Vale o padrão do sistema operacional.
+
+As chamadas desta sessão sumiram.
+- A lista é só da aba aberta. Use PCU › Minhas Chamadas para o histórico.
