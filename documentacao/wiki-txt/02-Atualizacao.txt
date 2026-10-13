@@ -198,6 +198,12 @@ O que muda na operação, e não só por dentro. A mais recente primeiro.
 A tela Telium › Versões e Novidades mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo api/CHANGELOG.md). As notas abaixo resumem o que muda para quem opera.
 
 
+1.1.1 — backups em /var/Backup
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- Os backups da central passam para /var/Backup/pabx-telium, dentro do diretório que o backup da empresa já leva. A atualização move os arquivos que estavam em /var/backup/pabx-telium e apaga a pasta antiga se ela ficar vazia. Nada a fazer no console.
+- Corrige o playbook, que parava no resumo inicial no ansible-core 2.19 ou mais novo.
+
+
 1.1.0 — 2026-10-13
 ~~~~~~~~~~~~~~~~~~
 Primeira versão numerada na entrega. Depois do playbook, clique em Aplicar configurações no console: fax, grupos de toque, códigos do telefone e correio de voz só mudam depois dele.
@@ -206,7 +212,7 @@ Versão no console
 - O número da versão e o commit aparecem no rodapé do menu, em Telium › Suporte e na tela nova Telium › Versões e Novidades, que lista todas as versões (1.0.0 a 1.1.0) com as novidades, correções, mudanças e itens de segurança de cada uma. Todo perfil ganha essa tela uma vez; se o administrador a tirar de um perfil, a próxima atualização não a devolve.
 
 Backup e gravações
-- Baixar, Enviar para o destino remoto e Excluir do backup voltam a funcionar. A pasta /var/backup/pabx-telium passa a ser root:teliumpbx (0750) e os arquivos 0640: a API lê, só o root escreve. A primeira rodada do executor corrige os arquivos que já existem. O Excluir deixa a linha em Excluindo e o executor apaga o arquivo em até um minuto.
+- Baixar, Enviar para o destino remoto e Excluir do backup voltam a funcionar. A pasta /var/Backup/pabx-telium passa a ser root:teliumpbx (0750) e os arquivos 0640: a API lê, só o root escreve. A primeira rodada do executor corrige os arquivos que já existem. O Excluir deixa a linha em Excluindo e o executor apaga o arquivo em até um minuto.
 - O backup leva mais: os recados do correio de voz e das caixas postais, os fax recebidos, a base interna do Asterisk (siga-me, não perturbe…) e o certificado do console. A opção "Áudios do sistema" virou Áudios, recados e fax.
 - A restauração volta tudo o que está no arquivo (inclusive gravações, recados e certificados), preserva as senhas deste servidor e o histórico de backups, para o call center junto com o Asterisk e refaz a configuração a partir do banco restaurado.
 - A retenção é por rotina: um backup manual não apaga mais os arquivos de uma rotina, e vice-versa.

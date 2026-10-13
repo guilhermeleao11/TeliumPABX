@@ -23,7 +23,7 @@ final class Backup
     /** GET /api/backup — rotinas, histórico e espaço em disco */
     public function estado(Request $req, Response $res): Response
     {
-        $dir = (string) Ambiente::get('BACKUP_DIR', '/var/backup/pabx-telium');
+        $dir = (string) Ambiente::get('BACKUP_DIR', '/var/Backup/pabx-telium');
 
         $historico = Bd::todos(
             'SELECT b.*, r.nome AS rotina_nome, u.nome AS usuario_nome
@@ -246,7 +246,7 @@ final class Backup
             return null;
         }
 
-        $base = realpath((string) Ambiente::get('BACKUP_DIR', '/var/backup/pabx-telium'));
+        $base = realpath((string) Ambiente::get('BACKUP_DIR', '/var/Backup/pabx-telium'));
         // O script grava ora o caminho completo, ora só o nome.
         $alvo = realpath(str_starts_with($nome, '/') ? $nome : $base . '/' . ltrim($nome, '/'));
 

@@ -16,7 +16,7 @@
   durante a restauração, e as chamadas em andamento caem.** Faça fora do
   horário.
 
-Os arquivos ficam em `/var/backup/pabx-telium`.
+Os arquivos ficam em `/var/Backup/pabx-telium`.
 
 > O comando `telium-backup` que existe no servidor **não faz um backup
 > novo quando chamado sozinho**: ele executa o que o console pediu e as

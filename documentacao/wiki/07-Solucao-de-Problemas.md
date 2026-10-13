@@ -517,7 +517,7 @@ Desliga a verificação em dois passos e derruba as sessões. Depois de entrar, 
   ```bash
   systemctl status telium-backup.timer
   journalctl -u telium-backup -n 50
-  ls -lh /var/backup/pabx-telium/
+  ls -lh /var/Backup/pabx-telium/
   ```
 
 Com os alertas por e-mail configurados ([seção 13](#13-correio-de-voz-por-e-mail-não-chega)), a central avisa sozinha quando um backup falha e quando há rotina ligada sem nenhum backup concluído há mais de 26 horas.
@@ -535,13 +535,13 @@ Detalhes em [04 — Backup e Restauração](04-Backup-e-Restauracao.md).
 **Como verificar:**
 ```bash
 df -h
-sudo du -sh /var/spool/asterisk/monitor /var/backup/pabx-telium /var/log/asterisk /var/lib/mysql
+sudo du -sh /var/spool/asterisk/monitor /var/Backup/pabx-telium /var/log/asterisk /var/lib/mysql
 ```
 A tela **Aplicações › Gravação de Chamadas** mostra o uso do disco das gravações. Com os alertas por e-mail configurados, a central avisa quando o disco das gravações fica com menos de 10% livre.
 
 **Onde costuma crescer:**
 - **Gravações** (`/var/spool/asterisk/monitor`): com o prazo de guarda em zero (o padrão), a central guarda todas para sempre.
-- **Backups** (`/var/backup/pabx-telium`): a retenção de cada rotina mantém só os N arquivos mais recentes (padrão 5). Backup com gravações incluídas ocupa muito.
+- **Backups** (`/var/Backup/pabx-telium`): a retenção de cada rotina mantém só os N arquivos mais recentes (padrão 5). Backup com gravações incluídas ocupa muito.
 - **Logs**: giram sozinhos (ver [seção 2](#2-onde-olhar-telas-e-logs)).
 
 **Como resolver:** combine com o cliente por quantos dias guardar as gravações e defina o prazo em **Aplicações › Gravação de Chamadas** (a limpeza roda uma vez por dia). Reduza também a retenção do backup e tire as gravações do backup local, mandando-as para o destino remoto.

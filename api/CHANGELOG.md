@@ -2,8 +2,18 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
+## 1.1.1 — 2026-10-13
+Commits: 749e0a8
+Os backups da central passam para /var/Backup, junto do backup da empresa, e o playbook volta a rodar no Ansible novo.
+
+### Mudanças
+- **Backup**: os arquivos ficam em `/var/Backup/pabx-telium` (B maiúsculo), dentro do diretório que o backup da empresa já leva. A atualização move os backups que estavam em `/var/backup/pabx-telium` e apaga a pasta antiga se ela ficar vazia; o histórico do console continua apontando para eles.
+- **Backup**: se o `/var/Backup` for fechado só para o root, o usuário da API ganha apenas a permissão de atravessá-lo (ACL), sem listar nem ler o que mais houver ali.
+### Correções
+- **Instalação e atualização**: o playbook parava no resumo inicial no ansible-core 2.19 ou mais novo (`'NoneType' object has no attribute 'group'`), antes de mexer em qualquer coisa.
+
 ## 1.1.0 — 2026-10-13
-Commits:
+Commits: e1ae8c7
 Primeira versão numerada na entrega: backup e restauração completos, prazo para as gravações, fax por e-mail, webhooks, alertas por e-mail, o histórico de versões no console e mais de trinta correções de telefonia e de tela.
 
 ### Novidades

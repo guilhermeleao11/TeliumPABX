@@ -302,7 +302,7 @@ O playbook `site.yml` roda estas roles, nesta ordem:
 | `asterisk` | Compila e instala o Asterisk 22 (só se a versão mudou), instala os áudios em português, a música de espera, os arquivos de configuração base, o logrotate, o despertador e a unidade systemd; testa o AMI |
 | `janus` | Só com `instalar_janus=true`: compila e instala o Janus |
 | `turn` | Só com `instalar_turn` (padrão: sim): coturn com credencial temporária derivada de um segredo. O endereço público do TURN vem do `nat_ip_publico` ou, sem ele, do console |
-| `backup` | Diretório `/var/backup/pabx-telium`, o executor e o temporizador do backup |
+| `backup` | Diretório `/var/Backup/pabx-telium`, o executor e o temporizador do backup |
 | `certificados` | O cofre `/etc/telium/certificados` e o aplicador que copia o certificado enviado pelo console para os serviços |
 | `email` | msmtp, para o envio de e-mail (recado do correio de voz, fax, alertas); o `tiff2pdf` (pacote `libtiff-tools`) e o script `/usr/local/sbin/telium-fax-email`, que manda o fax recebido em PDF. A configuração vem do console |
 | `api` | Publica o console (`/opt/telium/web`) e a API (`/opt/telium/api`), escreve o `.env`, grava em `api/COMMIT` o commit do clone (o que o console mostra ao lado da versão), define a senha inicial do `admin` (só na primeira vez), gera e aplica a configuração do Asterisk, instala a tarifação (de hora em hora) e o serviço do call center `telium-cc`, e roda a bateria de testes |

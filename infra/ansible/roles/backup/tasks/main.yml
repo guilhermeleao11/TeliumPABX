@@ -1,4 +1,57 @@
 ---
+# Os backups moram em /var/Backup, o diretório que a ferramenta de backup
+# da empresa já leva. A pasta-mãe é só garantida: dono e permissões dela
+# ficam como estão.
+- name: Garantir o diretório /var/Backup
+  ansible.builtin.file:
+    path: "{{ backup_dir | dirname }}"
+    state: directory
+
+# Até a 1.1.0 eles ficavam em /var/backup (minúsculo). Os arquivos que já
+# estão lá vão para o lugar novo — o banco guarda só o nome, então o
+# histórico do console continua apontando para eles — e a pasta antiga sai
+# se ficar vazia.
+- name: Mover os backups do lugar antigo
+  ansible.builtin.shell:
+    cmd: |
+      antigo=/var/backup/pabx-telium
+      [ -d "$antigo" ] && [ "$antigo" != "{{ backup_dir }}" ] || exit 0
+      mkdir -p "{{ backup_dir }}"
+      movidos=0
+      for f in "$antigo"/telium-*.tar.gz; do
+        [ -f "$f" ] || continue
+        if [ ! -e "{{ backup_dir }}/$(basename "$f")" ]; then
+          mv "$f" "{{ backup_dir }}/" && movidos=$((movidos+1))
+        fi
+      done
+      rmdir "$antigo" 2>/dev/null
+      rmdir /var/backup 2>/dev/null
+      echo "movidos=$movidos"
+  register: backup_mudanca
+  changed_when: "(backup_mudanca.stdout | default('')) not in ['', 'movidos=0']"
+
+# A API precisa atravessar o /var/Backup para chegar aos arquivos (Baixar,
+# envio ao destino remoto). Se a pasta-mãe estiver fechada só para o root,
+# ela ganha, por ACL, apenas o "atravessar" para o usuário da API — sem
+# listar nem ler o que mais houver ali, e sem mudar dono nem modo dela.
+- name: Conferir se a API alcança o /var/Backup
+  ansible.builtin.command:
+    cmd: runuser -u {{ telium_user }} -- test -x "{{ backup_dir | dirname }}"
+  register: backup_atravessa
+  changed_when: false
+  failed_when: false
+
+- name: Instalar as ferramentas de ACL
+  ansible.builtin.apt:
+    name: acl
+    state: present
+  when: backup_atravessa.rc != 0
+
+- name: Deixar a API atravessar o /var/Backup
+  ansible.builtin.command:
+    cmd: setfacl -m u:{{ telium_user }}:x "{{ backup_dir | dirname }}"
+  when: backup_atravessa.rc != 0
+
 # A API lê (Baixar, envio ao destino remoto); só o root escreve, porque a
 # restauração, que roda como root, confia no que estiver aqui.
 - name: Criar diretório de backups

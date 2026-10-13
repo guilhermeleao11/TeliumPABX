@@ -154,6 +154,10 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.1.1 — backups em /var/Backup
+- Os backups da central passam para **`/var/Backup/pabx-telium`**, dentro do diretório que o backup da empresa já leva. A atualização move os arquivos que estavam em `/var/backup/pabx-telium` e apaga a pasta antiga se ela ficar vazia. Nada a fazer no console.
+- Corrige o playbook, que parava no resumo inicial no ansible-core 2.19 ou mais novo.
+
 ### 1.1.0 — versão na tela, backup completo, fax, webhooks e alertas
 O que mudou, item a item, está em **Telium › Versões e Novidades** (e em `api/CHANGELOG.md`). O que pede atenção de quem opera:
 
@@ -163,7 +167,7 @@ O que mudou, item a item, está em **Telium › Versões e Novidades** (e em `ap
 - **Fax**: a tela passa a valer. Preencha o e-mail em **Configurações › Fax** para receber em PDF; os troncos passam a aceitar T.38.
 - **Alertas**: preencha "Mandar os alertas do sistema para" em **Configurações › Notificações e E-mail**.
 - **Arquivos personalizados**: cada arquivo do Asterisk gerado pelo console tem o seu `_custom.conf` em `/etc/asterisk/telium`; o AMI e o ARI ganham `manager_custom.conf` e `ari_custom.conf` em `/etc/asterisk`.
-- **Baixar**, **Enviar para o destino remoto** e **Excluir** do backup voltam a funcionar. A pasta `/var/backup/pabx-telium` passa a ser `root:teliumpbx` (`0750`) e os arquivos `0640`: a API lê, só o root escreve. A primeira rodada do executor corrige os arquivos que já existem.
+- **Baixar**, **Enviar para o destino remoto** e **Excluir** do backup voltam a funcionar. A pasta `/var/Backup/pabx-telium` passa a ser `root:teliumpbx` (`0750`) e os arquivos `0640`: a API lê, só o root escreve. A primeira rodada do executor corrige os arquivos que já existem.
 - **O backup leva mais**: os recados do correio de voz e das caixas postais, os fax recebidos, a base interna do Asterisk (siga-me, não perturbe…) e o certificado do console. A opção "Áudios do sistema" virou **Áudios, recados e fax**.
 - **A restauração volta tudo o que está no arquivo** (inclusive gravações, recados e certificados), preserva as senhas deste servidor e o histórico de backups, para o call center junto com o Asterisk e refaz a configuração a partir do banco restaurado.
 - **A retenção é por rotina:** um backup manual não apaga mais os arquivos de uma rotina, e vice-versa.

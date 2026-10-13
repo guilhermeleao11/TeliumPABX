@@ -118,7 +118,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | Qual versão está rodando, e o que mudou em cada uma | Console: **Telium › [Versões e Novidades](20-Telium-Tarifacao-Integracoes-Suporte.md)**; o histórico também está em `api/CHANGELOG.md` e nas [notas das versões](02-Atualizacao.md#10-notas-das-versões) |
 | Conferir se está tudo de pé | `sudo -u teliumpbx php /opt/telium/api/bin/telium testar` |
 | Saúde da API | `https://<central>/api/health` |
-| Backups do console | `/var/backup/pabx-telium` |
+| Backups do console | `/var/Backup/pabx-telium` |
 | Gravações | `/var/spool/asterisk/monitor` |
 | Senhas de serviço | `/etc/telium/credenciais` (só root) |
 | Banco de dados | MariaDB, base `telium_pabx` |

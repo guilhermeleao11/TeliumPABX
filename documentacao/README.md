@@ -21,7 +21,7 @@ Vale para todos os guias.
 | Usuário de sistema da API | `teliumpbx` |
 | Configuração do Asterisk | `/etc/asterisk` (gerada: `/etc/asterisk/telium`) |
 | Senhas de serviço (banco, AMI, TURN…) | `/etc/telium/credenciais` (só root) |
-| Backups | `/var/backup/pabx-telium` |
+| Backups | `/var/Backup/pabx-telium` |
 | Gravações | `/var/spool/asterisk/monitor` |
 | Áudios enviados pelo console | `/var/lib/asterisk/sounds/telium` |
 | Logs da API | `/var/log/telium` |

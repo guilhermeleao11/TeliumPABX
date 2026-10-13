@@ -15,7 +15,7 @@ Mapa do servidor da central: onde fica cada coisa, quem é dono, o que pode e o 
 5. [Certificados](#5-certificados)
 6. [/var/lib/asterisk](#6-varlibasterisk)
 7. [/var/spool/asterisk](#7-varspoolasterisk)
-8. [/var/backup/pabx-telium](#8-varbackuppabx-telium)
+8. [/var/Backup/pabx-telium](#8-varbackuppabx-telium)
 9. [Logs](#9-logs)
 10. [Outros arquivos do sistema](#10-outros-arquivos-do-sistema)
 11. [Usuários, grupos e permissões](#11-usuários-grupos-e-permissões)
@@ -35,7 +35,7 @@ Mapa do servidor da central: onde fica cada coisa, quem é dono, o que pode e o 
 | Áudios enviados pelo console | `/var/lib/asterisk/sounds/telium` |
 | Gravações | `/var/spool/asterisk/monitor` |
 | Correio de voz e caixas postais | `/var/spool/asterisk/voicemail` |
-| Backups do console | `/var/backup/pabx-telium` |
+| Backups do console | `/var/Backup/pabx-telium` |
 | Logs da API | `/var/log/telium` |
 | Logs do Asterisk | `/var/log/asterisk` |
 | Banco | MariaDB, base `telium_pabx` |
@@ -222,7 +222,7 @@ Tudo com dono `asterisk`, modo `0750`.
 
 ---
 
-## 8. /var/backup/pabx-telium
+## 8. /var/Backup/pabx-telium
 
 - Arquivos `telium-AAAAMMDD-HHMMSS.tar.gz` gerados por **Administrador › Backup & Restauração**.
 - Pasta `root:teliumpbx` `0750` e arquivos `root:teliumpbx` `0640`: a API lê (para o **Baixar** e o envio ao destino remoto), mas só o root escreve. Os arquivos contêm senhas e chaves. O executor de backup corrige a permissão a cada rodada.
@@ -330,10 +330,10 @@ O arquivo foi recriado com o dono errado. `ls -l /var/log/asterisk` deve mostrar
 
 ### O disco encheu
 
-Os candidatos são `/var/spool/asterisk/monitor` (gravações), `/var/backup/pabx-telium` (backups com gravações) e `/var/log`:
+Os candidatos são `/var/spool/asterisk/monitor` (gravações), `/var/Backup/pabx-telium` (backups com gravações) e `/var/log`:
 
 ```bash
-sudo du -sh /var/spool/asterisk/monitor /var/backup/pabx-telium /var/log/asterisk
+sudo du -sh /var/spool/asterisk/monitor /var/Backup/pabx-telium /var/log/asterisk
 ```
 
 Para as gravações, defina o prazo de guarda em **Aplicações › Gravação de Chamadas**. Com o campo de alertas preenchido em **Configurações › Notificações e E-mail**, a central avisa por e-mail quando o disco das gravações passa de 90% de uso (menos de 10% livre).

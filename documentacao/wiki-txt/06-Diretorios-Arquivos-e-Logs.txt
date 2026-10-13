@@ -17,7 +17,7 @@ SUMÁRIO
 5. Certificados
 6. /var/lib/asterisk
 7. /var/spool/asterisk
-8. /var/backup/pabx-telium
+8. /var/Backup/pabx-telium
 9. Logs
 10. Outros arquivos do sistema
 11. Usuários, grupos e permissões
@@ -35,7 +35,7 @@ SUMÁRIO
 - Áudios enviados pelo console: /var/lib/asterisk/sounds/telium
 - Gravações: /var/spool/asterisk/monitor
 - Correio de voz e caixas postais: /var/spool/asterisk/voicemail
-- Backups do console: /var/backup/pabx-telium
+- Backups do console: /var/Backup/pabx-telium
 - Logs da API: /var/log/telium
 - Logs do Asterisk: /var/log/asterisk
 - Banco: MariaDB, base telium_pabx
@@ -318,8 +318,8 @@ O arquivo foi recriado com o dono errado. ls -l /var/log/asterisk deve mostrar a
 O disco encheu
 ~~~~~~~~~~~~~~
 
-Os candidatos são /var/spool/asterisk/monitor (gravações), /var/backup/pabx-telium (backups com gravações) e /var/log:
+Os candidatos são /var/spool/asterisk/monitor (gravações), /var/Backup/pabx-telium (backups com gravações) e /var/log:
 
-    sudo du -sh /var/spool/asterisk/monitor /var/backup/pabx-telium /var/log/asterisk
+    sudo du -sh /var/spool/asterisk/monitor /var/Backup/pabx-telium /var/log/asterisk
 
 Para as gravações, defina o prazo de guarda em Aplicações › Gravação de Chamadas. Com o campo de alertas preenchido em Configurações › Notificações e E-mail, a central avisa por e-mail quando o disco das gravações passa de 90% de uso (menos de 10% livre).

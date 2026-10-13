@@ -114,7 +114,7 @@ INFORMAÇÕES RÁPIDAS
 - Qual versão está rodando, e o que mudou em cada uma: Console: Telium › Versões e Novidades (ver página 20); o histórico também está em api/CHANGELOG.md e nas notas das versões (ver página 02)
 - Conferir se está tudo de pé: sudo -u teliumpbx php /opt/telium/api/bin/telium testar
 - Saúde da API: https://<central>/api/health
-- Backups do console: /var/backup/pabx-telium
+- Backups do console: /var/Backup/pabx-telium
 - Gravações: /var/spool/asterisk/monitor
 - Senhas de serviço: /etc/telium/credenciais (só root)
 - Banco de dados: MariaDB, base telium_pabx

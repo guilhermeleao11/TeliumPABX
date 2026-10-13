@@ -30,7 +30,7 @@ SUMÁRIO
 
 São três camadas, e uma não substitui a outra:
 
-- Backup do console — O que é: Um arquivo .tar.gz com banco, configuração, áudios e (opcional) gravações, em /var/backup/pabx-telium; Quem cuida: O administrador da central, em Administrador › Backup & Restauração
+- Backup do console — O que é: Um arquivo .tar.gz com banco, configuração, áudios e (opcional) gravações, em /var/Backup/pabx-telium; Quem cuida: O administrador da central, em Administrador › Backup & Restauração
 - Destino remoto — O que é: O mesmo arquivo enviado por FTP, FTPS ou SFTP logo depois de pronto; Quem cuida: Configurado na mesma tela
 - Backup corporativo — O que é: A ferramenta de backup da empresa copiando os diretórios do servidor; Quem cuida: A equipe de infraestrutura (seção 11)
 
@@ -43,7 +43,7 @@ NOTA: ⚠️ O backup contém segredos. Senhas de serviço (banco, AMI, ARI, TUR
 Administrador › Backup & Restauração
 
 - Cabeçalho: Onde os arquivos ficam no servidor e o botão Fazer backup agora. Enquanto um backup roda, aparece Backup em andamento
-- Espaço livre: Espaço livre do disco onde fica /var/backup/pabx-telium. Fica vermelho acima de 85% de uso
+- Espaço livre: Espaço livre do disco onde fica /var/Backup/pabx-telium. Fica vermelho acima de 85% de uso
 - Rotinas: Cada rotina, com quando roda, o que inclui, quantos arquivos mantém, a chave liga/desliga e Ajustar
 - Histórico: Os últimos 30 backups: arquivo, origem (manual ou agendado), conteúdo, tamanho, data e estado
 - Cópia para fora do servidor: O destino remoto e o resultado do último envio
@@ -254,7 +254,7 @@ Restaurar a partir de um arquivo do console, à mão
 Quando o console não abre, mas o .tar.gz está disponível:
 
     sudo mkdir /root/restaurar && cd /root/restaurar
-    sudo tar xzf /var/backup/pabx-telium/telium-AAAAMMDD-HHMMSS.tar.gz
+    sudo tar xzf /var/Backup/pabx-telium/telium-AAAAMMDD-HHMMSS.tar.gz
     cat manifesto.txt
     sudo systemctl stop telium-cc asterisk
     sudo mariadb telium_pabx < banco.sql
@@ -292,7 +292,7 @@ Lista de diretórios
 - /home: Contas dos administradores
 - /root: Backups manuais (/root/backup-manual) e histórico de comandos
 - /opt: /opt/TeliumPABX (o clone, com infra/ansible/group_vars/all/servidor.yml e vault.yml), /opt/telium (o publicado: api/.env, web/uploads/contatos), /opt/janus (se instalado)
-- /var/backup: /var/backup/pabx-telium, os arquivos do console. Pequeno quando as gravações estão desligadas
+- /var/Backup: /var/Backup/pabx-telium, os arquivos do console (atenção ao B maiúsculo: o Linux diferencia). Pequeno quando as gravações estão desligadas
 - /var/spool/asterisk: monitor/ (gravações), voicemail/ (recados, incluindo as caixas postais), fax/, dictate/
 - /var/www: Incluído por padrão de política; o Telium não usa (o console fica em /opt/telium/web)
 - /var/lib: /var/lib/asterisk/sounds (áudios do idioma, do call center e telium/ do console), /var/lib/asterisk/moh (música de espera padrão), /var/lib/asterisk/astdb.sqlite3, /var/lib/mysql (ver alerta abaixo)
@@ -303,10 +303,10 @@ O banco: leve o dump, não os arquivos
 
 Copiar /var/lib/mysql com o MariaDB rodando não dá um banco consistente: a cópia pode não abrir na restauração. O backup corporativo deve levar um dump gerado antes da janela de cópia, de um destes jeitos:
 
-- Rotina do console com o banco ligado, num horário anterior ao da ferramenta da empresa. O dump vai dentro do .tar.gz em /var/backup/pabx-telium.
+- Rotina do console com o banco ligado, num horário anterior ao da ferramenta da empresa. O dump vai dentro do .tar.gz em /var/Backup/pabx-telium.
 - Dump próprio, num agendamento do sistema antes da janela:
 
-    mariadb-dump --single-transaction --routines --triggers telium_pabx | gzip > /var/backup/telium_pabx-$(date +%F).sql.gz
+    mariadb-dump --single-transaction --routines --triggers telium_pabx | gzip > /var/Backup/telium_pabx-$(date +%F).sql.gz
 
 O mesmo vale, em menor grau, para o astdb.sqlite3: é um SQLite aberto pelo Asterisk. Perder a cópia dele custa pouco (ver tabela abaixo).
 
@@ -326,7 +326,7 @@ O que perco se faltar cada item
 - /var/spool/asterisk/fax e dictate: Faxes recebidos e ditados
 - astdb.sqlite3: Siga-me, não perturbe e despertadores marcados pelo telefone. Listas negra/permitida, não perturbe e chamada em espera do cadastro voltam no próximo Aplicar configurações
 - /opt/telium/web/uploads/contatos: Fotos dos contatos da agenda
-- /var/backup/pabx-telium: O histórico de backups do console
+- /var/Backup/pabx-telium: O histórico de backups do console
 
 NOTA: ⚠️ O backup corporativo contém segredos: credenciais, chaves privadas, .env da API, senhas SIP no banco. O destino precisa de acesso restrito e, de preferência, cifragem.
 
@@ -363,13 +363,13 @@ O backup termina em "Falhou"
 
 Com os alertas configurados em Configurações › Notificações e E-mail, quem cuida da central recebe um e-mail a cada backup que falha, e outro (uma vez por dia) quando há rotina ligada e nenhum backup concluído há mais de 26 horas.
 
-Abra Ver detalhes. banco: FALHOU indica problema no dump (MariaDB parado, disco cheio); tar: FALHOU quase sempre é disco cheio em /var/backup ou em /tmp (o arquivo é montado em /tmp antes de compactar). Veja o Espaço livre na própria tela e df -h.
+Abra Ver detalhes. banco: FALHOU indica problema no dump (MariaDB parado, disco cheio); tar: FALHOU quase sempre é disco cheio em /var/Backup ou em /tmp (o arquivo é montado em /tmp antes de compactar). Veja o Espaço livre na própria tela e df -h.
 
 
 O botão Baixar não aparece
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-O arquivo não está mais em /var/backup/pabx-telium (a retenção pode tê-lo apagado), ou a pasta está com a permissão de antes desta versão. O executor de backup corrige a permissão sozinho a cada minuto; se continuar, confira com ls -ld /var/backup/pabx-telium (deve ser root teliumpbx, drwxr-x---). Como alternativa, copie pelo terminal (scp como root).
+O arquivo não está mais em /var/Backup/pabx-telium (a retenção pode tê-lo apagado), ou a pasta está com a permissão de antes desta versão. O executor de backup corrige a permissão sozinho a cada minuto; se continuar, confira com ls -ld /var/Backup/pabx-telium (deve ser root teliumpbx, drwxr-x---). Como alternativa, copie pelo terminal (scp como root).
 
 
 O envio remoto falhou
