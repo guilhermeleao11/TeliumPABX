@@ -53,6 +53,12 @@ asterisk_conf_dir: /etc/asterisk
 asterisk_gerado_dir: /etc/asterisk/telium    # .conf gerados pela API
 src_dir: /usr/local/src/telium
 backup_dir: /var/Backup/pabx-telium   # dentro do /var/Backup, que o backup da empresa já leva
+
+# O arquivo da ferramenta de backup da empresa (linhas "I /caminho"). O
+# playbook mantém lá um bloco com o que é essencial da central (papel
+# backup). Se o arquivo não existir no servidor, não mexe em nada; para
+# desligar, deixe vazio no servidor.yml.
+backup_empresa_lista: /root/.backup_telium
 audios_dir: /var/lib/asterisk/sounds/telium
 gravacoes_dir: /var/spool/asterisk/monitor
 

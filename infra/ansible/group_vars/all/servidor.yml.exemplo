@@ -34,3 +34,9 @@
 
 # Nome da empresa, usado na identificação da central.
 # pabx_empresa: "Sua Empresa"
+
+# Arquivo da ferramenta de backup da empresa (a lista com linhas "I /etc",
+# "I /home"…). O padrão é /root/.backup_telium: o playbook mantém nele um
+# bloco marcado "Telium PABX" com o que é essencial da central, sem tocar
+# nas outras linhas. Em outro lugar, informe aqui; vazio desliga.
+# backup_empresa_lista: "/root/.backup_telium"

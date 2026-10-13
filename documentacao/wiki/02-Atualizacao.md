@@ -213,6 +213,10 @@ O que muda na operação, e não só por dentro. A mais recente primeiro.
 
 A tela **Telium › Versões e Novidades** mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo `api/CHANGELOG.md`). As notas abaixo resumem o que muda para quem opera.
 
+### 1.1.2 — o essencial no backup da empresa
+- O playbook mantém em **`/root/.backup_telium`** um bloco "Telium PABX" com o essencial da central, sem mexer nas outras linhas. Sem o arquivo, nada é feito.
+- Para o banco entrar consistente, **deixe ligada a rotina diária** de backup em Administrador › Backup & Restauração: é ela que gera o dump em `/var/Backup/pabx-telium`.
+
 ### 1.1.1 — backups em /var/Backup
 - Os backups da central passam para **`/var/Backup/pabx-telium`**, dentro do diretório que o backup da empresa já leva. A atualização move os arquivos que estavam em `/var/backup/pabx-telium` e apaga a pasta antiga se ela ficar vazia. Nada a fazer no console.
 - Corrige o playbook, que parava no resumo inicial no ansible-core 2.19 ou mais novo.

@@ -154,6 +154,10 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.1.2 — o essencial no backup da empresa
+- O playbook mantém em **`/root/.backup_telium`** um bloco "Telium PABX" com o essencial da central, sem mexer nas outras linhas. Sem o arquivo, nada é feito.
+- Para o banco entrar consistente, **deixe ligada a rotina diária** de backup em Administrador › Backup & Restauração: é ela que gera o dump em `/var/Backup/pabx-telium`.
+
 ### 1.1.1 — backups em /var/Backup
 - Os backups da central passam para **`/var/Backup/pabx-telium`**, dentro do diretório que o backup da empresa já leva. A atualização move os arquivos que estavam em `/var/backup/pabx-telium` e apaga a pasta antiga se ela ficar vazia. Nada a fazer no console.
 - Corrige o playbook, que parava no resumo inicial no ansible-core 2.19 ou mais novo.

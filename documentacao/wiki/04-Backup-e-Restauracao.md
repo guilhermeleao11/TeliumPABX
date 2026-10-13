@@ -302,6 +302,34 @@ As senhas de serviço (banco, AMI, ARI, TURN) são geradas na instalação e gua
 
 O backup do console não cobre tudo ([seção 3](#3-o-que-entra-em-cada-opção)). A ferramenta de backup da empresa deve levar os diretórios abaixo.
 
+### O bloco automático em /root/.backup_telium
+
+A cada instalação e atualização, o playbook mantém no arquivo da ferramenta da empresa, **`/root/.backup_telium`**, um bloco com o essencial da central. As outras linhas do arquivo não são tocadas. Se o arquivo não existir no servidor, nada é feito. Para outro caminho, use `backup_empresa_lista` no `servidor.yml`; vazio desliga.
+
+```
+# BEGIN Telium PABX — gerado pelo Ansible, não edite este bloco
+I /var/Backup/pabx-telium
+I /etc/telium
+I /etc/asterisk
+I /etc/ssl/telium
+I /var/spool/asterisk
+I /var/lib/asterisk/sounds/telium
+I /var/lib/asterisk/astdb.sqlite3
+I /opt/TeliumPABX/infra/ansible/group_vars/all/servidor.yml
+# END Telium PABX — gerado pelo Ansible, não edite este bloco
+```
+
+| Linha | Por que é essencial |
+|---|---|
+| `/var/Backup/pabx-telium` | O banco num dump consistente. Copiar o `/var/lib/mysql` com o MariaDB rodando não serve: **deixe ligada a rotina diária** em Administrador › Backup & Restauração, para sempre haver um dump recente |
+| `/etc/telium` | Senhas de serviço e certificados enviados pelo console |
+| `/etc/asterisk` | Configuração do Asterisk, inclusive os `_custom.conf` |
+| `/etc/ssl/telium` | Certificado do console |
+| `/var/spool/asterisk` | Gravações, recados (correio de voz e caixas postais) e fax |
+| `/var/lib/asterisk/sounds/telium` | Áudios enviados pelo console (URA, anúncios, música de espera) |
+| `/var/lib/asterisk/astdb.sqlite3` | Siga-me, desvio e não perturbe ligados pelo telefone |
+| `servidor.yml` | Os ajustes deste servidor, que ficam fora do Git |
+
 ### Lista de diretórios
 
 | Diretório | O que tem de importante |

@@ -2,8 +2,15 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
+## 1.1.2 — 2026-10-13
+Commits:
+O essencial da central entra sozinho na lista do backup da empresa.
+
+### Novidades
+- **Backup da empresa**: o playbook mantém em `/root/.backup_telium` um bloco marcado "Telium PABX" com o essencial da central (dump do banco em `/var/Backup/pabx-telium`, `/etc/telium`, `/etc/asterisk`, `/etc/ssl/telium`, gravações e recados em `/var/spool/asterisk`, áudios, base interna do Asterisk e o `servidor.yml`), sem tocar nas outras linhas. Sem o arquivo, não faz nada; outro caminho vai em `backup_empresa_lista` no `servidor.yml`.
+
 ## 1.1.1 — 2026-10-13
-Commits: 749e0a8
+Commits: 749e0a8, 63d1f8d
 Os backups da central passam para /var/Backup, junto do backup da empresa, e o playbook volta a rodar no Ansible novo.
 
 ### Mudanças
