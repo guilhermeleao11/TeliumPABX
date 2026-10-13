@@ -9,7 +9,7 @@
     # console mostra: escrito à mão aqui, ficava para trás a cada versão.
     telium_versao: >-
       {{ lookup('ansible.builtin.file', playbook_dir + '/../../api/src/Suporte/Versao.php')
-         | regex_search("NUMERO = '([^']+)'", '\\1') | first }}
+         | regex_findall("NUMERO = '([^']+)'") | first | default('?') }}
 
   pre_tasks:
     # ---------- o nome desta central ----------
