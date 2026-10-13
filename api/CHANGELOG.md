@@ -2,8 +2,16 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.1.3 — 2026-10-13
+## 1.1.4 — 2026-10-13
 Commits:
+O bloco do Telium no backup da empresa só acrescenta o que falta, sem repetir linha.
+
+### Mudanças
+- **Backup da empresa**: o bloco em `/root/.backup_telium` traz só os diretórios que o arquivo ainda não leva. Uma linha que já existe fora do bloco, ou um diretório coberto por outro acima dela (`I /var/lib` cobre `/var/lib/asterisk`), não se repete; com tudo já no arquivo, o bloco some.
+- **Backup da empresa**: `/Telium`, a pasta da empresa nos servidores, entra na lista do essencial.
+
+## 1.1.3 — 2026-10-13
+Commits: 3b87084
 O backup da empresa leva tudo o que a central precisa para voltar só copiando os arquivos, e o dump do banco passa a existir sempre.
 
 ### Mudanças

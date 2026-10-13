@@ -288,19 +288,34 @@ O backup do console não cobre tudo (seção 3). A ferramenta de backup da empre
 O bloco automático em /root/.backup_telium
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A cada instalação e atualização, o playbook mantém no arquivo da ferramenta da empresa, /root/.backup_telium, um bloco com tudo o que a central precisa para voltar só copiando os arquivos. As outras linhas do arquivo não são tocadas. Se o arquivo não existir no servidor, nada é feito. Para outro caminho, use backup_empresa_lista no servidor.yml; vazio desliga.
+A cada instalação e atualização, o playbook confere o arquivo da ferramenta da empresa, /root/.backup_telium, e acrescenta num bloco marcado só o que ainda falta da lista abaixo. Nada se repete:
+- Uma linha que o arquivo já tem fora do bloco não entra de novo.
+- Um diretório coberto por outro mais acima também não entra: com I /var/lib, o /var/lib/asterisk não é acrescentado.
+- Se o arquivo já tiver tudo, o bloco nem aparece.
 
-    # BEGIN Telium PABX — gerado pelo Ansible, não edite este bloco
+As linhas de vocês nunca são alteradas. Se o arquivo não existir no servidor, nada é feito. Para outro caminho, use backup_empresa_lista no servidor.yml; vazio desliga.
+
+A lista que a central precisa: /etc, /home, /root, /Telium, /opt, /usr/local/sbin, /var/Backup, /var/spool/asterisk e /var/lib/asterisk.
+
+Exemplo, num servidor que vinha do SNEP:
+
     I /etc
     I /home
     I /root
+    I /Telium
+    I /var/Backup
+    I /var/www
+    I /var/lib/asterisk/sounds
+    # BEGIN Telium PABX — gerado pelo Ansible, não edite este bloco
     I /opt
     I /usr/local/sbin
-    I /var/Backup
     I /var/spool/asterisk
     I /var/lib/asterisk
     # END Telium PABX — gerado pelo Ansible, não edite este bloco
 
+Depois da troca do SNEP pelo Telium, a linha /var/www pode sair: o Telium não usa.
+
+- /Telium: A pasta da empresa nos servidores
 - /etc: Sistema e serviços, /etc/telium (senhas de serviço, certificados enviados), /etc/asterisk (com os _custom.conf), /etc/ssl/telium, nginx, coturn, fail2ban
 - /home, /root: Contas dos administradores, a própria lista da ferramenta e backups manuais
 - /opt: O clone /opt/TeliumPABX (com o servidor.yml, fora do Git) e o código publicado /opt/telium (com o api/.env)

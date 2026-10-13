@@ -67,6 +67,7 @@
 # outras linhas ficam como estão.
 #   /etc /home /root /opt     sistema, contas, clone com o servidor.yml e o
 #                             código publicado (api/.env)
+#   /Telium                   a pasta da empresa nos servidores
 #   /usr/local/sbin           os executores da central (backup, certificados…)
 #   /var/Backup               o banco em dump consistente; o /var/lib/mysql
 #                             cru, copiado com o MariaDB rodando, não volta
@@ -79,23 +80,59 @@
   register: backup_empresa
   when: backup_empresa_lista | default('') | length > 0
 
-- name: Pôr o essencial da central no backup da empresa
+# Só o que o arquivo ainda não leva: uma linha que já está lá fora do
+# bloco — ou um diretório acima dela (I /var/lib cobre /var/lib/asterisk) —
+# não se repete aqui. Se tudo já estiver no arquivo, o bloco nem aparece.
+- name: Ler a lista do backup da empresa
+  ansible.builtin.slurp:
+    src: "{{ backup_empresa_lista }}"
+  register: backup_empresa_conteudo
+  when:
+    - backup_empresa_lista | default('') | length > 0
+    - backup_empresa.stat.exists | default(false)
+
+- name: Ver o que falta na lista do backup da empresa
+  ansible.builtin.set_fact:
+    backup_empresa_faltando: >-
+      {%- set fora = (backup_empresa_conteudo.content | b64decode)
+            | regex_replace('(?s)# BEGIN Telium PABX.*?# END Telium PABX[^\n]*\n?', '') -%}
+      {%- set existentes = [] -%}
+      {%- for linha in fora.splitlines() -%}
+        {%- set partes = linha.split() -%}
+        {%- if partes | length >= 2 and partes[0] == 'I' -%}
+          {%- set _ = existentes.append(partes[1].rstrip('/') or '/') -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- set faltando = [] -%}
+      {%- for d in backup_empresa_essencial -%}
+        {%- set ns = namespace(tem=false) -%}
+        {%- for e in existentes -%}
+          {%- if e == '/' or d == e or d.startswith(e ~ '/') -%}{%- set ns.tem = true -%}{%- endif -%}
+        {%- endfor -%}
+        {%- if not ns.tem -%}{%- set _ = faltando.append(d) -%}{%- endif -%}
+      {%- endfor -%}
+      {{ faltando }}
+  vars:
+    backup_empresa_essencial:
+      - /etc
+      - /home
+      - /root
+      - /Telium
+      - /opt
+      - /usr/local/sbin
+      - "{{ backup_dir | dirname }}"
+      - /var/spool/asterisk
+      - /var/lib/asterisk
+  when: backup_empresa_conteudo.content is defined
+
+- name: Pôr no backup da empresa o que falta da central
   ansible.builtin.blockinfile:
     path: "{{ backup_empresa_lista }}"
     marker: "# {mark} Telium PABX — gerado pelo Ansible, não edite este bloco"
     create: false
-    block: |
-      I /etc
-      I /home
-      I /root
-      I /opt
-      I /usr/local/sbin
-      I {{ backup_dir | dirname }}
-      I /var/spool/asterisk
-      I /var/lib/asterisk
-  when:
-    - backup_empresa_lista | default('') | length > 0
-    - backup_empresa.stat.exists | default(false)
+    state: "{{ 'present' if (backup_empresa_faltando | length > 0) else 'absent' }}"
+    block: "{{ backup_empresa_faltando | map('regex_replace', '^', 'I ') | join('\n') }}"
+  when: backup_empresa_faltando is defined
 
 - name: Instalar o executor de backup
   ansible.builtin.template:

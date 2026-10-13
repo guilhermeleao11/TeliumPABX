@@ -19,7 +19,7 @@ namespace Telium\Suporte;
  */
 final class Versao
 {
-    public const NUMERO = '1.1.3';
+    public const NUMERO = '1.1.4';
     public const NOME = 'Telium PABX';
 
     /** "Telium PABX 1.1.0" */
