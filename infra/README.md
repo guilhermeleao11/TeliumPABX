@@ -152,7 +152,7 @@ Duas variáveis que costumam confundir e **não precisam ser mexidas**:
 
 ```bash
 sudo apt update && sudo apt install -y ansible git
-git clone https://gitlab.telium.com.br/Voip/teliumpabx.git /opt/TeliumPABX
+sudo git clone https://gitlab.telium.com.br/Voip/teliumpabx.git /opt/TeliumPABX
 cd /opt/TeliumPABX/infra/ansible
 sudo ansible-playbook site.yml
 ```
@@ -276,18 +276,18 @@ instalação, com 28 caracteres aleatórios cada, e guardadas em
 Reexecutar o playbook reaproveita as mesmas; elas nunca aparecem na tela
 nem entram no Git.
 
-**A senha do console é fixa e conhecida:**
+**A senha inicial do console é a mesma em toda instalação:**
 
 | Usuário | Senha |
 |---|---|
 | `admin` | `T3l1um_@2024_@aD1m` |
 
-Ela é **restaurada a cada execução do playbook**, de propósito: garante
-que sempre exista uma forma conhecida de entrar, mesmo que a conta tenha
-sido bloqueada por tentativas erradas. Se você quer uma conta
-administrativa com senha própria, crie um segundo usuário pelo console.
+O playbook a define **só na primeira instalação** (a marca é
+`/etc/telium/.senha-admin-inicial`); as atualizações não voltam a mexer
+nela. **Troque-a no primeiro acesso**, em Meu Perfil e Segurança.
 
-Trocar depois: `php bin/telium senha admin`.
+Perdeu a senha: `sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin`.
+Perdeu o celular do 2FA: `sudo -u teliumpbx php /opt/telium/api/bin/telium desligar-2fa admin`.
 
 As senhas SIP dos ramais são aleatórias por instalação — ficam no banco e
 aparecem na tela de cada ramal.

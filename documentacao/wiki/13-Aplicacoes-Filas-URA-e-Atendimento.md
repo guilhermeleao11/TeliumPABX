@@ -46,7 +46,7 @@ Nessas telas o destino é escolhido num **seletor único**, agrupado por tipo. S
 | Ramais | Toca o ramal com as regras dele: desvio, não perturbe, siga-me, chamada em espera e, se o ramal tiver correio de voz, cai na caixa quando não atende ou está ocupado |
 | Filas | Entra na fila, com anúncio de entrada, pesquisa e destinos de falha da fila |
 | URAs | Atende e toca o menu da URA |
-| Grupos de toque | Toca todos os ramais do grupo ao mesmo tempo |
+| Grupos de toque | Toca os ramais do grupo, todos juntos ou um de cada vez, conforme o grupo ([seção 5](#5-grupos-de-toque)) |
 | Correio de voz | Vai direto para a caixa do ramal escolhido (mensagem de "indisponível") e desliga depois do recado |
 | Caixas postais | Vai para uma caixa postal avulsa, sem ramal |
 | Anúncios | Toca o anúncio e segue o que ele manda (outro destino ou desligar) |
@@ -68,7 +68,7 @@ Nessas telas o destino é escolhido num **seletor único**, agrupado por tipo. S
 - Destino que aponta para algo excluído ou desativado faz a chamada **cair**. O aviso aparece ao **Aplicar configurações**.
 - Na **rota de entrada**, Tom de ocupado e Tom de congestionamento recusam a chamada sem atendê-la (não é tarifada).
 
-**Destinos na aba Failover da fila:** essa aba é diferente. Ela tem um campo de **tipo** (Ramal, Outra fila, URA, Correio de voz, Anúncio, Destino personalizado, Desligar, ou "— nada, apenas desliga —") e um campo de **valor** digitado à mão. Veja a [seção 3](#aba-failover).
+A aba **Failover** da fila e o **Se ninguém atender** do grupo de toque usam o mesmo seletor. Antes da versão 1.1.0, o failover da fila pedia um tipo e um valor digitado (o "número" da URA era o identificador interno dela); agora a URA, o anúncio e o destino personalizado são escolhidos pelo nome.
 
 ---
 
@@ -96,7 +96,7 @@ Rota de entrada (DID da empresa)
        │             ├─ 1 → Fila 3001 Vendas ──(tempo esgotado)→ correio de voz
        │             ├─ 2 → Fila 3002 Suporte ──(pesquisa ao final, se ligada)
        │             ├─ 0 → Ramal da recepção
-       │             ├─ 2xx/3xx/4 dígitos → ramal direto (se permitido)
+       │             ├─ número de um ramal → ramal direto (se permitido)
        │             └─ ninguém digita → Ramal da recepção
        └─ fora    → Anúncio "Fora do horário" → Caixa postal Recados
 ```
@@ -209,29 +209,13 @@ Todos os áudios das filas são **anúncios** ([seção 9](#9-anúncios)): o sel
 
 ### Aba Failover
 
-Para onde a chamada vai quando sai da fila sem ser atendida, por motivo.
+Para onde a chamada vai quando sai da fila sem ser atendida, por motivo. Os três campos usam o seletor de destino da [seção 1](#1-destinos-para-onde-uma-chamada-pode-ir): a URA, o anúncio e o destino personalizado aparecem pelo nome.
 
-| Campo | Quando vale |
-|---|---|
-| Tempo de espera esgotado — tipo / Tempo esgotado — destino | Passou a espera máxima. **É também a saída padrão**: se o motivo for fila vazia ou cheia e o destino daquele motivo estiver em branco, vale este |
-| Fila sem agente — tipo / Sem agente — destino | Não há agente para atender (fila vazia ou esvaziou durante a espera, conforme a aba Comportamento) |
-| Fila cheia — tipo / Fila cheia — destino | A fila atingiu o máximo de chamadas |
-
-**Tipos:** — nada, apenas desliga —, Ramal, Outra fila, URA, Correio de voz, Anúncio, Destino personalizado, Desligar.
-
-**O valor é digitado**, e precisa ser:
-
-| Tipo | Valor |
-|---|---|
-| Ramal | Número do ramal |
-| Outra fila | Número da fila |
-| Correio de voz | Número do ramal dono da caixa |
-| URA | O identificador interno da URA (não é um número de discagem) |
-| Anúncio | O identificador interno do anúncio |
-| Destino personalizado | O identificador do destino personalizado |
-| Desligar / nada | Deixe em branco |
-
-> Para URA, anúncio e destino personalizado, o identificador não aparece nessas telas. Prefira Ramal, Outra fila ou Correio de voz no failover; se precisar de URA ou anúncio, confira depois de **Aplicar configurações** se apareceu aviso de destino inexistente.
+| Campo | Em branco | Quando vale |
+|---|---|---|
+| Tempo de espera esgotado | **Desligar** | Passou a espera máxima. **É também a saída para qualquer motivo sem destino próprio abaixo** |
+| Fila sem agente | **Igual ao tempo esgotado** | Não há agente para atender (fila vazia ou esvaziou durante a espera, conforme a aba Comportamento) |
+| Fila cheia | **Igual ao tempo esgotado** | A fila atingiu o máximo de chamadas |
 
 > 📷 **Print:** aba **Failover** preenchida com tempo esgotado → correio de voz.
 
@@ -262,11 +246,11 @@ O **x** da linha tira o ramal da lista.
 
 | Código | O que faz |
 |---|---|
-| `*45` + número da fila (ex.: `*453001`) | Entra na fila; se já estava, sai. Ouve "login ok" ou "logged off" |
+| `*45` + número da fila (ex.: `*453001`) | Entra na fila; se já estava, sai. Ouve "login ok" ou "logged off". Entrar só vale para quem está na lista da fila como "Entra por código" |
 | `*46` + número da fila (ex.: `*463001`) | Pausa na fila; de novo, volta a receber. Ouve "ativado" / "desativado" |
 | `*47` + número da fila | Diz quantas chamadas estão esperando |
 
-- O `*45` funciona para **qualquer ramal**, mesmo que não esteja na lista como "Entra por código". A lista serve para documentar quem deve usar.
+- **Entrar** pelo `*45` só vale para o ramal que está na lista de agentes da fila como **Entra por código** (e depois de **Aplicar configurações**). Outro ramal ouve "operação falhou" e não entra. Antes da versão 1.1.0 qualquer ramal entrava em qualquer fila. **Sair** pelo `*45` continua valendo para qualquer membro.
 - Para ramal **Fixo**, use `*46` para pausar e voltar. O `*45` é para quem entra por código: o membro fixo é recriado a cada **Aplicar configurações**.
 - Em fila de **call center**, `*45` e `*46` não funcionam: o telefone responde "operação falhou". Lá se usa o código do agente (`*11`). Veja [16-Call-Center.md](16-Call-Center.md).
 
@@ -380,22 +364,27 @@ Se a escala da pesquisa mudou, as respostas antigas aparecem com `*` ("Respondid
 
 **Aplicações › Grupos de Toque**
 
-Um número que toca em vários ramais ao mesmo tempo. Quem atender primeiro leva.
+Um número que toca em vários ramais: todos juntos ou um de cada vez.
 
 > 📷 **Print:** lista de grupos de toque.
+
+Na lista, a coluna **Toque** mostra o tempo e, para o grupo que toca um de cada vez, a etiqueta **um de cada vez**.
 
 | Campo | O que faz |
 |---|---|
 | Número do grupo * | O número que se disca. Só dígitos, 2 a 10 |
 | Nome * | Como aparece nas listas |
-| Ramais * | Os ramais, separados por hífen: `1000-1001-1002`. Só números de ramal |
-| Tempo de toque (s) | Quanto tempo o grupo toca. Padrão 20 |
+| Ramais * | Os ramais, separados por hífen: `1000-1001-1002`. Só números de ramal. A ordem vale para o "um de cada vez" |
+| Como toca | **Todos ao mesmo tempo — quem atender primeiro leva** (padrão) ou **Um de cada vez, na ordem da lista** |
+| Tempo de toque (s) | De 5 a 300. Padrão 20. **Todos juntos:** quanto o grupo toca. **Um de cada vez:** quanto toca em cada ramal |
+| Se ninguém atender | Destino quando ninguém do grupo atende ou ninguém está disponível, no seletor da [seção 1](#1-destinos-para-onde-uma-chamada-pode-ir). Em branco: **Encerrar a chamada** |
 | Grupo ativo | |
 
 **Comportamento:**
-- Todos tocam **ao mesmo tempo**.
-- O grupo chama o **aparelho** de cada ramal direto: não passa pelo siga-me, desvio ou não perturbe do ramal.
-- Se ninguém atender no tempo de toque, a **chamada é desligada**. A tela não tem destino de falha.
+- **Todos juntos:** tocam ao mesmo tempo os ramais disponíveis; o primeiro que atende fica com a chamada.
+- **Um de cada vez:** toca o primeiro da lista pelo tempo de toque, depois o segundo, e assim por diante; o primeiro que atende fica com a chamada.
+- Quem está em **não perturbe** ou com **desvio de todas as chamadas** ligado fica de fora: o grupo não toca o aparelho dele. O **siga-me** pessoal não é usado (a chamada é do grupo, não da pessoa).
+- Se ninguém atender (ou ninguém estiver disponível), a chamada vai para **Se ninguém atender**; em branco, é encerrada.
 - Ramal excluído ou inativo que ficou na lista gera aviso ao **Aplicar configurações**.
 
 **Quando usar grupo e quando usar fila:** grupo é para "toca todo mundo da sala" sem espera; fila é para quando o cliente pode esperar com música, há métricas e regras de distribuição.
@@ -450,7 +439,7 @@ Botão **Adicionar entrada**. Cada linha:
 4. Tecla que não existe: ouve "opção inválida" e volta ao menu. Depois de insistir o número de **Tentativas**, vai para **Opção inválida**.
 5. Tecla válida: segue para o destino da entrada.
 
-**Discagem direta:** com **Permitir discar o ramal direto**, a URA aceita números de **3 ou 4 dígitos** e manda para o ramal. Ramais com outro tamanho precisam de uma entrada com padrão (ex.: `_5XXXX`).
+**Discagem direta:** com **Permitir discar o ramal direto**, a URA aceita o número de **qualquer ramal cadastrado**, de qualquer tamanho, e manda para ele. Número que não é ramal conta como opção inválida. (Antes da versão 1.1.0, só ramais de 3 ou 4 dígitos funcionavam.)
 
 **Repetir o menu:** uma entrada cujo destino é a própria URA volta ao começo do menu (ex.: `9` → URA Principal = "para ouvir de novo, tecle 9").
 
@@ -491,12 +480,14 @@ Cada sala aparece num cartão com o número, o nome, o limite de pessoas, o anú
 
 ### Aba Entrada
 
+A tela e a API conferem as mesmas regras: número da sala só com dígitos (2 a 10) e PINs só com dígitos (até 10). As regras olham a sala inteira, já com o PIN mantido quando o campo fica em branco na edição.
+
 | Campo | O que faz |
 |---|---|
 | PIN para entrar | Só dígitos (até 10). Sem PIN, qualquer um que disque o número entra. Ao editar, em branco mantém o atual |
-| PIN de administrador | Quem entra com ele administra a sala. Tem de ser diferente do PIN comum. Ao editar, em branco mantém o atual |
+| PIN de administrador | Só dígitos (até 10). Quem entra com ele administra a sala. **Tem de ser diferente do PIN para entrar**: com os dois iguais, todo mundo entraria como administrador, e a central recusa. Ao editar, em branco mantém o atual |
 | Mensagem de anúncio de entrada | Anúncio tocado para quem entra, antes de cair na sala |
-| Só começar quando o administrador entrar | Quem chega antes ouve música. **Quando o administrador sai, a sala encerra** |
+| Só começar quando o administrador entrar | Quem chega antes ouve música. **Quando o administrador sai, a sala encerra**. **Exige um PIN de administrador**: sem ele, ninguém seria administrador e a sala nunca começaria, e a central recusa salvar |
 | Entrar com o microfone mudo | Cada um se libera com a tecla 1. Útil em sala grande |
 
 **Como o PIN é pedido:**
@@ -541,9 +532,24 @@ O botão **Quem está na sala** mostra, ao vivo: canal, quem, papel (**administr
 
 **Aplicações › Gravação de Chamadas**
 
-Lista todas as gravações: de chamadas e de conferências. Aqui se **ouve, baixa uma ou baixa várias num pacote**. **Nada é apagado por esta tela**: quem limpa o disco é a retenção do backup ([04-Backup-e-Restauracao.md](04-Backup-e-Restauracao.md)).
+Lista todas as gravações: de chamadas e de conferências. Aqui se **ouve, baixa uma ou baixa várias num pacote**. Nenhuma gravação se apaga à mão: o disco é limpo pelo **prazo de guarda**.
 
 No topo aparece o espaço livre do disco (em vermelho acima de 85% de uso).
+
+### Prazo de guarda
+
+| Campo | O que faz |
+|---|---|
+| Guardar as gravações por (dias) | De 0 a 3650. **Zero (o padrão) guarda para sempre**, até o disco encher |
+| Salvar prazo | Grava o prazo (precisa da ação **editar** no perfil) |
+
+- Uma vez por dia, o executor de backup apaga do disco as gravações com mais dias que o prazo e as pastas que ficarem vazias. O registro da chamada continua no CDR; a lista passa a mostrar **sem arquivo**.
+- Ao **encurtar** o prazo (ou sair do zero), a tela pede confirmação: as gravações mais antigas que o novo prazo são apagadas em até um minuto e **não há como recuperá-las**. Baixe antes, ou faça um backup com as gravações, se precisar delas.
+- Abaixo do campo aparece o resultado da última limpeza (quando rodou e quantos arquivos apagou).
+- A mudança fica na auditoria, com o prazo de antes e o novo.
+- Defina o prazo com o cliente: gravação é dado pessoal (LGPD), e o disco cheio para a gravação e o correio de voz.
+
+> 📷 **Print:** campo "Guardar as gravações por (dias)" com o resultado da última limpeza.
 
 > 📷 **Print:** lista de gravações com o player aberto numa linha.
 
@@ -627,7 +633,7 @@ Antes, envie o áudio em **Administrador › Gravações do Sistema**. Sem nenhu
 
 | Campo | O que faz |
 |---|---|
-| Descrição * | É como o anúncio aparece nas listas de destino |
+| Nome * | É como o anúncio aparece nas listas de destino |
 | Gravação * | O áudio, vindo de Gravações do Sistema |
 | Repetir | **Desabilitar** ou **Tecla 0–9, \*, #**: a tecla que o cliente aperta para ouvir de novo |
 | Permitir pular | Qualquer tecla interrompe o anúncio e segue para o destino |
@@ -723,7 +729,7 @@ Precisa de ao menos um grupo de horário criado antes ([seção 11](#11-grupos-d
 
 As faixas de tempo que uma condição horária consulta: hora, dia da semana, dia do mês e mês. Um grupo pode ter várias faixas, e **cada faixa vale por si: basta uma casar** para estar dentro.
 
-Cada cartão mostra o nome, a observação, a quantidade de faixas e cada faixa em português (ex.: "segunda a sexta · 08:00 às 18:00").
+Cada cartão mostra o nome, a descrição, a quantidade de faixas e cada faixa em português (ex.: "segunda a sexta · 08:00 às 18:00").
 
 > 📷 **Print:** gaveta de edição de um grupo com duas faixas.
 
@@ -731,8 +737,8 @@ Cada cartão mostra o nome, a observação, a quantidade de faixas e cada faixa 
 
 | Campo | O que faz |
 |---|---|
-| Descrição * | O nome do grupo |
-| Observação | |
+| Nome * | O nome do grupo, como aparece na condição horária |
+| Descrição | Texto livre |
 
 ### Horários (faixas)
 
@@ -790,11 +796,12 @@ Feriados de data móvel (Carnaval, Sexta-feira Santa, Corpus Christi) precisam s
 - **Espera máxima** está em 0 (sem limite). Defina um tempo e o destino de tempo esgotado.
 
 **Ao estourar a fila, a chamada desliga.**
-- O destino de tempo esgotado está em "— nada, apenas desliga —". Preencha o tipo e o valor na aba **Failover**.
-- Failover para URA ou anúncio com valor errado: o valor é o identificador interno, não um número de discagem. Use Ramal, Outra fila ou Correio de voz.
+- **Tempo de espera esgotado** está em branco (**Desligar**). Escolha um destino na aba **Failover**.
+- Fila gravada antes da versão 1.1.0 com URA ou anúncio digitado errado no failover: abra a aba **Failover**, escolha o destino pelo nome e salve.
 
 **`*45` responde "operação falhou".**
 - A fila é de call center: o agente entra com `*11`. Veja [16-Call-Center.md](16-Call-Center.md).
+- O ramal não está na lista de agentes da fila como **Entra por código** (ou faltou **Aplicar configurações** depois de pô-lo lá). Só esses entram pelo `*45`.
 
 **A pesquisa de satisfação nunca toca.**
 - A pesquisa está parada, ou não foi escolhida na aba **Pesquisa** da fila.
@@ -806,7 +813,7 @@ Feriados de data móvel (Carnaval, Sexta-feira Santa, Corpus Christi) precisam s
 - A URA está sem anúncio de saudação (**sem anúncio de saudação** no cartão): ela fica muda, mas ainda espera o dígito.
 
 **Digitar o ramal na URA não funciona.**
-- **Permitir discar o ramal direto** está desligado, ou o ramal não tem 3 ou 4 dígitos.
+- **Permitir discar o ramal direto** está desligado, o ramal está inativo, ou faltou **Aplicar configurações** depois de criar o ramal (a URA conhece os ramais que existiam no último aplicar).
 
 **A condição mostra "Dentro" mas a chamada vai para "Fora" (ou o contrário).**
 - A condição está **forçada** (etiqueta "forçado…" no cartão, tecla BLF acesa). Volte para **Pelo relógio** ou disque o código de novo.
@@ -817,14 +824,15 @@ Feriados de data móvel (Carnaval, Sexta-feira Santa, Corpus Christi) precisam s
 - O prefixo está desligado em **Administrador › Códigos de Recurso**, a condição está inativa, ou faltou aplicar.
 
 **Na conferência, todo mundo fica ouvindo música e a reunião não começa.**
-- **Só começar quando o administrador entrar** está ligado e ninguém entrou com o **PIN de administrador**. Sem PIN de administrador cadastrado, ninguém consegue ser administrador: desligue a opção ou cadastre o PIN.
+- **Só começar quando o administrador entrar** está ligado e ninguém entrou com o **PIN de administrador**. (A central não deixa mais salvar essa opção sem PIN de administrador; uma sala gravada assim antes da versão 1.1.0 precisa do PIN cadastrado ou da opção desligada.)
 
 **A conferência derrubou todos de uma vez.**
 - Com **Só começar quando o administrador entrar**, a sala encerra quando o administrador sai.
 
 **A gravação não aparece.**
 - Nenhuma regra mandou gravar (ramal, fila, rota), ou alguém tem "Nunca".
-- **sem arquivo**: o arquivo foi apagado pela retenção do backup.
+- **sem arquivo**: o arquivo foi apagado pelo prazo de guarda (ou à mão, no servidor).
 
 **O grupo de toque não toca um ramal.**
 - O ramal foi excluído ou desativado (aviso ao aplicar), ou o número na lista está errado.
+- O ramal está em **não perturbe** ou com **desvio de todas as chamadas**: de propósito, o grupo não toca quem está assim.

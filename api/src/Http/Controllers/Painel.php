@@ -39,7 +39,10 @@ final class Painel
             "SELECT
                 COUNT(*) AS total,
                 SUM(disposition = 'ANSWERED') AS atendidas,
-                SUM(disposition IN ('NO ANSWER','BUSY','FAILED')) AS perdidas,
+                -- Só as chamadas de fora: a de ramal para ramal que ninguém
+                -- atendeu não é cliente perdido, e entrava na conta.
+                SUM(direcao = 'entrada') AS entrada,
+                SUM(direcao = 'entrada' AND disposition <> 'ANSWERED') AS perdidas,
                 AVG(NULLIF(billsec, 0)) AS tma
              FROM cdr WHERE DATE(calldate) = CURDATE()"
         ) ?? [];
@@ -51,6 +54,7 @@ final class Painel
 
         $total = (int) ($hoje['total'] ?? 0);
         $perdidas = (int) ($hoje['perdidas'] ?? 0);
+        $entrada = (int) ($hoje['entrada'] ?? 0);
         $totalOntem = (int) ($ontem['total'] ?? 0);
         $tma = (int) round((float) ($hoje['tma'] ?? 0));
 
@@ -84,15 +88,17 @@ final class Painel
                     : 'Asterisk não respondeu',
             ],
             [
+                // O abandono de fila, medido pela fila, está em Desempenho
+                // de Filas; aqui é o que chegou de fora e ninguém atendeu.
                 'chave' => 'abandono',
-                'label' => 'Taxa de abandono',
-                'valor' => $total > 0
-                    ? number_format($perdidas / $total * 100, 1, ',', '.') . '%'
+                'label' => 'Entrada não atendida',
+                'valor' => $entrada > 0
+                    ? number_format($perdidas / $entrada * 100, 1, ',', '.') . '%'
                     : '—',
                 'delta' => null,
                 'ico'   => 'phoneOff',
                 'tone'  => 'warn',
-                'rodape' => $total > 0 ? "{$perdidas} de {$total} chamadas" : 'sem chamadas hoje',
+                'rodape' => $entrada > 0 ? "{$perdidas} de {$entrada} chamadas de fora" : 'nenhuma chamada de fora hoje',
             ],
             [
                 'chave' => 'tma',

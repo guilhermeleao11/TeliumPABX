@@ -25,6 +25,12 @@ writesql=INSERT INTO lista_negra (numero, descricao, tratamento, ativo) VALUES (
 dsn=telium
 writesql=UPDATE lista_negra SET ativo = 0 WHERE numero = '${SQL_ESC(${ARG1})}'
 
+; Cada chamada barrada conta no cadastro: é o "Bloqueios" e o "Último"
+; da tela da lista negra. Set(ODBC_TELIUM_LN_CONTA(<id>)=1)
+[TELIUM_LN_CONTA]
+dsn=telium
+writesql=UPDATE lista_negra SET bloqueios = bloqueios + 1, ultimo_em = NOW() WHERE id = CAST('${SQL_ESC(${ARG1})}' AS UNSIGNED)
+
 ; ------------------------------------------------------------------
 ; Allowlist
 ; ------------------------------------------------------------------

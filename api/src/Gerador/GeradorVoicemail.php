@@ -102,9 +102,14 @@ final class GeradorVoicemail
         );
 
         foreach ($ramais as $r) {
+            // Apagar depois de mandar só quando o recado vai de fato, com o
+            // áudio, para um e-mail: sem endereço (ou sem o anexo), o
+            // "apagar" sumia com o recado sem entregá-lo a ninguém.
+            $anexa = (int) $r['vm_email'] === 1;
+            $apaga = (int) $r['vm_apagar'] === 1 && $anexa && trim((string) $r['email']) !== '';
             $opcoes = [
-                'attach=' . ((int) $r['vm_email'] === 1 ? 'yes' : 'no'),
-                'delete=' . ((int) $r['vm_apagar'] === 1 ? 'yes' : 'no'),
+                'attach=' . ($anexa ? 'yes' : 'no'),
+                'delete=' . ($apaga ? 'yes' : 'no'),
                 'saycid=' . ((int) ($r['vm_dizer_origem'] ?? 1) === 1 ? 'yes' : 'no'),
                 'envelope=' . ((int) ($r['vm_dizer_hora'] ?? 1) === 1 ? 'yes' : 'no'),
                 'maxmsg=' . max(1, (int) ($r['vm_max_mensagens'] ?? 100)),

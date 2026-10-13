@@ -9,6 +9,8 @@ declare(strict_types=1);
  *   php bin/telium aplicar-config   — gera e recarrega o Asterisk
  *   php bin/telium doctor           — diagnóstico das dependências
  *   php bin/telium senha <usuario>  — define uma nova senha
+ *   php bin/telium desligar-2fa <usuario> — desliga a verificação em dois passos
+ *   php bin/telium alertas          — manda os avisos do sistema por e-mail
  *   php bin/telium testar           — roda a bateria de testes
  *   php bin/telium cc-servico       — serviço de tempo real do call center
  */
@@ -34,6 +36,8 @@ try {
         'aplicar-config' => aplicarConfig(),
         'doctor'         => doctor(),
         'senha'          => trocarSenha($argv[2] ?? ''),
+        'desligar-2fa'   => desligar2fa($argv[2] ?? ''),
+        'alertas'        => alertas(),
         'testar'         => testar(),
         'backup-enviar'  => backupEnviar($argv[2] ?? ''),
         'tarifar'        => tarifar($argv[2] ?? ''),
@@ -268,6 +272,50 @@ function trocarSenha(string $usuario): void
     echo "{$verde}✓ senha de {$usuario} atualizada{$zero}\n";
 }
 
+/**
+ * Desliga a verificação em dois passos de um usuário.
+ *
+ * É a saída para quem perdeu o celular do autenticador: sem ela, o único
+ * administrador com 2FA ficava trancado fora do console, e "senha" não
+ * resolvia — a senha nova ainda pedia o código. Encerra as sessões da
+ * pessoa, e fica na auditoria.
+ */
+function desligar2fa(string $usuario): void
+{
+    global $verde, $zero;
+
+    if ($usuario === '') {
+        throw new RuntimeException('uso: php bin/telium desligar-2fa <usuario>');
+    }
+
+    $u = Bd::um('SELECT id, nome, totp_ativo FROM usuarios WHERE usuario = ?', [$usuario]);
+    if ($u === null) {
+        throw new RuntimeException("usuário {$usuario} não encontrado");
+    }
+
+    Bd::executar(
+        'UPDATE usuarios SET totp_ativo = 0, totp_secret = NULL, totp_ultimo_passo = NULL WHERE id = ?',
+        [$u['id']]
+    );
+    Bd::executar('DELETE FROM sessoes WHERE usuario_id = ?', [$u['id']]);
+    \Telium\Dominio\Auditoria::registrar(null, '2fa_desligado', 'admin.usuarios', $usuario, ['origem' => 'terminal']);
+
+    echo (int) $u['totp_ativo'] === 1
+        ? "{$verde}✓ verificação em dois passos de {$usuario} desligada. Ligue de novo em Meu Perfil e Segurança.{$zero}\n"
+        : "{$verde}✓ {$usuario} não estava com a verificação em dois passos ligada.{$zero}\n";
+}
+
+/** Os avisos do sistema por e-mail (Configurações › Notificações e E-mail). */
+function alertas(): void
+{
+    global $verde, $zero;
+
+    $enviados = \Telium\Dominio\Alertas::verificar();
+    echo $enviados === []
+        ? "nenhum aviso a mandar\n"
+        : implode('', array_map(static fn (string $a): string => "{$verde}✓ {$a}{$zero}\n", $enviados));
+}
+
 function ajuda(): void
 {
     // Heredoc não chama método estático: a versão vem numa variável.
@@ -281,8 +329,15 @@ function ajuda(): void
       php bin/telium aplicar-config    gera e recarrega o Asterisk
       php bin/telium doctor            testa banco, AMI, Janus e permissões
       php bin/telium senha <usuario>   define uma nova senha (aceita pipe)
+      php bin/telium desligar-2fa <usuario>
+                                       desliga a verificação em dois passos
+                                       (celular perdido); a pessoa liga de novo
+      php bin/telium alertas           manda por e-mail os avisos pendentes
+                                       (backup com falha, certificado, disco)
+      php bin/telium testar            roda a bateria de testes
       php bin/telium backup-enviar <id> manda o backup para o destino remoto
       php bin/telium tarifar [AAAA-MM]  calcula o custo das chamadas do mês
+      php bin/telium cc-servico        serviço do call center (quem roda é o telium-cc)
 
     TXT;
 }

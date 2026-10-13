@@ -147,7 +147,7 @@ Vale só para fila marcada como call center.
 
 ### Botão "Agentes" numa fila de call center
 
-Numa fila de call center, o botão **Agentes** da lista de filas não monta ramais: ele avisa que os agentes vêm de **Call Center › Agentes**. Os códigos `*45`/`*46` (entrar e sair de fila comum) **não funcionam** em fila de call center.
+Numa fila de call center, o botão **Agentes** da lista de filas não monta ramais: ele avisa que os agentes vêm de **Call Center › Agentes**. Os códigos `*45`/`*46` (entrar e sair de fila comum) **não funcionam** em fila de call center. Na fila comum, o `*45` só põe na fila o ramal que está na lista de agentes dela como **Entra por código** (veja [Filas](13-Aplicacoes-Filas-URA-e-Atendimento.md)).
 
 ---
 

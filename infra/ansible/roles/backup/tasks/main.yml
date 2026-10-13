@@ -1,11 +1,13 @@
 ---
+# A API lê (Baixar, envio ao destino remoto); só o root escreve, porque a
+# restauração, que roda como root, confia no que estiver aqui.
 - name: Criar diretório de backups
   ansible.builtin.file:
     path: "{{ backup_dir }}"
     state: directory
     owner: root
-    group: root
-    mode: "0700"
+    group: "{{ telium_user }}"
+    mode: "0750"
 
 - name: Instalar o executor de backup
   ansible.builtin.template:

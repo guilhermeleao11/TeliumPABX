@@ -291,26 +291,42 @@ final class Backup
         ], 202);
     }
 
-    /** DELETE /api/backup/{id} — apaga o registro e o arquivo */
+    /**
+     * DELETE /api/backup/{id} — apaga o arquivo e o registro.
+     *
+     * O arquivo é do root e a API não escreve na pasta: o backup fica
+     * marcado como "removendo" e o executor, que roda como root, apaga os
+     * dois. Sem arquivo no disco, o registro sai na hora.
+     */
     public function remover(Request $req, Response $res, array $args): Response
     {
         $backup = Bd::um('SELECT * FROM backups WHERE id = ?', [$args['id']]);
         if ($backup === null) {
             return Resposta::erro($res, 'Backup não encontrado', 404);
         }
-
-        if ($backup['arquivo']) {
-            $caminho = rtrim((string) Ambiente::get('BACKUP_DIR', '/var/backup/pabx-telium'), '/')
-                     . '/' . basename((string) $backup['arquivo']);
-            // O arquivo pertence ao root; sem privilégio, apenas soltamos o registro.
-            @unlink($caminho);
+        if (in_array($backup['estado'], ['pendente', 'executando'], true)) {
+            return Resposta::erro($res, 'Este backup ainda está em andamento. Aguarde ele terminar.', 409);
         }
 
-        Bd::executar('DELETE FROM backups WHERE id = ?', [$backup['id']]);
         Auditoria::registrar($req->getAttribute('usuario'), 'excluir', 'admin.backup',
                              (string) ($backup['arquivo'] ?? $backup['id']));
 
-        return Resposta::json($res, ['removido' => true]);
+        if ($this->arquivoDoBackup($backup) === null) {
+            Bd::executar('DELETE FROM backups WHERE id = ?', [$backup['id']]);
+
+            return Resposta::json($res, ['removido' => true]);
+        }
+
+        Bd::executar("UPDATE backups SET estado = 'removendo' WHERE id = ?", [$backup['id']]);
+        $disparo = $this->dispararExecutor();
+
+        return Resposta::json($res, [
+            'removido' => true,
+            'pendente' => true,
+            'detalhe'  => $disparo['ok']
+                ? 'O arquivo está sendo apagado do servidor.'
+                : 'O arquivo será apagado do servidor em até um minuto.',
+        ], 202);
     }
 
     // ------------------------------------------------------------------

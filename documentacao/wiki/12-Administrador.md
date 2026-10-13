@@ -156,7 +156,9 @@ O servidor recusa, com a mensagem no campo:
 ### A conta `admin`
 
 - É criada na instalação, com o perfil **Administrador**.
-- Não aparece o botão de excluir para ela.
+- **Ela nunca pode ser apagada**, nem pela tela nem pela API: a central recusa excluir, trocar o login `admin`, desativar ou bloquear a conta e tirá-la do perfil Administrador. É a conta de recuperação da central.
+- Senha, nome e e-mail dela continuam editáveis.
+- O perfil Administrador também fica travado na matriz de permissões, com acesso a tudo.
 - Cada atualização da central reativa a conta `admin`, tira a trava por senha errada e a mantém no perfil Administrador. A senha **não** é reimposta.
 - Senha perdida: recupera-se pelo terminal do servidor. Veja [Segurança](08-Seguranca.md) e [Comandos e serviços](05-Servidor-Comandos-e-Servicos.md).
 
@@ -186,6 +188,7 @@ Observações:
 - O **Operador** não tem as telas de administração de Siga-me e Correio de Voz (elas listam todos os ramais). O que ele usa é o **Meu Painel**, que só alcança o ramal vinculado à conta.
 - A **Auditoria** (trilha de atividades) é só do Administrador. Os scripts de atualização tiram essa permissão de qualquer outro perfil que a tenha recebido.
 - O perfil **Call Center** também precisa que a pessoa esteja cadastrada em **Call Center › Agentes**. Veja [Call Center](16-Call-Center.md).
+- **Telium › Versões e Novidades** foi dada a todos os perfis na atualização para a 1.1.0, uma vez só: se for retirada de um perfil, a próxima atualização não a devolve.
 - **Telefone (WebRTC)** é um módulo próprio, e nos perfis de fábrica só o Administrador o tem. Para outro perfil usar o softphone do navegador, marque **Telefone (WebRTC)** na matriz.
 
 ### As ações
@@ -213,9 +216,9 @@ A matriz lista os módulos na ordem do menu. Cada linha mostra o nome da tela e 
 | Aplicações | Filas (`apps.filas`), Pesquisa de Satisfação (`apps.pesquisas`), Grupos de Toque (`apps.grupostoque`), URA (`apps.ura`), Conferências (`apps.conferencias`), Gravação de Chamadas (`apps.gravacao`), Anúncios (`apps.anuncios`), Condições Horárias (`apps.condicoes`), Grupos de Horário (`apps.grupohorario`), Siga-me (`apps.sigame`), Correio de Voz (`apps.correiovoz`), Caixas Postais (`apps.caixaspostais`), DISA (`apps.disa`), Estacionamento (`apps.estacionamento`), Megafonia e Interfonia (`apps.paging`), Chamadas de Despertar (`apps.despertar`) |
 | Call Center | Meu Atendimento (`cc.agente`), Monitor ao Vivo (`cc.supervisor`), Agentes (`cc.agentes`), Motivos de Pausa (`cc.pausas`), Tabulações (`cc.tabulacoes`), Retornos (`cc.retornos`), Relatórios (`cc.relatorios`), Configurações (`cc.config`) |
 | Conectividade | Ramais (`conn.ramais`), Troncos (`conn.troncos`), Rotas de Entrada (`conn.rotasentrada`), Rotas de Saída (`conn.rotassaida`), DIDs (`conn.did`), Firewall (`conn.firewall`), Provisionamento (`conn.provisionamento`), Rede (`conn.rede`), WebRTC / Softphone (`conn.webrtc`) |
-| Relatórios | CDR (`rel.cdr`), Desempenho de Filas (`rel.filas`), Desempenho de Ramais (`rel.ramais`), Ocupação de Troncos (`rel.troncos`), Eventos de Canal (`rel.cel`), Produtividade de Agentes (`rel.agentes`) |
+| Relatórios | CDR (`rel.cdr`), Desempenho de Filas (`rel.filas`), Desempenho de Ramais (`rel.ramais`), Ocupação de Troncos (`rel.troncos`), Eventos de Canal (CEL) (`rel.cel`), Produtividade de Agentes (`rel.agentes`) |
 | Configurações | Arquivos e Aplicação (`cfg.avancadas`), SIP / PJSIP (`cfg.sip`), Correio de Voz (`cfg.correiovoz`), Música em Espera (`cfg.musica`), Conjuntos de PIN (`cfg.pinsets`), Fax (`cfg.fax`), Notificações e E-mail (`cfg.notificacoes`), Tabela de Tarifas (`cfg.tarifas`), Dados da Empresa (`cfg.empresa`) |
-| Telium | Tarifação (`telium.tarifacao`), Integrações / API (`telium.integracoes`), Suporte (`telium.suporte`) |
+| Telium | Tarifação (`telium.tarifacao`), Integrações / API (`telium.integracoes`), Suporte (`telium.suporte`), Versões e Novidades (`telium.versoes`) |
 | PCU — Meu Painel | Meu Ramal (`pcu.meuramal`), Minhas Chamadas (`pcu.chamadas`), Meu Correio de Voz (`pcu.correiovoz`), Meu Siga-me (`pcu.sigame`), Meus Contatos (`pcu.contatos`), Meu Perfil e Segurança (`pcu.perfil`) |
 
 ### Botões
@@ -247,7 +250,7 @@ A matriz lista os módulos na ordem do menu. Cada linha mostra o nome da tela e 
 ### Comportamentos automáticos
 
 - A mudança vale para cada usuário **no próximo carregamento** da página.
-- Ao salvar, a matriz grava a **lista exata** de módulos marcados. Curingas de fábrica como "Relatórios (todos)" viram a lista dos módulos que existem hoje; um módulo que entrar numa atualização futura não é dado sozinho a esse perfil. O perfil com tudo marcado que já tinha o curinga total (o Administrador) continua com ele.
+- Ao salvar, a matriz grava os módulos marcados, mas **preserva os curingas**: o perfil que tinha o curinga total (`*`, o Administrador) e continua com tudo marcado fica com ele; o perfil que tinha o curinga de um grupo (por exemplo `rel.*`, "Relatórios (todos)", no Supervisor e na Auditoria) e continua com o grupo inteiro marcado também fica com o curinga. Assim, um módulo novo daquele grupo, chegado numa atualização, aparece sozinho para o perfil. Desmarcar um módulo do grupo troca o curinga pela lista exata do que ficou marcado.
 - Mudanças de perfil que afetam o telefone (por exemplo, quem pode escutar chamadas no call center) só chegam ao Asterisk depois de **Aplicar configurações**.
 
 ---
@@ -275,11 +278,11 @@ A central vem com uma rotina **Backup diário**, às 03:00, com banco, configura
 
 | Campo | O que faz |
 |---|---|
-| Banco de dados | Ramais, filas, rotas, usuários, CDR: tudo o que o console guarda |
-| Configuração | Arquivos do Asterisk, do Janus e do Telium |
-| Áudios do sistema | Saudações de URA, anúncios e música em espera |
+| Banco de dados | Ramais, filas, rotas, usuários, CDR: tudo o que o console guarda, e os estados ligados pelo telefone (siga-me, não perturbe) |
+| Configuração | Arquivos do Asterisk, do Janus e do Telium, e os certificados |
+| Áudios, recados e fax | Saudações de URA, anúncios, música em espera, os recados do correio de voz e das caixas postais, e os fax recebidos |
 | Gravações de chamadas | Pode ficar muito grande. Desligado por padrão |
-| Quantos arquivos manter | Ao passar disso, os mais antigos são apagados. De 1 a 20 |
+| Quantos arquivos manter | Conta só entre os backups feitos à mão: ao passar disso, os manuais mais antigos são apagados. Os das rotinas seguem a retenção de cada rotina. De 1 a 20 |
 
 O backup roda em segundo plano. Só um por vez: com outro em andamento, o pedido é recusado.
 
@@ -294,8 +297,8 @@ Botão **Ajustar** no cartão: nome, **Quando executar** (Todo dia, Uma vez por 
 | Ver detalhes | ver | Mostra a saída do script de backup |
 | Baixar o arquivo | exportar | Baixa o arquivo para o seu computador |
 | Enviar para o destino remoto | exportar | Reenvia o arquivo por FTP/SFTP (com o destino ligado) |
-| Restaurar | aplicar configurações | Substitui o conteúdo atual pelo do backup. **O Asterisk para durante a restauração e as chamadas em andamento caem** |
-| Excluir | excluir | Apaga o arquivo do servidor |
+| Restaurar | aplicar configurações | Substitui o conteúdo atual pelo do backup e refaz a configuração a partir do banco restaurado. **O Asterisk e o call center param durante a restauração e as chamadas em andamento caem** |
+| Excluir | excluir | Apaga o arquivo do servidor e o registro. A linha passa a **Excluindo** e o executor de backup apaga em até um minuto. Não aparece para backup na fila, em andamento ou já sendo excluído |
 
 ### Cópia para fora do servidor
 
@@ -443,6 +446,10 @@ Clique em **Bloquear número**.
 
 O bloqueio pelo telefone vale na hora, entra na lista com o motivo "Bloqueado pelo ramal …" e o tratamento **Desligar na hora**. Os códigos podem ser trocados em **Códigos de Recurso** ([Códigos de Recurso](15-Codigos-de-Recurso.md)).
 
+**Quem pode usar os códigos:** só o ramal vinculado a um usuário ativo cujo perfil tem a tela **Lista Negra**. Os outros ramais ouvem o aviso de acesso negado e a chamada cai. A lista de ramais autorizados é gravada no Asterisk no **Aplicar configurações**: quem ganhou ou perdeu a tela, ou trocou de ramal, passa a valer depois dele.
+
+A coluna **Bloqueios** da lista conta cada chamada barrada por aquela linha (e o cadastro guarda a data do último bloqueio).
+
 ### Regras
 
 - A **Allowlist vem antes**: um número que esteja nela nunca é barrado.
@@ -474,6 +481,8 @@ Números que **nunca** são barrados, mesmo que casem com algum padrão da lista
 | `*39` | Libera quem acabou de ligar para o seu ramal |
 | `*36` + número | Tira o número da allowlist |
 | `*37` | Pausa ou retoma a allowlist **na central inteira**. Disque de novo para religar |
+
+Como na lista negra, só o ramal de um usuário ativo cujo perfil tem a tela **Allowlist** pode usar esses códigos (vale depois de **Aplicar configurações**). Os outros ouvem o aviso de acesso negado.
 
 Mudanças no console valem depois de **Aplicar configurações**; as feitas pelo telefone valem na hora.
 
@@ -649,7 +658,7 @@ O que o usuário disca no telefone para usar cada facilidade: siga-me, não pert
 
 | Campo | O que faz |
 |---|---|
-| Código discado * | Só dígitos, `*` e `#`, até 12. Comece com `*` ou `#` para não colidir com número de ramal |
+| Código discado * | Começa com `*` ou `#` e segue com 1 a 6 caracteres entre dígitos, `*` e `#` (até 7 no total). A tela e a API conferem o mesmo formato |
 | Habilitado | Liga ou desliga o código |
 
 Nome, argumento e descrição são do catálogo e não mudam.
@@ -672,6 +681,7 @@ Para uma facilidade escrita por você no `extensions_custom.conf`.
 
 - Um código discado não pode ser **igual** a outro, nem ser o **começo** de outro (ou ter outro como começo), incluindo os códigos de pausa do call center e das caixas postais. Exemplo: com `*1` em uso, `*14` é recusado. A tela diz com qual bateu.
 - A conferência vale ao trocar o código ou ao religar um código desligado.
+- Os pares que já vêm assim de fábrica e funcionam juntos não contam como colisão: `*8` com `*80`, `*82`, `*85`, `*86`, `*87` e `*88`; `*55` com `*555`; `*77` com `*7777`. Desligar e religar `*8`, `*55` ou `*77` não é mais recusado.
 - **Toda mudança só vale no telefone depois de Aplicar configurações.**
 
 ---
@@ -722,7 +732,7 @@ Os áudios aparecem agrupados por categoria, com nome, arquivo, duração, forma
 
 **Administrador › Auditoria**
 
-A trilha de atividades: quem fez o quê, quando e de onde. A tela abre com o título **Registro de Atividades**.
+A trilha de atividades: quem fez o quê, quando e de onde. O título da tela é **Auditoria**, o mesmo do menu.
 
 Só o perfil **Administrador** tem esta tela.
 
@@ -768,7 +778,9 @@ Os resultados vêm do mais recente para o mais antigo, 30 por página.
 | `testar` | Testes de e-mail e de click to call |
 | `cli_leitura`, `cli_escrita` | Cada comando do CLI Asterisk |
 
-O filtro **Todas as ações** lista só parte dessas ações. Para achar as outras (como os comandos do CLI ou os eventos de 2FA), filtre pelo **módulo** ou procure pelo **objeto**.
+O filtro **Todas as ações** lista todas essas ações: `criar`, `editar`, `excluir`, `aplicar`, `login`, `login_falha`, `login_bloqueio_ip`, `logout`, `senha_falha`, `senha_propria`, `2fa_ligado`, `2fa_desligado`, `exportar`, `importar`, `backup`, `restaurar`, `testar`, `cli_leitura` e `cli_escrita`.
+
+O comando de terminal `telium desligar-2fa` também deixa rastro: registra `2fa_desligado` com a origem **terminal**. A exportação do CDR registra `exportar` com o número de linhas e o período.
 
 ---
 
@@ -806,6 +818,9 @@ O filtro **Todas as ações** lista só parte dessas ações. Para achar as outr
 **Bloqueei um número e ele continua ligando.**
 - Faltou **Aplicar configurações** (bloqueio feito pelo console).
 - O número está na **Allowlist**, ou a allowlist foi pausada/retomada com `*37`.
+
+**O `*30` (ou outro código de lista) responde "acesso negado".**
+- O ramal não está vinculado a um usuário cujo perfil tenha a tela **Lista Negra** (ou **Allowlist**, para `*36` a `*39`). Dê a tela ao perfil, vincule o ramal à conta e clique em **Aplicar configurações**.
 - O número chega em formato diferente do cadastrado (com ou sem 0, DDD ou 55). Confira no CDR como ele aparece.
 
 **O comando no CLI é recusado.**

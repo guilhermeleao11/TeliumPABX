@@ -46,7 +46,7 @@ Mais detalhes sobre os caminhos em [Diretórios, arquivos e logs](06-Diretorios-
 sudo -u teliumpbx php /opt/telium/api/bin/telium <comando>
 ```
 
-Sem comando (ou com um desconhecido), mostra a versão e a ajuda.
+Sem comando (ou com um desconhecido), mostra a versão e a ajuda, com todos os comandos abaixo.
 
 | Comando | O que faz |
 |---|---|
@@ -55,12 +55,12 @@ Sem comando (ou com um desconhecido), mostra a versão e a ajuda.
 | `aplicar-config` | Gera e recarrega o Asterisk. É o mesmo que **Aplicar configurações** no console |
 | `doctor` | Testa banco, AMI, Janus (se houver) e a escrita em `/etc/asterisk/telium` |
 | `senha <usuario>` | Define nova senha de um usuário do console |
+| `desligar-2fa <usuario>` | Desliga a verificação em dois passos de um usuário (celular perdido) |
+| `alertas` | Manda por e-mail os alertas do sistema pendentes (backup, certificado, disco) |
 | `testar` | Roda a bateria de testes |
 | `backup-enviar <id>` | Envia um backup ao destino remoto |
 | `tarifar [AAAA-MM]` | Calcula o custo das chamadas ainda sem custo |
 | `cc-servico` | Serviço de tempo real do call center (quem roda é o `telium-cc`) |
-
-> A ajuda impressa pelo comando não lista `testar` nem `cc-servico`, mas os dois existem.
 
 ### migrar
 
@@ -109,6 +109,30 @@ sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin
 - A senha passa pela mesma regra de força do console.
 - Derruba as sessões abertas do usuário e zera o bloqueio por tentativas erradas.
 - É o caminho para quem perdeu a senha do `admin`.
+- **Não** desliga a verificação em dois passos: para isso, use `desligar-2fa`.
+
+### desligar-2fa
+
+```bash
+sudo -u teliumpbx php /opt/telium/api/bin/telium desligar-2fa admin
+```
+
+- Para quando o único administrador perdeu o celular do autenticador e não consegue entrar no console.
+- Desliga a verificação em dois passos do usuário, derruba as sessões dele e registra na auditoria (`2fa_desligado`, origem terminal).
+- Depois de entrar, a pessoa liga a verificação de novo em **Meu Perfil e Segurança**.
+
+### alertas
+
+```bash
+sudo -u teliumpbx php /opt/telium/api/bin/telium alertas
+```
+
+- Confere e manda por e-mail os alertas do sistema para os endereços de **Configurações › Notificações e E-mail › Mandar os alertas do sistema para** ([Configurações](19-Configuracoes.md)).
+- São quatro: **backup que falhou** (nas últimas 24 h), **nenhum backup concluído há mais de 26 horas** com alguma rotina ligada, **certificado do console** (o que o nginx apresenta na porta 443) **a menos de 15 dias de vencer** ou vencido, e **disco das gravações com menos de 10% livre**.
+- Cada alerta sai no máximo **uma vez por dia**; o de backup com falha, uma vez por backup. A marca do último envio fica na tabela `sistema` (chaves `alerta_…`).
+- Não manda nada se o envio de e-mail estiver desligado ou o campo dos alertas estiver em branco.
+- Mostra o assunto de cada alerta enviado, ou `nenhum aviso a mandar`.
+- Não precisa rodar à mão: o executor de backup (`telium-backup`) o chama de hora em hora (no minuto 07) e logo depois de um backup que falha. Rodar à mão serve para testar o envio.
 
 ### testar
 
@@ -139,27 +163,28 @@ sudo -u teliumpbx php /opt/telium/api/bin/telium tarifar            # o que falt
 sudo -u teliumpbx php /opt/telium/api/bin/telium tarifar 2026-09    # só aquele mês
 ```
 
-- Chamada já tarifada não é recalculada.
+- Chamada já tarifada não é recalculada. Para refazer um mês inteiro com os preços de agora, use **Recalcular o mês** em **Telium › Tarifação** ([Tarifação](20-Telium-Tarifacao-Integracoes-Suporte.md)).
 - Avisa quando todas as tarifas estão com preço zero e quando há chamadas sem tarifa que se aplique.
 - Roda sozinho de hora em hora pelo `telium-tarifar.timer`.
 
 ### cc-servico
 
-Escuta os eventos de fila do Asterisk e alimenta os painéis do call center em `127.0.0.1:8095`. **Não rode à mão**: quem o mantém no ar é o serviço `telium-cc` ([seção 5](#5-serviços)).
+Escuta os eventos de fila do Asterisk e alimenta os painéis do call center em `127.0.0.1:8095`. Também é ele que manda os **webhooks** de chamada (`chamada.tocando`, `chamada.atendida`, `chamada.encerrada`) cadastrados em **Telium › Integrações / API**. **Não rode à mão**: quem o mantém no ar é o serviço `telium-cc` ([seção 5](#5-serviços)).
 
 ---
 
 ## 3. Scripts em /usr/local/sbin
 
-Instalados pelo Ansible, rodam como root e **não recebem argumentos** (exceto o `telium-fail2ban`): leem o que fazer no banco. A API os aciona por regras de sudo próprias em `/etc/sudoers.d`.
+Instalados pelo Ansible. Quase todos rodam como root e **não recebem argumentos** (exceto o `telium-fail2ban`): leem o que fazer no banco. A API os aciona por regras de sudo próprias em `/etc/sudoers.d`. O `telium-fax-email` é a exceção: quem o chama é o Asterisk, com argumentos.
 
 | Script | Para que serve | Quem aciona |
 |---|---|---|
-| `telium-backup` | Executa restauração pedida, rotinas vencidas e backups na fila | Console + `telium-backup.timer` |
+| `telium-backup` | Executa a restauração pedida, apaga os backups marcados para excluir, roda as rotinas vencidas e os backups na fila; uma vez por dia, apaga as gravações que passaram do prazo de guarda; de hora em hora (no minuto 07) e logo depois de um backup que falha, roda `telium alertas` | Console + `telium-backup.timer` |
 | `telium-certificados` | Aplica certificados pendentes no nginx, Asterisk (SIP TLS), coturn e Janus; volta o anterior se o serviço recusar | Console + `telium-certificados.timer` |
 | `telium-smtp` | Gera a configuração do msmtp (envio de recado por e-mail) a partir da tabela `smtp` | Console (ao salvar o e-mail) e playbook |
 | `telium-fail2ban` | Ponte do console com o fail2ban: lista e desbane IPs, aplica a lista "Nunca bloquear" | Console (Conectividade › Firewall) e playbook |
-| `telium-despertador` | Liga para os ramais com despertador marcado (pelo `*68` ou pelo console) | `telium-despertador.timer` |
+| `telium-despertador` | Liga para os ramais com despertador marcado (pelo `*68` ou pelo console). Se ninguém atende, tenta de novo: o despertador do console, quantas vezes e com o intervalo do cadastro; o do `*68`, mais duas vezes, a cada dois minutos. As tentativas em curso ficam em `/var/lib/telium/despertador`, e o resultado (atendeu ou não atendeu) vai para o cadastro | `telium-despertador.timer` |
+| `telium-fax-email` | Manda o fax recebido por e-mail: converte o TIFF em PDF (com o `tiff2pdf`, do pacote `libtiff-tools`; sem ele, vai o TIFF) e envia pelo mesmo `sendmail` (msmtp) do recado do correio de voz. Só aceita arquivo em `/var/spool/asterisk/fax` e registra o resultado no syslog com a marca `telium-fax` | O Asterisk, ao fim de cada fax recebido, quando há e-mail em **Configurações › Fax** (roda como `asterisk`) |
 
 Uso à mão:
 
@@ -196,7 +221,7 @@ Ficam no clone, não no código publicado.
 | Serviço | O que faz | Observação |
 |---|---|---|
 | `asterisk` | A central telefônica | Roda como `asterisk`. `systemctl reload asterisk` faz `core reload` |
-| `telium-cc` | Tempo real do call center: painéis, códigos de agente no telefone, retornos | Roda como `teliumpbx`, reinicia sozinho se cair. Sem ele o console funciona, mas o telefone não loga agente |
+| `telium-cc` | Tempo real do call center: painéis, códigos de agente no telefone, retornos; e o envio dos webhooks de chamada | Roda como `teliumpbx`, reinicia sozinho se cair. Sem ele o console funciona, mas o telefone não loga agente |
 | `mariadb` | Banco `telium_pabx` | Escuta só em `127.0.0.1` |
 | `nginx` | HTTPS do console, API, `/ws` do softphone | |
 | `php8.4-fpm` | Executa a API (pool `telium`, socket `/run/php/telium.sock`) | |
@@ -224,7 +249,7 @@ O Asterisk depende do MariaDB de forma fraca (`Wants`): reiniciar o MariaDB não
 
 | Timer | Executa | Quando (`OnCalendar`) |
 |---|---|---|
-| `telium-backup.timer` | `telium-backup.service` → `/usr/local/sbin/telium-backup` | A cada minuto (`*:0/1`) |
+| `telium-backup.timer` | `telium-backup.service` → `/usr/local/sbin/telium-backup` (e, por ele, a limpeza diária das gravações e os alertas de hora em hora) | A cada minuto (`*:0/1`) |
 | `telium-certificados.timer` | `telium-certificados.service` → `/usr/local/sbin/telium-certificados` | A cada minuto (`*:0/1`) |
 | `telium-despertador.timer` | `telium-despertador.service` → `/usr/local/sbin/telium-despertador` | A cada minuto (`*:0/1`) |
 | `telium-tarifar.timer` | `telium-tarifar.service` → `telium tarifar` (como `teliumpbx`) | De hora em hora (`hourly`) |
@@ -319,7 +344,7 @@ Tabelas mais consultadas:
 | `cdr`, `cel` | Registro das chamadas |
 | `queue_log` | Eventos das filas (relatórios de call center) |
 | `cc_agentes`, `cc_atendimentos`, `cc_retornos` | Call center |
-| `sistema` | Ajustes gerais (ex.: `config_pendente`) |
+| `sistema` | Ajustes gerais (ex.: `config_pendente`, `gravacoes_reter_dias`, a marca do último envio de cada alerta) |
 | `backups`, `backup_rotinas` | Backup |
 | `auditoria` | Quem fez o quê no console |
 
@@ -390,9 +415,10 @@ curl -sk https://127.0.0.1/api/health  # a API responde?
 | Asterisk (segurança, falhas de senha) | `sudo tail -f /var/log/asterisk/security` |
 | API | `sudo tail -f /var/log/telium/php-api.log` |
 | Envio de e-mail | `sudo tail -f /var/log/telium-smtp.log` |
+| Fax por e-mail | `journalctl -t telium-fax` |
 | nginx | `sudo tail -f /var/log/nginx/error.log` e `access.log` |
 | MariaDB | `sudo tail -f /var/log/mysql/error.log` |
-| Serviços Telium | `journalctl -u telium-cc -f` (e `telium-backup`, `telium-certificados`, `telium-despertador`, `telium-tarifar`) |
+| Serviços Telium | `journalctl -u telium-cc -f` (e `telium-backup`, `telium-certificados`, `telium-despertador`, `telium-tarifar`). Os alertas por e-mail aparecem no `telium-backup` com o prefixo `alertas:`; os erros de webhook, no `telium-cc` com o prefixo `webhook:` |
 | coturn, fail2ban | `journalctl -u coturn`, `journalctl -u fail2ban` |
 
 Rotação e localização de cada arquivo em [Diretórios, arquivos e logs](06-Diretorios-Arquivos-e-Logs.md).
@@ -422,4 +448,4 @@ O `telium-cc` está parado: `sudo systemctl restart telium-cc` e `journalctl -u 
 
 ### Mudei um .conf à mão e a mudança sumiu
 
-Os arquivos de `/etc/asterisk/telium` são regerados a cada **Aplicar configurações**, e os de `/etc/asterisk` a cada playbook. Personalização vai em `pjsip_custom.conf` ou `extensions_custom.conf`. Veja [Diretórios, arquivos e logs](06-Diretorios-Arquivos-e-Logs.md).
+Os arquivos de `/etc/asterisk/telium` são regerados a cada **Aplicar configurações**, e os de `/etc/asterisk` a cada playbook. Personalização vai no `_custom.conf` correspondente (`pjsip_custom.conf`, `extensions_custom.conf`, `queues_custom.conf`, `voicemail_custom.conf`…), e usuário extra do AMI ou do ARI em `/etc/asterisk/manager_custom.conf` ou `ari_custom.conf`: nem o console nem o playbook sobrescrevem esses arquivos. Veja [Diretórios, arquivos e logs](06-Diretorios-Arquivos-e-Logs.md).

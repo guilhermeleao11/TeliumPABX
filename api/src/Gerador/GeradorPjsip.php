@@ -430,6 +430,13 @@ final class GeradorPjsip
         return 'telium-de-' . (preg_replace('/[^A-Za-z0-9_-]/', '-', (string) $t['nome']) ?? 'tronco');
     }
 
+    private static function faxLigado(): bool
+    {
+        static $ligado = null;
+
+        return $ligado ??= (int) (Bd::valor('SELECT ativo FROM fax_geral WHERE id = 1') ?? 0) === 1;
+    }
+
     public function tronco(Bloco $b, array $t): void
     {
         $nome   = $this->identificador((string) $t['nome']);
@@ -462,6 +469,15 @@ final class GeradorPjsip
           ->crua('rewrite_contact = yes')
           ->crua("set_var = TELIUM_TRONCO={$t['nome']}")
           ->crua('trust_id_inbound = yes');
+
+        // Fax: com a recepção ligada em Configurações › Fax, o tronco aceita
+        // T.38 — é o que a operadora usa para fax sobre VoIP. Sem ele, o fax
+        // ia em G.711 e falhava em qualquer perda de pacote.
+        if (self::faxLigado()) {
+            $b->crua('t38_udptl = yes')
+              ->crua('t38_udptl_ec = redundancy')
+              ->crua('t38_udptl_maxdatagram = 400');
+        }
 
         if ($t['from_user']) {
             $b->crua("from_user = {$t['from_user']}");

@@ -371,16 +371,20 @@ exten => s,1,Answer()
 ; A hora marcada fica na base do Asterisk (família despertar), gravada
 ; pelo código *68.
 ; ------------------------------------------------------------------
+; O ramal chega como extensão: no canal originado o CallerID vem vazio.
+; Atender marca a família despertar-atendido, que é como o disparador
+; sabe que não precisa tentar de novo.
 [telium-despertador]
-exten => s,1,NoOp(Despertador do ramal ${CALLERID(num)})
+exten => _X.,1,NoOp(Despertador do ramal ${EXTEN})
  same => n,Answer()
+ same => n,Set(DB(despertar-atendido/${EXTEN})=${EPOCH})
  same => n,Wait(1)
  ; O disparador deixa aqui o anúncio escolhido para este ramal.
- same => n,Set(TELIUM_ANUN=${DB(despertar-anuncio/${CALLERID(num)})})
- same => n,NoOp(${DB_DELETE(despertar-anuncio/${CALLERID(num)})})
+ same => n,Set(TELIUM_ANUN=${DB(despertar-anuncio/${EXTEN})})
+ same => n,NoOp(${DB_DELETE(despertar-anuncio/${EXTEN})})
  same => n,GotoIf($["${TELIUM_ANUN}" = ""]?hora)
  same => n,Goto(telium-anuncios,${TELIUM_ANUN},1)
- same => n(hora),Playback(hello)
+ same => n(hora),Playback(this-is-yr-wakeup-call)
  same => n,SayUnixTime(,${TELIUM_TZ},HM)
  same => n,Wait(1)
  same => n,Playback(goodbye)

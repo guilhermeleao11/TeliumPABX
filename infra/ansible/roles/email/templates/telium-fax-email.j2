@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# =========================================================
+# {{ ansible_managed }}
+# Telium PABX — manda o fax recebido por e-mail
+#
+#   telium-fax-email <arquivo.tif> <para> <de> <número de quem mandou> <status>
+#
+# Chamado pelo dialplan (hangup handler do código de receber fax), como o
+# usuário do Asterisk. Converte o TIFF em PDF quando o tiff2pdf existe —
+# PDF abre em qualquer lugar, TIFF de fax não — e entrega pelo mesmo
+# sendmail (msmtp) do recado do correio de voz.
+# =========================================================
+set -uo pipefail
+
+arquivo="${1:-}"; para="${2:-}"; de="${3:-}"; origem="${4:-}"; status="${5:-}"
+
+# Nada aqui vem de quem está do lado de fora sem passar por filtro: o
+# número chega só com dígitos e os endereços, no formato de e-mail.
+origem=$(printf '%s' "$origem" | tr -cd '0-9')
+status=$(printf '%s' "$status" | tr -cd 'A-Za-z_')
+valido() { printf '%s' "$1" | grep -Eq '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'; }
+valido "$para" || { logger -t telium-fax "destino inválido: ${para}"; exit 0; }
+valido "$de" || de="pabx@localhost"
+case "$arquivo" in /var/spool/asterisk/fax/*.tif) ;; *) logger -t telium-fax "arquivo fora do lugar: ${arquivo}"; exit 0 ;; esac
+
+if [ ! -s "$arquivo" ]; then
+  logger -t telium-fax "fax de ${origem:-desconhecido} não chegou (${status:-sem status})"
+  exit 0
+fi
+
+anexo="$arquivo"; tipo="image/tiff"
+if command -v tiff2pdf >/dev/null 2>&1; then
+  pdf="${arquivo%.tif}.pdf"
+  if tiff2pdf -o "$pdf" "$arquivo" 2>/dev/null; then anexo="$pdf"; tipo="application/pdf"; fi
+fi
+nome=$(basename "$anexo")
+limite="telium-$(date +%s)-$$"
+
+{
+  printf 'From: %s\nTo: %s\nSubject: Fax recebido de %s\n' "$de" "$para" "${origem:-número não identificado}"
+  printf 'MIME-Version: 1.0\nContent-Type: multipart/mixed; boundary="%s"\n\n' "$limite"
+  printf -- '--%s\nContent-Type: text/plain; charset=utf-8\n\n' "$limite"
+  printf 'Fax recebido em %s, de %s.\nO arquivo está anexado.\n\n-- Telium PABX\n\n' \
+    "$(date '+%d/%m/%Y %H:%M')" "${origem:-número não identificado}"
+  printf -- '--%s\nContent-Type: %s; name="%s"\nContent-Transfer-Encoding: base64\nContent-Disposition: attachment; filename="%s"\n\n' \
+    "$limite" "$tipo" "$nome" "$nome"
+  base64 "$anexo"
+  printf -- '\n--%s--\n' "$limite"
+} | /usr/sbin/sendmail -t && logger -t telium-fax "fax de ${origem:-desconhecido} enviado para ${para}" \
+  || logger -t telium-fax "falha ao enviar o fax de ${origem:-desconhecido} para ${para}"
+exit 0

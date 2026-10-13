@@ -58,6 +58,7 @@ Estados no histórico:
 | **Executando** | O executor está montando o arquivo |
 | **Concluído** | Arquivo pronto |
 | **Falhou** | Algo deu errado. O botão de detalhes mostra a saída (ex.: `banco: FALHOU — …`) |
+| **Excluindo** | Exclusão pedida pelo console; o executor apaga o arquivo e o registro em até um minuto |
 
 Quando a retenção já apagou o arquivo, a coluna Arquivo mostra **removido pela retenção**.
 
@@ -77,16 +78,20 @@ Ações por linha (dependem das permissões do perfil):
 
 ## 3. O que entra em cada opção
 
-Cada backup é um arquivo `telium-AAAAMMDD-HHMMSS.tar.gz`, com permissão `0600` (só root). Dentro dele:
+Cada backup é um arquivo `telium-AAAAMMDD-HHMMSS.tar.gz`, do root, com leitura para o grupo da API (`root:teliumpbx`, `0640`): é assim que o console consegue entregar o **Baixar** e mandar o arquivo ao destino remoto. A pasta é `root:teliumpbx`, `0750`: a API lê, mas só o root escreve. Dentro dele:
 
 | Opção no console | Padrão | O que vai no arquivo | De onde vem |
 |---|---|---|---|
 | **Banco de dados** | ligado | `banco.sql` | Dump da base `telium_pabx` (`mariadb-dump --single-transaction --routines`): ramais, troncos, filas, rotas, usuários, CDR, call center, tarifas, configuração de e-mail e do destino remoto — tudo o que o console guarda |
+| | | `astdb.sqlite3` | `/var/lib/asterisk/astdb.sqlite3`: os estados ligados pelo telefone (siga-me, desvio, não perturbe, listas, despertador do `*68`) |
 | **Configuração** | ligado | `config/asterisk/` | `/etc/asterisk` inteiro, incluindo os `.conf` gerados (`/etc/asterisk/telium`) e as chaves do SIP TLS (`/etc/asterisk/keys`) |
 | | | `config/telium/` | `/etc/telium` inteiro: senhas de serviço (`credenciais/`), cofre de certificados enviados pelo console (`certificados/`), `msmtprc`, `instalacao.txt` |
+| | | `config/ssl-telium/` | `/etc/ssl/telium`: o certificado ativo do console e o par de fábrica |
 | | | `config/janus/` | `/opt/janus/etc/janus`, só se o Janus estiver instalado |
 | | | `config/odbc.ini`, `config/odbcinst.ini` | `/etc/odbc.ini` e `/etc/odbcinst.ini` (conexão do Asterisk com o banco) |
-| **Áudios do sistema** | ligado | `audios/` | `/var/lib/asterisk/sounds/telium`: anúncios, saudações de URA e música em espera enviados pelo console (a música fica em `moh/`) |
+| **Áudios, recados e fax** | ligado | `audios/` | `/var/lib/asterisk/sounds/telium`: anúncios, saudações de URA e música em espera enviados pelo console (a música fica em `moh/`) |
+| | | `recados/` | `/var/spool/asterisk/voicemail`: os recados do correio de voz dos ramais e das caixas postais |
+| | | `fax/` | `/var/spool/asterisk/fax`: os fax recebidos (o `.tif` e, quando o fax foi mandado por e-mail, o `.pdf`) |
 | **Gravações de chamadas** | desligado | `gravacoes/` | `/var/spool/asterisk/monitor` inteiro (pastas `AAAA/MM/DD`) |
 | (sempre) | — | `manifesto.txt` | Data, nome do servidor, opções escolhidas e versão do Asterisk |
 
@@ -94,11 +99,7 @@ Cada backup é um arquivo `telium-AAAAMMDD-HHMMSS.tar.gz`, com permissão `0600`
 
 | Fica de fora | Onde está |
 |---|---|
-| Recados de correio de voz e caixas postais | `/var/spool/asterisk/voicemail` |
-| Faxes recebidos | `/var/spool/asterisk/fax` |
 | Ditados | `/var/spool/asterisk/dictate` |
-| Estado gravado pelos códigos do telefone (siga-me, não perturbe, despertador do `*68`…) | `/var/lib/asterisk/astdb.sqlite3` |
-| Certificado ativo do nginx e o par de fábrica | `/etc/ssl/telium` |
 | Certificado do TURN | `/etc/coturn` |
 | Fotos dos contatos da agenda | `/opt/telium/web/uploads/contatos` |
 | `servidor.yml` e `vault.yml` do clone | `/opt/TeliumPABX/infra/ansible/group_vars/all/` |
@@ -111,8 +112,8 @@ Esses itens precisam estar no [backup corporativo](#11-backup-corporativo-ferram
 ## 4. Fazer backup agora
 
 1. **Administrador › Backup & Restauração › Fazer backup agora**.
-2. Escolha o conteúdo: **Banco de dados**, **Configuração**, **Áudios do sistema**, **Gravações de chamadas**.
-3. **Quantos arquivos manter** (padrão 5, de 1 a 20): ao passar disso, os mais antigos são apagados.
+2. Escolha o conteúdo: **Banco de dados**, **Configuração**, **Áudios, recados e fax**, **Gravações de chamadas**.
+3. **Quantos arquivos manter** (padrão 5, de 1 a 20): conta só entre os backups feitos à mão. Ao passar disso, os manuais mais antigos são apagados; os das rotinas seguem a retenção de cada rotina.
 4. **Iniciar backup**. Ele roda em segundo plano; pode sair da tela.
 
 - Só um backup por vez: com outro na fila ou executando, o console recusa (*Já existe um backup em andamento*).
@@ -142,7 +143,7 @@ Como a rotina dispara:
 
 - O temporizador `telium-backup.timer` roda **a cada minuto**. Quando a hora da rotina bate com a hora atual (e o dia, para semanal e mensal), ele cria um backup `agendado` e o executa.
 - Cada rotina roda **no máximo uma vez por dia**.
-- **Retenção:** depois de cada backup, ficam só os N arquivos `telium-*.tar.gz` mais recentes da pasta, onde N é a retenção **daquele** backup. A contagem é da pasta inteira, sem separar manual de agendado: um backup manual com retenção 2 apaga arquivos de uma rotina que mantinha 5.
+- **Retenção:** depois de cada backup, ficam só os N mais recentes **do mesmo grupo**: cada rotina conta os seus, e os backups manuais contam entre si. Um backup manual com retenção 2 não apaga os arquivos de uma rotina que mantém 5.
 - Prefira dia do mês até 28 nas rotinas mensais, para valer em fevereiro.
 
 > 📷 **Print:** painel "Ajustar Backup diário".
@@ -191,7 +192,7 @@ O selo do bloco mostra **último envio: ok**, **último envio: falhou** ou **ain
 
 - **Baixar o arquivo**: leva o `.tar.gz` para o computador. Só aparece para backup concluído cujo arquivo ainda está no servidor.
 - **Enviar para o destino remoto**: reenvia um backup específico agora (útil depois de corrigir o destino).
-- **Excluir**: remove o registro do histórico e tenta apagar o arquivo. O arquivo pertence ao root; se a API não conseguir apagá-lo, só o registro some e o arquivo sai pela retenção.
+- **Excluir**: apaga o arquivo e o registro. Como o arquivo é do root, a linha passa a **Excluindo** e o executor de backup apaga os dois em até um minuto. Backup na fila ou em andamento não pode ser excluído.
 
 Pelo terminal, o envio de um backup é `sudo -u teliumpbx php /opt/telium/api/bin/telium backup-enviar <id>` (o `id` é o número do backup). Veja [Comandos e serviços](05-Servidor-Comandos-e-Servicos.md).
 
@@ -206,24 +207,19 @@ Pelo terminal, o envio de um backup é `sudo -u teliumpbx php /opt/telium/api/bi
 O que acontece, em ordem:
 
 1. O arquivo é extraído numa pasta temporária.
-2. `systemctl stop asterisk`.
-3. Se houver `banco.sql`, a base `telium_pabx` é restaurada.
-4. Se houver `config/asterisk`, ele é copiado por cima de `/etc/asterisk` (dono `asterisk:asterisk`).
-5. Se houver `audios/`, ele é copiado por cima de `/var/lib/asterisk/sounds/telium`.
-6. `systemctl start asterisk`.
-
-**O que a restauração NÃO volta**, mesmo estando no arquivo:
-
-| Item | Como voltar, se precisar |
-|---|---|
-| `config/telium` (`/etc/telium`) | Copiar à mão do arquivo extraído |
-| `config/janus`, `odbc.ini`, `odbcinst.ini` | Copiar à mão |
-| `gravacoes/` | Copiar à mão para `/var/spool/asterisk/monitor` |
+2. O call center (`telium-cc`) e o Asterisk são parados.
+3. Se houver `banco.sql`, a base `telium_pabx` é restaurada. O **histórico de backups** fica o deste servidor, e não o do arquivo, para o console continuar enxergando os arquivos que estão na pasta.
+4. Se houver `astdb.sqlite3`, os estados do telefone (siga-me, não perturbe…) voltam.
+5. Se houver `config/asterisk`, ele é copiado por cima de `/etc/asterisk`, **menos** `manager.conf`, `res_odbc.conf` e `ari.conf`: esses têm as senhas deste servidor, e as do arquivo desligariam a API e o CDR.
+6. Do `config/telium` volta só o cofre de certificados (`/etc/telium/certificados`). As senhas de serviço (`/etc/telium/credenciais`) ficam as deste servidor.
+7. Se houver `config/ssl-telium`, o certificado do console volta e o nginx é recarregado.
+8. Áudios, recados, fax e gravações voltam para as pastas de cada um, com o dono certo.
+9. O Asterisk sobe, a configuração é refeita a partir do banco restaurado (como num **Aplicar configurações**) e o call center volta.
 
 Outros pontos:
 
 - A cópia é **por cima**: arquivo criado depois do backup continua lá.
-- O serviço `telium-cc` não é parado. Depois de restaurar, reinicie-o (`sudo systemctl restart telium-cc`) para ele reler o banco.
+- Não voltam: `config/janus`, `odbc.ini` e `odbcinst.ini` (são do playbook; copie à mão do arquivo extraído, se precisar).
 - Confira com a bateria de testes: `sudo -u teliumpbx php /opt/telium/api/bin/telium testar`.
 
 > 📷 **Print:** confirmação "Restaurar este backup?".
@@ -298,7 +294,7 @@ As senhas de serviço (banco, AMI, ARI, TURN) são geradas na instalação e gua
 3. Restaure o banco, os áudios e, se quiser, as gravações, recados e faxes.
 4. `sudo -u teliumpbx php /opt/telium/api/bin/telium aplicar-config` e a bateria `testar`.
 
-> Restaurar o `/etc/asterisk` de um servidor em outro **sem** as mesmas credenciais deixa o `manager.conf` e o `res_odbc.conf` com senhas diferentes das do `.env` da API e do banco: o AMI recusa o login e o CDR para de gravar. Nesse caso, rode o playbook de novo para reescrever esses arquivos.
+> A restauração pelo console mantém o `manager.conf`, o `res_odbc.conf`, o `ari.conf` e o `/etc/telium/credenciais` do servidor em que roda, e refaz a configuração a partir do banco. Restaurar o backup de um servidor em outro não derruba mais o AMI nem o CDR. Quem copiar o `/etc/asterisk` **à mão** de um servidor para outro sem as mesmas credenciais ainda cai nesse problema: rode o playbook de novo para reescrever esses arquivos.
 
 ---
 
@@ -357,9 +353,10 @@ O mesmo vale, em menor grau, para o `astdb.sqlite3`: é um SQLite aberto pelo As
 ## 12. Como funciona por dentro
 
 - A API **não copia arquivo nenhum**: grava o pedido na tabela `backups` (ou a chave `restaurar_backup_id` na tabela `sistema`) e dispara `sudo -n /usr/local/sbin/telium-backup`, que roda como root.
-- A regra de sudo (`/etc/sudoers.d/telium-backup`) não aceita argumento. O executor descobre o que fazer lendo o banco: primeiro uma restauração pedida, depois as rotinas vencidas, depois os backups na fila (até 3 por rodada).
+- A regra de sudo (`/etc/sudoers.d/telium-backup`) não aceita argumento. O executor descobre o que fazer lendo o banco: primeiro uma restauração pedida, depois os backups marcados para excluir, as rotinas vencidas, os backups na fila (até 3 por rodada) e, uma vez por dia, as gravações que passaram do prazo de guarda ([Aplicações › Gravação de Chamadas](13-Aplicacoes-Filas-URA-e-Atendimento.md)).
 - O `telium-backup.timer` roda o mesmo executor a cada minuto, como rede de segurança.
 - Depois de um backup sem erro, o executor chama `telium backup-enviar <id>` como `teliumpbx` para o destino remoto, e só então aplica a retenção.
+- **Alertas por e-mail:** logo depois de um backup que falhou, e de hora em hora (no minuto 07), o executor roda `telium alertas` como `teliumpbx`. Ele avisa backup com falha (um e-mail por backup) e rotina ligada sem nenhum backup concluído há mais de 26 horas, além de certificado perto de vencer e disco quase cheio. Os e-mails vão para o campo **Mandar os alertas do sistema para**, em **Configurações › Notificações e E-mail**; em branco, nenhum alerta sai. Veja [Configurações](19-Configuracoes.md).
 
 > O comando `telium-backup` chamado sozinho **não faz um backup novo**: executa o que o console pediu e as rotinas vencidas. Para um backup na hora, use o console ou o [terminal](#9-backup-e-restauração-manuais-pelo-terminal).
 
@@ -380,11 +377,13 @@ journalctl -u telium-backup -n 50 --no-pager
 
 ### O backup termina em "Falhou"
 
+Com os alertas configurados em **Configurações › Notificações e E-mail**, quem cuida da central recebe um e-mail a cada backup que falha, e outro (uma vez por dia) quando há rotina ligada e nenhum backup concluído há mais de 26 horas.
+
 Abra **Ver detalhes**. `banco: FALHOU` indica problema no dump (MariaDB parado, disco cheio); `tar: FALHOU` quase sempre é disco cheio em `/var/backup` ou em `/tmp` (o arquivo é montado em `/tmp` antes de compactar). Veja o **Espaço livre** na própria tela e `df -h`.
 
 ### O botão Baixar não aparece
 
-O arquivo não está mais em `/var/backup/pabx-telium` (a retenção pode tê-lo apagado) ou a API não consegue lê-lo. Como alternativa, copie pelo terminal (`scp` como root) a partir de `/var/backup/pabx-telium`.
+O arquivo não está mais em `/var/backup/pabx-telium` (a retenção pode tê-lo apagado), ou a pasta está com a permissão de antes desta versão. O executor de backup corrige a permissão sozinho a cada minuto; se continuar, confira com `ls -ld /var/backup/pabx-telium` (deve ser `root teliumpbx`, `drwxr-x---`). Como alternativa, copie pelo terminal (`scp` como root).
 
 ### O envio remoto falhou
 

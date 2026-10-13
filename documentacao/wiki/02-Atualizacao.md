@@ -35,7 +35,7 @@ O passo a passo, com o que conferir, vem a seguir.
 
 ## 2. O que nunca fazer numa central com cliente
 
-> **Nunca rode a atualização com `-e limpar_banco=true`.** Ele apaga ramais, troncos, filas, URAs, rotas, CDR, contatos, auditoria e todos os usuários menos o `admin`. Não tem volta.
+> **Nunca rode a atualização com `-e limpar_banco=true`.** Ele apaga ramais, troncos, filas, URAs, rotas, CDR, call center, caixas postais, chaves de API, contatos, auditoria e todos os usuários menos o `admin`. Não tem volta.
 
 > **Nunca rode com `-e cenario_teste=true`.** Ele cria ramais de teste (1001 a 1004) com uma senha SIP fixa que está no repositório, além de fila, grupo, conferência, URA e rotas de teste, na base do cliente.
 
@@ -55,7 +55,9 @@ Também não edite o `main.yml` no servidor: os ajustes do servidor ficam no `se
 cd /opt/TeliumPABX && git log --oneline -1
 ```
 
-**Leia as notas da versão** (seção 10): algumas mudanças pedem aviso à equipe do cliente (por exemplo, códigos do telefone que mudaram).
+A partir da 1.1.0, o console também mostra a versão e o commit: no rodapé do menu, em **Telium › Suporte** e em **Telium › Versões e Novidades** (por exemplo, `1.1.0 (ae4f854)`). Numa central anterior à 1.1.0 o console dizia sempre `1.0.1`; nela, só o commit diz qual versão está rodando.
+
+**Leia as notas da versão** (seção 10, ou a tela **Telium › Versões e Novidades**, que lista todas as versões com o que mudou em cada uma): algumas mudanças pedem aviso à equipe do cliente (por exemplo, códigos do telefone que mudaram).
 
 **Escolha a hora.** A atualização não derruba chamada, mas recarrega a central inteira. Num horário de pouco movimento, qualquer surpresa afeta menos gente.
 
@@ -108,8 +110,9 @@ systemctl is-active telium-cc
 No navegador:
 
 1. Recarregue o console. Na primeira atualização depois da versão `53b3c9f`, use **Ctrl + Shift + R** (no Mac, Cmd + Shift + R). A partir dela, basta recarregar.
-2. Se aparecer a faixa amarela **"Alterações ainda não aplicadas"**, clique em **Aplicar configurações** e confira que todas as etapas ficam ✓.
-3. Faça uma chamada de teste: de um ramal para outro, uma de fora para dentro e uma para fora.
+2. Confira a versão nova no rodapé do menu ou em **Telium › Versões e Novidades**: o número e o commit devem ser os que chegaram no `git pull`. Um `+` depois do commit indica que o clone tem alteração local fora do Git.
+3. Se aparecer a faixa amarela **"Alterações ainda não aplicadas"**, clique em **Aplicar configurações** e confira que todas as etapas ficam ✓.
+4. Faça uma chamada de teste: de um ramal para outro, uma de fora para dentro e uma para fora.
 
 > 📷 **Print:** janela de **Aplicar configurações** com todas as etapas ✓.
 
@@ -207,6 +210,53 @@ Não siga. Rode `sudo ansible-playbook verificar.yml` (em `infra/ansible`) e vej
 ## 10. Notas das versões
 
 O que muda na operação, e não só por dentro. A mais recente primeiro.
+
+A tela **Telium › Versões e Novidades** mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo `api/CHANGELOG.md`). As notas abaixo resumem o que muda para quem opera.
+
+### 1.1.0 — 2026-10-13
+Primeira versão numerada na entrega. **Depois do playbook, clique em Aplicar configurações** no console: fax, grupos de toque, códigos do telefone e correio de voz só mudam depois dele.
+
+**Versão no console**
+- O número da versão e o commit aparecem no rodapé do menu, em **Telium › Suporte** e na tela nova **Telium › Versões e Novidades**, que lista todas as versões (1.0.0 a 1.1.0) com as novidades, correções, mudanças e itens de segurança de cada uma. Todo perfil ganha essa tela uma vez; se o administrador a tirar de um perfil, a próxima atualização não a devolve.
+
+**Backup e gravações**
+- **Baixar**, **Enviar para o destino remoto** e **Excluir** do backup voltam a funcionar. A pasta `/var/backup/pabx-telium` passa a ser `root:teliumpbx` (`0750`) e os arquivos `0640`: a API lê, só o root escreve. A primeira rodada do executor corrige os arquivos que já existem. O **Excluir** deixa a linha em **Excluindo** e o executor apaga o arquivo em até um minuto.
+- **O backup leva mais**: os recados do correio de voz e das caixas postais, os fax recebidos, a base interna do Asterisk (siga-me, não perturbe…) e o certificado do console. A opção "Áudios do sistema" virou **Áudios, recados e fax**.
+- **A restauração volta tudo o que está no arquivo** (inclusive gravações, recados e certificados), preserva as senhas deste servidor e o histórico de backups, para o call center junto com o Asterisk e refaz a configuração a partir do banco restaurado.
+- **A retenção é por rotina:** um backup manual não apaga mais os arquivos de uma rotina, e vice-versa.
+- **Gravações com prazo:** em **Aplicações › Gravação de Chamadas**, defina por quantos dias guardar. O padrão é zero (guarda para sempre): nada é apagado sem alguém definir o prazo.
+
+**Novidades**
+- **Alertas por e-mail:** em **Configurações › Notificações e E-mail**, o campo **Mandar os alertas do sistema para** recebe os e-mails de quem cuida da central. Vão avisos de backup com falha ou atrasado, certificado perto de vencer e disco quase cheio, cada um no máximo uma vez por dia. **Preencha o campo**: em branco, nenhum alerta sai.
+- **Fax por e-mail:** o fax recebido vai em PDF para o e-mail de **Configurações › Fax**; ECM, cabeçalho e velocidades da tela passam a valer, e com a recepção ligada os troncos aceitam T.38. Com a recepção desligada, o código de receber fax avisa que o serviço não está disponível.
+- **Webhooks** em **Telium › Integrações / API**: avisos `chamada.tocando`, `chamada.atendida` e `chamada.encerrada` em JSON para o CRM, assinados com HMAC, com botão de teste e o resultado do último envio. Cadastros antigos de outros tipos (chave de API, syslog, aplicativo) aparecem como **sem efeito**.
+- **CDR:** o botão **Exportar CSV** funciona, com o filtro da tela.
+- **Grupos de Toque:** opção "Um de cada vez, na ordem da lista" e destino para quando ninguém atende.
+- **Despertador:** novas tentativas quando ninguém atende (configuráveis no cadastro) e o resultado de cada despertar na lista.
+- **Produtividade de Agentes:** período (hoje, 7, 30 ou 90 dias) e as colunas Não atendeu, Em pausa e Satisfação.
+- **Provisionamento:** os últimos pedidos dos telefones, com o motivo de cada recusa.
+- **Arquivos personalizados:** todo arquivo do Asterisk gerado pelo console tem o seu `_custom.conf`, que nem o console nem o playbook sobrescrevem; o AMI e o ARI ganham `/etc/asterisk/manager_custom.conf` e `ari_custom.conf` ([Diretórios e arquivos](06-Diretorios-Arquivos-e-Logs.md)).
+- **Terminal:** `telium desligar-2fa <usuario>`, para o administrador que perdeu o celular do 2FA, e `telium alertas` ([Comandos e serviços](05-Servidor-Comandos-e-Servicos.md)).
+
+**Mudanças que pedem aviso ao cliente**
+- **Lista negra e allowlist pelo telefone** (`*30` a `*39`): só funcionam no ramal de um usuário cujo perfil tem a tela da lista correspondente. Os demais ouvem "acesso negado".
+- **`*45`** só põe o ramal na fila se ele estiver na lista de agentes dela como **"Entra por código"**. Confira as filas em que os agentes entravam pelo telefone.
+- **Siga-me ligado pelo `*21`** passa a usar o modo do cadastro (junto ou depois), e não sempre "junto".
+- **Correio de voz:** "apagar depois de mandar" só apaga quando o recado vai mesmo por e-mail, com o áudio anexado.
+- **Painel:** o indicador "Taxa de abandono" virou **Entrada não atendida** e conta só as chamadas de fora.
+- **Tarifação:** **Recalcular o mês** refaz o mês inteiro com os preços de agora, inclusive as chamadas que já tinham custo.
+- `-e limpar_banco=true` agora apaga também call center, caixas postais, chaves de click to call e os demais cadastros novos.
+
+**Correções que se notam na operação**
+- Grupos de toque não tocam mais quem está em não perturbe ou com desvio de todas as chamadas.
+- O failover da fila escolhe URA, anúncio e destino personalizado pelo nome; antes pedia um número que era o id interno. **Confira o failover das filas que mandavam para URA ou anúncio.**
+- O anúncio do despertador volta a tocar, e o `*68` só aceita hora válida (`0000` a `2359`).
+- A discagem direta da URA alcança ramais de qualquer tamanho.
+- O contador de bloqueios da lista negra, a contagem de PINs dos conjuntos de PIN e o nome do destino em **DIDs / Numeração** passam a aparecer certos.
+- **Ocupação de Troncos** mostra congestionada, não atendida e falha em colunas separadas.
+- O endereço público gravado no console chega ao TURN; o softphone do navegador funciona antes do primeiro "Aplicar"; o firewall só abre as portas do Janus com o Janus instalado.
+- Os títulos das telas ficam iguais aos do menu, e a Auditoria filtra por todas as ações.
+- Textos corrigidos: Meu Siga-me ensinava `*72`/`*73` (o certo é `*21`/`*22`) e a megafonia citava `*81` (o certo é `*80`).
 
 ### O projeto mudou para o GitLab da Telium
 O repositório agora é `gitlab.telium.com.br/Voip/teliumpabx`. Numa central instalada a partir do GitHub, troque o remoto uma vez (seção 8).

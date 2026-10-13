@@ -195,10 +195,11 @@ PY
 sed -i 's/^runuser .*/; runuser: na bancada o Asterisk roda como root/; s/^rungroup .*/;/' \
   "$TRAB/ast/asterisk.conf"
 
-: > "$TRAB/ast/telium/extensions_custom.conf"
-: > "$TRAB/ast/telium/pjsip_custom.conf"
-: > "$TRAB/ast/telium/queues_custom.conf"
-: > "$TRAB/ast/telium/confbridge_custom.conf"
+for c in extensions pjsip queues queuerules confbridge voicemail features musiconhold res_parking rtp; do
+  : > "$TRAB/ast/telium/${c}_custom.conf"
+done
+: > "$TRAB/ast/manager_custom.conf"
+: > "$TRAB/ast/ari_custom.conf"
 
 # Tudo acima é escrito por VOCÊ; a API e o Asterisk rodam como root, e a
 # conferência de permissão do gerador exige que a configuração esteja no

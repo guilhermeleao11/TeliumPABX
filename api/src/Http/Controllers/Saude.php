@@ -51,6 +51,7 @@ final class Saude
         return Resposta::json($res, [
             'servico'   => Versao::NOME . ' — API',
             'versao'    => Versao::NUMERO,
+            'commit'    => Versao::commit(),
             'ambiente'  => Ambiente::get('APP_ENV', 'desconhecido'),
             'horario'   => date('c'),
             'saudavel'  => $tudoOk,

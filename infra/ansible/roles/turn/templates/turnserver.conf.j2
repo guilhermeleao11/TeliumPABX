@@ -11,11 +11,11 @@ tls-listening-port={{ turn_porta_tls }}
 min-port={{ turn_rtp_inicio }}
 max-port={{ turn_rtp_fim }}
 
-{% if nat_ip_publico %}
+{% if turn_ip_publico | default('') %}
 # Atrás de NAT o coturn precisa saber o endereço que o mundo vê, senão
 # anuncia o endereço interno e o navegador manda a mídia para lugar
-# nenhum.
-external-ip={{ nat_ip_publico }}
+# nenhum. Vem do servidor.yml ou, sem ele, do console.
+external-ip={{ turn_ip_publico }}
 {% endif %}
 
 realm={{ turn_dominio }}

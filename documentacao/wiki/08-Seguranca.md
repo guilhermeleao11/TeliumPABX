@@ -24,7 +24,7 @@ Tudo o que protege a central: firewall, bloqueio de quem erra senha, acesso ao c
 14. [Segredos do servidor](#14-segredos-do-servidor)
 15. [Certificados TLS](#15-certificados-tls)
 16. [Provisionamento de telefones](#16-provisionamento-de-telefones)
-17. [API de click to call](#17-api-de-click-to-call)
+17. [API de click to call e webhooks](#17-api-de-click-to-call-e-webhooks)
 18. [Limites do nginx e cabeçalhos](#18-limites-do-nginx-e-cabeçalhos)
 19. [Softphone do navegador e TURN](#19-softphone-do-navegador-e-turn)
 20. [Gravações e LGPD](#20-gravações-e-lgpd)
@@ -58,8 +58,8 @@ O papel `seguranca` do Ansible instala o ufw, nega toda entrada por padrão, lib
 | 5060 | UDP e TCP | SIP |
 | 5061 | TCP | SIP sobre TLS |
 | 10000–20000 | UDP | Áudio (RTP) |
-| 4000–4999 | UDP | Fax T.38 (UDPTL) |
-| 20000–20200 | UDP | RTP do Janus |
+| 4000–4999 | UDP | Fax T.38 (UDPTL); os troncos só aceitam T.38 com a recepção de fax ligada em **Configurações › Fax** |
+| 20001–20200 | UDP | RTP do Janus, **só com o Janus instalado** (a regra antiga 20000–20200, aberta mesmo sem Janus, é removida pelo playbook) |
 | 3478 | UDP e TCP | TURN/STUN |
 | 5349 | TCP | TURN sobre TLS |
 | 49152–49500 | UDP | Relay do TURN |
@@ -184,7 +184,7 @@ Só depois da confirmação o código passa a ser exigido; assim ninguém se tra
 
 **Para desligar:** na mesma tela, informando a senha (**Sua senha, para desligar**).
 
-**Celular perdido:** o administrador desliga o 2FA da pessoa em **Administrador › Gerenciador de Usuários**. As sessões dela caem, e ela liga de novo com o celular novo.
+**Celular perdido:** o administrador desliga o 2FA da pessoa em **Administrador › Gerenciador de Usuários**. As sessões dela caem, e ela liga de novo com o celular novo. Se quem perdeu o celular é o único administrador, desligue pelo servidor: `sudo -u teliumpbx php /opt/telium/api/bin/telium desligar-2fa <usuario>`.
 
 > 📷 **Print:** **Meu Perfil e Segurança** com o QR Code e o campo do código.
 
@@ -227,7 +227,7 @@ Ajuste em **Administrador › Perfis e Permissões**. Mais em [12 — Administra
 
 ## 10. Auditoria
 
-**Administrador › Auditoria** registra quem fez o quê, de qual IP e quando: entrada e saída do console, falhas de login, bloqueio por origem, troca de senha, ligar e desligar 2FA, criação, edição e exclusão de cadastros, aplicação de configuração, desbloqueio no firewall, mudanças na lista "Nunca bloquear", testes de e-mail, entre outros.
+**Administrador › Auditoria** registra quem fez o quê, de qual IP e quando: entrada e saída do console, falhas de login, bloqueio por origem, troca de senha, ligar e desligar 2FA, criação, edição e exclusão de cadastros, aplicação de configuração, desbloqueio no firewall, mudanças na lista "Nunca bloquear", testes de e-mail, exportação do CDR, mudança do prazo de guarda das gravações, restauração de backup, comandos do CLI Asterisk e o `telium desligar-2fa` rodado no servidor (origem **terminal**), entre outros. O filtro **Todas as ações** da tela lista todos esses tipos.
 
 É exclusiva do administrador: nenhum outro perfil, nem por curinga de relatórios, enxerga a trilha.
 
@@ -257,7 +257,7 @@ Ajuste em **Administrador › Perfis e Permissões**. Mais em [12 — Administra
 - A senha da DISA não volta para a tela; editar sem informá-la mantém a atual.
 - O contexto escolhido limita o alcance: `telium-ramais` só ramais internos; `interno` libera as rotas de saída permitidas.
 
-**Click to call** segue a permissão do ramal: a chamada entra pelo contexto e canal do próprio ramal ([seção 17](#17-api-de-click-to-call)).
+**Click to call** segue a permissão do ramal: a chamada entra pelo contexto e canal do próprio ramal ([seção 17](#17-api-de-click-to-call-e-webhooks)).
 
 **Senha SIP forte:** mínimo de 12 caracteres, e as senhas geradas pela central são aleatórias. Use **Restringir a redes** (aba **Rede** do ramal) para ramais que só existem dentro do escritório.
 
@@ -281,7 +281,11 @@ Também pelo telefone, com os códigos de recurso:
 | `*36` + número | Tira da allowlist |
 | `*37` | Pausa ou retoma a allowlist na central inteira |
 
-Esses códigos funcionam em qualquer ramal. Se o cliente não quiser isso, desative-os em **Administrador › Códigos de Recurso** ([15 — Códigos de Recurso](15-Codigos-de-Recurso.md)).
+Esses códigos **só funcionam no ramal vinculado a um usuário ativo** cujo perfil tenha a tela correspondente: **Lista Negra** para `*30` a `*32`, **Allowlist** para `*36` a `*39`. Qualquer outro ramal ouve "acesso negado". Antes da 1.1.0 eles valiam em qualquer ramal: qualquer pessoa bloqueava números para a empresa inteira, e o `*37` desligava a allowlist da central.
+
+A lista de ramais autorizados é montada a cada **Aplicar configurações** (como a da escuta, na seção seguinte): depois de mudar o perfil ou o ramal de alguém, aplique. Para tirar os códigos de todo mundo, desative-os em **Administrador › Códigos de Recurso** ([15 — Códigos de Recurso](15-Codigos-de-Recurso.md)).
+
+**Entrar em fila pelo telefone (`*45`):** só entra quem está na lista de agentes da fila como **Entra por código**. Antes, qualquer ramal entrava em qualquer fila (o da recepção passava a receber as chamadas do suporte). Sair da fila pelo código continua valendo para qualquer membro.
 
 ---
 
@@ -310,6 +314,8 @@ A lista de quem pode escutar é montada a cada **Aplicar configurações**: depo
 - O AMI escuta em `127.0.0.1:5038` e aceita só `127.0.0.1`. O MariaDB também escuta só em `127.0.0.1`.
 - A configuração de e-mail (msmtp) é escrita com permissão `0600`, uma cópia para o Asterisk e outra para a API.
 - O `diagnostico-ami.sh` compara as senhas sem mostrá-las (só tamanho e quatro primeiros caracteres).
+- **Usuários extras do AMI e do ARI** (PABX de operadora, sistema de gravação, outro monitoramento) vão em `/etc/asterisk/manager_custom.conf` e `/etc/asterisk/ari_custom.conf` (`root:asterisk`, `0640`), criados vazios pelo playbook, que nunca os sobrescreve. Ficam **fora** de `/etc/asterisk/telium`, a pasta que **Configurações › Arquivos e Aplicação** edita pelo navegador: um usuário do AMI com `command` ou `originate` tem poder de root sobre a central, e só quem tem SSH deve criá-lo. Comece cada usuário com `[nome]` e permita só os IPs necessários (`deny`/`permit`).
+- Na restauração de um backup, o `manager.conf`, o `res_odbc.conf`, o `ari.conf` e o `/etc/telium/credenciais` ficam os deste servidor, e não os do arquivo.
 
 Nunca mande esses arquivos num chamado.
 
@@ -321,7 +327,7 @@ Nunca mande esses arquivos num chamado.
 - De fábrica (`tls_autoassinado: true`) a central gera um certificado autoassinado: o navegador reclama, e o softphone do navegador pode não funcionar.
 - Em produção, envie o certificado do cliente em **Administrador › Certificados** e aponte cada serviço: **Interface web (nginx)**, **SIP TLS (Asterisk)**, **TURN / STUN (coturn)** e **WebRTC (Janus)**.
 - Os arquivos ficam num cofre da API (`/etc/telium/certificados`). Quem copia para os serviços e os recarrega é `/usr/local/sbin/telium-certificados`, como root, sem aceitar argumentos.
-- A central não renova certificado sozinha: acompanhe a validade na tela. Renovação em [07 — Solução de Problemas](07-Solucao-de-Problemas.md#14-certificado-vencido-ou-renovação).
+- A central não renova certificado sozinha: acompanhe a validade na tela. Com os alertas de **Configurações › Notificações e E-mail** preenchidos, a central manda um e-mail quando o certificado do console estiver a menos de 15 dias de vencer (e depois de vencido), uma vez por dia. Renovação em [07 — Solução de Problemas](07-Solucao-de-Problemas.md#14-certificado-vencido-ou-renovação).
 
 > 📷 **Print:** **Administrador › Certificados** com a validade e os serviços de cada certificado.
 
@@ -342,7 +348,7 @@ Qualquer recusa responde 404, sem dizer o motivo ao aparelho, e fica registrada 
 
 ---
 
-## 17. API de click to call
+## 17. API de click to call e webhooks
 
 Configurada em **Telium › Integrações / API**. O endereço é `https://<central>/api/click2call`.
 
@@ -353,8 +359,20 @@ Configurada em **Telium › Integrações / API**. O endereço é `https://<cent
 - **20 chaves inválidas do mesmo IP em 10 minutos** bloqueiam esse IP: "Muitas chaves inválidas deste endereço. Tente de novo em alguns minutos." (HTTP 429).
 - A chamada entra pelo contexto e canal do próprio ramal: passa pela permissão de discagem, pelo limite de chamadas e pela rota de saída. **Uma chave não alcança o que o ramal não alcançaria.**
 - Cada pedido, aceito ou recusado, fica registrado com o IP.
+- Só os pedidos com chave ausente, inválida ou desativada contam para o bloqueio por IP. Os pedidos de uma chave que foi **excluída** não contam mais (antes, um sistema que usava muito a chave apagada era bloqueado à toa).
 
-Prefira sempre o filtro de IP e de ramais, e renove a chave quando um sistema integrado for desativado. Mais em [20 — Telium: Tarifação, Integrações e Suporte](20-Telium-Tarifacao-Integracoes-Suporte.md).
+Prefira sempre o filtro de IP e de ramais, e renove a chave quando um sistema integrado for desativado.
+
+### Webhooks
+
+Na mesma tela, os **webhooks** avisam outro sistema (CRM, ERP) quando um ramal toca, quando atendem e quando a chamada termina, com um `POST` em JSON para a URL cadastrada.
+
+- **Assinatura:** com um **Segredo (HMAC)** cadastrado, cada aviso leva o cabeçalho `X-Telium-Assinatura: sha256=<HMAC-SHA256 do corpo, em hexadecimal>`. O outro sistema calcula o HMAC do corpo recebido com o mesmo segredo e compara: assim sabe que o aviso veio da central e não foi alterado. Sem segredo, o aviso vai sem assinatura; cadastre sempre um.
+- O segredo não volta para a tela; editar com o campo em branco mantém o atual.
+- Use **https://** na URL: o corpo leva o número de quem ligou e o nome dele (dado pessoal). A API aceita `http://`, mas o aviso vai em texto aberto.
+- A central não segue redirecionamento e só fala HTTP e HTTPS; cada envio tem prazo de 5 segundos.
+
+Mais em [20 — Telium: Tarifação, Integrações e Suporte](20-Telium-Tarifacao-Integracoes-Suporte.md).
 
 ---
 
@@ -388,11 +406,12 @@ O `/api/health` sem sessão devolve só versão e "saudável": a versão do PHP,
 ## 20. Gravações e LGPD
 
 - Gravação é dado pessoal. O cliente decide **o que gravar** (regras por ramal, fila e rota) e por **quanto tempo guardar**.
-- O console **não apaga gravações**: não há botão de excluir, de propósito (gravação é prova de atendimento).
-- A central **não apaga gravações antigas sozinha**. A retenção da tela de backup vale para os arquivos de backup, não para `/var/spool/asterisk/monitor`. Combine com o cliente a política de retenção e quem executa a limpeza.
+- O console **não apaga uma gravação à mão**: não há botão de excluir, de propósito (gravação é prova de atendimento).
+- O disco é limpo pelo **prazo de guarda**, em **Aplicações › Gravação de Chamadas**: uma vez por dia, as gravações com mais dias que o prazo são apagadas. O padrão é **zero, que guarda para sempre**. Combine o prazo com o cliente e registre-o; a mudança fica na auditoria, com o prazo de antes e o novo.
 - Acesso às gravações: módulo **Gravação de Chamadas** (Supervisor e Auditoria de fábrica, além do Administrador). Revise quem tem esse módulo.
 - Backups que incluem gravações levam o mesmo dado pessoal: proteja o destino remoto.
 - Avise quem liga que a chamada é gravada (anúncio na URA ou na fila).
+- **Fax recebido** também é documento do cliente: fica em `/var/spool/asterisk/fax` e, com e-mail configurado em **Configurações › Fax**, vai em PDF para esse endereço. O número de quem envia entra no nome do arquivo **só com dígitos** (o nome passa por um comando no servidor, e um identificador de chamada forjado não pode levar outros caracteres até lá).
 
 ---
 
@@ -410,7 +429,8 @@ O `/api/health` sem sessão devolve só versão e "saudável": a versão do PHP,
 10. **Certificado válido** no console e no SIP TLS, com a validade acompanhada.
 11. **Provisionamento só da rede local** e **click to call com filtro de IP**.
 12. **Acompanhe Conectividade › Firewall** nas primeiras semanas: varredura aparece ali antes de virar prejuízo.
-13. **Combine a retenção das gravações** com o cliente (LGPD).
-14. **Guarde fora do servidor** o `vault.yml` cifrado, se usado, e nunca o anexe a chamados.
+13. **Combine o prazo de guarda das gravações** com o cliente (LGPD) e defina-o em **Aplicações › Gravação de Chamadas**.
+14. **Preencha os alertas por e-mail** (**Configurações › Notificações e E-mail › Mandar os alertas do sistema para**): backup com falha ou atrasado, certificado perto de vencer e disco quase cheio chegam a quem cuida da central.
+15. **Guarde fora do servidor** o `vault.yml` cifrado, se usado, e nunca o anexe a chamados.
 
 > 📷 **Print:** **Meu Perfil e Segurança** com o cartão "Trocar minha senha".

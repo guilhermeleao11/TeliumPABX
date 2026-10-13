@@ -677,7 +677,28 @@
     - pjsip_custom.conf
     - extensions_custom.conf
     - queues_custom.conf
+    - queuerules_custom.conf
     - confbridge_custom.conf
+    - voicemail_custom.conf
+    - features_custom.conf
+    - musiconhold_custom.conf
+    - res_parking_custom.conf
+    - rtp_custom.conf
+
+# Os do AMI e do ARI ficam fora de telium/: a tela "Arquivos e Aplicação"
+# edita o que está lá, e um usuário do AMI com "command" ou "originate"
+# tem poder de root sobre a central. Só quem tem SSH mexe neles.
+- name: Criar as personalizações do AMI e do ARI (nunca tocadas pelo playbook)
+  ansible.builtin.copy:
+    dest: "/etc/asterisk/{{ item }}"
+    content: "; Personalizações manuais — o playbook nunca sobrescreve este arquivo.\n; Comece cada usuário com [nome] e permita só os IPs necessários.\n"
+    owner: root
+    group: asterisk
+    mode: "0640"
+    force: false
+  loop:
+    - manager_custom.conf
+    - ari_custom.conf
 
 - name: Publicar configuração base do Asterisk
   ansible.builtin.template:

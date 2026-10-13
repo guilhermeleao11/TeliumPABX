@@ -488,7 +488,11 @@ final class Diagnostico
            ORDER BY did"
         );
 
-        $listados = array_column($rotas, 'did');
+        // Comparado só pelos dígitos: "(11) 3325-5800" no ramal e
+        // "1133255800" na rota são o mesmo número, e o aviso de duplicado
+        // só pegava o que estava escrito igual.
+        $digitos = static fn (?string $n): string => preg_replace('/\D/', '', (string) $n) ?? '';
+        $listados = array_map($digitos, array_column($rotas, 'did'));
         $lista = [];
 
         foreach ($rotas as $r) {
@@ -497,6 +501,9 @@ final class Diagnostico
                 'descricao' => $r['descricao'],
                 'origem'    => 'rota',
                 'destino'   => "{$r['destino_tipo']} {$r['destino_valor']}",
+                // A tela descreve o destino pelo nome, como na rota de entrada.
+                'destino_tipo'  => $r['destino_tipo'],
+                'destino_valor' => $r['destino_valor'],
                 'gravar'    => (int) $r['gravar'],
                 'ativo'     => (int) $r['ativo'],
                 'conflito'  => false,
@@ -504,7 +511,7 @@ final class Diagnostico
         }
 
         foreach ($doRamal as $r) {
-            $conflito = in_array($r['did'], $listados, true);
+            $conflito = $digitos($r['did']) !== '' && in_array($digitos($r['did']), $listados, true);
             $lista[] = [
                 'did'       => $r['did'],
                 'descricao' => $r['descricao'] ?: "Ramal {$r['numero']}",

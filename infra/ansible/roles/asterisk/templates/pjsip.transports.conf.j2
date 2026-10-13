@@ -50,15 +50,17 @@ external_signaling_address = {{ nat_ip_publico }}
 
 ; WebRTC: o navegador fala direto com o Asterisk.
 ;
-; Fica preso em 127.0.0.1 porque quem atende o navegador é o nginx, que
-; já termina TLS com o certificado do console e repassa em /ws. A
-; sinalização chega por ali, mas a mídia sai daqui direto para o
-; navegador: sem o endereço público no SDP, o áudio some quando o
-; servidor está atrás de NAT.
+; Quem atende o navegador é o nginx, que termina o TLS com o certificado
+; do console e repassa em /ws ao servidor HTTP do Asterisk — esse, sim,
+; preso em 127.0.0.1 (http.conf). Este bind não abre soquete nenhum, mas
+; é dele que o Asterisk tira o endereço do RTP: em 127.0.0.1 o áudio do
+; softphone não saía. O mesmo 0.0.0.0 que o console escreve no primeiro
+; "Aplicar" (GeradorTransportes); antes dele a central já nascia certa.
+; Sem o endereço público no SDP, o áudio some atrás de NAT.
 [transport-wss]
 type = transport
 protocol = wss
-bind = 127.0.0.1:{{ ast_http_porta }}
+bind = 0.0.0.0:{{ ast_http_porta }}
 {% for rede in redes_locais %}
 local_net = {{ rede }}
 {% endfor %}

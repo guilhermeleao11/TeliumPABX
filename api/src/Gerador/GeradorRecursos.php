@@ -48,6 +48,16 @@ final class GeradorRecursos
         $this->filasCallCenter = array_map('strval', array_column(
             Bd::todos('SELECT numero FROM filas WHERE ativo = 1 AND callcenter = 1'), 'numero'
         ));
+        $this->agentesDinamicos = array_map(
+            static fn (array $l): string => $l['fila'] . ':' . $l['ramal'],
+            Bd::todos(
+                "SELECT f.numero AS fila, r.numero AS ramal
+                   FROM fila_agentes fa
+                   JOIN filas f  ON f.id = fa.fila_id AND f.ativo = 1 AND f.callcenter = 0
+                   JOIN ramais r ON r.id = fa.ramal_id AND r.ativo = 1
+                  WHERE fa.tipo = 'dinamico'"
+            )
+        );
 
         foreach ($codigos as $c) {
             if (($c['tipo'] ?? 'dialplan') !== 'dialplan') {
@@ -68,6 +78,14 @@ final class GeradorRecursos
             }
 
             [$exten, $linhas, $rotulos] = [$passos[0], $passos[1], $passos[2] ?? []];
+            // Os códigos das listas da central só valem para o ramal de quem
+            // tem a tela da lista (famílias *-tel, gravadas pelo "aplicar").
+            if (str_contains(implode("\n", $linhas), '?semlista)')) {
+                $rotulos['semlista'] = [
+                    'NoOp(O ramal ${CALLERID(num)} não tem permissão para mexer nas listas da central)',
+                    'Answer()', 'Wait(1)', 'Playback(access-denied)', 'Hangup()',
+                ];
+            }
             $b->exten($exten, array_shift($linhas))->apps($linhas);
 
             // Cada desvio nomeado vira um rótulo logo abaixo do fluxo principal.
@@ -86,6 +104,7 @@ final class GeradorRecursos
         }
 
         $this->caixas($b);
+        $this->faxFim($b);
 
         return $b->texto();
     }
@@ -181,6 +200,84 @@ final class GeradorRecursos
     }
 
     /**
+     * Receber fax com o que está em Configurações › Fax.
+     *
+     * A tela gravava e nada lia: o ECM era sempre ligado, o cabeçalho e as
+     * velocidades não iam a lugar nenhum e o fax ficava só no servidor.
+     * O envio por e-mail vai num hangup handler, porque quem termina um
+     * fax é o outro lado desligando — a linha depois do ReceiveFAX nunca
+     * rodava.
+     *
+     * @return list<string>
+     */
+    private function passosDoFax(): array
+    {
+        $f = Bd::um('SELECT * FROM fax_geral WHERE id = 1') ?? [];
+        if ((int) ($f['ativo'] ?? 1) !== 1) {
+            return ['NoOp(Recepção de fax desligada em Configurações › Fax)',
+                    'Answer()', 'Wait(1)', 'Playback(ss-noservice)', 'Hangup()'];
+        }
+
+        // O cabeçalho vai num FAXOPT: só letras, números e pontuação
+        // simples, sem vírgula nem parênteses do dialplan.
+        $cabecalho = trim(preg_replace('/[^A-Za-z0-9 .\/_-]/', '', iconv('UTF-8', 'ASCII//TRANSLIT', (string) ($f['cabecalho'] ?? '')) ?: '') ?? '');
+        $taxas = [2400, 4800, 7200, 9600, 12000, 14400];
+        $minimo = in_array((int) ($f['minimo_bits'] ?? 0), $taxas, true) ? (int) $f['minimo_bits'] : 4800;
+        $maximo = in_array((int) ($f['maximo_bits'] ?? 0), $taxas, true) ? (int) $f['maximo_bits'] : 14400;
+        if ($minimo > $maximo) {
+            [$minimo, $maximo] = [$maximo, $minimo];
+        }
+
+        $passos = [
+            'NoOp(Receber fax)', 'Answer()', 'Wait(2)',
+            'Set(FAXOPT(ecm)=' . ((int) ($f['ecm'] ?? 1) === 1 ? 'yes' : 'no') . ')',
+            "Set(FAXOPT(minrate)={$minimo})",
+            "Set(FAXOPT(maxrate)={$maximo})",
+        ];
+        if ($cabecalho !== '') {
+            $passos[] = "Set(FAXOPT(headerinfo)={$cabecalho})";
+        }
+        // Só dígitos do número de quem manda no nome do arquivo: ele vai
+        // para um comando de shell no fim.
+        $passos[] = 'Set(TELIUM_FAX=/var/spool/asterisk/fax/${STRFTIME(${EPOCH},,%Y%m%d-%H%M%S)}-'
+            . '${FILTER(0-9,${CALLERID(num)})}.tif)';
+
+        $para = (string) ($f['email_destino'] ?? '');
+        if (filter_var($para, FILTER_VALIDATE_EMAIL)) {
+            $passos[] = 'Set(CHANNEL(hangup_handler_push)=telium-fax-fim,s,1)';
+        }
+        $passos[] = 'ReceiveFAX(${TELIUM_FAX})';
+        $passos[] = 'NoOp(Fax: ${FAXOPT(status)} — ${TELIUM_FAX})';
+        $passos[] = 'Hangup()';
+
+        return $passos;
+    }
+
+    /** O fim do fax: manda o arquivo para o e-mail da tela, se houver. */
+    private function faxFim(Bloco $b): void
+    {
+        $f = Bd::um('SELECT ativo, email_destino FROM fax_geral WHERE id = 1') ?? [];
+        $para = (string) ($f['email_destino'] ?? '');
+        if ((int) ($f['ativo'] ?? 1) !== 1 || !filter_var($para, FILTER_VALIDATE_EMAIL)) {
+            return;
+        }
+
+        // O mesmo remetente do recado do correio de voz.
+        $smtp = Bd::um('SELECT ativo, remetente FROM smtp WHERE id = 1') ?? [];
+        $de = (int) ($smtp['ativo'] ?? 0) === 1 && filter_var((string) $smtp['remetente'], FILTER_VALIDATE_EMAIL)
+            ? (string) $smtp['remetente']
+            : 'pabx@' . (\Telium\Dominio\Rede::dominioSip() ?: 'localhost');
+
+        $b->branco()
+          ->comentario('Fim do fax: manda o arquivo recebido por e-mail (Configurações › Fax)')
+          ->contexto('telium-fax-fim')
+          ->exten('s', 'NoOp(Fax recebido: ${FAXOPT(status)} — ${TELIUM_FAX})')
+          ->same('System(/usr/local/sbin/telium-fax-email "${TELIUM_FAX}" "' . $para . '" "' . $de
+              . '" "${FILTER(0-9,${CALLERID(num)})}" "${FILTER(A-Za-z_,${FAXOPT(status)})}")')
+          ->same('Return()');
+    }
+
+    /**
      * As filas de call center, que *45 e *46 não alcançam.
      *
      * Nelas quem atende é o agente: entrar pelo código genérico punha o
@@ -190,6 +287,32 @@ final class GeradorRecursos
      * @var list<string>
      */
     private array $filasCallCenter = [];
+
+    /**
+     * Os pares "fila:ramal" que podem entrar pelo *45: os agentes marcados
+     * como "Entra por código" na lista de agentes da fila. Antes o código
+     * punha qualquer ramal em qualquer fila — o da recepção entrava no
+     * suporte e passava a receber as chamadas de lá.
+     *
+     * @var list<string>
+     */
+    private array $agentesDinamicos = [];
+
+    /** O GotoIf que recusa quem não foi posto na fila como "Entra por código". */
+    private function recusaNaoAgente(string $arg, string $eu): string
+    {
+        if ($this->agentesDinamicos === []) {
+            return 'Goto(naoagente)';
+        }
+        // Fila e ramal são só dígitos: nada a escapar. O preg_quote punha
+        // "\:" no padrão, e a barra no dialplan é caractere de escape.
+        $lista = implode('|', array_map(
+            static fn (string $p): string => preg_replace('/[^0-9:]/', '', $p) ?? '',
+            $this->agentesDinamicos
+        ));
+
+        return 'GotoIf($[${REGEX("^(' . $lista . ')$" ' . $arg . ':' . $eu . ')} = 0]?naoagente)';
+    }
 
     /** O GotoIf que desvia a fila de call center para o aviso. */
     private function recusaCallCenter(string $arg): ?string
@@ -426,18 +549,21 @@ final class GeradorRecursos
 
             // ---------------- lista negra e allowlist ----------------
             'listanegra_add' => [$comArg, [
+                'GotoIf($[!${DB_EXISTS(listanegra-tel/' . $eu . ')}]?semlista)',
                 "NoOp(Bloquear {$arg})",
                 "Set(DB(listanegra/{$arg})=1)",
                 "Set(ODBC_TELIUM_LN_ADD({$arg})={$eu})",
                 'GoSub(sub-confirma,s,1(activated))',
             ]],
             'listanegra_del' => [$comArg, [
+                'GotoIf($[!${DB_EXISTS(listanegra-tel/' . $eu . ')}]?semlista)',
                 "NoOp(Desbloquear {$arg})",
                 'NoOp(${DB_DELETE(listanegra/' . $arg . ')})',
                 "Set(ODBC_TELIUM_LN_DEL({$arg})=1)",
                 'GoSub(sub-confirma,s,1(de-activated))',
             ]],
             'listanegra_ultimo' => [$codigo, [
+                'GotoIf($[!${DB_EXISTS(listanegra-tel/' . $eu . ')}]?semlista)',
                 'NoOp(Bloquear o último chamador)',
                 'Set(TELIUM_ULT=${DB(ultimochamador/' . $eu . ')})',
                 'GotoIf($["${TELIUM_ULT}" = ""]?nada)',
@@ -450,18 +576,21 @@ final class GeradorRecursos
                 'GoSub(sub-confirma,s,1(pbx-invalid))',
             ]]],
             'allowlist_add' => [$comArg, [
+                'GotoIf($[!${DB_EXISTS(allowlist-tel/' . $eu . ')}]?semlista)',
                 "NoOp(Liberar {$arg})",
                 "Set(DB(allowlist/{$arg})=1)",
                 "Set(ODBC_TELIUM_AL_ADD({$arg})={$eu})",
                 'GoSub(sub-confirma,s,1(activated))',
             ]],
             'allowlist_del' => [$comArg, [
+                'GotoIf($[!${DB_EXISTS(allowlist-tel/' . $eu . ')}]?semlista)',
                 "NoOp(Tirar {$arg} da allowlist)",
                 'NoOp(${DB_DELETE(allowlist/' . $arg . ')})',
                 "Set(ODBC_TELIUM_AL_DEL({$arg})=1)",
                 'GoSub(sub-confirma,s,1(de-activated))',
             ]],
             'allowlist_ultimo' => [$codigo, [
+                'GotoIf($[!${DB_EXISTS(allowlist-tel/' . $eu . ')}]?semlista)',
                 'NoOp(Liberar o último chamador)',
                 'Set(TELIUM_ULT=${DB(ultimochamador/' . $eu . ')})',
                 'GotoIf($["${TELIUM_ULT}" = ""]?nada)',
@@ -474,6 +603,7 @@ final class GeradorRecursos
                 'GoSub(sub-confirma,s,1(pbx-invalid))',
             ]]],
             'allowlist_pausa' => [$codigo, [
+                'GotoIf($[!${DB_EXISTS(allowlist-tel/' . $eu . ')}]?semlista)',
                 'NoOp(Pausar ou retomar a allowlist)',
                 'GotoIf($[${DB_EXISTS(allowlist-pausada/geral)}]?retoma)',
                 'Set(DB(allowlist-pausada/geral)=1)',
@@ -548,33 +678,28 @@ final class GeradorRecursos
             ]]],
 
             // ---------------- fax ----------------
-            'fax_receber' => [$codigo, [
-                'NoOp(Receber fax)', 'Answer()', 'Wait(2)',
-                'Set(FAXOPT(ecm)=yes)',
-                'Set(TELIUM_FAX=/var/spool/asterisk/fax/${STRFTIME(${EPOCH},,%Y%m%d-%H%M%S)}-'
-                    . '${CALLERID(num)}.tif)',
-                'System(mkdir -p /var/spool/asterisk/fax)',
-                'ReceiveFAX(${TELIUM_FAX})',
-                'NoOp(Fax: ${FAXOPT(status)} — ${TELIUM_FAX})',
-                'Hangup()',
-            ]],
+            'fax_receber' => [$codigo, $this->passosDoFax()],
 
             // ---------------- despertador ----------------
+            // A hora vai em quatro dígitos, de 0000 a 2359. Antes valia
+            // qualquer combinação (9999 era aceito e nunca tocava) e o aviso
+            // pedia "o número a chamar", não a hora.
             'despertar_marcar' => [$codigo, [
                 'NoOp(Marcar despertador)', 'Answer()', 'Wait(1)',
-                'Playback(vm-enter-num-to-call)',
-                'Read(TELIUM_HORA,beep,4,,3,8)',
-                'GotoIf($[${LEN(${TELIUM_HORA})} != 4]?erro)',
+                'Playback(to-rqst-wakeup-call)',
+                'Read(TELIUM_HORA,enter-a-time,4,,3,8)',
+                'GotoIf($[${REGEX("^([01][0-9]|2[0-3])[0-5][0-9]$" ${TELIUM_HORA})} = 0]?erro)',
                 "Set(DB(despertar/{$eu})=\${TELIUM_HORA})",
-                'SayDigits(${TELIUM_HORA})',
-                'Playback(activated)', 'Hangup()',
+                'Playback(rqsted-wakeup-for)',
+                'SayNumber(${TELIUM_HORA:0:2})', 'SayNumber(${TELIUM_HORA:2:2})',
+                'Playback(wakeup-onetime)', 'Hangup()',
             ], ['erro' => [
-                'NoOp(Hora inválida)', 'Playback(pbx-invalid)', 'Hangup()',
+                'NoOp(Hora inválida: ${TELIUM_HORA})', 'Playback(pbx-invalid)', 'Hangup()',
             ]]],
             'despertar_cancelar' => [$codigo, [
                 'NoOp(Cancelar despertador)',
                 'NoOp(${DB_DELETE(despertar/' . $eu . ')})',
-                'GoSub(sub-confirma,s,1(de-activated))',
+                'Answer()', 'Wait(1)', 'Playback(wakeup-call-cancelled)', 'Hangup()',
             ]],
 
             // ---------------- chamada perdida ----------------
@@ -636,8 +761,14 @@ final class GeradorRecursos
                 "RemoveQueueMember({$arg},\${TELIUM_MEMBRO})",
                 'Playback(agent-loggedoff)', 'Hangup()',
             ])), ['entra' => [
+                // Sair da fila vale para qualquer membro; entrar, só para quem
+                // está na lista da fila como "Entra por código".
+                $this->recusaNaoAgente($arg, $eu),
                 "AddQueueMember({$arg},\${TELIUM_MEMBRO})",
                 'Playback(agent-loginok)', 'Hangup()',
+            ], 'naoagente' => [
+                "NoOp(O ramal {$eu} não está na fila {$arg} como \"Entra por código\")",
+                'Playback(telium-cc/operacao-falhou)', 'Hangup()',
             ]] + $this->avisoCallCenter()],
             'fila_pausa' => [$comArg, array_values(array_filter([
                 "NoOp(Pausar ou despausar na fila {$arg})", 'Answer()', 'Wait(1)',

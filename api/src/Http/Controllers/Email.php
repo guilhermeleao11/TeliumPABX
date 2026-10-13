@@ -56,6 +56,13 @@ final class Email
             }
         }
 
+        // Para quem vão os avisos do sistema: e-mails separados por vírgula.
+        $alertas = trim((string) ($corpo['alertas_para'] ?? ''));
+        $validos = \Telium\Dominio\Alertas::destinatarios($alertas);
+        if ($alertas !== '' && count($validos) !== count(preg_split('/[\s,;]+/', $alertas, -1, PREG_SPLIT_NO_EMPTY) ?: [])) {
+            return Resposta::erro($res, 'Confira os e-mails dos alertas: separe por vírgula.', 422, ['campo' => 'alertas_para']);
+        }
+
         $seguranca = in_array($corpo['seguranca'] ?? '', ['starttls', 'tls', 'nenhuma'], true)
             ? $corpo['seguranca'] : 'starttls';
 
@@ -66,16 +73,16 @@ final class Email
 
         Bd::executar(
             'UPDATE smtp SET ativo = ?, servidor = ?, porta = ?, seguranca = ?,
-                    usuario = ?, remetente = ?, nome_remetente = ?'
+                    usuario = ?, remetente = ?, nome_remetente = ?, alertas_para = ?'
             . ($mudaSenha ? ', senha = ?' : '') . '
               WHERE id = 1',
             $mudaSenha
                 ? [$ativo, $servidor, max(1, (int) ($corpo['porta'] ?? 587)), $seguranca,
                    trim((string) ($corpo['usuario'] ?? '')), $remetente,
-                   trim((string) ($corpo['nome_remetente'] ?? '')), $senha]
+                   trim((string) ($corpo['nome_remetente'] ?? '')), implode(', ', $validos), $senha]
                 : [$ativo, $servidor, max(1, (int) ($corpo['porta'] ?? 587)), $seguranca,
                    trim((string) ($corpo['usuario'] ?? '')), $remetente,
-                   trim((string) ($corpo['nome_remetente'] ?? ''))]
+                   trim((string) ($corpo['nome_remetente'] ?? '')), implode(', ', $validos)]
         );
 
         $publicou = $this->publicar();

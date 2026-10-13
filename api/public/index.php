@@ -108,7 +108,7 @@ $recursos = [
                       'codecs','max_contatos','srtp','webrtc','callgroup','pickupgroup','redes_permitidas',
                       'voicemail','vm_senha','vm_email','vm_apagar','vm_max_mensagens','vm_max_segundos',
                       'vm_dizer_hora','vm_dizer_origem','gravar','dnd',
-                      'siga_me','siga_me_ativo','siga_me_modo','siga_me_toque','siga_me_confirmar',
+                      'siga_me','siga_me_ativo','siga_me_modo',
                       'tempo_toque','pin_set_id','perm_local','perm_celular','perm_ddd','perm_ddi',
                       'no_diretorio','ativo',
                       // identificação
@@ -344,6 +344,12 @@ $recursos = [
             ordem: 'nome',
             busca: ['nome','ramal'],
             filtros: ['ativo','ramal','repeticao'],
+            regras: [
+                'tentativas' => ['rotulo' => 'tentativas', 'padrao' => '/^([1-9]|10)$/',
+                                 'mensagem' => 'As tentativas vão de 1 a 10.'],
+                'intervalo'  => ['rotulo' => 'intervalo', 'padrao' => '/^([6-9][0-9]|[1-9][0-9]{2}|[1-2][0-9]{3}|3[0-5][0-9]{2}|3600)$/',
+                                 'mensagem' => 'O intervalo vai de 60 a 3600 segundos.'],
+            ],
             modulo: 'apps.despertar',
         ),
     ],
@@ -478,6 +484,29 @@ $recursos = [
                 'pin_admin' => ['rotulo' => 'PIN do moderador', 'padrao' => '/^[0-9]{0,10}$/',
                                 'mensagem' => 'O PIN do moderador é só de dígitos.'],
             ],
+            // Olhando a sala inteira: o PIN em branco na edição mantém o
+            // gravado, então vale o que vai ficar, e não só o que veio.
+            conferir: static function (string $acao, array $dados, array $atual): ?array {
+                if ($acao === 'excluir') {
+                    return null;
+                }
+                $final = static fn (string $c): string => array_key_exists($c, $dados)
+                    ? (($dados[$c] === null) ? '' : (trim((string) $dados[$c]) !== '' ? trim((string) $dados[$c]) : (string) ($atual[$c] ?? '')))
+                    : (string) ($atual[$c] ?? '');
+                $pin = $final('pin');
+                $admin = $final('pin_admin');
+                if ($pin !== '' && $pin === $admin) {
+                    return ['mensagem' => 'O PIN de administrador precisa ser diferente do PIN de entrada: '
+                        . 'com os dois iguais, todo mundo entra como administrador.', 'campo' => 'pin_admin'];
+                }
+                $espera = (int) ($dados['esperar_admin'] ?? $atual['esperar_admin'] ?? 0) === 1;
+                if ($espera && $admin === '') {
+                    return ['mensagem' => '"Só começar quando o administrador entrar" precisa de um PIN de '
+                        . 'administrador: sem ele, ninguém é administrador e a sala nunca começa.', 'campo' => 'pin_admin'];
+                }
+
+                return null;
+            },
             afetaAsterisk: true,
             modulo: 'apps.conferencias',
         ),
@@ -613,6 +642,9 @@ $recursos = [
                 'ramais' => ['rotulo' => 'ramais', 'obrigatorio' => true,
                              'padrao' => '/^[0-9]{2,10}(-[0-9]{2,10})*$/',
                              'mensagem' => 'Os membros do grupo são números de ramal separados por "-".'],
+                'estrategia' => ['rotulo' => 'como toca', 'em' => ['ringall', 'linear']],
+                'tempo_toque' => ['rotulo' => 'tempo de toque', 'padrao' => '/^([5-9]|[1-9][0-9]|[12][0-9]{2}|300)$/',
+                                  'mensagem' => 'O tempo de toque vai de 5 a 300 segundos.'],
             ],
             afetaAsterisk: true,
             modulo: 'apps.grupostoque',
@@ -768,6 +800,10 @@ $recursos = [
             modulo: 'cfg.fax',
             regras: [
                 'email_destino' => ['rotulo' => 'e-mail de destino', 'email' => true],
+                'minimo_bits' => ['rotulo' => 'velocidade mínima', 'em' => ['2400','4800','7200','9600','12000','14400'],
+                                  'mensagem' => 'Use uma velocidade de fax: 2400, 4800, 7200, 9600, 12000 ou 14400.'],
+                'maximo_bits' => ['rotulo' => 'velocidade máxima', 'em' => ['2400','4800','7200','9600','12000','14400'],
+                                  'mensagem' => 'Use uma velocidade de fax: 2400, 4800, 7200, 9600, 12000 ou 14400.'],
             ],
         ),
     ],
@@ -782,6 +818,15 @@ $recursos = [
             // Os PINs autorizam chamada: não voltam numa listagem, que é
             // o que acaba em captura de tela e em log de navegador.
             ocultas: ['pins'],
+            // A tela mostra quantos PINs há, sem ver os PINs: a contagem é
+            // guardada ao salvar.
+            normalizar: static function (array $dados): array {
+                if (array_key_exists('pins', $dados)) {
+                    $dados['pins_qtd'] = count(preg_split('/[^0-9]+/', (string) $dados['pins'], -1, PREG_SPLIT_NO_EMPTY) ?: []);
+                }
+
+                return $dados;
+            },
             afetaAsterisk: true,
             modulo: 'cfg.pinsets',
             regras: [
@@ -825,6 +870,11 @@ $recursos = [
             filtros: ['categoria', 'ativo'],
             afetaAsterisk: true,
             modulo: 'admin.codigos',
+            // Só a tela conferia o formato; pela API passava "1234" ou "abc".
+            regras: [
+                'codigo' => ['rotulo' => 'código', 'obrigatorio' => true, 'padrao' => CodigosDiscagem::FORMATO_RECURSO,
+                             'mensagem' => 'O código começa com * ou # e tem até 7 caracteres (dígitos, * ou #).'],
+            ],
             // Um código igual a outro, ou começo de outro — inclusive o de
             // uma pausa do call center —, faz um dos dois parar de
             // funcionar. Só se confere o que muda: trocar o código ou
@@ -961,10 +1011,26 @@ $recursos = [
         'modulo' => 'telium.integracoes',
         'recurso' => new Recurso(
             tabela: 'integracoes',
-            colunas: ['nome','tipo','url','segredo','eventos','ativo'],
+            colunas: ['nome','url','segredo','eventos','ativo'],
             ordem: 'nome',
             busca: ['nome'],
             ocultas: ['segredo'],
+            regras: [
+                'url' => ['rotulo' => 'URL de destino', 'obrigatorio' => true, 'padrao' => '#^https?://\S+$#',
+                          'mensagem' => 'A URL começa com https:// (ou http://).'],
+                'eventos' => ['rotulo' => 'eventos',
+                              'padrao' => '/^[\s,;]*((chamada\.(tocando|atendida|encerrada))[\s,;]*)*$/',
+                              'mensagem' => 'Use chamada.tocando, chamada.atendida ou chamada.encerrada.'],
+            ],
+            // Só webhook tem efeito: chave de API é o click to call, e o
+            // syslog é do servidor. Os tipos antigos ficam só na listagem.
+            normalizar: static function (array $dados, array $atual): array {
+                if ($atual === []) {
+                    $dados['tipo'] = 'webhook';
+                }
+
+                return $dados;
+            },
             modulo: 'telium.integracoes',
         ),
     ],
@@ -1052,18 +1118,34 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
 
     // ---- relatórios ----
     $g->get('/cdr', [Relatorios::class, 'cdr'])->add(new Permissao('rel.cdr'));
+    $g->get('/cdr/exportar', [Relatorios::class, 'exportarCdr'])->add(new Permissao('rel.cdr', 'exportar'));
     $g->get('/relatorios/filas', [Relatorios::class, 'filas'])->add(new Permissao('rel.filas'));
     $g->get('/relatorios/agentes', [Relatorios::class, 'agentes'])->add(new Permissao('rel.agentes'));
     $g->get('/relatorios/ramais', [Relatorios::class, 'ramais'])->add(new Permissao('rel.ramais'));
     $g->get('/relatorios/troncos', [Relatorios::class, 'troncos'])->add(new Permissao('rel.troncos'));
     $g->get('/relatorios/eventos', [Relatorios::class, 'eventos'])->add(new Permissao('rel.cel'));
+    $g->post('/integracoes/{id}/testar', function (
+        \Psr\Http\Message\ServerRequestInterface $req,
+        \Psr\Http\Message\ResponseInterface $res,
+        array $args
+    ): \Psr\Http\Message\ResponseInterface {
+        $w = \Telium\Suporte\Bd::um("SELECT url, segredo FROM integracoes WHERE id = ? AND tipo = 'webhook'", [(int) $args['id']]);
+        if ($w === null) {
+            return Resposta::erro($res, 'Webhook não encontrado.', 404);
+        }
+
+        return Resposta::json($res, \Telium\Servico\Webhooks::testar((string) $w['url'], (string) ($w['segredo'] ?? '')));
+    })->add(new Permissao('telium.integracoes', 'editar'));
+    $g->get('/sistema/versoes', \Telium\Http\Controllers\Versoes::class)->add(new Permissao('telium.versoes'));
     $g->get('/relatorios/tarifacao', [Relatorios::class, 'tarifacao'])->add(new Permissao('telium.tarifacao'));
     $g->post('/relatorios/tarifacao', [Relatorios::class, 'tarifar'])
       ->add(new Permissao('telium.tarifacao', 'editar'));
     // ---- arquivo de gravações ----
     // Não há rota de exclusão, de propósito: gravação é prova de
-    // atendimento. Quem limpa o disco é a retenção do backup.
+    // atendimento. Quem limpa o disco é o prazo de guarda, em dias.
     $g->get('/gravacoes', [Gravacoes::class, 'listar'])->add(new Permissao('apps.gravacao'));
+    $g->put('/gravacoes/retencao', [Gravacoes::class, 'salvarRetencao'])
+      ->add(new Permissao('apps.gravacao', 'editar'));
     $g->get('/gravacoes/arquivo', [Gravacoes::class, 'arquivo'])->add(new Permissao('apps.gravacao'));
     $g->post('/gravacoes/pacote', [Gravacoes::class, 'pacote'])
       ->add(new Permissao('apps.gravacao', 'exportar'));

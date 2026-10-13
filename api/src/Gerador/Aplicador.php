@@ -310,18 +310,35 @@ final class Aplicador
         foreach (Bd::todos('SELECT perfil_id, modulo FROM perfil_modulos') as $m) {
             $modulosDoPerfil[(int) $m['perfil_id']][] = (string) $m['modulo'];
         }
+        // Quem mexe nas listas da central pelo telefone (*30 a *39): o ramal
+        // de um usuário com a tela da lista negra (família "listanegra-tel")
+        // ou da allowlist ("allowlist-tel"). Abertos a todos, qualquer ramal
+        // bloqueava números para a empresa inteira — e o *37 desligava a
+        // allowlist da central.
+        foreach (['listanegra-tel', 'allowlist-tel'] as $familia) {
+            if (!$this->limpouFamilia($ami, $familia)) {
+                $ok = false;
+            }
+        }
+        $familias = [
+            'escuta'         => 'cc.supervisor',
+            'listanegra-tel' => 'admin.listanegra',
+            'allowlist-tel'  => 'admin.allowlist',
+        ];
         foreach (Bd::todos(
             "SELECT ramal, perfil_id FROM usuarios
               WHERE status = 'ativo' AND ramal IS NOT NULL AND ramal <> ''"
         ) as $u) {
-            if (!Permissoes::podeModulo($modulosDoPerfil[(int) $u['perfil_id']] ?? [], 'cc.supervisor')) {
-                continue;
-            }
-            $resposta = $ami->acao([
-                'Action' => 'DBPut', 'Family' => 'escuta', 'Key' => (string) $u['ramal'], 'Val' => '1',
-            ]);
-            if (!$this->deuCerto($resposta)) {
-                $ok = false;
+            foreach ($familias as $familia => $modulo) {
+                if (!Permissoes::podeModulo($modulosDoPerfil[(int) $u['perfil_id']] ?? [], $modulo)) {
+                    continue;
+                }
+                $resposta = $ami->acao([
+                    'Action' => 'DBPut', 'Family' => $familia, 'Key' => (string) $u['ramal'], 'Val' => '1',
+                ]);
+                if (!$this->deuCerto($resposta)) {
+                    $ok = false;
+                }
             }
         }
 
@@ -365,13 +382,19 @@ final class Aplicador
             }
         }
 
-        $ligados = Bd::todos(
-            "SELECT numero, siga_me, siga_me_modo, toque_sigame FROM ramais
-              WHERE ativo = 1 AND siga_me_ativo = 1 AND siga_me IS NOT NULL AND siga_me <> ''"
+        // O modo e o tempo vão para todo ramal ativo, e não só para quem
+        // está com o siga-me ligado: quem liga pelo telefone (*21) usa o
+        // modo do cadastro. Antes, ligado pelo código, tocava sempre
+        // "junto" até a próxima aplicação, qualquer que fosse o cadastro.
+        $ramais = Bd::todos(
+            "SELECT numero, siga_me, siga_me_ativo, siga_me_modo, toque_sigame FROM ramais WHERE ativo = 1"
         );
 
-        foreach ($ligados as $r) {
-            $chaves = [['sigame', $r['siga_me']], ['sigame-modo', $r['siga_me_modo']]];
+        foreach ($ramais as $r) {
+            $chaves = [['sigame-modo', $r['siga_me_modo'] ?: 'junto']];
+            if ((int) $r['siga_me_ativo'] === 1 && trim((string) $r['siga_me']) !== '') {
+                $chaves[] = ['sigame', $r['siga_me']];
+            }
             // O celular do siga-me costuma precisar de mais tempo de toque
             // que o ramal de mesa.
             if ((int) ($r['toque_sigame'] ?? 0) > 0) {

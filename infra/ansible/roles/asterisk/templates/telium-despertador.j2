@@ -11,7 +11,9 @@
 #     todo dia, ou em dias escolhidos da semana.
 #
 # Em ambos os casos o PABX liga para o ramal e cai no contexto
-# telium-despertador, que toca o anúncio.
+# telium-despertador, que toca o anúncio. Se ninguém atende, tenta de
+# novo (as tentativas e o intervalo do cadastro; pelo telefone, mais duas
+# a cada dois minutos) e registra o resultado no cadastro.
 # =========================================================
 set -uo pipefail
 
@@ -25,15 +27,65 @@ mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1" 2>/dev/null; }
 
 asterisk -rx "core show version" >/dev/null 2>&1 || { log "Asterisk fora — nada a fazer"; exit 0; }
 
+ESTADO=/var/lib/telium/despertador
+mkdir -p "$ESTADO"
+agora=$(date '+%s')
+
 # ligar <ramal> <id do anúncio ou vazio> <rótulo para o log>
+#
+# O anúncio vai para a base do Asterisk ANTES da chamada: gravado depois,
+# um aparelho que atende sozinho chegava ao contexto antes dele. O ramal
+# vai como extensão, e não pelo CallerID, que no canal originado vem vazio
+# — era por isso que o anúncio nunca tocava, só a hora.
 ligar() {
   local ramal="$1" anuncio="${2:-}" rotulo="$3"
   log "despertando ${ramal} (${rotulo})"
-  asterisk -rx "channel originate PJSIP/${ramal} extension s@telium-despertador" >/dev/null 2>&1
-  # O anúncio vai numa variável global do canal originado: o contexto a lê.
-  [ -n "$anuncio" ] && asterisk -rx "database put despertar-anuncio ${ramal} ${anuncio}" >/dev/null 2>&1
-  return 0
+  if [ -n "$anuncio" ]; then
+    asterisk -rx "database put despertar-anuncio ${ramal} ${anuncio}" >/dev/null 2>&1
+  else
+    asterisk -rx "database del despertar-anuncio ${ramal}" >/dev/null 2>&1
+  fi
+  asterisk -rx "channel originate PJSIP/${ramal} extension ${ramal}@telium-despertador" >/dev/null 2>&1
 }
+
+# atendeu_desde <ramal> <instante> — o contexto marca quando a pessoa atende
+atendeu_desde() {
+  local v
+  v=$(asterisk -rx "database get despertar-atendido $1" 2>/dev/null | sed -n 's/^Value: *//p')
+  [ -n "$v" ] && [ "$v" -ge "$2" ] 2>/dev/null
+}
+
+# agendar <chave> <ramal> <anúncio> <tentativas restantes> <intervalo s> <id ou vazio>
+# Uma tentativa por arquivo de estado; o disparador volta a cada minuto.
+agendar() {
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$2" "$3" "$4" "$5" "$((agora + $5))" "$6" > "$ESTADO/$1.inicio-${agora}"
+}
+
+registrar() {   # registrar <id> <estado>
+  [ -n "$1" ] && mysql "UPDATE despertadores SET ultimo_estado = '$2' WHERE id = $1;"
+}
+
+# ---------------------------------------------------------
+# 0. As novas tentativas de quem ainda não atendeu
+# ---------------------------------------------------------
+for f in "$ESTADO"/*.inicio-*; do
+  [ -f "$f" ] || continue
+  inicio="${f##*.inicio-}"
+  IFS=$'\t' read -r ramal anuncio restantes intervalo proxima id < "$f"
+  if atendeu_desde "$ramal" "$inicio"; then
+    log "despertador de ${ramal} atendido"
+    registrar "$id" atendido
+    rm -f "$f"
+  elif [ "${restantes:-0}" -le 0 ] 2>/dev/null; then
+    log "despertador de ${ramal}: ninguém atendeu"
+    registrar "$id" nao_atendeu
+    rm -f "$f"
+  elif [ "$agora" -ge "${proxima:-0}" ] 2>/dev/null; then
+    ligar "$ramal" "$anuncio" "nova tentativa"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ramal" "$anuncio" "$((restantes - 1))" "$intervalo" \
+      "$((agora + intervalo))" "$id" > "$f"
+  fi
+done
 
 # ---------------------------------------------------------
 # 1. O que o usuário marcou pelo telefone, com *68
@@ -45,6 +97,8 @@ asterisk -rx "database show despertar" 2>/dev/null \
       [ "$hora" != "$agora_hm" ] && continue
 
       ligar "$ramal" "" "marcado pelo telefone"
+      # Mais duas tentativas, a cada dois minutos, se ninguém atender.
+      agendar "tel-${ramal}" "$ramal" "" 2 120 ""
       # Um despertador marcado pelo telefone vale uma vez.
       asterisk -rx "database del despertar ${ramal}" >/dev/null 2>&1
     done
@@ -53,7 +107,7 @@ asterisk -rx "database show despertar" 2>/dev/null \
 # 2. O que o console cadastrou
 # ---------------------------------------------------------
 pendentes=$(mysql "
-  SELECT id, ramal, IFNULL(anuncio_id, ''), nome
+  SELECT id, ramal, IFNULL(anuncio_id, ''), nome, tentativas, intervalo
     FROM despertadores
    WHERE ativo = 1
      AND (
@@ -72,11 +126,13 @@ pendentes=$(mysql "
 
 [ -z "$pendentes" ] && exit 0
 
-echo "$pendentes" | while IFS=$'\t' read -r id ramal anuncio nome; do
+echo "$pendentes" | while IFS=$'\t' read -r id ramal anuncio nome tentativas intervalo; do
   [ -z "$id" ] && continue
 
   ligar "$ramal" "$anuncio" "$nome"
-  mysql "UPDATE despertadores SET ultimo_em = NOW() WHERE id = ${id};"
+  mysql "UPDATE despertadores SET ultimo_em = NOW(), ultimo_estado = NULL WHERE id = ${id};"
+  [ "${intervalo:-0}" -ge 60 ] 2>/dev/null || intervalo=60
+  agendar "id-${id}" "$ramal" "$anuncio" "$(( ${tentativas:-1} - 1 ))" "$intervalo" "$id"
 
   # Um despertador de uma vez só se desliga sozinho depois de tocar.
   mysql "UPDATE despertadores SET ativo = 0 WHERE id = ${id} AND repeticao = 'uma_vez';"

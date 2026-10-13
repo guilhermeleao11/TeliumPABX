@@ -146,7 +146,7 @@ Se `sons_url` ou `sons_dir` for declarado e falhar, o playbook **para**.
 
 | Variável | Fábrica | O que faz |
 |---|---|---|
-| `nat_ip_publico` | vazio | IP público. Só o valor inicial: depois quem manda é o console, em **Conectividade › Configurações de Rede** |
+| `nat_ip_publico` | vazio | IP público. Só o valor inicial: depois quem manda é o console, em **Conectividade › Configurações de Rede**. Para o TURN, vale este valor e, vazio, o endereço gravado no console (lido a cada execução do playbook) |
 | `redes_locais` | 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 | Faixas da rede interna. Mesmo caso do anterior |
 | `sip_porta` | 5060 | Porta SIP (UDP e TCP) |
 | `sip_tls_porta` | 5061 | Porta SIP sobre TLS |
@@ -269,11 +269,14 @@ sudo ansible-playbook site.yml --start-at-task="Publicar o código da API"
 
 Roda o script `infra/sql/opcional/limpar.sql` e reaplica os dados essenciais. Apaga:
 
-- ramais, dispositivos, troncos, filas e seus agentes, URAs, grupos de toque, rotas de entrada e de saída, condições horárias, PIN sets e tarifas;
-- CDR, CEL, eventos, o registro das gravações, contatos, integrações, auditoria e sessões;
+- ramais, dispositivos, troncos, filas e seus agentes, URAs, grupos de toque, rotas de entrada e de saída (com os padrões), condições horárias, PIN sets e tarifas;
+- anúncios, caixas postais, conferências, despertadores, destinos personalizados, DISA, grupos de megafonia, lista negra e allowlist, convites e registro do provisionamento;
+- call center: agentes, atendimentos, retornos, tabulações e o histórico das filas (queue_log), e as respostas da pesquisa de satisfação;
+- chaves e pedidos de click to call;
+- CDR, CEL, eventos, o registro das gravações, contatos, integrações, auditoria, chamadas do softphone e sessões;
 - **todos os usuários, menos o `admin`**.
 
-Preserva: empresa, perfis e permissões, a conta `admin` e os grupos de horário padrão. Os arquivos de gravação em disco não são apagados por ele.
+Preserva: empresa, perfis e permissões, a conta `admin`, os grupos de horário padrão, os códigos de recurso, os motivos de pausa, a pesquisa padrão, os estacionamentos, a biblioteca de áudios e os endereços confiáveis do firewall. Os arquivos em disco (gravações, recados, backups) não são apagados por ele.
 
 ### -e cenario_teste=true — só em servidor de teste
 
@@ -298,13 +301,13 @@ O playbook `site.yml` roda estas roles, nesta ordem:
 | `php` | PHP 8.4 com FPM e um pool dedicado à API |
 | `asterisk` | Compila e instala o Asterisk 22 (só se a versão mudou), instala os áudios em português, a música de espera, os arquivos de configuração base, o logrotate, o despertador e a unidade systemd; testa o AMI |
 | `janus` | Só com `instalar_janus=true`: compila e instala o Janus |
-| `turn` | Só com `instalar_turn` (padrão: sim): coturn com credencial temporária derivada de um segredo |
+| `turn` | Só com `instalar_turn` (padrão: sim): coturn com credencial temporária derivada de um segredo. O endereço público do TURN vem do `nat_ip_publico` ou, sem ele, do console |
 | `backup` | Diretório `/var/backup/pabx-telium`, o executor e o temporizador do backup |
 | `certificados` | O cofre `/etc/telium/certificados` e o aplicador que copia o certificado enviado pelo console para os serviços |
-| `email` | msmtp, para o envio de e-mail (recado do correio de voz, alertas); a configuração vem do console |
-| `api` | Publica o console (`/opt/telium/web`) e a API (`/opt/telium/api`), escreve o `.env`, define a senha inicial do `admin` (só na primeira vez), gera e aplica a configuração do Asterisk, instala a tarifação (de hora em hora) e o serviço do call center `telium-cc`, e roda a bateria de testes |
+| `email` | msmtp, para o envio de e-mail (recado do correio de voz, fax, alertas); o `tiff2pdf` (pacote `libtiff-tools`) e o script `/usr/local/sbin/telium-fax-email`, que manda o fax recebido em PDF. A configuração vem do console |
+| `api` | Publica o console (`/opt/telium/web`) e a API (`/opt/telium/api`), escreve o `.env`, grava em `api/COMMIT` o commit do clone (o que o console mostra ao lado da versão), define a senha inicial do `admin` (só na primeira vez), gera e aplica a configuração do Asterisk, instala a tarifação (de hora em hora) e o serviço do call center `telium-cc`, e roda a bateria de testes |
 | `syslog` | Regras do rsyslog para o syslog central (ou as retira, com `syslog_central: false`) |
-| `seguranca` | fail2ban (SIP, console, SSH) e ufw com as portas da central |
+| `seguranca` | fail2ban (SIP, console, SSH) e ufw com as portas da central (a faixa do Janus só com `instalar_janus=true`) |
 
 Detalhes de cada serviço: [Comandos e serviços](05-Servidor-Comandos-e-Servicos.md). Onde fica cada arquivo: [Diretórios, arquivos e logs](06-Diretorios-Arquivos-e-Logs.md).
 
@@ -387,7 +390,7 @@ sudo asterisk -rx "core reload"             # não pode sair nenhum ERROR
 sudo asterisk -rx "pjsip show transports"   # udp, tcp, tls e wss
 sudo asterisk -rx "pjsip show endpoints"    # os ramais cadastrados
 sudo asterisk -rx "pjsip show registrations"
-curl -sk https://127.0.0.1/api/health | head -c 400
+curl -sk https://127.0.0.1/api/health | head -c 400   # traz a versão e o commit
 systemctl is-active telium-cc
 ```
 

@@ -164,7 +164,7 @@ Comportamentos:
 - Se o destino não atender, a chamada volta para o **seu** correio de voz, e não para a caixa postal do celular.
 - Com **Não perturbe** ligado, o ramal dá ocupado antes de chegar ao siga-me.
 
-**Pelo telefone:** o siga-me se liga com `*21` mais o número e se desliga com `*22` (códigos padrão; confira em **Administrador › Códigos de Recurso**, [15-Codigos-de-Recurso.md](15-Codigos-de-Recurso.md)). Atenção: o quadro **Como funciona** da tela cita `*72` e `*73`, que na central são o **desvio de todas as chamadas**, um recurso diferente do siga-me.
+**Pelo telefone:** o siga-me se liga com `*21` mais o número e se desliga com `*22`, como diz o quadro **Como funciona** da tela (códigos de fábrica; a central pode ter outros — confira em **Administrador › Códigos de Recurso**, [15-Codigos-de-Recurso.md](15-Codigos-de-Recurso.md)). Ligado pelo `*21`, o siga-me usa o modo escolhido nesta tela (**Junto** ou **Depois**): o modo fica guardado mesmo com o siga-me desligado.
 
 ---
 
@@ -306,7 +306,7 @@ Para outros sistemas (CRM, ERP) usarem o click to call com chave de API, veja [2
 
 **O siga-me não leva a chamada para o celular.**
 - O ramal não tem permissão de discagem para números externos. Peça ao administrador.
-- O modo é **Depois** e o ramal está atendendo antes de acabar o tempo de toque.
+- O modo é **Depois** e o ramal está atendendo antes de acabar o tempo de toque. O modo vale também quando o siga-me foi ligado pelo `*21`.
 - O não perturbe está ligado.
 
 **Disquei *72 achando que era o siga-me.**

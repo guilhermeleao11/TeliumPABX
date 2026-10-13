@@ -122,7 +122,8 @@ const MENU = [
     items: [
       { id: 'telium.tarifacao',   label: 'Tarifação',        icon: 'creditCard' },
       { id: 'telium.integracoes', label: 'Integrações / API',icon: 'layers' },
-      { id: 'telium.suporte',     label: 'Suporte',          icon: 'helpCircle' }
+      { id: 'telium.suporte',     label: 'Suporte',          icon: 'helpCircle' },
+      { id: 'telium.versoes',     label: 'Versões e Novidades', icon: 'list' }
     ]
   },
   {

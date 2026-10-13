@@ -8,8 +8,7 @@
 # navegador e a borda da rede do usuário.
 #
 # O TURN é o plano B: retransmite a mídia por um endereço público, em
-# UDP e, quando nem isso passa, em TCP na 443, que é a porta que
-# firewall nenhum fecha.
+# UDP e, quando nem isso passa, em TCP (3478) ou TLS (5349).
 
 - name: Instalar o coturn
   ansible.builtin.apt:
@@ -32,6 +31,24 @@
       # Gerado pelo Ansible — Telium PABX. Não edite à mão.
       TURNSERVER_ENABLED=1
   notify: reiniciar coturn
+
+# Atrás de NAT o coturn precisa do endereço público. Vale o do
+# servidor.yml; sem ele, o que foi gravado no console (Conectividade ›
+# Configurações de Rede). Antes só a variável do Ansible chegava aqui, e o
+# endereço posto no console ficava no Asterisk e faltava no TURN.
+- name: Ler o endereço público gravado no console
+  ansible.builtin.command:
+    cmd: mariadb --protocol=socket -uroot -N -B {{ db_nome }} -e "SELECT valor FROM sistema WHERE chave = 'rede_ip_publico'"
+  register: turn_ip_console
+  changed_when: false
+  failed_when: false
+
+- name: Escolher o endereço público do TURN
+  ansible.builtin.set_fact:
+    turn_ip_publico: >-
+      {{ nat_ip_publico if (nat_ip_publico | default('') | length > 0)
+         else ((turn_ip_console.stdout | default('') | trim)
+               if (turn_ip_console.stdout | default('') | trim) is match('^[0-9]{1,3}(\.[0-9]{1,3}){3}$') else '') }}
 
 - name: Publicar a configuração do coturn
   ansible.builtin.template:

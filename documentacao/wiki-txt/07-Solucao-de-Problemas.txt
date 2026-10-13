@@ -22,7 +22,7 @@ SUMÁRIO
 10. Console não abre, erro 502 ou erro de banco depois do git pull
 11. Faixa "Alterações ainda não aplicadas" e falha ao aplicar
 12. Fila não distribui chamadas
-13. Correio de voz por e-mail não chega
+13. Correio de voz por e-mail não chega (e alertas e fax)
 14. Certificado vencido ou renovação
 15. Login bloqueado ou senha do admin perdida
 16. Backup falhou
@@ -32,6 +32,7 @@ SUMÁRIO
 20. DTMF não funciona na URA
 21. Gravação não aparece
 22. Coletar informações para o suporte
+23. Webhook não chega ao CRM
 
 
 1. ANTES DE TUDO: A CENTRAL ESTÁ DE PÉ?
@@ -69,10 +70,11 @@ Sem sessão, a resposta traz só a versão e saudavel (verdadeiro ou falso), com
 
 Telas do console que ajudam no diagnóstico:
 
-- Telium › Suporte: Checagens da API, configuração pendente, versão e comandos úteis
+- Telium › Suporte: Checagens da API, configuração pendente, versão (com o commit) e comandos úteis
+- Telium › Versões e Novidades: A versão e o commit desta central e o que mudou em cada versão: confira ali se a correção que você procura já está instalada
 - Conectividade › Firewall: Falhas de autenticação SIP por origem, falhas de login no console, IPs bloqueados, lista "Nunca bloquear"
 - Conectividade › Troncos: Situação de cada tronco (publicado, registrado, no ar)
-- Conectividade › DIDs / Numeração: Os números de entrada e para onde vão
+- Conectividade › DIDs / Numeração: Os números de entrada e para onde vão (pelo nome do destino), com aviso de número duplicado
 - Conectividade › Configurações de Rede: IP público, redes locais, transportes, RTP e STUN
 - Conectividade › WebRTC / Softphone: Transporte wss, domínio, servidores ICE, ramais WebRTC e últimas chamadas do navegador
 - Configurações › SIP / PJSIP: Saída de pjsip show settings, transports, endpoints, registrations e tabela de codecs
@@ -89,8 +91,9 @@ Logs no servidor:
 - /var/log/telium/php-api.log: Erros da API
 - /var/log/nginx/error.log e access.log: Servidor web
 - /var/log/telium-smtp.log: Envio de e-mail (msmtp)
-- journalctl -u telium-cc: Serviço de tempo real do call center
-- journalctl -u telium-backup: Execuções do backup
+- journalctl -u telium-cc: Serviço de tempo real do call center, inclusive erros dos webhooks
+- journalctl -u telium-backup: Execuções do backup, a limpeza diária das gravações e os alertas por e-mail
+- journalctl -t telium-fax: Envio do fax recebido por e-mail
 
 Os logs do Asterisk giram todo dia (14 cópias, até 200 MB cada); os da API e do e-mail, toda semana (8 cópias).
 
@@ -215,7 +218,7 @@ Causas prováveis:
 - Não existe rota "qualquer número" (DID em branco ou *).
 - A rota tem regra de origem (quem ligou) e o número não casou com nenhuma.
 - O destino da rota foi apagado ou desativado.
-- O número está na Lista Negra.
+- O número está na Lista Negra. A coluna Bloqueios da lista sobe a cada chamada barrada: se ela está subindo, é a lista negra que está recusando.
 
 O que quem liga ouve:
 - DID sem rota e sem rota coringa: a central atende e toca o aviso de serviço indisponível. No log aparece DID ... chegou pelo tronco ... e não tem rota de entrada.
@@ -317,7 +320,7 @@ Tudo o que é salvo no console vai para o banco. O Asterisk só passa a usar qua
 
 [PRINT: a faixa amarela "Alterações ainda não aplicadas no Asterisk" com o botão Aplicar configurações]
 
-O que acontece ao aplicar: os arquivos são gerados a partir do banco, as listas são repostas na base interna do Asterisk (lista negra, allowlist, siga-me, não perturbe, permissões de discagem, quem pode escutar) e os módulos são recarregados um a um (ramais e troncos, dialplan, filas, correio de voz, conferências, estacionamento, música em espera, códigos de recurso, colunas do CDR, candidatos ICE e portas de voz). No fim, a central confere se cada ramal e tronco ativo carregou de fato.
+O que acontece ao aplicar: os arquivos são gerados a partir do banco, as listas são repostas na base interna do Asterisk (lista negra, allowlist, siga-me e o modo dele, não perturbe, permissões de discagem, quem pode escutar, quem pode mexer na lista negra e na allowlist pelo telefone) e os módulos são recarregados um a um (ramais e troncos, dialplan, filas, correio de voz, conferências, estacionamento, música em espera, códigos de recurso, colunas do CDR, candidatos ICE e portas de voz). No fim, a central confere se cada ramal e tronco ativo carregou de fato.
 
 Resultados possíveis na faixa:
 
@@ -328,7 +331,7 @@ Resultados possíveis na faixa:
 Etapas que falham com mais frequência:
 - ramais e troncos carregados — a saída diz O Asterisk não carregou: 1005, .... Uma opção do ramal ou tronco foi recusada pelo PJSIP. Veja o motivo:
       sudo grep -i "1005" /var/log/asterisk/full | tail
-- conexão com o Asterisk — o Asterisk está parado ou o AMI recusou a senha. sudo systemctl status asterisk; para o AMI, rode sudo bash /opt/TeliumPABX/infra/diagnostico-ami.sh, que compara a senha do manager.conf com a de origem (sem mostrá-la) e testa o login.
+- conexão com o Asterisk — o Asterisk está parado ou o AMI recusou a senha. sudo systemctl status asterisk; para o AMI, rode sudo bash /opt/TeliumPABX/infra/diagnostico-ami.sh, que compara a senha do manager.conf com a de origem (sem mostrá-la) e testa o login. Usuários do AMI criados à mão ficam em /etc/asterisk/manager_custom.conf, nunca no manager.conf, que o playbook reescreve.
 - aplicação em curso — "Outra aplicação de configuração está em andamento. Espere ela terminar e tente de novo."
 
 Problemas que a conferência do cadastro mostra:
@@ -355,6 +358,7 @@ Causas prováveis:
 - Fila de call center: ninguém está logado, todos estão em pausa ou em pós-atendimento esperando tabulação.
 - A fila foi criada ou alterada e não foi aplicada.
 - O destino da rota não aponta para a fila.
+- O agente tentou entrar pelo *45 e ouviu que a operação falhou: o *45 só aceita quem está na lista de agentes da fila como Entra por código (gaveta de agentes da fila). Inclua o ramal assim e aplique. Fila de call center não aceita *45: o agente entra pelos códigos do call center.
 
 Como verificar:
     sudo asterisk -rx "queue show 3000"
@@ -373,6 +377,7 @@ Causas prováveis:
 - Envio de e-mail desligado, sem servidor ou sem remetente: a configuração do msmtp é apagada.
 - Credenciais, porta ou segurança (TLS, STARTTLS) erradas.
 - O ramal sem e-mail cadastrado. A tela Aplicações › Correio de Voz mostra "sem e-mail cadastrado".
+- Apagar depois de mandar só vale quando o recado vai de fato, com o áudio anexado, para um e-mail. Sem e-mail no ramal (ou sem o anexo), o recado fica na caixa e não é apagado.
 - O correio de voz do ramal desligado.
 - Mensagem caindo no spam do destinatário.
 
@@ -387,6 +392,28 @@ Como verificar:
    O segundo comando republica a configuração e diz "configuração de e-mail publicada para servidor:porta" ou "envio de e-mail desligado".
 
 [PRINT: Configurações › Notificações e E-mail com o resultado do teste de envio]
+
+
+Os alertas do sistema não chegam
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Backup com falha ou atrasado, certificado perto de vencer e disco quase cheio vão para os e-mails do campo Mandar os alertas do sistema para, em Configurações › Notificações e E-mail.
+
+- Com o campo em branco, ou com o envio de e-mail desligado, nenhum alerta sai.
+- O executor de backup confere os alertas de hora em hora (no minuto 07) e logo depois de um backup que falha. Cada tipo de aviso sai no máximo uma vez por dia; o de backup com falha, uma vez por backup.
+- Para mandar agora o que estiver pendente:
+      sudo -u teliumpbx php /opt/telium/api/bin/telium alertas
+  A resposta é "nenhum aviso a mandar" ou a lista dos avisos enviados. Um aviso que já saiu hoje não sai de novo.
+
+
+O fax não chega por e-mail
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Em Configurações › Fax, a recepção precisa estar ligada e o campo Mandar o fax recebido para preenchido. Com a recepção desligada, o código de receber fax avisa que o serviço não está disponível.
+- Mudou algo na tela de fax? Aplique as configurações: os ajustes vão para o dialplan.
+- O fax sai pelo mesmo envio do correio de voz: se o teste de e-mail falha, o fax também não chega.
+- Veja o que aconteceu: sudo journalctl -t telium-fax -n 20. "não chegou" quer dizer que o fax em si falhou (linha ruim, sem T.38): tente baixar a velocidade máxima para 9600 e peça T.38 à operadora. "falha ao enviar" é problema do e-mail.
+- Sem o tiff2pdf (pacote libtiff-tools, instalado pelo playbook), o fax vai em TIFF, e não em PDF.
 
 
 14. CERTIFICADO VENCIDO OU RENOVAÇÃO
@@ -426,6 +453,10 @@ Senha do admin perdida (pelo servidor):
     sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin
 O comando pede a senha nova sem eco, aplica a política (8 caracteres, um número, um símbolo), zera o bloqueio e derruba as sessões abertas. Em script, aceita a senha por pipe. O comando não desliga a verificação em dois passos.
 
+Celular do 2FA perdido e nenhum outro administrador para desligar:
+    sudo -u teliumpbx php /opt/telium/api/bin/telium desligar-2fa admin
+Desliga a verificação em dois passos e derruba as sessões. Depois de entrar, ligue de novo em Meu Perfil e Segurança.
+
 
 16. BACKUP FALHOU
 -----------------
@@ -436,6 +467,8 @@ Como verificar:
       systemctl status telium-backup.timer
       journalctl -u telium-backup -n 50
       ls -lh /var/backup/pabx-telium/
+
+Com os alertas por e-mail configurados (seção 13), a central avisa sozinha quando um backup falha e quando há rotina ligada sem nenhum backup concluído há mais de 26 horas.
 
 Causas prováveis: disco cheio (as gravações pesam), falha do tar, ou o destino remoto recusou o envio. Sem destino remoto ligado, o envio responde "nenhum destino remoto ligado — o backup fica só no servidor", o que não é erro.
 
@@ -450,14 +483,14 @@ Sintomas: backup falhando, gravações sem arquivo, banco recusando gravação, 
 Como verificar:
     df -h
     sudo du -sh /var/spool/asterisk/monitor /var/backup/pabx-telium /var/log/asterisk /var/lib/mysql
-A tela Aplicações › Gravação de Chamadas mostra o uso do disco das gravações.
+A tela Aplicações › Gravação de Chamadas mostra o uso do disco das gravações. Com os alertas por e-mail configurados, a central avisa quando o disco das gravações fica com menos de 10% livre.
 
 Onde costuma crescer:
-- Gravações (/var/spool/asterisk/monitor): a central não apaga gravações sozinha, e o console não tem botão de excluir.
+- Gravações (/var/spool/asterisk/monitor): com o prazo de guarda em zero (o padrão), a central guarda todas para sempre.
 - Backups (/var/backup/pabx-telium): a retenção de cada rotina mantém só os N arquivos mais recentes (padrão 5). Backup com gravações incluídas ocupa muito.
 - Logs: giram sozinhos (ver seção 2).
 
-Como resolver: reduza a retenção do backup, tire as gravações do backup local (mande para o destino remoto) e defina com o cliente a política de retenção das gravações, apagando as antigas pelo terminal conforme o combinado.
+Como resolver: combine com o cliente por quantos dias guardar as gravações e defina o prazo em Aplicações › Gravação de Chamadas (a limpeza roda uma vez por dia). Reduza também a retenção do backup e tire as gravações do backup local, mandando-as para o destino remoto.
 
 
 18. REINÍCIO DO ASTERISK AGENDADO
@@ -521,7 +554,7 @@ Como verificar: a tela de gravações cruza o CDR com o disco; quando o registro
 
 Antes de abrir o chamado, junte:
 
-1. A versão. Aparece em Telium › Suporte e em curl -sk https://127.0.0.1/api/health.
+1. A versão e o commit. Aparecem em Telium › Versões e Novidades, em Telium › Suporte e no rodapé do menu, no formato 1.1.0 (ae4f854). Um + no fim do commit indica um código publicado com alterações fora do Git. Sem login, curl -sk https://127.0.0.1/api/health mostra só o número da versão.
 2. O que aconteceu: o que foi discado, de qual ramal, e a hora com minuto. Se for áudio, se falta nos dois lados ou em um só.
 3. A bateria de testes:
        sudo -u teliumpbx php /opt/telium/api/bin/telium testar
@@ -539,3 +572,24 @@ Antes de abrir o chamado, junte:
 Não mande senhas: o arquivo /etc/telium/credenciais/ e o vault.yml nunca entram no chamado.
 
 [PRINT: Telium › Suporte, quadro "Antes de abrir o chamado"]
+
+
+23. WEBHOOK NÃO CHEGA AO CRM
+----------------------------
+
+Os webhooks são cadastrados em Telium › Integrações / API (20 — Telium: Tarifação, Integrações e Suporte (ver página 20)).
+
+Como verificar:
+1. Na lista de webhooks, a coluna Último envio mostra quando foi o último aviso e o resultado: ok (HTTP 200), falhou (HTTP 500) ou falhou: com o erro de rede. "nunca" quer dizer que nenhum evento casou com o cadastro.
+2. O botão de teste da linha manda um aviso de exemplo na hora. Respostas: "O destino respondeu HTTP …" ou "Não chegou: …" com o erro.
+3. Quem manda os avisos é o serviço de tempo real (telium-cc):
+       systemctl status telium-cc
+       journalctl -u telium-cc -n 50 | grep -i webhook
+
+Causas prováveis:
+- O telium-cc está parado: sem ele, nenhum aviso sai (o teste da tela sai mesmo assim, porque é a API que o faz).
+- O webhook está inativo, ou o campo Eventos não tem o evento esperado (em branco, valem os três).
+- O destino demora mais de 5 segundos para responder, ou responde com redirecionamento (a central não segue).
+- O CRM recusa porque confere a assinatura X-Telium-Assinatura com um segredo diferente do cadastrado.
+- A linha está marcada sem efeito: é um cadastro de tipo antigo (chave de API, syslog), que não manda nada. Crie um webhook novo.
+- Um cadastro alterado leva até 15 segundos para o serviço perceber.

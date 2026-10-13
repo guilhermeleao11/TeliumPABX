@@ -73,6 +73,8 @@ Clique em **Configurar** na linha do ramal.
 
 A central confirma com "ativado" ou "desativado". O que se faz pelo telefone aparece no console.
 
+Ligado pelo `*21` (ou `*23`), o siga-me toca do jeito escolhido em **Como tocar** no cadastro (junto ou depois), com o tempo de toque do cadastro. Antes da versão 1.1.0, ligado pelo telefone ele tocava sempre "junto", até o próximo **Aplicar configurações**.
+
 ### Regras e validações
 
 - Destino: de 2 a 20 caracteres, só dígitos, `*`, `#` ou `+`.
@@ -112,7 +114,7 @@ A caixa postal de cada ramal: senha, aviso por e-mail e limites. Quem liga e nã
 | Senha da caixa | Só dígitos, até 10. Em branco, a senha é o **próprio número do ramal** |
 | E-mail para aviso | É o mesmo e-mail do cadastro do ramal |
 | Anexar o áudio no e-mail | Manda o recado junto com o aviso |
-| Apagar o recado depois de enviar | O recado só existe no e-mail, não fica para ouvir pelo telefone |
+| Apagar o recado depois de enviar | O recado só existe no e-mail, não fica para ouvir pelo telefone. **Só vale com o e-mail cadastrado e Anexar o áudio no e-mail ligado**: sem isso, o recado fica na caixa (antes da versão 1.1.0 ele sumia sem chegar a ninguém) |
 | Máximo de recados guardados | Padrão 100 |
 | Duração máxima de cada recado (s) | Padrão 180 |
 | Falar a data e a hora do recado | Ao ouvir, a central diz quando o recado chegou |
@@ -305,10 +307,12 @@ Um número que abre o viva-voz de vários aparelhos ao mesmo tempo: o "atenção
 | Nome * | Até 80 caracteres |
 | Aparelhos do grupo * | Números dos ramais separados por hífen (ex.: `1001-1002-1003`) |
 | Todos podem falar (interfonia) | Desligado, os aparelhos só ouvem. Ligado, vira conversa de mão dupla |
-| Interromper quem está em chamada | Ligado, abre o som até em quem está falando. Desligado, só aparelhos livres recebem |
+| Interromper quem está em chamada | Ligado, abre o som também nos aparelhos que estão em chamada, no meio da conversa. Desligado, quem está ao telefone fica de fora. Use com parcimônia |
 | Tocar antes de abrir o som | Um anúncio curto (um bipe, um aviso) antes de abrir o áudio |
 | Tempo máximo (segundos) | Padrão 60 |
 | Grupo ativo | Liga ou desliga |
+
+Para falar com um ramal só, não precisa de grupo: o código `*80` mais o número do ramal já funciona (a tela de grupos vazia diz isso).
 
 > 📷 **Print:** gaveta "Novo grupo de megafonia".
 
@@ -353,7 +357,7 @@ A central liga para o ramal na hora marcada e toca um anúncio. Serve de despert
 | Ramal | Número e nome; "ramal não existe" se o ramal foi excluído |
 | Quando | "uma vez, em …", "todo dia às …" ou os dias da semana e a hora |
 | Toca | O anúncio, ou "hora falada pelo PABX" |
-| Última vez | Quando tocou pela última vez |
+| Última vez | Quando tocou pela última vez, com o resultado: **atendeu**, **não atendeu** (esgotou as tentativas) ou **falhou** |
 | Estado | Ativa ou Parada |
 
 ### Cadastrar ou editar
@@ -369,6 +373,8 @@ Clique em **Nova chamada**.
 | Data e hora | Só para "uma vez" |
 | Horário | Para "todo dia" e "dias da semana" |
 | Dias da semana | Marque ao menos um (só para "dias escolhidos") |
+| Tentativas | Se ninguém atender, quantas vezes **ao todo** a central liga. De 1 a 10. Padrão 3 |
+| Entre uma tentativa e outra (s) | De 60 a 3600 segundos. Padrão 120 |
 | Chamada ativa | Liga ou desliga |
 
 > 📷 **Print:** gaveta "Nova chamada de despertar" com "Em dias escolhidos da semana".
@@ -377,13 +383,18 @@ Clique em **Nova chamada**.
 
 | Código | O que faz |
 |---|---|
-| `*68` | A central atende, toca um aviso e um bipe. Digite a hora com **4 dígitos** (ex.: `0730` para 7h30). Ela repete a hora e confirma |
-| `*67` | Cancela o despertador marcado pelo telefone no seu ramal |
+| `*68` | A central atende e pede a hora do despertador. Digite a hora com **4 dígitos**, de `0000` a `2359` (ex.: `0730` para 7h30). Ela repete a hora marcada e avisa que o despertador vale uma vez |
+| `*67` | Cancela o despertador marcado pelo telefone no seu ramal. A central avisa que o despertador foi cancelado |
+
+- O `*68` só aceita hora válida: `2460`, `9999` ou menos de 4 dígitos dão "inválido" e nada é marcado. (Antes da versão 1.1.0 qualquer combinação de 4 dígitos era aceita e nunca tocava.)
 
 ### Comportamentos automáticos
 
 - O serviço **telium-despertador** (um timer do sistema) roda **a cada minuto** e dispara o que bate com a hora do servidor. Não precisa aplicar configurações.
 - Uma chamada de **uma vez** se desliga sozinha depois de tocar (fica como "Parada").
+- Ao atender, toca o **anúncio** escolhido; sem anúncio, a central diz "este é o seu despertador", fala a hora e se despede.
+- **Se ninguém atende**, a central liga de novo: no cadastro, conforme **Tentativas** e **Entre uma tentativa e outra**; no despertador marcado pelo `*68`, mais duas vezes, a cada dois minutos. Atendida uma tentativa, as outras não acontecem. O resultado aparece na coluna **Última vez**.
+- As tentativas pendentes ficam em `/var/lib/telium/despertador`, um arquivo por despertador ([06-Diretorios-Arquivos-e-Logs.md](06-Diretorios-Arquivos-e-Logs.md)).
 - O despertador marcado pelo telefone vale **uma vez** e é apagado depois de tocar. Ele **não aparece** na lista do console.
 - A hora é a do servidor da central. Veja [05-Servidor-Comandos-e-Servicos.md](05-Servidor-Comandos-e-Servicos.md) para conferir o timer e o fuso.
 
@@ -404,7 +415,7 @@ Clique em **Nova chamada**.
 - Na caixa sem ramal, confira se **Mandar cópia do recado por e-mail** está ligado.
 
 **Ninguém consegue ouvir os recados pelo telefone.**
-- A opção **Apagar o recado depois de enviar** está ligada: o recado só existe no e-mail.
+- A opção **Apagar o recado depois de enviar** está ligada (com e-mail e anexo): o recado só existe no e-mail.
 
 **"É número de ramal" ao salvar a caixa postal.**
 - Escolha um número que não seja de ramal (ex.: faixa 800).
@@ -421,15 +432,18 @@ Clique em **Nova chamada**.
 
 **A megafonia só toca, não abre o viva-voz.**
 - Libere o atendimento automático (intercom) na configuração do aparelho.
-- Sem **Interromper quem está em chamada**, aparelho ocupado não recebe.
+- Sem **Interromper quem está em chamada**, aparelho em chamada fica de fora.
 
 **`*80` faz o telefone tocar normal em vez de abrir o viva-voz.**
 - O ramal chamado recusou interfonia com `*88`. Ele volta a aceitar com `*87`.
 
 **`*68` responde "inválido".**
-- A hora precisa de 4 dígitos: `0730`, não `730`.
+- A hora precisa de 4 dígitos e ser uma hora de verdade: `0730`, não `730` nem `2500`.
 
 **O despertador não tocou.**
 - Confira o relógio do servidor e se o timer `telium-despertador` está ativo ([05-Servidor-Comandos-e-Servicos.md](05-Servidor-Comandos-e-Servicos.md)).
 - A chamada de "uma vez" já tocou e ficou **Parada**.
-- O ramal não estava registrado na hora.
+- O ramal não estava registrado na hora (nem nas novas tentativas): a lista mostra **não atendeu**.
+
+**O despertador tocou só a hora, sem o anúncio.**
+- Confira se o anúncio escolhido está ativo e tem gravação. Antes da versão 1.1.0 o anúncio nunca tocava; atualize a central.

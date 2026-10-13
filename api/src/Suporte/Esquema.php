@@ -50,6 +50,11 @@ final class Esquema
         // O QR do Linphone escreve o ramal no registro de pedidos.
         'provisionamento_log' => ['ramal'],
         'provisionamento_convite' => ['servidor', 'esquema'],
+        // 1.1.0 (46 e 47): contagem de PINs, resultado do webhook e
+        // destino dos alertas por e-mail.
+        'pin_sets' => ['pins_qtd'],
+        'integracoes' => ['ultimo_status'],
+        'smtp' => ['alertas_para'],
     ];
 
     /**

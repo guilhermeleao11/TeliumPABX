@@ -70,8 +70,11 @@ final class TempoReal
     /** @var array<string,array<string,mixed>> nome => motivo */
     private array $motivos = [];
 
+    private Webhooks $webhooks;
+
     public function __construct(private readonly string $endereco = '127.0.0.1:8095')
     {
+        $this->webhooks = new Webhooks();
     }
 
     public function rodar(): void
@@ -146,9 +149,12 @@ final class TempoReal
             fwrite($s, "Action: Login\r\n"
                 . 'Username: ' . \Telium\Suporte\Ambiente::get('AMI_USER') . "\r\n"
                 . 'Secret: ' . \Telium\Suporte\Ambiente::get('AMI_PASS') . "\r\n"
-                // Só o que interessa ao call center: filas e agentes.
-                // "call" traria cada canal criado na central inteira.
-                . "Events: agent\r\n\r\n");
+                // Filas e agentes para o call center; de "call", só o que
+                // os webhooks usam. O filtro fica no Asterisk: cada canal
+                // criado na central não precisa atravessar o soquete.
+                . "Events: agent,call\r\n\r\n"
+                . "Action: Filter\r\nOperation: Add\r\n"
+                . "Filter: Event: (Queue|Agent|DialBegin|DialEnd|Hangup)\r\n\r\n");
             stream_set_blocking($s, false);
 
             $this->eventos = $s;
@@ -211,6 +217,15 @@ final class TempoReal
             case 'QueueMemberPause':
                 $this->nomearPausaAutomatica($ev);
                 break;
+            case 'DialBegin':
+            case 'DialEnd':
+            case 'Hangup':
+                try {
+                    $this->webhooks->evento($ev);
+                } catch (\Throwable $e) {
+                    $this->log('webhook: ' . $e->getMessage());
+                }
+                return;
         }
 
         if (str_starts_with($ev['Event'], 'Queue') || str_starts_with($ev['Event'], 'Agent')) {
@@ -322,6 +337,7 @@ final class TempoReal
     private function tarefas(): void
     {
         $agora = microtime(true);
+        $this->webhooks->processar();
 
         if ($agora - $this->ultimoHoje >= self::INTERVALO_HOJE) {
             $this->ultimoHoje = $agora;

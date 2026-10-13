@@ -580,13 +580,13 @@ PAGES['apps.ura'] = {
         opcoesDestino(),
         Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] }))
       ]);
-    } catch (e) { return pageHead('URA — Atendimento Digital', '') + blocoErro(e); }
+    } catch (e) { return pageHead('URA / Atendimento Digital', '') + blocoErro(e); }
 
     this._uras = uras.dados;
     this._destinos = destinos;
     this._anuncios = anuncios.dados;
 
-    const cabecalho = pageHead('URA — Atendimento Digital',
+    const cabecalho = pageHead('URA / Atendimento Digital',
       'A URA atende, toca a saudação e manda a chamada para onde o cliente escolher.',
       ctx.can('criar')
         ? `<button class="btn btn-primary btn-sm" data-nova-ura>${icon('plus','ico ico-sm')} Nova URA</button>`
@@ -906,11 +906,12 @@ function descreveDestino(tipo, valor, destinos) {
 PAGES['apps.grupostoque'] = paginaCrud({
   recurso: 'grupos-toque',
   titulo: 'Grupos de Toque',
-  sub: 'Um número que toca em vários ramais ao mesmo tempo.',
+  sub: 'Um número que toca em vários ramais: todos juntos ou um de cada vez.',
   ico: 'users',
   plural: 'grupos',
   rotuloNovo: 'Novo grupo',
   tituloNovo: 'Novo grupo de toque',
+  aoCarregar: async pagina => { pagina._destinos = await opcoesDestino(); },
   vazioTitulo: 'Nenhum grupo de toque',
   vazioTexto: 'Grupos fazem um número tocar em vários ramais de uma vez.',
   placeholderBusca: 'Buscar…',
@@ -920,14 +921,22 @@ PAGES['apps.grupostoque'] = paginaCrud({
     { label: 'Número', render: g => `<b class="mono">${esc(g.numero)}</b>` },
     { label: 'Nome', render: g => esc(g.nome) },
     { label: 'Ramais', render: g => `<span class="mono small">${esc(g.ramais)}</span>` },
-    { label: 'Toque', render: g => `<span class="num">${g.tempo_toque}s</span>` }
+    { label: 'Toque', render: g => `<span class="num">${g.tempo_toque}s</span>${g.estrategia === 'linear' ? ' <span class="badge">um de cada vez</span>' : ''}` }
   ],
-  campos: () => [
+  campos: (g, ctx, pagina) => [
     { campo: 'numero', label: 'Número do grupo', obrigatorio: true, mono: true, placeholder: '700' },
     { campo: 'nome', label: 'Nome', obrigatorio: true },
     { campo: 'ramais', label: 'Ramais', obrigatorio: true, mono: true, placeholder: '1000-1001-1002',
-      ajuda: 'Separe os ramais por hífen.', largura: 'full' },
-    { campo: 'tempo_toque', label: 'Tempo de toque (s)', tipo: 'number', padrao: 20 },
+      ajuda: 'Separe os ramais por hífen. Quem está em não perturbe ou com desvio de todas as chamadas não toca.',
+      largura: 'full' },
+    { campo: 'estrategia', label: 'Como toca', tipo: 'select', padrao: 'ringall', largura: 'full',
+      opcoes: [{ valor: 'ringall', rotulo: 'Todos ao mesmo tempo — quem atender primeiro leva' },
+               { valor: 'linear', rotulo: 'Um de cada vez, na ordem da lista' }] },
+    { campo: 'tempo_toque', label: 'Tempo de toque (s)', tipo: 'number', padrao: 20,
+      ajuda: 'Todos juntos: quanto o grupo toca. Um de cada vez: quanto toca em cada ramal.' },
+    { campo: 'destino_falha', tipo: 'destino', label: 'Se ninguém atender', largura: 'full',
+      destinos: pagina._destinos, rotuloVazio: 'Encerrar a chamada',
+      ajuda: 'Para onde vai a chamada quando ninguém do grupo atende ou ninguém está disponível.' },
     { campo: 'ativo', label: 'Grupo ativo', tipo: 'switch', padrao: 1 }
   ]
 });
@@ -942,9 +951,24 @@ PAGES['apps.gravacao'] = {
     catch (e) { return pageHead('Gravação de Chamadas', '') + blocoErro(e); }
     this._d = r;
 
+    // Por quantos dias as gravações ficam. Sem prazo, elas crescem até o
+    // disco encher — e o disco cheio para a gravação e o correio de voz.
+    const ret = r.retencao || { dias: 0 };
+    const prazo = `<div class="card" style="padding:12px 14px;margin-bottom:16px">
+      <div class="row gap-8" style="align-items:flex-end;flex-wrap:wrap">
+        <div class="field" style="margin:0"><label class="label">Guardar as gravações por (dias)</label>
+          <input class="input mono" type="number" min="0" max="3650" id="gravDias" value="${Number(ret.dias) || 0}"
+                 style="width:120px" ${ctx.can('editar') ? '' : 'disabled'}></div>
+        ${ctx.can('editar') ? `<button class="btn btn-outline btn-sm" id="gravDiasSalvar">${icon('check','ico ico-sm')} Salvar prazo</button>` : ''}
+        <div class="small muted grow" style="min-width:220px">${Number(ret.dias)
+          ? `Uma vez por dia, as gravações com mais de ${Number(ret.dias)} dias são apagadas do disco. O registro da chamada continua no CDR.`
+          : 'Zero: as gravações ficam para sempre, até o disco encher.'}
+          ${ret.ultima ? `<div class="tiny">Última limpeza: ${esc(ret.ultima)}</div>` : ''}</div>
+      </div></div>`;
+
     const cabecalho = pageHead('Gravação de Chamadas',
       `Todas as gravações do sistema. Ouça, baixe uma ou leve várias num pacote.
-       Nada é apagado por aqui — quem limpa o disco é a retenção do backup.`,
+       Nada se apaga à mão por aqui: o disco é limpo pelo prazo de guarda abaixo.`,
       `<span class="badge ${r.disco.pct_uso > 85 ? 'badge-danger' : ''}">
          ${r.disco.livre_gb} GB livres de ${r.disco.total_gb} GB</span>
        ${ctx.can('exportar') ? `<button class="btn btn-primary btn-sm" id="baixarSel" disabled>
@@ -972,7 +996,7 @@ PAGES['apps.gravacao'] = {
       </div>`;
 
     if (!r.dados.length) {
-      return cabecalho + filtros + `<div class="card">${vazio('mic',
+      return cabecalho + prazo + filtros + `<div class="card">${vazio('mic',
         'Nenhuma gravação neste filtro',
         `As gravações aparecem conforme as chamadas são gravadas. Ligue a gravação no ramal,
          na fila ou na rota de entrada, e aplique as configurações.`)}</div>`;
@@ -1017,7 +1041,7 @@ PAGES['apps.gravacao'] = {
         </div>
       </div>` : '';
 
-    return cabecalho + filtros + `
+    return cabecalho + prazo + filtros + `
       <div class="card">
         <div class="table-wrap"><table class="table">
           <thead><tr>
@@ -1032,6 +1056,30 @@ PAGES['apps.gravacao'] = {
 
   mount(ctx) {
     const pagina = this;
+
+    document.getElementById('gravDiasSalvar')?.addEventListener('click', async () => {
+      const campo = document.getElementById('gravDias');
+      const dias = Number(campo.value);
+      if (!Number.isInteger(dias) || dias < 0 || dias > 3650) {
+        toast('Informe de 0 a 3650 dias. Zero guarda para sempre.', 'warn');
+        return;
+      }
+      const antes = Number(pagina._d?.retencao?.dias) || 0;
+      // Encurtar o prazo apaga gravações que hoje existem, e elas não voltam.
+      if (dias > 0 && (antes === 0 || dias < antes)) {
+        const ok = await Modal.confirm({
+          titulo: `Guardar só ${dias} dia${dias === 1 ? '' : 's'}?`,
+          texto: `As gravações com mais de ${dias} dia${dias === 1 ? '' : 's'} serão apagadas do disco em até um minuto, e não há como recuperá-las. Se precisar delas, baixe antes ou faça um backup com as gravações.`,
+          ok: 'Apagar e salvar o prazo', tone: 'danger'
+        });
+        if (!ok) return;
+      }
+      try {
+        await Api.put('/gravacoes/retencao', { dias });
+        toast(dias ? `Prazo salvo: ${dias} dia${dias === 1 ? '' : 's'}.` : 'As gravações ficam para sempre.', 'ok');
+        App.route();
+      } catch (e) { toast(e.message, 'err'); }
+    });
 
     const recarregar = () => { pagina._f.pagina = 1; App.route(); };
     document.getElementById('fAplicar')?.addEventListener('click', () => {
@@ -1188,18 +1236,24 @@ PAGES['rel.filas'] = {
 
 /* ------------------------- Relatórios · Agentes ------------------------- */
 PAGES['rel.agentes'] = {
+  _dias: 7,
+
   async render() {
     let d;
-    try { d = await Api.get('/relatorios/agentes', { dias: 7 }); }
+    try { d = await Api.get('/relatorios/agentes', { dias: this._dias }); }
     catch (e) { return pageHead('Produtividade de Agentes', '') + blocoErro(e); }
 
+    const periodo = `<div class="segmented" id="agPeriodo">
+      ${[[1, 'Hoje'], [7, '7 dias'], [30, '30 dias'], [90, '90 dias']]
+        .map(([n, r]) => `<button class="${this._dias === n ? 'on' : ''}" data-dias="${n}">${r}</button>`).join('')}
+    </div>`;
     const cabecalho = pageHead('Produtividade de Agentes',
-      `Volume e tempo médio por ramal nos últimos ${d.dias} dias.`);
+      `Quem atendeu as chamadas das filas, ${d.dias === 1 ? 'hoje' : `nos últimos ${d.dias} dias`}, pelo registro das próprias filas.`,
+      periodo);
 
     if (!d.dados.length) {
-      return cabecalho + `<div class="card">${vazio('users', 'Nenhum ramal cadastrado',
-        'Cadastre ramais para acompanhar a produtividade.',
-        '<a class="btn btn-primary btn-sm" href="#/conn.ramais">Ir para ramais</a>')}</div>`;
+      return cabecalho + `<div class="card">${vazio('users', 'Nenhum atendimento de fila no período',
+        'Os números aparecem quando alguém atende uma chamada de fila. Para o call center, veja também Call Center › Relatórios.')}</div>`;
     }
 
     return cabecalho + `
@@ -1207,12 +1261,17 @@ PAGES['rel.agentes'] = {
       <div class="card">
         <div class="card-head"><div class="card-title">Ranking</div></div>
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Agente</th><th>Ramal</th><th>Atendidas</th><th>TMA</th></tr></thead>
+          <thead><tr><th>Agente</th><th>Identificação</th><th class="num">Atendidas</th><th class="num">TMA</th>
+            <th class="num">Não atendeu</th><th class="num">Em pausa</th>
+            <th class="num" data-tip="Índice da pesquisa de satisfação, de 0 (pior) a 100 (melhor)">Satisfação</th></tr></thead>
           <tbody>${d.dados.map(a => `
             <tr><td><span class="row gap-8"><span class="avatar avatar-sm">${initials(a.nome)}</span>${esc(a.nome)}</span></td>
-              <td class="mono">${esc(a.ramal)}</td>
+              <td class="mono small">${esc(a.identificacao || '—')}${a.callcenter ? ' <span class="badge">call center</span>' : ''}</td>
               <td class="num">${num(a.atendidas)}</td>
-              <td class="num">${a.tma ? duracao(Math.round(a.tma)) : '—'}</td></tr>`).join('')}
+              <td class="num">${a.tma ? duracao(Math.round(a.tma)) : '—'}</td>
+              <td class="num">${num(a.nao_atendeu || 0)}</td>
+              <td class="num">${a.pausado ? duracao(Math.round(a.pausado)) : '—'}</td>
+              <td class="num">${a.nota === null || a.nota === undefined ? '—' : String(a.nota).replace('.', ',')}${a.respostas ? ` <span class="tiny muted">(${a.respostas})</span>` : ''}</td></tr>`).join('')}
           </tbody></table></div>
       </div>
       <div class="card">
@@ -1220,6 +1279,13 @@ PAGES['rel.agentes'] = {
         <div class="card-body">${hbars(d.dados.map(a => ({ label: a.nome, valor: Number(a.atendidas) })))}</div>
       </div>
     </div>`;
+  },
+
+  mount() {
+    document.getElementById('agPeriodo')?.addEventListener('click', ev => {
+      const b = ev.target.closest('[data-dias]');
+      if (b) { this._dias = Number(b.dataset.dias); App.route(); }
+    });
   }
 };
 
@@ -1311,7 +1377,7 @@ PAGES['telium.tarifacao'] = {
       b.disabled = true;
       b.innerHTML = '<span class="spin"></span> Calculando…';
       try {
-        const r = await Api.post('/relatorios/tarifacao', { mes: this._mes || '' });
+        const r = await Api.post('/relatorios/tarifacao', { mes: this._mes || '', refazer: 1 });
         toast(r.detalhe, r.sem_tarifa ? 'warn' : 'ok');
         App.route();
       } catch (e) {
@@ -1516,7 +1582,26 @@ PAGES['conn.provisionamento'] = paginaCrud({
               ${icon('refresh','ico ico-sm')} Gerar novo segredo</button>
           </div>` : ''}
         </div>
-      </div>`;
+      </div>
+      ${(p.log || []).length ? `<div class="card" style="margin-bottom:16px">
+        <div class="card-head"><div><div class="card-title">Últimos pedidos dos telefones</div>
+          <div class="card-sub">Os 30 mais recentes. É aqui que se descobre por que um aparelho não pegou a configuração.</div></div></div>
+        <div class="card-body tight"><div class="table-wrap"><table class="table">
+          <thead><tr><th>Quando</th><th>MAC</th><th>IP</th><th>Resultado</th><th>Aparelho</th></tr></thead>
+          <tbody>${p.log.map(l => `<tr>
+            <td class="small">${dataHora(l.quando)}</td>
+            <td class="mono small">${esc(l.mac || '—')}</td>
+            <td class="mono small">${esc(l.ip || '—')}</td>
+            <td>${{
+              entregue: '<span class="badge badge-ok">entregue</span>',
+              mac_desconhecido: '<span class="badge badge-warn" data-tip="Cadastre o aparelho com este MAC na lista abaixo">MAC não cadastrado</span>',
+              sem_ramal: '<span class="badge badge-warn" data-tip="O aparelho está cadastrado, mas sem ramal">aparelho sem ramal</span>',
+              segredo_errado: '<span class="badge badge-danger" data-tip="O endereço configurado no telefone está com o segredo antigo">segredo errado</span>',
+              rede_negada: '<span class="badge badge-danger" data-tip="O pedido veio de fora das redes internas">fora da rede interna</span>'
+            }[l.resultado] || esc(l.resultado)}</td>
+            <td class="small dim">${esc(l.agente || '—')}</td></tr>`).join('')}</tbody>
+        </table></div></div>
+      </div>` : ''}`;
   },
 
   aoMontar: (pagina, ctx) => {
@@ -1668,7 +1753,7 @@ const C2C = {
             <p style="margin-bottom:0">Responde em JSON: <span class="mono">{"ok":true,"id":"c2c-…"}</span>
               — o <span class="mono">id</span> é o da chamada no registro de chamadas — ou
               <span class="mono">{"ok":false,"erro":"…"}</span> com o motivo: 401 chave inválida, 403 ramal ou
-              origem não permitidos, 404 ramal inexistente, 409 telefone não registrado.</p>
+              origem não permitidos, 404 ramal inexistente, 409 telefone não registrado, 422 faltou o ramal ou o número, 429 muitas chaves erradas deste endereço (espere 10 minutos), 502 a central não completou o pedido.</p>
           </div>
         </div>
         <div class="card">
@@ -1815,34 +1900,57 @@ PAGES['telium.integracoes'] = paginaCrud({
     pagina._c2c = await Api.get('/click2call/chaves').catch(() => null);
   },
   antesDaLista: (pagina, ctx) => C2C.html(pagina, ctx),
-  aoMontar: pagina => C2C.montar(pagina),
+  aoMontar: pagina => {
+    C2C.montar(pagina);
+    // Testar manda um aviso de exemplo agora, assinado como os de verdade.
+    document.querySelectorAll('[data-testar-webhook]').forEach(b => b.onclick = async () => {
+      const antes = b.innerHTML;
+      b.disabled = true;
+      b.innerHTML = '<span class="spin"></span>';
+      try {
+        const r = await Api.post(`/integracoes/${b.dataset.testarWebhook}/testar`, {});
+        toast(r.detalhe, r.ok ? 'ok' : 'err');
+      } catch (e) { toast(e.message, 'err'); }
+      b.disabled = false;
+      b.innerHTML = antes;
+    });
+  },
   ico: 'layers',
-  plural: 'integrações',
-  rotuloNovo: 'Nova integração',
-  tituloNovo: 'Nova integração',
+  plural: 'webhooks',
+  rotuloNovo: 'Novo webhook',
+  tituloNovo: 'Novo webhook',
   vazioTitulo: 'Nenhum webhook configurado',
-  vazioTexto: 'Webhooks avisam outros sistemas quando uma chamada começa ou termina.',
+  vazioTexto: 'Webhooks avisam outro sistema (CRM, ERP) quando um ramal toca, quando atendem e quando a chamada termina — é o que abre a ficha do cliente na tela.',
   placeholderBusca: 'Buscar…',
   textoBusca: i => i.nome,
   tituloEditar: i => i.nome,
+  acoesLinha: (i, ctx) => ctx.can('editar') && i.tipo === 'webhook'
+    ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Mandar um aviso de teste agora" data-testar-webhook="${i.id}">${icon('activity','ico ico-sm')}</button>`
+    : '',
   colunas: [
-    { label: 'Integração', render: i => `<b>${esc(i.nome)}</b>` },
-    { label: 'Tipo', render: i => `<span class="badge">${esc(i.tipo)}</span>` },
-    { label: 'Eventos', render: i => `<span class="mono small dim">${esc(i.eventos || '—')}</span>` },
-    { label: 'Último disparo', render: i => `<span class="small dim">${i.ultimo_disparo ? dataHora(i.ultimo_disparo) : 'nunca'}</span>` },
+    { label: 'Webhook', render: i => `<b>${esc(i.nome)}</b><div class="tiny muted mono">${esc(i.url || '')}</div>`
+        + (i.tipo !== 'webhook' ? ' <span class="badge" data-tip="Tipo antigo, sem efeito: use as chaves de click to call acima ou o syslog do servidor">sem efeito</span>' : '') },
+    { label: 'Eventos', render: i => `<span class="mono small dim">${esc(i.eventos || 'todos')}</span>` },
+    { label: 'Último envio', render: i => i.ultimo_disparo
+        ? `<span class="small">${dataHora(i.ultimo_disparo)}</span><div class="tiny ${String(i.ultimo_status || '').startsWith('ok') ? 'muted' : ''}" style="${String(i.ultimo_status || '').startsWith('ok') ? '' : 'color:var(--danger)'}">${esc(i.ultimo_status || '')}</div>`
+        : '<span class="small dim">nunca</span>' },
     { label: 'Estado', render: i => Number(i.ativo)
         ? '<span class="badge badge-ok"><i class="dot"></i>Ativa</span>'
         : '<span class="badge"><i class="dot"></i>Inativa</span>' }
   ],
   campos: () => [
-    { campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'Webhook do CRM' },
-    { campo: 'tipo', label: 'Tipo', tipo: 'select',
-      opcoes: [{valor:'webhook',rotulo:'Webhook'},{valor:'api_key',rotulo:'Chave de API'},
-               {valor:'syslog',rotulo:'Syslog'},{valor:'app',rotulo:'Aplicativo'}] },
-    { campo: 'url', label: 'URL de destino', mono: true, placeholder: 'https://…', largura: 'full' },
-    { campo: 'eventos', label: 'Eventos', mono: true, placeholder: 'call.answered, call.ended', largura: 'full' },
-    { campo: 'segredo', label: 'Segredo (HMAC)', mono: true, placeholder: 'deixe em branco para manter' },
-    { campo: 'ativo', label: 'Integração ativa', tipo: 'switch', padrao: 1 }
+    { campo: 'nome', label: 'Nome', obrigatorio: true, placeholder: 'CRM' },
+    { campo: 'url', label: 'URL de destino', mono: true, placeholder: 'https://crm.suaempresa.com.br/telium', largura: 'full',
+      obrigatorio: true, padraoValido: /^https?:\/\/\S+$/, mensagemPadrao: 'Comece com https:// (ou http://).',
+      ajuda: 'A central faz um POST com um JSON: evento, id da chamada, de, nome, para, ramal e, no fim, duração e causa.' },
+    { campo: 'eventos', label: 'Eventos', mono: true, largura: 'full',
+      placeholder: 'chamada.tocando, chamada.atendida, chamada.encerrada',
+      padraoValido: /^\s*((chamada\.(tocando|atendida|encerrada))\s*[,;\s]\s*)*(chamada\.(tocando|atendida|encerrada))?\s*$/,
+      mensagemPadrao: 'Use chamada.tocando, chamada.atendida ou chamada.encerrada.',
+      ajuda: 'Em branco, todos. "chamada.tocando" é o que abre a ficha do cliente quando o ramal toca.' },
+    { campo: 'segredo', label: 'Segredo (HMAC)', mono: true, placeholder: 'deixe em branco para manter',
+      ajuda: 'Com segredo, cada aviso leva o cabeçalho X-Telium-Assinatura: sha256=<HMAC do corpo>. O outro sistema confere e sabe que veio da central.' },
+    { campo: 'ativo', label: 'Webhook ativo', tipo: 'switch', padrao: 1 }
   ]
 });
 
@@ -1977,14 +2085,17 @@ PAGES['admin.auditoria'] = {
   async render() {
     let r;
     try { r = await Api.get('/auditoria', this._f); }
-    catch (e) { return pageHead('Registro de Atividades', '') + blocoErro(e); }
+    catch (e) { return pageHead('Auditoria', '') + blocoErro(e); }
 
     // O período que valeu de verdade (o padrão, ou o máximo de 92 dias).
     this._f.de = r.de;
     this._f.ate = r.ate;
     const f = this._f;
-    const acoes = ['criar','editar','excluir','aplicar','login','login_falha','logout',
-                   'exportar','importar','backup','testar','senha_propria'];
+    // Todas as ações que a API registra: faltavam as do CLI, a restauração,
+    // o 2FA e os bloqueios, que só se achavam procurando pelo texto.
+    const acoes = ['criar','editar','excluir','aplicar','login','login_falha','login_bloqueio_ip','logout',
+                   'senha_falha','senha_propria','2fa_ligado','2fa_desligado',
+                   'exportar','importar','backup','restaurar','testar','cli_leitura','cli_escrita'];
     const opcao = (v, atual, rotulo = v) => `<option value="${esc(v)}" ${atual === v ? 'selected' : ''}>${esc(rotulo)}</option>`;
     const filtrado = f.usuario || f.acao || f.modulo || f.q;
 
@@ -2010,7 +2121,7 @@ PAGES['admin.auditoria'] = {
               filtrado ? 'Tire algum filtro ou aumente o período.'
                        : 'Toda alteração feita pelo console é registrada aqui. Aumente o período para ver mais.');
 
-    return pageHead('Registro de Atividades',
+    return pageHead('Auditoria',
       'Trilha de auditoria: quem fez o quê, quando e de onde.') + `
     <div class="card">
       <div class="toolbar wrap">
@@ -2150,7 +2261,7 @@ PAGES['admin.backup'] = {
   async render(ctx) {
     let d;
     try { d = await Api.get('/backup'); }
-    catch (e) { return pageHead('Backup e Restauração', '') + blocoErro(e); }
+    catch (e) { return pageHead('Backup & Restauração', '') + blocoErro(e); }
     this._d = d;
 
     // Para onde o arquivo vai depois de pronto. Sem isto, o backup fica
@@ -2165,7 +2276,7 @@ PAGES['admin.backup'] = {
         : 'somente manual';
       const inclui = [
         Number(r.inclui_banco) && 'banco', Number(r.inclui_config) && 'configuração',
-        Number(r.inclui_audios) && 'áudios', Number(r.inclui_gravacoes) && 'gravações'
+        Number(r.inclui_audios) && 'áudios e recados', Number(r.inclui_gravacoes) && 'gravações'
       ].filter(Boolean);
 
       return `<div class="card" style="padding:16px">
@@ -2199,7 +2310,8 @@ PAGES['admin.backup'] = {
             concluido: '<span class="badge badge-ok">Concluído</span>',
             falha: '<span class="badge badge-danger">Falhou</span>',
             executando: '<span class="badge badge-info"><i class="dot dot-pulse"></i>Executando</span>',
-            pendente: '<span class="badge badge-warn">Na fila</span>'
+            pendente: '<span class="badge badge-warn">Na fila</span>',
+            removendo: '<span class="badge"><i class="dot dot-pulse"></i>Excluindo</span>'
           }[b.estado] || b.estado;
 
           return `<tr>
@@ -2219,7 +2331,7 @@ PAGES['admin.backup'] = {
                      data-enviar-bkp="${b.id}">${icon('upload','ico ico-sm')}</button>` : ''}
               ${b.arquivo && b.estado === 'concluido' && ctx.can('reiniciar')
                 ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Restaurar" data-restaurar="${b.id}">${icon('refresh','ico ico-sm')}</button>` : ''}
-              ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-excluir-bkp="${b.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+              ${ctx.can('excluir') && !['pendente', 'executando', 'removendo'].includes(b.estado) ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir" data-excluir-bkp="${b.id}">${icon('trash','ico ico-sm')}</button>` : ''}
             </span></td>
           </tr>`;
         }).join('')}
@@ -2227,7 +2339,7 @@ PAGES['admin.backup'] = {
       : vazio('database', 'Nenhum backup ainda',
               'Execute o primeiro agora ou ative uma rotina para o sistema cuidar disso sozinho.');
 
-    return pageHead('Backup e Restauração',
+    return pageHead('Backup & Restauração',
       `Os arquivos ficam em <span class="mono">${esc(d.destino)}</span> no próprio servidor.`,
       `${d.executando ? '<span class="badge badge-info"><i class="dot dot-pulse"></i>Backup em andamento</span>' : ''}
        ${ctx.can('criar') ? `<button class="btn btn-primary btn-sm" id="backupAgora">
@@ -2315,11 +2427,11 @@ PAGES['admin.backup'] = {
   mount(ctx) {
     const opcoesConteudo = (v = {}) => [
       { campo: 'inclui_banco', label: 'Banco de dados', tipo: 'switch', padrao: v.inclui_banco ?? 1,
-        ajuda: 'Ramais, filas, rotas, usuários, CDR — tudo o que o console guarda.' },
+        ajuda: 'Ramais, filas, rotas, usuários, CDR — tudo o que o console guarda — e os estados ligados pelo telefone (siga-me, não perturbe).' },
       { campo: 'inclui_config', label: 'Configuração', tipo: 'switch', padrao: v.inclui_config ?? 1,
-        ajuda: 'Arquivos do Asterisk, do Janus e do Telium.' },
-      { campo: 'inclui_audios', label: 'Áudios do sistema', tipo: 'switch', padrao: v.inclui_audios ?? 1,
-        ajuda: 'Saudações de URA, anúncios e música em espera.' },
+        ajuda: 'Arquivos do Asterisk, do Janus e do Telium, e os certificados.' },
+      { campo: 'inclui_audios', label: 'Áudios, recados e fax', tipo: 'switch', padrao: v.inclui_audios ?? 1,
+        ajuda: 'Saudações de URA, anúncios, música em espera, os recados do correio de voz e das caixas postais, e os fax recebidos.' },
       { campo: 'inclui_gravacoes', label: 'Gravações de chamadas', tipo: 'switch', padrao: v.inclui_gravacoes ?? 0,
         ajuda: 'Pode ficar muito grande. Deixe desligado se o disco for apertado.' }
     ];
@@ -2328,7 +2440,7 @@ PAGES['admin.backup'] = {
       const campos = [
         ...opcoesConteudo(),
         { campo: 'retencao', label: 'Quantos arquivos manter', tipo: 'number', padrao: 5,
-          ajuda: 'Ao passar disso, os mais antigos são apagados.' }
+          ajuda: 'Conta só entre os backups feitos à mão: ao passar disso, os mais antigos são apagados. Os das rotinas seguem a retenção de cada rotina.' }
       ];
       Drawer.open({
         titulo: 'Fazer backup agora',
@@ -2494,7 +2606,11 @@ PAGES['admin.backup'] = {
       const ok = await Modal.confirm({ titulo: 'Excluir este backup?',
         texto: 'O arquivo é apagado do servidor.', ok: 'Excluir' });
       if (!ok) return;
-      try { await Api.delete(`/backup/${b.dataset.excluirBkp}`); toast('Backup excluído.', 'ok'); App.route(); }
+      try {
+        const r = await Api.delete(`/backup/${b.dataset.excluirBkp}`);
+        toast(r?.pendente ? r.detalhe : 'Backup excluído.', 'ok');
+        App.route();
+      }
       catch (e) { toast(e.message, 'err'); }
     });
   }
@@ -2801,7 +2917,7 @@ PAGES['admin.codigos'] = {
       const c = item || { tipo: 'dialplan', ativo: 1, categoria: 'core', ordem: 100 };
       const campos = [
         { campo: 'codigo', label: 'Código discado', obrigatorio: true, mono: true, placeholder: '*8',
-          padraoValido: /^[*#0-9]{1,12}$/,
+          padraoValido: /^[*#][0-9*#]{1,6}$/,
           mensagemPadrao: 'use só dígitos, * e #',
           ajuda: 'Comece com * ou # para não colidir com número de ramal.' },
         { campo: 'nome', label: 'Facilidade', obrigatorio: true, largura: 'full',
@@ -2897,7 +3013,7 @@ PAGES['admin.listanegra'] = paginaCrud({
                     anuncio: ['info','Toca anúncio'], silencio: ['','Silêncio'] }[n.tratamento] || ['', n.tratamento];
         return `<span class="badge badge-${t[0]}">${t[1]}</span>`;
       } },
-    { label: 'Bloqueios', render: n => `<span class="num">${num(n.bloqueios)}</span>` },
+    { label: 'Bloqueios', render: n => `<span class="num">${num(n.bloqueios)}</span>${n.ultimo_em ? `<div class="tiny muted">último ${dataHora(n.ultimo_em)}</div>` : ''}` },
     { label: 'Estado', render: n => Number(n.ativo)
         ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
         : '<span class="badge"><i class="dot"></i>Pausado</span>' }
@@ -3722,7 +3838,11 @@ PAGES['apps.despertar'] = {
                : '<div class="tiny"><span class="badge badge-warn">ramal não existe</span></div>'}</td>
         <td>${esc(quando(d))}</td>
         <td>${a ? esc(a.nome) : '<span class="tiny muted">hora falada pelo PABX</span>'}</td>
-        <td class="small dim">${d.ultimo_em ? dataHora(d.ultimo_em) : '—'}</td>
+        <td class="small dim">${d.ultimo_em ? dataHora(d.ultimo_em) : '—'}${{
+          atendido: ' <span class="badge badge-ok">atendeu</span>',
+          nao_atendeu: ' <span class="badge badge-warn">não atendeu</span>',
+          falha: ' <span class="badge badge-danger">falhou</span>'
+        }[d.ultimo_estado] || ''}</td>
         <td>${Number(d.ativo)
           ? '<span class="badge badge-ok"><i class="dot"></i>Ativa</span>'
           : '<span class="badge">Parada</span>'}</td>
@@ -3786,6 +3906,10 @@ PAGES['apps.despertar'] = {
                    { valor: 'dias_semana', rotulo: 'Em dias escolhidos da semana' }] },
         { campo: 'quando', label: 'Data e hora', tipo: 'datetime-local', largura: 'full' },
         { campo: 'hora', label: 'Horário', tipo: 'time' },
+        { campo: 'tentativas', label: 'Tentativas', tipo: 'number', padrao: 3,
+          ajuda: 'Se ninguém atender, quantas vezes ao todo o PABX liga (de 1 a 10).' },
+        { campo: 'intervalo', label: 'Entre uma tentativa e outra (s)', tipo: 'number', padrao: 120,
+          ajuda: 'De 60 a 3600 segundos.' },
         { campo: 'ativo', label: 'Chamada ativa', tipo: 'switch', padrao: 1 }
       ];
 
@@ -4320,9 +4444,9 @@ PAGES['apps.grupohorario'] = {
       const g = item || {};
       const faixas = novo ? [] : (pagina._faixas[g.id] || []);
       const campos = [
-        { campo: 'nome', label: 'Descrição', obrigatorio: true, largura: 'full',
+        { campo: 'nome', label: 'Nome', obrigatorio: true, largura: 'full',
           placeholder: 'Horário comercial' },
-        { campo: 'descricao', label: 'Observação', largura: 'full' }
+        { campo: 'descricao', label: 'Descrição', largura: 'full' }
       ];
 
       Drawer.open({
@@ -4726,7 +4850,7 @@ PAGES['apps.anuncios'] = {
       const novo = !item;
       const a = item || { ativo: 1 };
       const campos = [
-        { campo: 'nome', label: 'Descrição', obrigatorio: true, largura: 'full',
+        { campo: 'nome', label: 'Nome', obrigatorio: true, largura: 'full',
           placeholder: 'Aviso de horário de atendimento',
           ajuda: 'É como o anúncio aparece nas listas de destino.' },
         { campo: 'audio_id', label: 'Gravação', obrigatorio: true, tipo: 'select', largura: 'full',
@@ -4908,8 +5032,8 @@ PAGES['apps.conferencias'] = {
                           musica_sozinho: 1, ativo: 1 };
       const campos = [
         { aba: 'Sala', campo: 'numero', label: 'Número da sala', obrigatorio: true, mono: true,
-          placeholder: '5000', padraoValido: /^[0-9*#]{2,20}$/,
-          mensagemPadrao: 'use dígitos, * ou #',
+          placeholder: '5000', padraoValido: /^[0-9]{2,10}$/,
+          mensagemPadrao: 'só dígitos, de 2 a 10',
           ajuda: 'É o que se disca para entrar na conferência.' },
         { aba: 'Sala', campo: 'nome', label: 'Nome da sala', obrigatorio: true,
           placeholder: 'Reunião de Diretoria' },
@@ -4922,12 +5046,12 @@ PAGES['apps.conferencias'] = {
 
         { aba: 'Entrada', campo: 'pin', label: 'PIN para entrar', mono: true, tipo: 'password',
           limpavel: true,
-          padraoValido: /^[0-9]{0,16}$/, mensagemPadrao: 'só dígitos',
+          padraoValido: /^[0-9]{0,10}$/, mensagemPadrao: 'só dígitos, até 10',
           ajuda: 'Sem PIN, qualquer um que disque o número entra na reunião. '
                + 'Ao editar, em branco mantém o atual.' },
         { aba: 'Entrada', campo: 'pin_admin', label: 'PIN de administrador', mono: true,
           tipo: 'password', limpavel: true,
-          padraoValido: /^[0-9]{0,16}$/, mensagemPadrao: 'só dígitos',
+          padraoValido: /^[0-9]{0,10}$/, mensagemPadrao: 'só dígitos, até 10',
           ajuda: 'Quem entra com este PIN pode trancar a sala (tecla 2) e tirar o último que '
                + 'entrou (tecla 3). Ao editar, em branco mantém o atual.' },
         { aba: 'Entrada', campo: 'anuncio_entrada_id', label: 'Mensagem de anúncio de entrada',
@@ -4935,7 +5059,7 @@ PAGES['apps.conferencias'] = {
           ajuda: 'Tocada para quem entra, antes de cair na sala. Os anúncios são montados em Aplicações › Anúncios.' },
         { aba: 'Entrada', campo: 'esperar_admin', label: 'Só começar quando o administrador entrar',
           tipo: 'switch', largura: 'full',
-          ajuda: 'Quem chegar antes ouve música de espera. Quando o administrador sai, a sala encerra.' },
+          ajuda: 'Quem chegar antes ouve música de espera. Quando o administrador sai, a sala encerra. Exige um PIN de administrador.' },
         { aba: 'Entrada', campo: 'silenciar_ao_entrar', label: 'Entrar com o microfone mudo',
           tipo: 'switch', ajuda: 'Cada um se libera com a tecla 1. Útil em sala grande.' },
 
@@ -5573,10 +5697,7 @@ PAGES['cfg.pinsets'] = paginaCrud({
 
   colunas: [
     { label: 'Nome', render: p => `<b>${esc(p.nome)}</b>` },
-    { label: 'Quantos PINs', render: p => {
-        const n = String(p.pins || '').split(/[\s,;]+/).filter(Boolean).length;
-        return `<span class="num">${n}</span>`;
-      } },
+    { label: 'Quantos PINs', render: p => `<span class="num">${Number(p.pins_qtd) || 0}</span>` },
     { label: 'No relatório', render: p => Number(p.no_cdr)
         ? '<span class="muted">não identifica quem discou</span>'
         : '<span class="badge badge-brand">PIN vai para o CDR</span>' }
@@ -5769,7 +5890,7 @@ PAGES['apps.paging'] = paginaCrud({
   vazioTitulo: 'Nenhum grupo de megafonia',
   vazioTexto: `Crie um grupo, escolha os aparelhos e disque o número dele: todos abrem o
                viva-voz e ouvem quem chamou. Para falar com um ramal só, o código
-               <span class="mono">*81</span> mais o número já funciona.`,
+               <span class="mono">*80</span> mais o número já funciona.`,
   placeholderBusca: 'Buscar por número ou nome…',
   textoBusca: g => `${g.numero} ${g.nome}`,
 
@@ -5809,7 +5930,8 @@ PAGES['apps.paging'] = paginaCrud({
       ajuda: 'Desligado, os aparelhos só ouvem. Ligado, vira conversa de mão dupla — '
            + 'útil entre duas salas, confuso com dez aparelhos.' },
     { campo: 'forcar', label: 'Interromper quem está em chamada', tipo: 'switch', largura: 'full',
-      ajuda: 'Ignora quem recusou megafonia pelo código *82. Use com parcimônia.' },
+      ajuda: 'Abre o som também nos aparelhos que estão em chamada, no meio da conversa. '
+           + 'Desligado, quem está ao telefone fica de fora. Use com parcimônia.' },
     { campo: 'anuncio_id', label: 'Tocar antes de abrir o som', tipo: 'select', largura: 'full',
       opcoes: [{ valor: '', rotulo: 'nada — abre direto' },
                ...(pagina._anuncios || []).map(a => ({ valor: a.id, rotulo: a.nome }))],
@@ -5947,7 +6069,7 @@ PAGES['rel.ramais'] = {
   async render(ctx) {
     let d;
     try { d = await Api.get('/relatorios/ramais', this._f); }
-    catch (e) { return pageHead('Relatório por Ramal', '') + blocoErro(e); }
+    catch (e) { return pageHead('Desempenho de Ramais', '') + blocoErro(e); }
 
     const linhas = d.dados.filter(r => r.total > 0);
     const topo = Math.max(1, ...linhas.map(r => Number(r.segundos)));
@@ -5966,7 +6088,7 @@ PAGES['rel.ramais'] = {
         </td>
       </tr>`).join('') : '';
 
-    return pageHead('Relatório por Ramal',
+    return pageHead('Desempenho de Ramais',
       'Quanto cada ramal falou no período — e quantas chamadas deixou de atender.') + `
       ${filtroPeriodo(this._f)}
       <div class="card">
@@ -5989,7 +6111,7 @@ PAGES['rel.troncos'] = {
   async render(ctx) {
     let d;
     try { d = await Api.get('/relatorios/troncos', this._f); }
-    catch (e) { return pageHead('Relatório por Tronco', '') + blocoErro(e); }
+    catch (e) { return pageHead('Ocupação de Troncos', '') + blocoErro(e); }
 
     const corpo = (d.dados || []).map(t => {
       // ASR baixo é o número que se leva para a operadora quando a
@@ -6003,7 +6125,9 @@ PAGES['rel.troncos'] = {
         <td class="num">${num(t.chamadas)}</td>
         <td class="num">${num(t.atendidas)}</td>
         <td class="num">${num(t.ocupadas)}</td>
-        <td class="num">${num(Number(t.falhas) + Number(t.sem_resposta))}</td>
+        <td class="num">${num(t.sem_resposta)}</td>
+        <td class="num">${num(t.falhas)}</td>
+        <td class="num">${num(t.congestionadas)}</td>
         <td>${asr === null ? '<span class="muted">—</span>'
           : `<span class="badge ${tomAsr}">${asr}%</span>`}</td>
         <td class="num">${duracao(t.acd)}</td>
@@ -6011,7 +6135,7 @@ PAGES['rel.troncos'] = {
       </tr>`;
     }).join('');
 
-    return pageHead('Relatório por Tronco',
+    return pageHead('Ocupação de Troncos',
       'Volume e qualidade de cada operadora. Use ao cobrar quando a linha não completa.') + `
       ${filtroPeriodo(this._f)}
       <div class="card" style="padding:14px;margin-bottom:14px">
@@ -6028,7 +6152,8 @@ PAGES['rel.troncos'] = {
       <div class="card">
         ${corpo ? `<div class="table-wrap"><table class="table">
           <thead><tr><th>Tronco</th><th>Estado</th><th class="num">Chamadas</th>
-            <th class="num">Atendidas</th><th class="num">Ocupado</th><th class="num">Falha</th>
+            <th class="num">Atendidas</th><th class="num">Ocupado</th><th class="num">Não atendeu</th>
+            <th class="num">Falha</th><th class="num" data-tip="A operadora ou a central não tinha canal livre">Congestionada</th>
             <th>Completamento</th><th class="num">Média</th><th class="num">Total falado</th></tr></thead>
           <tbody>${corpo}</tbody></table></div>`
         : vazio('server', 'Nenhum tronco cadastrado',
@@ -6046,7 +6171,7 @@ PAGES['rel.cel'] = {
   async render(ctx) {
     let d;
     try { d = await Api.get('/relatorios/eventos', this._f); }
-    catch (e) { return pageHead('Eventos da Chamada', '') + blocoErro(e); }
+    catch (e) { return pageHead('Eventos de Canal (CEL)', '') + blocoErro(e); }
 
     if (d.chamada) {
       const passos = (d.dados || []).map(e => `
@@ -6080,7 +6205,7 @@ PAGES['rel.cel'] = {
         <td class="mono small dim">${esc(c.linkedid)}</td>
       </tr>`).join('');
 
-    return pageHead('Eventos da Chamada',
+    return pageHead('Eventos de Canal (CEL)',
       `O relatório de chamadas diz que a ligação durou doze segundos. Este diz por quê.`) + `
       ${filtroPeriodo(this._f)}
       <div class="card">
@@ -6175,6 +6300,9 @@ PAGES['cfg.notificacoes'] = {
             ajuda: 'Muitos provedores recusam a mensagem quando o remetente não é do domínio autenticado.' }, c)}
           ${campoHtml({ campo: 'nome_remetente', label: 'Nome do remetente', largura: 'full',
             placeholder: 'Central Telefônica' }, c)}
+          ${campoHtml({ campo: 'alertas_para', label: 'Mandar os alertas do sistema para', largura: 'full',
+            placeholder: 'ti@suaempresa.com.br, suporte@telium.com.br',
+            ajuda: 'Backup que falhou ou que não roda há mais de 26 h, certificado a menos de 15 dias de vencer e disco com menos de 10% livre. Cada aviso sai uma vez por dia. Em branco, nenhum alerta é enviado.' }, c)}
 
           <div class="row gap-8" style="margin-top:16px">
             <button class="btn btn-primary btn-sm" type="submit">
@@ -6212,7 +6340,7 @@ PAGES['cfg.notificacoes'] = {
             <ul class="small muted lista-ajuda" style="margin-top:8px">
               <li>A cópia do recado do correio de voz, quando o ramal pede.</li>
               <li>O ditado enviado pelo código <span class="mono">*35</span>.</li>
-              <li>Os avisos de falha de backup e de validade de certificado.</li>
+              <li>Os alertas do sistema, para os e-mails do campo ao lado: backup com falha ou atrasado, certificado perto de vencer e disco quase cheio.</li>
             </ul>
           </div>
         </div>
@@ -6271,14 +6399,16 @@ function blocoCli(titulo, bloco) {
 /* ------------------------- Conectividade · DIDs ------------------------- */
 PAGES['conn.did'] = {
   async render() {
-    let d;
-    try { d = await Api.get('/diagnostico/dids'); }
+    let d, destinos;
+    try { [d, destinos] = await Promise.all([Api.get('/diagnostico/dids'), opcoesDestino().catch(() => ({}))]); }
     catch (e) { return pageHead('DIDs / Numeração', '') + blocoErro(e); }
 
+    // O nome do destino, e não "ura 3": o mesmo texto da rota de entrada.
+    const destino = x => x.destino_tipo ? descreveDestino(x.destino_tipo, x.destino_valor, destinos) : x.destino;
     const linhas = (d.dados || []).map(x => `<tr class="${x.conflito ? 'linha-alerta' : ''}">
       <td><b class="mono">${esc(x.did)}</b></td>
       <td>${esc(x.descricao || '—')}</td>
-      <td><span class="ura-dest">${icon('branch','ico ico-sm')}${esc(x.destino)}</span></td>
+      <td><span class="ura-dest">${icon('branch','ico ico-sm')}${esc(destino(x))}</span></td>
       <td>${x.origem === 'rota'
         ? '<span class="badge">rota de entrada</span>'
         : '<span class="badge badge-info">DID do ramal</span>'}</td>
@@ -6386,8 +6516,9 @@ PAGES['conn.rede'] = {
           : `<div style="padding:18px" class="small muted">
               A central não respondeu ou não tem transporte carregado.</div>`}
           <div style="padding:14px 16px;border-top:1px solid var(--border)" class="small muted">
-            O <span class="mono">transport-wss</span> fica preso em 127.0.0.1 de propósito:
-            quem atende o navegador é o nginx, que já termina TLS com o certificado do console.
+            Quem atende o navegador é o nginx, que termina o TLS com o certificado do console e
+            repassa ao Asterisk em 127.0.0.1. O <span class="mono">transport-wss</span> escuta em
+            0.0.0.0 de propósito: preso no loopback, o áudio do softphone do navegador não sai.
           </div>
         </div>
         ${blocoCli('Faixa de portas de voz (RTP)', d.rtp)}
@@ -7198,22 +7329,28 @@ PAGES['cfg.fax'] = paginaAjustes({
     { campo: 'ativo', label: 'Receber fax nesta central', tipo: 'switch', padrao: 1, largura: 'full' },
     { campo: 'email_destino', label: 'Mandar o fax recebido para', largura: 'full',
       placeholder: 'recepcao@suaempresa.com.br',
-      ajuda: 'Em branco, o arquivo fica só no servidor, em /var/spool/asterisk/fax.' },
+      ajuda: 'O fax chega em PDF, anexado, pelo mesmo envio do recado do correio de voz (Configurações › Notificações e E-mail). Em branco, o arquivo fica só no servidor, em /var/spool/asterisk/fax.' },
     { campo: 'cabecalho', label: 'Cabeçalho impresso', largura: 'full',
       placeholder: 'Minha Empresa Ltda',
       ajuda: 'Texto que aparece no topo da página no aparelho do outro lado.' },
     { campo: 'ecm', label: 'Correção de erro (ECM)', tipo: 'switch', padrao: 1,
       ajuda: 'Melhora a recepção em linha ruim. Desligue só se o outro lado não completar.' },
-    { campo: 'minimo_bits', label: 'Velocidade mínima', tipo: 'number', padrao: 4800 },
-    { campo: 'maximo_bits', label: 'Velocidade máxima', tipo: 'number', padrao: 14400 }
+    { campo: 'minimo_bits', label: 'Velocidade mínima', tipo: 'select', padrao: 4800,
+      opcoes: [2400, 4800, 7200, 9600, 12000, 14400].map(v => ({ valor: v, rotulo: `${v} bps` })) },
+    { campo: 'maximo_bits', label: 'Velocidade máxima', tipo: 'select', padrao: 14400,
+      opcoes: [2400, 4800, 7200, 9600, 12000, 14400].map(v => ({ valor: v, rotulo: `${v} bps` })),
+      ajuda: 'Em linha ruim, baixar a máxima para 9600 costuma resolver.' }
   ],
   rodape: () => `<div class="card" style="padding:14px">
     <div class="row gap-12" style="align-items:flex-start">
       ${icon('alert','ico')}
       <div class="small muted">
         Fax sobre VoIP é frágil por natureza: o áudio comprimido que economiza banda numa
-        conversa destrói o sinal do fax. Funciona bem com T.38 no tronco e codec G.711; com
-        celular ou com compressão agressiva, falha de forma intermitente.
+        conversa destrói o sinal do fax. Com a recepção ligada, os troncos passam a aceitar
+        T.38 (portas UDP 4000 a 4999); peça à operadora para ativá-lo do lado dela. Com celular
+        ou compressão agressiva, falha de forma intermitente. Para receber fax de fora, aponte
+        a rota de entrada para um destino personalizado com o código de receber fax. Mudou
+        algo aqui? Aplique as configurações.
       </div>
     </div>
   </div>`
@@ -7250,7 +7387,7 @@ PAGES['telium.suporte'] = {
             </div>
           </div>
           <p class="small muted" style="margin-top:12px">
-            Versão <b>${esc(saude?.versao || '—')}</b>. Cite-a no chamado: a resposta muda
+            Versão <b>${esc(saude?.versao || '—')}</b>${saude?.commit ? ` (commit <span class="mono">${esc(saude.commit)}</span>)` : ''} — o que mudou em cada uma está em <a href="#/telium.versoes">Versões e Novidades</a>. Cite-a no chamado: a resposta muda
             conforme a versão instalada.</p>
         </div>
 
@@ -7258,7 +7395,7 @@ PAGES['telium.suporte'] = {
           <b>Antes de abrir o chamado</b>
           <ul class="small muted lista-ajuda" style="margin-top:10px">
             <li>Anote <b>o que foi discado</b>, de qual ramal, e a hora com minuto.
-                Com isso, <b>Relatórios › Eventos da Chamada</b> mostra cada passo.</li>
+                Com isso, <b>Relatórios › Eventos de Canal (CEL)</b> mostra cada passo.</li>
             <li>Se for áudio, diga se falta nos dois lados ou em um só — são problemas
                 diferentes, e um só costuma ser NAT ou falta de TURN.</li>
             <li>Se for chamada que não completa, veja <b>Relatórios › Ocupação de Troncos</b>:
@@ -7275,7 +7412,7 @@ PAGES['telium.suporte'] = {
 sudo asterisk -rx "pjsip show contacts"    # quais aparelhos estão registrados
 sudo asterisk -rx "pjsip show registrations"  # se o tronco está registrado na operadora
 sudo tail -f /var/log/asterisk/full        # o que a central está fazendo, ao vivo
-cd /opt/telium/api && php bin/telium testar   # confere a instalação inteira</pre>
+sudo -u teliumpbx php /opt/telium/api/bin/telium testar   # confere a instalação inteira</pre>
       </div>`;
   }
 };
@@ -7372,3 +7509,103 @@ PAGES['cfg.avancadas'] = {
       App.aplicarConfig(ev.currentTarget));
   }
 };
+
+/* ------------------------- Telium · Versões e Novidades ------------------------- */
+/**
+ * A versão desta central e o histórico de mudanças (api/CHANGELOG.md).
+ * O commit vai ao lado do número: entre duas versões, é ele que diz qual
+ * código está rodando.
+ */
+PAGES['telium.versoes'] = {
+  _busca: '',
+
+  async render() {
+    let d;
+    try { d = await Api.get('/sistema/versoes'); }
+    catch (e) { return pageHead('Versões e Novidades', '') + blocoErro(e); }
+    this._d = d;
+
+    const cabecalho = pageHead('Versões e Novidades',
+      'A versão que está rodando nesta central e o que mudou em cada entrega.');
+
+    const atual = `<div class="card" style="padding:18px;margin-bottom:16px">
+      <div class="row-between" style="flex-wrap:wrap;gap:12px">
+        <div>
+          <div class="tiny muted">Esta central</div>
+          <div style="font-size:24px;font-weight:700">Telium PABX <span class="mono">${esc(d.versao)}</span></div>
+          <div class="small muted">${d.commit
+            ? `Commit <span class="mono">${esc(d.commit)}</span>${String(d.commit).endsWith('+')
+                ? ' — publicado de um clone com alterações fora do Git' : ''}`
+            : 'Commit desconhecido'}</div>
+        </div>
+        <div class="input-icon search-mini" style="min-width:240px">${icon('search','ico ico-sm')}
+          <input class="input" id="verBusca" placeholder="Procurar no histórico…" value="${esc(this._busca)}">
+        </div>
+      </div>
+      <p class="small muted" style="margin:12px 0 0">Cite a versão e o commit ao abrir um chamado de suporte.</p>
+    </div>`;
+
+    if (!(d.versoes || []).length) {
+      return cabecalho + atual + `<div class="card">${vazio('list', 'Histórico indisponível',
+        'O arquivo de histórico não veio junto com esta instalação.')}</div>`;
+    }
+
+    return cabecalho + atual
+      + (d.introducao ? `<p class="small muted" style="margin:0 0 16px">${this.texto(d.introducao)}</p>` : '')
+      + `<div id="verLista">${this.lista()}</div>`;
+  },
+
+  /** O item do histórico: escapado, com **negrito** e `código`. */
+  texto(t) {
+    return esc(t)
+      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+      .replace(/`([^`]+)`/g, '<span class="mono">$1</span>');
+  },
+
+  lista() {
+    const d = this._d;
+    const q = this._busca.trim().toLowerCase();
+    const tons = { 'Novidades': 'brand', 'Correções': 'ok', 'Mudanças': 'warn', 'Segurança': 'danger' };
+
+    const cartoes = d.versoes.map((v, i) => {
+      const secoes = v.secoes.map(s => ({
+        ...s, itens: q ? s.itens.filter(x => x.toLowerCase().includes(q)) : s.itens
+      })).filter(s => s.itens.length);
+      if (q && !secoes.length && !v.resumo.toLowerCase().includes(q) && !v.numero.includes(q)) return '';
+
+      const instalada = v.numero === d.versao;
+      return `<div class="card" style="margin-bottom:16px">
+        <div class="card-head row-between" style="flex-wrap:wrap;gap:8px">
+          <div><div class="card-title">Versão <span class="mono">${esc(v.numero)}</span>
+            ${instalada ? ' <span class="badge badge-ok">nesta central</span>' : ''}
+            ${i === 0 && !instalada ? ' <span class="badge badge-brand">mais recente</span>' : ''}</div>
+            <div class="card-sub">${esc(dataCurta(v.data))}${v.resumo ? ' · ' + this.texto(v.resumo) : ''}</div></div>
+        </div>
+        <div class="card-body">
+          ${secoes.map(s => `<div style="margin-bottom:12px">
+            <span class="badge badge-${tons[s.titulo] || 'info'}">${esc(s.titulo)}</span>
+            <ul class="small lista-ajuda" style="margin:8px 0 0">${s.itens.map(x => `<li>${this.texto(x)}</li>`).join('')}</ul>
+          </div>`).join('')}
+          ${(v.commits || []).length ? `<div class="tiny muted" style="margin-top:6px">Commits:
+            <span class="mono">${v.commits.map(esc).join(', ')}</span></div>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    return cartoes || `<div class="card">${vazio('search', 'Nada encontrado', 'Nenhuma mudança com esse texto.')}</div>`;
+  },
+
+  mount() {
+    document.getElementById('verBusca')?.addEventListener('input', ev => {
+      this._busca = ev.target.value;
+      const alvo = document.getElementById('verLista');
+      if (alvo) alvo.innerHTML = this.lista();
+    });
+  }
+};
+
+/** "2026-10-13" → "13/10/2026" */
+function dataCurta(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(iso || '');
+}

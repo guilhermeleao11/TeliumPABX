@@ -61,13 +61,15 @@ A busca procura por nome, código ou descrição ("desvio", "gravar", "fila"). O
 
 | Campo | O que faz |
 |---|---|
-| Código discado | O novo código. Só dígitos, `*` e `#`, até 12. Comece com `*` ou `#` para não colidir com número de ramal |
+| Código discado | O novo código. Começa com `*` ou `#` (para não colidir com número de ramal) e segue com 1 a 6 dígitos, `*` ou `#`: de 2 a 7 caracteres ao todo (ex.: `*8`, `**`, `##`, `*7777`) |
 | Facilidade | Só leitura |
 | O que se disca depois | Só leitura |
 | O que ele faz | Só leitura |
 | Habilitado | Liga ou desliga o código |
 
 Desabilitar pela chave da lista tem o mesmo efeito: o código some do telefone na próxima aplicação.
+
+A API confere o mesmo formato da tela (`^[*#][0-9*#]{1,6}$`): um sistema que cadastre código pela API não consegue mais gravar `1234` ou `abc`. A mensagem é "O código começa com * ou # e tem até 7 caracteres (dígitos, * ou #)."
 
 > 📷 **Print:** gaveta "Personalizar" de um código.
 
@@ -103,7 +105,7 @@ Detalhes:
 
 ### Colisões que já vêm de fábrica
 
-O catálogo de fábrica tem códigos que são começo de outros. Eles convivem porque o telefone manda o número inteiro depois do `#` ou do tempo de discagem:
+O catálogo de fábrica tem códigos que são começo de outros. Eles convivem porque o Asterisk espera o próximo dígito (ou o tempo de discagem) antes de decidir pelo código mais curto:
 
 | Código curto | Códigos mais longos que começam com ele |
 |---|---|
@@ -114,8 +116,8 @@ O catálogo de fábrica tem códigos que são começo de outros. Eles convivem p
 Consequências práticas:
 
 - Num telefone com plano de discagem que envia assim que reconhece `*8` ou `*55`, os códigos mais longos não chegam. Ajuste o plano de discagem do aparelho ou troque um dos códigos.
-- Como a conferência roda ao religar, **desligar um desses e religar depois é recusado** enquanto o outro lado estiver ativo. Exemplo: desligou `*8`; para religá-lo, é preciso antes trocar ou desligar `*80`, `*82`, `*85`–`*88`.
-- Pelo mesmo motivo, trocar `*85` para outro código começado por `*8` é recusado.
+- Esses pares exatos são aceitos pela conferência: **desligar um deles e religar depois funciona**, mesmo com o outro lado ativo (antes da versão 1.1.0, religar `*8`, `*55` ou `*77` era recusado).
+- Fora desses pares, a regra vale normalmente: trocar `*85` para outro código começado por `*8` (ex.: `*84`) é recusado, porque `*84` e `*8` não são um par de fábrica.
 
 ---
 
@@ -176,7 +178,7 @@ Na ordem e com os nomes de categoria da tela. "Arg." é o que se disca logo depo
 
 | Código | Arg. | Facilidade | O que faz |
 |---|---|---|---|
-| `*21` | destino | Ativar siga-me | O ramal toca junto com o destino |
+| `*21` | destino | Ativar siga-me | O destino toca conforme o modo do cadastro do ramal: junto com o ramal ou depois que ele não atende |
 | `*22` | | Desativar siga-me | Cancela |
 | `*23` | | Alternar siga-me | Liga ou desliga com o último destino |
 
@@ -200,11 +202,13 @@ Na ordem e com os nomes de categoria da tela. "Arg." é o que se disca logo depo
 
 | Código | Arg. | Facilidade | O que faz |
 |---|---|---|---|
-| `*45` | fila | Entrar ou sair de uma fila | Se você é membro dinâmico, sai; se não é, entra |
+| `*45` | fila | Entrar ou sair de uma fila | Se você é membro dinâmico, sai; se não é, entra. **Entrar** só vale para o ramal posto na lista de agentes da fila como "Entra por código"; os outros ouvem "operação falhou" |
 | `*46` | fila | Pausar ou despausar numa fila | Pausa; discando de novo, volta |
 | `*47` | fila | Ouvir quantas chamadas estão na fila | Fala quantas estão esperando |
 
 `*45` e `*46` **não funcionam em fila de call center**: a central responde "operação falhou". Nelas se usam os códigos do agente.
+
+Antes da versão 1.1.0, o `*45` punha qualquer ramal em qualquer fila comum (o da recepção entrava no suporte e passava a receber as chamadas de lá). Agora a lista de agentes da fila ([13-Aplicacoes-Filas-URA-e-Atendimento.md](13-Aplicacoes-Filas-URA-e-Atendimento.md)) decide quem entra; sair continua livre para qualquer membro.
 
 ### Call Center
 
@@ -243,11 +247,24 @@ Estes três também se trocam em **Call Center › Configurações**. Os código
 |---|---|---|---|
 | `*0` | código do contato | Discagem rápida da agenda | Liga para o contato com aquele código de discagem rápida |
 
+### Lista Negra e Allowlist: quem pode usar
+
+Os códigos `*30` a `*39` mexem nas listas **da central inteira**, e não só no ramal de quem disca. Por isso só funcionam no **ramal de um usuário** cujo perfil tem a tela correspondente:
+
+| Códigos | Precisa da tela |
+|---|---|
+| `*30`, `*31`, `*32` (lista negra) | **Administrador › Lista Negra** |
+| `*36`, `*37`, `*38`, `*39` (allowlist) | **Administrador › Allowlist** |
+
+- Quem pode é gravado na base interna do Asterisk (famílias `listanegra-tel` e `allowlist-tel`) a cada **Aplicar configurações**. Mudou o perfil ou o ramal de alguém? Aplique.
+- Os outros ramais ouvem "acesso negado" e nada muda.
+- Antes da versão 1.1.0 qualquer ramal usava esses códigos, e o `*37` desligava a allowlist da central inteira.
+
 ### Lista Negra
 
 | Código | Arg. | Facilidade | O que faz |
 |---|---|---|---|
-| `*30` | número | Adicionar número à lista negra | Chamadas dele passam a ser recusadas na entrada |
+| `*30` | número | Adicionar número à lista negra | Chamadas dele passam a ser recusadas na entrada. Cada chamada barrada soma na coluna **Bloqueios** da tela da Lista Negra (e grava a data do último bloqueio) |
 | `*32` | | Adicionar o último chamador à lista negra | Bloqueia quem acabou de ligar para o seu ramal |
 | `*31` | número | Remover número da lista negra | Desbloqueia |
 
@@ -272,8 +289,8 @@ Estes três também se trocam em **Call Center › Configurações**. Os código
 
 | Código | Facilidade | O que faz |
 |---|---|---|
-| `*68` | Marcar despertador | Pede a hora em 4 dígitos (ex.: `0730`) e liga para o ramal nesse horário, uma vez |
-| `*67` | Cancelar despertador | Apaga o despertador marcado pelo telefone |
+| `*68` | Marcar despertador | Pede a hora em 4 dígitos, de `0000` a `2359` (ex.: `0730`), e liga para o ramal nesse horário, uma vez. Hora inválida dá "inválido". Sem atender, a central tenta mais duas vezes, a cada dois minutos |
+| `*67` | Cancelar despertador | Apaga o despertador marcado pelo telefone e avisa que foi cancelado |
 
 ### Condições Horárias
 
@@ -294,7 +311,9 @@ Os dois só funcionam em ramal com **ditado** liberado no cadastro; nos outros, 
 
 | Código | Facilidade | O que faz |
 |---|---|---|
-| `*666` | Receber fax neste ramal | Atende em modo fax e guarda o documento recebido |
+| `*666` | Receber fax neste ramal | Atende em modo fax, guarda o documento em `/var/spool/asterisk/fax` e, com e-mail configurado, manda em PDF. Usa o ECM, o cabeçalho e as velocidades de **Configurações › Fax**. Com a recepção desligada lá, avisa que o serviço não está disponível |
+
+Para receber fax de fora, aponte a rota de entrada para um destino personalizado com o código de receber fax ([19-Configuracoes.md](19-Configuracoes.md)).
 
 ---
 
@@ -425,7 +444,13 @@ Para imprimir e deixar ao lado do telefone. Confira antes se algum código foi t
 - O novo código é igual ou é começo de outro (ou o contrário). Escolha um que não comece com nenhum código existente. Lembre que pausas e caixas postais também contam.
 
 **Desliguei um código e agora não consigo religar.**
-- É uma das [colisões de fábrica](#colisões-que-já-vêm-de-fábrica). Troque ou desligue o código do outro lado antes de religar.
+- Os pares de fábrica (`*8` e `*80`/`*82`/`*85`–`*88`, `*55` e `*555`, `*77` e `*7777`) religam sem problema desde a versão 1.1.0. Se ainda é recusado, outro código (personalizado, de pausa ou de caixa postal) colide com ele: a mensagem diz qual. Troque ou desligue esse antes de religar.
+
+**`*30` a `*39` respondem "acesso negado".**
+- O ramal não é de um usuário com a tela **Lista Negra** (ou **Allowlist**) no perfil, ou faltou **Aplicar configurações** depois de dar a tela ou vincular o ramal. Veja [Lista Negra e Allowlist: quem pode usar](#lista-negra-e-allowlist-quem-pode-usar).
+
+**`*666` diz que o serviço não está disponível.**
+- A recepção de fax está desligada em **Configurações › Fax**.
 
 **`*80`, `*85` ou `*555` cai em outra coisa.**
 - O telefone envia assim que reconhece `*8` ou `*55`. Ajuste o plano de discagem do aparelho para esperar o `#` ou o tempo, ou troque o código curto.
@@ -441,6 +466,7 @@ Para imprimir e deixar ao lado do telefone. Confira antes se algum código foi t
 
 **`*45`/`*46` diz "operação falhou".**
 - A fila é de call center. Use `*11`, os códigos de pausa e `*13`.
+- No `*45`, o ramal não está na lista de agentes da fila como "Entra por código" (ou faltou aplicar).
 
 **`*69` diz que não pode completar.**
 - O rastreio está desligado no cadastro do ramal.

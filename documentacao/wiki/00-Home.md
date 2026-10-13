@@ -33,7 +33,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 
 | Componente | Versão |
 |---|---|
-| Telium PABX | 1.0.1 |
+| Telium PABX | 1.1.0 (a versão e o commit de cada central aparecem no rodapé do menu e em **Telium › Versões e Novidades**) |
 | Debian | 13 (trixie); também roda em Ubuntu 24.04 |
 | Asterisk | 22.11.0, compilado do fonte, com PJSIP |
 | MariaDB | 12.3.3 |
@@ -56,9 +56,9 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | Códigos de recurso | Todos os códigos discados no telefone (`*xx`) | [15](15-Codigos-de-Recurso.md) |
 | Call Center | Agentes, pausas, tabulação, retorno, monitor ao vivo com escuta, relatórios | [16](16-Call-Center.md) |
 | Conectividade | Ramais, troncos, rotas de entrada e saída, DIDs, firewall, provisionamento de telefones, rede, WebRTC | [17](17-Conectividade.md) |
-| Relatórios | CDR com gravações, filas, ramais, troncos, CEL, agentes | [18](18-Relatorios.md) |
+| Relatórios | CDR com gravações e exportação em CSV, filas, ramais, troncos, CEL, agentes | [18](18-Relatorios.md) |
 | Configurações | Arquivos e aplicação, SIP, correio de voz, música de espera, PINs, fax, e-mail, tarifas, dados da empresa | [19](19-Configuracoes.md) |
-| Telium | Tarifação, integrações e API (click to call), suporte | [20](20-Telium-Tarifacao-Integracoes-Suporte.md) |
+| Telium | Tarifação, integrações e API (click to call e webhooks), suporte, versões e novidades | [20](20-Telium-Tarifacao-Integracoes-Suporte.md) |
 | Meu Painel (PCU) | O painel do usuário: meu ramal, minhas chamadas, correio de voz, siga-me, contatos, perfil e segurança | [21](21-Meu-Painel-PCU.md) |
 
 ---
@@ -70,7 +70,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | # | Página | Conteúdo |
 |---|---|---|
 | 01 | [Instalação](01-Instalacao.md) | Servidor novo, do zero ao primeiro atendimento |
-| 02 | [Atualização](02-Atualizacao.md) | Atualizar sem perder dados, voltar atrás, notas das versões |
+| 02 | [Atualização](02-Atualizacao.md) | Atualizar sem perder dados, voltar atrás, notas das versões (a 1.1.0 é a mais recente) |
 | 03 | [Requisitos de rede e portas](03-Requisitos-Rede-e-Portas.md) | Portas, NAT, firewall do cliente e da operadora |
 | 04 | [Backup e restauração](04-Backup-e-Restauracao.md) | Backup do console, destino remoto, restauração, o que levar no backup da empresa |
 | 05 | [Comandos e serviços do servidor](05-Servidor-Comandos-e-Servicos.md) | CLI `telium`, serviços e timers, comandos do Asterisk e do banco |
@@ -113,7 +113,9 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | Endereço do console | `https://<nome ou IP do servidor>/` |
 | Primeiro acesso | Usuário `admin`, com a senha inicial informada na [Instalação](01-Instalacao.md). **Troque no primeiro acesso** |
 | Perdeu a senha do admin | `sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin` |
+| Perdeu o celular do 2FA (admin) | `sudo -u teliumpbx php /opt/telium/api/bin/telium desligar-2fa admin` |
 | Atualizar a central | `cd /opt/TeliumPABX && sudo git pull && cd infra/ansible && sudo ansible-playbook site.yml -e compilar_asterisk=false -e compilar_janus=false` |
+| Qual versão está rodando, e o que mudou em cada uma | Console: **Telium › [Versões e Novidades](20-Telium-Tarifacao-Integracoes-Suporte.md)**; o histórico também está em `api/CHANGELOG.md` e nas [notas das versões](02-Atualizacao.md#10-notas-das-versões) |
 | Conferir se está tudo de pé | `sudo -u teliumpbx php /opt/telium/api/bin/telium testar` |
 | Saúde da API | `https://<central>/api/health` |
 | Backups do console | `/var/backup/pabx-telium` |
@@ -148,4 +150,5 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | `docs/TESTE-FUNCIONAL.md` | Passeio pelas telas, módulo a módulo |
 | `docs/PENDENCIAS.md` | O que ainda falta e as limitações conhecidas |
 | `docs/BACKEND.md` | Notas de arquitetura do backend |
+| `api/CHANGELOG.md` | Histórico de versões, o mesmo que o console mostra em **Telium › Versões e Novidades** |
 | `infra/README.md` | Referência técnica do provisionamento |

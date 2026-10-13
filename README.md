@@ -1,4 +1,4 @@
-# Telium PABX 1.0.1
+# Telium PABX 1.1.0
 
 Central telefônica completa: Asterisk 22 com PJSIP, console web em HTML, CSS e
 JavaScript puro (sem build), API em PHP 8.4 e provisionamento por Ansible em
@@ -136,7 +136,7 @@ A pilha de produção está em `infra/` e `api/`:
 | Componente | Versão |
 |---|---|
 | Debian | 13 (trixie) |
-| Telium PABX | 1.0.1 |
+| Telium PABX | 1.1.0 |
 | Asterisk | 22.11.0 — PJSIP, compilado do fonte |
 | coturn | TURN/STUN próprio, credencial com prazo |
 | Janus | 1.4.1 — opcional e **desligado**, fora do caminho da chamada |
@@ -181,9 +181,10 @@ horário comercial, DID e rotas. Nunca em instalação de cliente.
 ## O que falta
 
 A lista honesta, com o estrago de cada pendência, está em
-[docs/PENDENCIAS.md](docs/PENDENCIAS.md). O resumo:
+[docs/PENDENCIAS.md](docs/PENDENCIAS.md). O que mudou em cada versão
+está em [api/CHANGELOG.md](api/CHANGELOG.md), que o console mostra em
+Telium › Versões e Novidades. O resumo do que falta:
 
-- **Um módulo tem tela e nenhum efeito:** Integrações/API.
 - Barramento de tempo real para o resto do console: o call center já
   recebe os eventos ao vivo (serviço telium-cc), as outras telas de
   estado ainda perguntam ao Asterisk a cada carga.

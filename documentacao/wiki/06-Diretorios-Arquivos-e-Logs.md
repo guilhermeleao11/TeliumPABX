@@ -74,6 +74,8 @@ São duas coisas diferentes:
 | `/opt/telium/web` | Console: `index.html`, `app.html`, `assets/`. Raiz do nginx |
 | `/opt/telium/web/uploads/contatos` | Fotos da agenda de contatos |
 | `/opt/telium/api` | API PHP (Slim): `bin/telium`, `public/`, `src/`, `vendor/` |
+| `/opt/telium/api/COMMIT` | O commit do clone publicado (ex.: `ae4f854`), gravado pelo playbook a cada execução. É o que o console mostra ao lado do número da versão (`1.1.0 (ae4f854)`). Um `+` no fim indica que o clone tinha alteração fora do Git |
+| `/opt/telium/api/CHANGELOG.md` | Histórico de versões, mostrado em **Telium › Versões e Novidades** |
 | `/opt/telium/api/.env` | Configuração da API, **com senhas** (banco, AMI, ARI, segredo do TURN). `0640`, `teliumpbx` |
 | `/opt/telium/api/var/cache` | Cache da API |
 | `/opt/telium/sql` | Scripts do banco usados por `telium migrar` |
@@ -130,14 +132,27 @@ Pasta com dono `teliumpbx`, grupo `asterisk`, modo `2775` (os arquivos novos nas
 
 ### 4.2 Personalização: arquivos `_custom`
 
-Criados vazios na instalação e **nunca sobrescritos** pelo console nem pelo playbook. É o lugar para um ajuste que o console não oferece:
+Criados vazios na instalação e **nunca sobrescritos** pelo console nem pelo playbook (o playbook só os cria quando não existem). É o lugar para um ajuste que o console não oferece. Cada arquivo do Asterisk gerado pelo console tem o seu, incluído **no fim** do arquivo correspondente; por isso o conteúdo continua na última seção aberta antes dele, a não ser que comece com o nome de uma seção (`[nome]`):
 
-| Arquivo | Incluído em |
-|---|---|
-| `/etc/asterisk/telium/pjsip_custom.conf` | `pjsip.conf` |
-| `/etc/asterisk/telium/extensions_custom.conf` | `extensions.conf` (contexto `telium-custom`) |
+| Arquivo | Incluído em | Onde o conteúdo continua |
+|---|---|---|
+| `/etc/asterisk/telium/pjsip_custom.conf` | `pjsip.conf`, depois dos ramais e troncos | Comece cada objeto com `[nome]` e `type = …` |
+| `/etc/asterisk/telium/extensions_custom.conf` | `extensions.conf`, no fim | Comece com o contexto: `[telium-custom]` (já incluído no contexto interno) ou um contexto próprio, alcançado por um **destino personalizado** |
+| `/etc/asterisk/telium/queues_custom.conf` | `telium/queues.conf`, depois das filas | Comece com `[nome-da-fila]` |
+| `/etc/asterisk/telium/queuerules_custom.conf` | `queuerules.conf`, depois das regras geradas | Comece com `[nome-da-regra]` |
+| `/etc/asterisk/telium/confbridge_custom.conf` | `telium/confbridge.conf`, depois das salas | Comece com `[nome]` (perfil de sala, de usuário ou menu) |
+| `/etc/asterisk/telium/voicemail_custom.conf` | `voicemail.conf`, no fim | Dentro do contexto `[telium]`: caixas a mais vão direto, uma por linha |
+| `/etc/asterisk/telium/features_custom.conf` | `features.conf`, no fim | Dentro do `[featuremap]`; para `[applicationmap]`, comece com ele |
+| `/etc/asterisk/telium/musiconhold_custom.conf` | `musiconhold.conf`, depois das classes do console | Comece com `[nome-da-classe]` |
+| `/etc/asterisk/telium/res_parking_custom.conf` | `res_parking.conf`, depois dos lotes do console | Comece com `[nome-do-lote]` |
+| `/etc/asterisk/telium/rtp_custom.conf` | `rtp.conf`, no fim | Dentro do `[general]` |
+| `/etc/asterisk/manager_custom.conf` | `manager.conf` (AMI), no fim | Comece cada usuário com `[nome]`, e permita só os IPs necessários |
+| `/etc/asterisk/ari_custom.conf` | `ari.conf`, no fim | Comece cada usuário com `[nome]` |
 
-Também existem `queues_custom.conf` e `confbridge_custom.conf`, mas hoje nenhum arquivo os inclui: o que for escrito neles não tem efeito.
+- Os de `telium/` são `teliumpbx:asterisk`, como os gerados. A tela **Configurações › Arquivos e Aplicação** edita o que está em `/etc/asterisk/telium`.
+- O `manager_custom.conf` e o `ari_custom.conf` ficam **fora** de `/etc/asterisk/telium` de propósito, com dono `root:asterisk` e modo `0640`: um usuário do AMI com permissão de `command` ou `originate` tem poder de root sobre a central, e não pode ser criado pelo navegador. Só quem tem SSH mexe neles. São incluídos com `#tryinclude`: se faltarem, o AMI e o ARI sobem do mesmo jeito.
+- A restauração de backup não devolve o `manager.conf`, o `ari.conf` e o `res_odbc.conf` (ficam os deste servidor), mas devolve os `_custom` junto com o resto de `/etc/asterisk`.
+- Depois de editar um `_custom`, aplique: **Aplicar configurações** no console (ou `telium aplicar-config`). Para o AMI e o ARI, `sudo asterisk -rx "manager reload"` e `sudo asterisk -rx "module reload res_ari.so"`.
 
 ### 4.3 Publicados pelo Ansible: /etc/asterisk
 
@@ -146,8 +161,8 @@ Vêm de modelos do playbook e são **reescritos a cada execução**. Também nã
 | Arquivos | Observação |
 |---|---|
 | `asterisk.conf`, `modules.conf` | Só valem com o Asterisk reiniciando; o playbook agenda `core restart when convenient` |
-| `extensions.conf`, `pjsip.conf`, `queues.conf`, `queuerules.conf`, `voicemail.conf`, `confbridge.conf`, `res_parking.conf`, `features.conf`, `musiconhold.conf`, `rtp.conf` | Base fixa que faz `#include` dos gerados em `telium/` |
-| `manager.conf` (AMI), `ari.conf`, `http.conf` | Com as senhas de serviço |
+| `extensions.conf`, `pjsip.conf`, `queues.conf`, `queuerules.conf`, `voicemail.conf`, `confbridge.conf`, `res_parking.conf`, `features.conf`, `musiconhold.conf`, `rtp.conf` | Base fixa que faz `#include` dos gerados em `telium/` e do `_custom` de cada um |
+| `manager.conf` (AMI), `ari.conf`, `http.conf` | Com as senhas de serviço. `manager.conf` e `ari.conf` incluem `manager_custom.conf` e `ari_custom.conf` |
 | `res_odbc.conf`, `func_odbc.conf`, `cdr.conf`, `cdr_adaptive_odbc.conf`, `cel.conf`, `cel_odbc.conf`, `extconfig.conf` | Ligação com o banco: CDR, CEL e `queue_log` |
 | `logger.conf` | Arquivos de log do Asterisk |
 | `indications.conf`, `udptl.conf`, `pjproject.conf`, `resolver_unbound.conf`, `res_fax.conf`, `acl.conf`, `ccss.conf`, `codecs.conf`, `amd.conf`, `websocket_client.conf`, `pjsip_notify.conf` | Demais módulos |
@@ -183,7 +198,7 @@ Troque certificados pelo console (**Administrador › Certificados**): o `telium
 | `sounds/telium/` | **Áudios enviados pelo console**: anúncios, URA. Dono `teliumpbx`, grupo `asterisk` |
 | `sounds/telium/moh/<classe>/` | Músicas de espera enviadas pelo console, uma pasta por classe |
 | `moh/` | Música de espera padrão do Asterisk |
-| `astdb.sqlite3` | Base interna do Asterisk: siga-me, não perturbe, despertador do `*68`, listas negra/permitida e outros estados dos códigos do telefone |
+| `astdb.sqlite3` | Base interna do Asterisk: siga-me, não perturbe, despertador do `*68`, listas negra/permitida e outros estados dos códigos do telefone. Também guarda quem pode mexer nas listas pelo telefone (famílias `listanegra-tel` e `allowlist-tel`, regravadas a cada **Aplicar configurações**). Vai no backup desde a 1.1.0 |
 | `agi-bin/` | Diretório de AGI configurado; o Telium não instala scripts nele |
 | `.msmtprc` | Configuração de e-mail do Asterisk (recado por e-mail), gerada pelo `telium-smtp`. `0600`, `asterisk` |
 
@@ -199,19 +214,20 @@ Tudo com dono `asterisk`, modo `0750`.
 |---|---|
 | `monitor/AAAA/MM/DD/` | Gravações de chamadas (`.wav`). O nginx entrega pelo caminho interno `/gravacoes/`, só com sessão autorizada pela API |
 | `voicemail/telium/<caixa>/` | Recados e saudações do correio de voz dos ramais e das caixas postais |
-| `fax/` | Faxes recebidos (`.tif`, nome com data, hora e número de origem) |
+| `fax/` | Faxes recebidos: `AAAAMMDD-HHMMSS-<número>.tif`, onde o número de quem mandou entra **só com dígitos**. Quando o fax vai por e-mail ([Configurações › Fax](19-Configuracoes.md)), o PDF convertido fica ao lado (`.pdf`, mesmo nome). Os dois ficam no servidor depois do envio |
 | `dictate/<ramal>/` | Ditados |
 | `tmp/` | Temporários do Asterisk |
 
-> As gravações não são apagadas pelo console. Controle o espaço em disco (`df -h /var/spool/asterisk`).
+> As gravações não se apagam à mão pelo console. Com um **prazo de guarda** em **Aplicações › Gravação de Chamadas**, o executor de backup apaga uma vez por dia as gravações com mais dias que o prazo (e as pastas que ficam vazias). O padrão é zero: guarda para sempre. Controle o espaço em disco (`df -h /var/spool/asterisk`).
 
 ---
 
 ## 8. /var/backup/pabx-telium
 
 - Arquivos `telium-AAAAMMDD-HHMMSS.tar.gz` gerados por **Administrador › Backup & Restauração**.
-- Pasta `0700` e arquivos `0600`, só root: contêm senhas e chaves.
-- A retenção apaga os mais antigos.
+- Pasta `root:teliumpbx` `0750` e arquivos `root:teliumpbx` `0640`: a API lê (para o **Baixar** e o envio ao destino remoto), mas só o root escreve. Os arquivos contêm senhas e chaves. O executor de backup corrige a permissão a cada rodada.
+- A retenção apaga os mais antigos de cada rotina (os manuais contam entre si).
+- O **Excluir** do console não apaga na hora: marca o backup e o executor, que roda como root, apaga o arquivo e o registro em até um minuto.
 
 Detalhes em [Backup e Restauração](04-Backup-e-Restauracao.md).
 
@@ -229,7 +245,8 @@ Detalhes em [Backup e Restauração](04-Backup-e-Restauracao.md).
 | `/var/log/nginx/access.log` | Acessos ao console e à API. O fail2ban lê para o login do console | Do pacote nginx |
 | `/var/log/nginx/error.log` | Erros do nginx | Do pacote nginx |
 | `/var/log/mysql/error.log`, `slow.log` | Erros e consultas lentas (acima de 2 s) do MariaDB | — |
-| journal do systemd | `telium-cc`, `telium-backup`, `telium-certificados`, `telium-despertador`, `telium-tarifar`, `coturn` | `journalctl -u <serviço>` |
+| journal do systemd | `telium-cc` (inclusive os erros de webhook), `telium-backup` (inclusive a limpeza das gravações e os alertas por e-mail), `telium-certificados`, `telium-despertador`, `telium-tarifar`, `coturn` | `journalctl -u <serviço>` |
+| syslog, marca `telium-fax` | Envio do fax por e-mail: enviado, falha ou fax que não chegou | `journalctl -t telium-fax` |
 
 - A rotação dos logs do Asterisk e da Telium está em `/etc/logrotate.d/asterisk`. Os logs do Asterisk são recriados como `asterisk` e o Asterisk é avisado (`logger reload`); se não fossem, o log pararia e o fail2ban junto.
 - O `queue_log` das filas **não é arquivo**: vai para a tabela `queue_log` do banco.
@@ -250,7 +267,8 @@ Detalhes em [Backup e Restauração](04-Backup-e-Restauracao.md).
 | `/etc/fail2ban/jail.d/telium.conf`, `/etc/fail2ban/filter.d/telium-console.conf` | Jails e filtro do console |
 | `/etc/fail2ban/jail.d/telium-confiaveis.local` | Lista "Nunca bloquear" do console (gerado; não edite) |
 | `/etc/systemd/system/asterisk.service`, `telium-cc.service`, `telium-*.service` e `.timer` | Serviços e temporizadores ([Comandos e serviços](05-Servidor-Comandos-e-Servicos.md)) |
-| `/usr/local/sbin/telium-*` | Scripts executores (backup, certificados, smtp, fail2ban, despertador) |
+| `/usr/local/sbin/telium-*` | Scripts executores (backup, certificados, smtp, fail2ban, despertador) e o `telium-fax-email`, que o Asterisk chama para mandar o fax recebido por e-mail |
+| `/var/lib/telium/despertador/` | Estado das novas tentativas do despertador: um arquivo por despertar em curso (ramal, anúncio, tentativas restantes, próxima tentativa). Some quando a pessoa atende ou as tentativas acabam. Dono root |
 | `/opt/janus` | Janus (opcional): binário e configuração em `/opt/janus/etc/janus` |
 | `/usr/local/src/telium` | Fontes baixados na instalação (Asterisk, áudios) |
 | `/var/lib/php/sessions` | Sessões do PHP |
@@ -317,3 +335,5 @@ Os candidatos são `/var/spool/asterisk/monitor` (gravações), `/var/backup/pab
 ```bash
 sudo du -sh /var/spool/asterisk/monitor /var/backup/pabx-telium /var/log/asterisk
 ```
+
+Para as gravações, defina o prazo de guarda em **Aplicações › Gravação de Chamadas**. Com o campo de alertas preenchido em **Configurações › Notificações e E-mail**, a central avisa por e-mail quando o disco das gravações passa de 90% de uso (menos de 10% livre).

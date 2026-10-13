@@ -16,6 +16,21 @@ use Telium\Suporte\Trava;
  */
 final class Gerador
 {
+    /**
+     * Acende a faixa "Alterações ainda não aplicadas".
+     *
+     * Para o que muda a central sem passar por um cadastro do Recurso: o
+     * envio de música de espera (musicaespera.conf) e os dados da empresa
+     * (o CallerID dos retornos, o nome no e-mail do recado).
+     */
+    public static function marcarPendente(): void
+    {
+        Bd::executar(
+            "INSERT INTO sistema (chave, valor) VALUES ('config_pendente','1')
+             ON DUPLICATE KEY UPDATE valor = '1'"
+        );
+    }
+
     private readonly string $destino;
 
     public function __construct(?string $destino = null)

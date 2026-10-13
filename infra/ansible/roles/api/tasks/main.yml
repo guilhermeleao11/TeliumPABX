@@ -29,6 +29,30 @@
     group: "{{ telium_group }}"
     mode: preserve
 
+# O commit do clone vai junto com o código: é o que a tela mostra ao lado
+# do número da versão ("1.1.0 (ae4f854)") e o que o suporte pede. Entre
+# duas versões, o número é o mesmo e só o commit diz o que está rodando.
+# O "+" marca um clone com alteração que não foi para o Git.
+- name: Descobrir o commit do clone
+  ansible.builtin.shell:
+    cmd: >-
+      c=$(git -c safe.directory='*' -C "{{ playbook_dir }}/../.." rev-parse --short HEAD 2>/dev/null) || exit 0;
+      if [ -n "$(git -c safe.directory='*' -C "{{ playbook_dir }}/../.." status --porcelain --untracked-files=no 2>/dev/null)" ]; then c="$c+"; fi;
+      echo "$c"
+  delegate_to: localhost
+  become: false
+  register: telium_commit
+  changed_when: false
+  failed_when: false
+
+- name: Registrar o commit publicado
+  ansible.builtin.copy:
+    dest: "{{ telium_api }}/COMMIT"
+    content: "{{ (telium_commit.stdout | default('')) | trim }}\n"
+    owner: "{{ telium_user }}"
+    group: "{{ telium_group }}"
+    mode: "0644"
+
 - name: Criar arquivo de ambiente da API
   ansible.builtin.template:
     src: env.j2
@@ -202,7 +226,7 @@
 # Serviço de tempo real do call center (telium-cc).
 #
 # Escuta os eventos de fila do Asterisk e empurra o estado para os
-# painéis do agente e do supervisor; atende os códigos *40/*42/*44/*49
+# painéis do agente e do supervisor; atende os códigos do agente (*11, *12, *13 e o de cada pausa)
 # do telefone; pausa quem precisa tabular; disca os retornos. Escuta só
 # em 127.0.0.1 — o nginx publica /api/cc/eventos e nada mais.
 #

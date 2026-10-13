@@ -20,6 +20,8 @@ use Telium\Suporte\Resposta;
  */
 final class ClickToCall
 {
+    private const CHAVE_INVALIDA = 'Chave ausente, inválida ou desativada';
+
     /** Chaves erradas do mesmo IP, em dez minutos, antes de parar de tentar. */
     private const MAX_FALHAS = 20;
 
@@ -38,8 +40,12 @@ final class ClickToCall
         // Quem erra a chave sem parar está chutando: para por um tempo.
         $falhas = (int) Bd::valor(
             "SELECT COUNT(*) FROM click2call_pedidos
-              WHERE ip = ? AND origem = 'api' AND chave_id IS NULL AND criado_em >= NOW() - INTERVAL 10 MINUTE",
-            [$ip]
+              WHERE ip = ? AND origem = 'api' AND chave_id IS NULL AND resultado = ?
+                AND criado_em >= NOW() - INTERVAL 10 MINUTE",
+            // Pelo motivo, e não só pela chave vazia: os pedidos de uma chave
+            // excluída também ficam sem chave (ON DELETE SET NULL), e um
+            // sistema que usava muito a chave apagada era bloqueado à toa.
+            [$ip, self::CHAVE_INVALIDA]
         );
         if ($falhas >= self::MAX_FALHAS) {
             return self::falha($res, 429, 'Muitas chaves inválidas deste endereço. Tente de novo em alguns minutos.');
@@ -47,7 +53,7 @@ final class ClickToCall
 
         $chave = C2c::chaveDoToken(self::token($req, $p));
         if ($chave === null) {
-            self::registrar(null, 'api', $ramal, $numero, false, 'Chave ausente, inválida ou desativada', null, $ip);
+            self::registrar(null, 'api', $ramal, $numero, false, self::CHAVE_INVALIDA, null, $ip);
 
             return self::falha($res, 401, 'Chave de API ausente, inválida ou desativada.');
         }

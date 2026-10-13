@@ -4,6 +4,13 @@
   become: true
   gather_facts: true
 
+  vars:
+    # O número vem do código (api/src/Suporte/Versao.php), o mesmo que o
+    # console mostra: escrito à mão aqui, ficava para trás a cada versão.
+    telium_versao: >-
+      {{ lookup('ansible.builtin.file', playbook_dir + '/../../api/src/Suporte/Versao.php')
+         | regex_search("NUMERO = '([^']+)'", '\\1') | first }}
+
   pre_tasks:
     # ---------- o nome desta central ----------
     # Cada cliente tem o seu, e ele vai para o console, o certificado, o
@@ -89,7 +96,7 @@
     - name: Resumo do que será instalado
       ansible.builtin.debug:
         msg:
-          - "Telium PABX 1.0.1"
+          - "Telium PABX {{ telium_versao }}"
           - "Nome ...... {{ pabx_hostname }}  (console: https://{{ pabx_hostname }}/)"
           - "Alvo ...... {{ inventory_hostname }} ({{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }})"
           - "Asterisk .. {{ asterisk_versao }} (compilado do fonte)"
@@ -154,7 +161,7 @@
         group: root
         mode: "0600"
         content: |
-          Telium PABX 1.0.1 — instalado em {{ ansible_date_time.iso8601 | default('') }}
+          Telium PABX {{ telium_versao }} — instalado em {{ ansible_date_time.iso8601 | default('') }}
           host: {{ inventory_hostname }} ({{ ansible_facts.default_ipv4.address | default('127.0.0.1') }})
 
           Console ...... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/

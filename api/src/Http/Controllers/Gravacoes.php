@@ -15,7 +15,8 @@ use Telium\Suporte\Resposta;
  *
  * Não existe rota de exclusão aqui, e é de propósito: gravação é prova
  * de atendimento, e apagar uma pela web não deveria ser um clique. O
- * que limpa o disco é a retenção do backup, com prazo definido.
+ * que limpa o disco é o prazo de guarda, em dias, definido nesta tela:
+ * o executor de backup (root) apaga uma vez por dia o que passou dele.
  *
  * As gravações vêm de dois lugares e a tela mostra as duas como uma
  * coisa só: o CDR, que guarda o arquivo de cada chamada, e a tabela
@@ -63,7 +64,42 @@ final class Gravacoes
             'paginas' => (int) ceil($total / self::POR_PAGINA),
             'diretorio' => $dir,
             'disco' => $this->disco($dir),
+            'retencao' => [
+                'dias'   => (int) (Bd::valor("SELECT valor FROM sistema WHERE chave = 'gravacoes_reter_dias'") ?? 0),
+                'ultima' => Bd::valor("SELECT valor FROM sistema WHERE chave = 'gravacoes_limpeza_resultado'"),
+            ],
         ]);
+    }
+
+    /**
+     * PUT /api/gravacoes/retencao {dias} — por quantos dias guardar.
+     *
+     * Zero guarda para sempre. O prazo não apaga nada na hora: o
+     * executor de backup confere uma vez por dia e apaga o que passou.
+     */
+    public function salvarRetencao(Request $req, Response $res): Response
+    {
+        $c = (array) $req->getParsedBody();
+        $dias = $c['dias'] ?? null;
+        if (!is_numeric($dias) || (int) $dias < 0 || (int) $dias > 3650 || (string) (int) $dias !== trim((string) $dias)) {
+            return Resposta::erro($res, 'Informe de 0 a 3650 dias. Zero guarda as gravações para sempre.', 422,
+                                  ['campos' => ['dias' => 'De 0 a 3650 dias.']]);
+        }
+        $dias = (int) $dias;
+        $antes = (int) (Bd::valor("SELECT valor FROM sistema WHERE chave = 'gravacoes_reter_dias'") ?? 0);
+
+        Bd::executar(
+            "INSERT INTO sistema (chave, valor) VALUES ('gravacoes_reter_dias', ?)
+             ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
+            [(string) $dias]
+        );
+        // Prazo novo vale já na próxima passada do executor, e não só amanhã.
+        Bd::executar("DELETE FROM sistema WHERE chave = 'gravacoes_limpeza_em'");
+
+        Auditoria::registrar($req->getAttribute('usuario'), 'editar', 'apps.gravacao', 'prazo das gravações',
+                             ['antes' => $antes, 'depois' => $dias]);
+
+        return Resposta::json($res, ['dias' => $dias]);
     }
 
     /** GET /api/gravacoes/arquivo?caminho=… — ouvir ou baixar */

@@ -35,10 +35,10 @@ O console grava tudo no banco de dados. O Asterisk não lê o banco para a maior
 | Correio de Voz | Regras gerais das caixas postais | Sim |
 | Música em Espera | Enviar as músicas das filas | Sim |
 | Conjuntos de PIN | Senhas pedidas antes de ligar por uma rota | Sim |
-| Fax | Parâmetros da recepção de fax | Veja a [seção 7](#7-fax) |
-| Notificações e E-mail | Servidor de saída de e-mail | Não: publica na hora |
+| Fax | Parâmetros da recepção de fax | Sim |
+| Notificações e E-mail | Servidor de saída de e-mail e para quem vão os alertas do sistema | Não: publica na hora |
 | Tabela de Tarifas | Preço de cada tipo de chamada | Não |
-| Dados da Empresa | Identificação da central | Veja a [seção 10](#10-dados-da-empresa) |
+| Dados da Empresa | Identificação da central | Sim (o nome e o telefone entram nos arquivos gerados) |
 
 > 📷 **Print:** menu lateral aberto na seção **Configurações**.
 
@@ -65,13 +65,13 @@ Mostra quais arquivos do Asterisk a central gera a partir do cadastro, quais fic
 
 No cabeçalho do quadro aparece quantos arquivos **mudariam se aplicar agora**, ou **tudo aplicado**. A comparação ignora a linha de data do cabeçalho do arquivo, então gerar de novo sem mudança não conta como alteração.
 
-**Reservados para personalização** — os arquivos `*_custom.conf` (`pjsip_custom.conf`, `extensions_custom.conf`, `queues_custom.conf`, `confbridge_custom.conf`). O gerador nunca os toca. A coluna **Conteúdo** diz se há algo escrito além de comentários (**tem personalização**) ou se está **vazio**.
+**Reservados para personalização** — os arquivos `*_custom.conf` de `/etc/asterisk/telium`: `pjsip_custom.conf`, `extensions_custom.conf`, `queues_custom.conf`, `queuerules_custom.conf`, `confbridge_custom.conf`, `voicemail_custom.conf`, `features_custom.conf`, `musiconhold_custom.conf`, `res_parking_custom.conf` e `rtp_custom.conf`. Nem o gerador nem o playbook os sobrescrevem. Os do AMI e do ARI (`manager_custom.conf` e `ari_custom.conf`) ficam fora desta pasta, em `/etc/asterisk`, e não aparecem aqui: um usuário do AMI tem poder de root sobre a central, e só quem tem SSH mexe neles. Detalhes em [06-Diretorios-Arquivos-e-Logs.md](06-Diretorios-Arquivos-e-Logs.md). A coluna **Conteúdo** diz se há algo escrito além de comentários (**tem personalização**) ou se está **vazio**.
 
 **Últimas aplicações** — as 10 mais recentes, com data, resultado (**aplicada** ou **falhou**) e as recargas feitas.
 
 **Importante:**
 - **Não edite à mão** os arquivos da primeira lista: a próxima aplicação desfaz a edição.
-- Dialplan, endpoint ou fila feitos à mão vão nos `*_custom.conf`.
+- Dialplan, endpoint, fila, caixa postal, classe de música ou lote de estacionamento feitos à mão vão nos `*_custom.conf`.
 - Se a API não tiver permissão de escrita no diretório, aparece uma faixa vermelha no topo explicando o problema.
 
 ### A faixa "Alterações ainda não aplicadas no Asterisk"
@@ -122,7 +122,7 @@ O botão (na faixa ou o **Aplicar agora** desta tela) faz, em ordem:
 - Duas aplicações ao mesmo tempo não são permitidas. A segunda recebe *"Outra aplicação de configuração está em andamento."*
 - Só uma aplicação **sem falha** tira o aviso de pendência.
 - A **porta de escuta** do SIP não muda com uma recarga: o Asterisk mantém a porta anterior até ser reiniciado.
-- Toda aplicação fica no **Registro de Atividades**.
+- Toda aplicação fica na **Auditoria**.
 
 Pelo servidor, o mesmo é feito com `php bin/telium aplicar-config` (veja [05-Servidor-Comandos-e-Servicos.md](05-Servidor-Comandos-e-Servicos.md)).
 
@@ -238,7 +238,7 @@ Clique em **Enviar música**.
 
 - A central converte o áudio para os formatos que o Asterisk toca. Se a conversão falhar, a mensagem pede para conferir se o pacote `sox` está instalado.
 - Dois áudios não podem ter o mesmo nome de arquivo.
-- Depois de enviar: **aplique as configurações** para as filas passarem a usar a música.
+- Enviar, excluir ou trocar a categoria de um áudio acende a faixa **Alterações ainda não aplicadas**. **Aplique as configurações** para as filas passarem a usar a música.
 
 ### Excluir
 
@@ -260,6 +260,7 @@ Senhas que a central pede antes de completar uma chamada. Um conjunto é escolhi
 | PINs * | Um por linha. **Só dígitos**: letra ou símbolo faz a central recusar até o PIN certo. Ao editar, em branco mantém os que já estão gravados |
 | Não identificar quem discou | Ligado (padrão): o PIN digitado não vai para o relatório. Desligado: o PIN vai para o registro de chamadas, o que permite cobrar a ligação de um centro de custo e saber quem ligou |
 
+- A coluna **Quantos PINs** mostra quantos PINs o conjunto tem, sem mostrar os PINs. A contagem é guardada ao salvar.
 - A coluna **No relatório** mostra *PIN vai para o CDR* quando a identificação está ligada.
 - Os PINs nunca voltam para a tela depois de gravados.
 - Depois de salvar: **aplique as configurações**.
@@ -271,24 +272,48 @@ Senhas que a central pede antes de completar uma chamada. Um conjunto é escolhi
 
 **Configurações › Fax**
 
-Recepção de fax pela própria central, sem aparelho. O código `*666` recebe o fax no ramal.
+Recepção de fax pela própria central, sem aparelho: a central atende, recebe o fax e manda por e-mail, em PDF. O código de fábrica `*666` (**Receber fax neste ramal**, em Códigos de Recurso) é o que recebe.
 
 > 📷 **Print:** a tela de Fax com o aviso sobre VoIP no rodapé.
 
 | Campo | Padrão | O que faz |
 |---|---|---|
 | Receber fax nesta central | ligado | Liga a recepção |
-| Mandar o fax recebido para | vazio | E-mail de destino. Precisa ser um e-mail válido |
-| Cabeçalho impresso | vazio | Texto do topo da página no aparelho do outro lado |
-| Correção de erro (ECM) | ligado | Melhora a recepção em linha ruim |
-| Velocidade mínima | 4800 | Em bits por segundo |
-| Velocidade máxima | 14400 | Em bits por segundo |
+| Mandar o fax recebido para | vazio | E-mail de destino. Precisa ser um e-mail válido. Em branco, o arquivo fica só no servidor |
+| Cabeçalho impresso | vazio | Texto do topo da página no aparelho do outro lado. Vai só com letras sem acento, números, espaço e `. / _ -` (o resto é tirado) |
+| Correção de erro (ECM) | ligado | Melhora a recepção em linha ruim. Desligue só se o outro lado não completar |
+| Velocidade mínima | 4800 bps | Escolha na lista: 2400, 4800, 7200, 9600, 12000 ou 14400 bps |
+| Velocidade máxima | 14400 bps | A mesma lista. Em linha ruim, baixar a máxima para 9600 costuma resolver |
 
-**Como a recepção funciona hoje:** quem disca `*666` faz a central atender e receber o fax, com ECM ligado. O arquivo fica em `/var/spool/asterisk/fax`, em formato TIFF, com a data, a hora e o número de quem mandou no nome.
+Todos os campos passam a valer depois de **Aplicar configurações**. Se a mínima ficar maior que a máxima, a central troca uma pela outra.
 
-> **Atenção:** nesta versão, os campos desta tela são gravados, mas **não são lidos pelo gerador de configuração**. O fax recebido **não é enviado por e-mail** e o cabeçalho e as velocidades não são aplicados. Para pegar um fax, busque o arquivo no servidor em `/var/spool/asterisk/fax`.
+### Como a recepção funciona
 
-**T.38 e VoIP:** fax sobre VoIP é frágil. O áudio comprimido destrói o sinal do fax. Funciona melhor com T.38 no tronco e codec G.711; com celular ou compressão agressiva, falha de forma intermitente. A central não liga o T.38 sozinha: isso depende do tronco e da operadora.
+1. Quem disca o código de receber fax (`*666` de fábrica) faz a central atender e receber o fax, com o ECM, o cabeçalho e as velocidades desta tela.
+2. O arquivo fica em `/var/spool/asterisk/fax`, com a data, a hora e o número de quem mandou no nome (`AAAAMMDD-HHMMSS-<número>.tif`). O número entra **só com dígitos**.
+3. Com e-mail de destino, quando a chamada termina a central converte o TIFF em **PDF** (pelo `tiff2pdf`, instalado com o pacote `libtiff-tools`) e manda o arquivo anexado, pelo mesmo envio do recado do correio de voz ([Notificações e E-mail](#8-notificações-e-e-mail)). O assunto é *"Fax recebido de <número>"*. Sem o `tiff2pdf`, vai o TIFF.
+4. O remetente é o de **Notificações e E-mail** (com o envio ligado); sem ele, `pabx@<domínio da central>`.
+5. Fax que não chegou (arquivo vazio) não gera e-mail. Cada envio, ou a falha dele, fica no syslog do servidor com a marca `telium-fax` (`journalctl -t telium-fax`).
+
+Quem faz o envio é o script `/usr/local/sbin/telium-fax-email`, publicado pelo instalador (veja [05-Servidor-Comandos-e-Servicos.md](05-Servidor-Comandos-e-Servicos.md)).
+
+**Recepção desligada:** com **Receber fax nesta central** desligado (e aplicado), o código de receber fax atende e avisa que o serviço não está disponível.
+
+### Receber fax de fora (número da empresa)
+
+O código de receber fax é discado de um ramal. Para um número externo cair direto no fax:
+
+1. Em **Administrador › Destinos Personalizados**, crie um destino com o código de receber fax: contexto `telium-recursos` (onde ficam os códigos de recurso), extensão igual ao código (`*666` de fábrica) e prioridade `1` (veja [12-Administrador.md](12-Administrador.md)).
+2. Aponte a **rota de entrada** do número de fax para esse destino personalizado ([17-Conectividade.md](17-Conectividade.md)).
+3. Aplique as configurações.
+
+### T.38 e VoIP
+
+Fax sobre VoIP é frágil: o áudio comprimido que economiza banda numa conversa destrói o sinal do fax.
+
+- **Com a recepção ligada, os troncos passam a aceitar T.38** (o modo que a operadora usa para fax sobre VoIP), com correção de erro por redundância, nas portas **UDP 4000 a 4999**. Peça à operadora para ativar o T.38 do lado dela.
+- Com a recepção desligada, os troncos não oferecem T.38.
+- Com celular ou compressão agressiva, falha de forma intermitente.
 
 ---
 
@@ -312,6 +337,7 @@ Por onde a central manda e-mail. A central **não roda servidor de e-mail própr
 | Senha | Nunca volta para a tela. Em branco mantém a atual. No Gmail e no Microsoft 365 é uma **senha de aplicativo**, não a senha de entrada |
 | Remetente (De:) | Obrigatório com o envio ligado, precisa ser um e-mail válido. Muitos provedores recusam remetente de outro domínio |
 | Nome do remetente | Nome que aparece no "De:" (ex.: *Central Telefônica*) |
+| Mandar os alertas do sistema para | E-mails que recebem os alertas da central, separados por vírgula (ex.: `ti@suaempresa.com.br, suporte@telium.com.br`). Em branco, nenhum alerta é enviado. Um endereço inválido faz a central recusar com *"Confira os e-mails dos alertas: separe por vírgula."* |
 
 **Ao salvar**, a central publica a configuração do `msmtp` na hora (não precisa aplicar):
 - Deu certo: *"Configuração publicada. O Asterisk já usa este servidor para mandar os recados."*
@@ -335,6 +361,25 @@ Por onde a central manda e-mail. A central **não roda servidor de e-mail própr
 |---|---|
 | Cópia do recado do correio de voz | No cadastro do ramal ou da caixa postal, e em [Correio de Voz](#4-correio-de-voz) |
 | Ditado enviado pelo código `*35` | No cadastro do ramal |
+| Fax recebido, em PDF | Em [Fax](#7-fax) |
+| Alertas do sistema | No campo **Mandar os alertas do sistema para** |
+
+### Alertas do sistema
+
+Avisos para quem cuida da central, mandados para os e-mails do campo **Mandar os alertas do sistema para**. Só saem com o envio de e-mail **ligado** e pelo menos um e-mail no campo.
+
+| Alerta | Quando sai |
+|---|---|
+| O backup da central falhou | Um backup terminou com falha nas últimas 24 horas. Leva a saída do backup |
+| Nenhum backup concluído há mais de 26 horas | Há rotina de backup ligada e o último backup concluído tem mais de 26 horas (ou nunca houve) |
+| O certificado do console vence em N dia(s) / venceu | O certificado HTTPS que a central apresenta vence em menos de 15 dias |
+| O disco da central está quase cheio | O disco das gravações tem menos de 10% livre |
+
+- O assunto começa com o nome da empresa entre colchetes, por exemplo *"[Minha Empresa] O backup da central falhou"*.
+- **Cada alerta sai no máximo uma vez por dia**; o de backup com falha, uma vez para cada backup que falhou.
+- Quem confere é o comando `telium alertas`, que o executor de backup roda **de hora em hora** (no minuto 07) e **logo depois de um backup que falha**. Para conferir na hora: `sudo -u teliumpbx php /opt/telium/api/bin/telium alertas` (veja [05-Servidor-Comandos-e-Servicos.md](05-Servidor-Comandos-e-Servicos.md)).
+
+> 📷 **Print:** campo "Mandar os alertas do sistema para" preenchido.
 
 ---
 
@@ -392,7 +437,7 @@ Exemplo: "0800 e gratuitos" (com padrão `_0800.`) vence "Fixo local" mesmo send
 
 Exemplo, com mínimo de 30 s e fração de 6 s: 5 s viram 30 s; 31 s viram 36 s.
 
-**Importante:** uma chamada já tarifada **não é recalculada**. O preço fica congelado no que valia quando ela aconteceu. Mudar o preço vale para as chamadas tarifadas daqui em diante.
+**Importante:** o cálculo automático só tarifa as chamadas que ainda não têm custo; o preço de uma chamada já tarifada fica congelado. Para aplicar um preço corrigido às chamadas de um mês, use **Recalcular o mês** em **Telium › Tarifação**: ele refaz o mês inteiro com os preços de agora (veja [20-Telium-Tarifacao-Integracoes-Suporte.md](20-Telium-Tarifacao-Integracoes-Suporte.md)).
 
 ---
 
@@ -433,14 +478,14 @@ Quando o call center liga de volta para um cliente (retorno), o número que apar
 **Regras:**
 - Nenhum campo aceita `${` ou `$[` (o texto também é lido pelo Asterisk).
 - **Ramais contratados** só aceita número inteiro.
-- O telefone e o nome entram em arquivos gerados. Salvar esta tela **não acende** a faixa de pendência: depois de trocar o telefone ou o nome, use **Aplicar agora** em [Arquivos e Aplicação](#2-arquivos-e-aplicação).
+- O telefone e o nome entram em arquivos gerados. Salvar esta tela acende a faixa **Alterações ainda não aplicadas**: aplique para a central passar a usar.
 
 ---
 
 ## 11. Problemas comuns
 
 **Salvei e nada mudou no telefone.**
-Falta aplicar. Use a faixa amarela ou **Configurações › Arquivos e Aplicação › Aplicar agora**. Algumas telas (música, dados da empresa) não acendem a faixa: aplique pela tela de Arquivos.
+Falta aplicar. Use a faixa amarela ou **Configurações › Arquivos e Aplicação › Aplicar agora**.
 
 **A aplicação diz "O Asterisk recusou parte da recarga".**
 Clique em **Ver a saída** e veja qual comando falhou. Se a etapa foi **ramais e troncos carregados**, a saída lista os ramais ou troncos que o Asterisk descartou; o motivo está no log do Asterisk (veja [06-Diretorios-Arquivos-e-Logs.md](06-Diretorios-Arquivos-e-Logs.md)).
@@ -467,16 +512,28 @@ No Gmail e no Microsoft 365, use uma senha de aplicativo. Confira a porta e a se
 O script `/usr/local/sbin/telium-smtp` ou a regra de sudo dele não existem. Rode o instalador de novo (veja [01-Instalacao.md](01-Instalacao.md)).
 
 **A fila toca silêncio em vez da música.**
-A música foi enviada mas as configurações não foram aplicadas. Aplique pela tela de Arquivos.
+A música foi enviada mas as configurações não foram aplicadas. Use a faixa amarela.
 
 **O PIN certo é recusado.**
 O conjunto tem caractere que não é dígito, ou as configurações não foram aplicadas depois de editar.
 
 **O fax recebido não chegou por e-mail.**
-Nesta versão o fax não é enviado por e-mail: busque o arquivo em `/var/spool/asterisk/fax`.
+1. O campo **Mandar o fax recebido para** está preenchido e as configurações foram aplicadas depois?
+2. **Notificações e E-mail** está ligado e o último teste foi entregue?
+3. Veja o resultado no servidor: `journalctl -t telium-fax`. "não chegou" quer dizer que o fax falhou antes de virar arquivo; "falha ao enviar", que o e-mail não saiu.
+4. O arquivo continua em `/var/spool/asterisk/fax`.
+
+**O código de receber fax diz que o serviço não está disponível.**
+A recepção está desligada em **Configurações › Fax**. Ligue e aplique.
 
 **O fax falha no meio.**
-Tronco sem T.38 ou com codec comprimido. Use G.711 e T.38 no tronco, se a operadora suportar.
+Peça à operadora para ativar o T.38 (a central já aceita com a recepção ligada) e confira as portas UDP 4000 a 4999 no firewall. Baixe a velocidade máxima para 9600. Evite codec comprimido no tronco.
+
+**Os alertas do sistema não chegam.**
+Confira se o envio de e-mail está ligado, se o campo **Mandar os alertas do sistema para** tem e-mail e se o teste de envio é entregue. Rode `sudo -u teliumpbx php /opt/telium/api/bin/telium alertas`: ele diz o que mandou, ou "nenhum aviso a mandar". Lembre que cada alerta sai uma vez por dia.
+
+**A coluna Quantos PINs mostra 0 num conjunto que tem PINs.**
+A contagem é feita ao salvar. Abra o conjunto, digite os PINs de novo e salve.
 
 **O relatório de custos fecha em R$ 0,00.**
 As tarifas estão com preço zero. Digite os valores em **Tabela de Tarifas** e use **Recalcular o mês** em **Telium › Tarifação**.

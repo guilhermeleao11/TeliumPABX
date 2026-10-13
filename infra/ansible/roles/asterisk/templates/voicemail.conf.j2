@@ -20,3 +20,6 @@ mailcmd       = /usr/sbin/sendmail -t
 brasil = {{ pabx_timezone }}|'vm-received' q 'digits/at' HM
 
 #include "telium/voicemail.conf"
+; Personalizações: caixas e opções escritas à mão, que o console nunca
+; sobrescreve. O arquivo começa dentro do contexto [telium].
+#include "telium/voicemail_custom.conf"

@@ -33,7 +33,7 @@ comum em 127.0.0.1. Isso mantém DTLS/ICE fora do Asterisk e simplifica o PJSIP.
 |---|---|---|
 | 80 / 443 | nginx | rede |
 | 5060 udp/tcp | Asterisk SIP | rede (telefones físicos) |
-| 10000-10200 udp | RTP do Asterisk | rede |
+| 10000-20000 udp | RTP do Asterisk | rede |
 | 20000-20200 udp | RTP/WebRTC do Janus | rede |
 | 8088 / 8188 | Janus HTTP / WebSocket | **loopback** (via nginx) |
 | 7088 | Janus admin | loopback |

@@ -2,7 +2,7 @@
 TELIUM: TARIFAÇÃO, INTEGRAÇÕES E SUPORTE — TELIUM PABX
 ==============================================================================
 
-Manual das telas do menu Telium: o custo das chamadas, o click to call para outros sistemas (com exemplos para o desenvolvedor do outro lado) e a tela de suporte.
+Manual das telas do menu Telium: o custo das chamadas, o click to call e os webhooks para outros sistemas (com exemplos para o desenvolvedor do outro lado), a tela de suporte e o histórico de versões.
 
 NOTA: Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
 
@@ -15,9 +15,10 @@ SUMÁRIO
 3. Chaves de click to call
 4. Testar e Últimos pedidos
 5. A API de click to call (para o desenvolvedor)
-6. Webhooks e outras integrações
+6. Webhooks
 7. Suporte
-8. Problemas comuns
+8. Versões e Novidades
+9. Problemas comuns
 
 
 1. TARIFAÇÃO
@@ -61,17 +62,19 @@ Como o custo é calculado
 - Tempo cobrado: o mínimo e depois de fração em fração, arredondando para cima. Ex.: mínimo 30 s e fração 6 s: 5 s custam 30 s; 31 s custam 36 s.
 - Custo = taxa fixa + (tempo cobrado ÷ 60) × custo por minuto, com 4 casas decimais.
 - Chamada não atendida não custa.
-- O preço fica congelado: a chamada já tarifada não é recalculada se o preço mudar depois.
+- O preço fica congelado para o cálculo automático: o temporizador e o comando só tarifam chamadas sem custo. Para levar um preço corrigido às chamadas que já tinham custo, use Recalcular o mês.
 
 
 Quando o cálculo roda
 ~~~~~~~~~~~~~~~~~~~~~
 
 - Temporizador telium-tarifar: Sozinho, de hora em hora
-- Botão Recalcular o mês: Na hora, só o mês escolhido. Precisa de permissão de edição em Tarifação
+- Botão Recalcular o mês: Na hora, só o mês escolhido (sem mês escolhido, o mês corrente). Precisa de permissão de edição em Tarifação
 - Comando php bin/telium tarifar [AAAA-MM]: No servidor, quando quiser
 
-O botão e o comando tarifam só as chamadas que ainda não têm custo. Ao terminar, dizem quantas foram tarifadas e quantas ficaram sem tarifa que se aplique.
+- O temporizador e o comando tarifam só as chamadas que ainda não têm custo.
+- Recalcular o mês refaz o mês inteiro com os preços de agora, inclusive as chamadas que já tinham custo. Uma chamada cuja tarifa deixou de existir (ou ficou inativa) perde o custo e passa a contar como sem tarifa.
+- Ao terminar, dizem quantas chamadas foram tarifadas (no botão, "N chamada(s) recalculada(s) com os preços de agora") e quantas ficaram sem tarifa que se aplique. Sem chamada de saída no mês: "Nenhuma chamada de saída para tarifar neste mês."
 
 No servidor:
 
@@ -100,7 +103,7 @@ A tela tem, de cima para baixo:
 2. Como o outro sistema chama: o endereço e um exemplo pronto.
 3. Testar: faz uma chamada de click to call pelo console.
 4. Últimos pedidos: os 50 pedidos mais recentes, atendidos ou recusados.
-5. Webhooks e outras integrações: a lista de cadastro de integrações.
+5. Webhooks: os avisos que a central manda a outro sistema a cada chamada (seção 6).
 
 [PRINT: a tela inteira, com o quadro Click to call e uma chave cadastrada]
 
@@ -190,7 +193,7 @@ Permissões
 - Editar, renovar, testar: Editar
 - Excluir: Excluir
 
-Criar, editar, renovar, excluir e testar ficam no Registro de Atividades.
+Criar, editar, renovar, excluir e testar ficam na Auditoria.
 
 
 4. TESTAR E ÚLTIMOS PEDIDOS
@@ -292,7 +295,7 @@ Sempre no formato {"ok": false, "erro": "<motivo>"}.
 - 404: O ramal não existe ou está desativado
 - 409: O ramal não está registrado na central, ou está registrado mas não responde
 - 422: Faltou ramal ou numero
-- 429: Muitas chaves inválidas do mesmo IP (20 em 10 minutos). Espere alguns minutos
+- 429: Muitas chaves inválidas do mesmo IP (20 em 10 minutos). Espere alguns minutos. Pedidos de uma chave que foi excluída não contam para esse bloqueio
 - 502: A central (Asterisk) não respondeu ou recusou a chamada
 
 Além disso, o servidor web limita a quantidade de pedidos por IP; um volume muito alto em pouco tempo pode ser recusado antes de chegar à central.
@@ -361,25 +364,100 @@ PHP (cURL):
 Para a referência completa da API, veja 32-API-Referencia.md (ver página 32).
 
 
-6. WEBHOOKS E OUTRAS INTEGRAÇÕES
---------------------------------
+6. WEBHOOKS
+-----------
 
-Abaixo do click to call fica a lista Webhooks e outras integrações, com o botão Nova integração.
+Abaixo do click to call fica a lista Webhooks, com o botão Novo webhook. Um webhook avisa outro sistema (CRM, ERP) quando um ramal toca, quando atendem e quando a chamada termina: é o que abre a ficha do cliente na tela de quem atende.
 
-- Integração: Nome
-- Tipo: webhook, api_key, syslog ou app
-- Eventos: Os eventos informados
-- Último disparo: Data do último disparo, ou nunca
+[PRINT: a lista de webhooks com a coluna Último envio]
+
+
+A lista
+~~~~~~~
+
+- Webhook: Nome e, abaixo, a URL. Cadastro antigo de outro tipo (chave de API, syslog, aplicativo) leva a etiqueta sem efeito
+- Eventos: Os eventos escolhidos, ou todos
+- Último envio: Data do último aviso e o resultado: ok (HTTP 200), falhou (HTTP 500) ou falhou: <erro> (em vermelho). nunca se ainda não mandou
 - Estado: Ativa ou Inativa
 
-- Nome *: Nome da integração (ex.: Webhook do CRM)
-- Tipo: Webhook, Chave de API, Syslog ou Aplicativo
-- URL de destino: Endereço que receberia os avisos
-- Eventos: Lista de eventos, separados por vírgula (ex.: call.answered, call.ended)
-- Segredo (HMAC): Nunca volta para a tela. Em branco mantém o atual
-- Integração ativa: Liga/desliga
+O botão de teste na linha (para quem tem permissão de edição) manda um aviso de exemplo na hora e mostra se o destino respondeu: "O destino respondeu HTTP 200." ou "Não chegou: <erro>".
 
-NOTA: Atenção: nesta versão este é apenas um cadastro. A central não envia nenhum webhook, não usa as chaves deste cadastro e não manda syslog a partir dele: o Último disparo fica sempre em nunca. Para outro sistema pedir chamadas, use as chaves de click to call (seção 3).
+
+Campos
+~~~~~~
+
+- Nome *: Nome do webhook (ex.: CRM)
+- URL de destino *: Endereço que recebe os avisos. Precisa começar com https:// (ou http://)
+- Eventos: chamada.tocando, chamada.atendida e chamada.encerrada, separados por vírgula. Em branco, todos
+- Segredo (HMAC): Com segredo, cada aviso vai assinado (veja abaixo). Nunca volta para a tela; em branco mantém o atual
+- Webhook ativo: Liga/desliga
+
+Os tipos antigos do cadastro (Chave de API, Syslog, Aplicativo) ficam só na listagem, sem efeito: para outro sistema pedir chamadas, use as chaves de click to call (seção 3); o syslog é configurado no servidor.
+
+
+Os eventos
+~~~~~~~~~~
+
+- chamada.tocando: Um ramal começou a tocar. É o que abre a ficha do cliente
+- chamada.atendida: Alguém atendeu
+- chamada.encerrada: A chamada terminou, com a duração e a causa
+
+
+O que o outro sistema recebe (para o desenvolvedor)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Um POST com corpo JSON (Content-Type: application/json, User-Agent: Telium-PABX):
+
+- evento — Em quais eventos: todos; O que é: chamada.tocando, chamada.atendida ou chamada.encerrada (teste no botão de teste)
+- id — Em quais eventos: todos; O que é: Identificador da chamada; o mesmo nos três avisos
+- quando — Em quais eventos: todos; O que é: Data e hora do aviso (ISO 8601)
+- de — Em quais eventos: todos; O que é: Número de quem ligou
+- nome — Em quais eventos: todos; O que é: Nome de quem ligou, quando a central sabe
+- para — Em quais eventos: todos; O que é: O ramal que tocou ou atendeu
+- ramal — Em quais eventos: tocando, atendida; O que é: O ramal
+- espera_segundos — Em quais eventos: atendida; O que é: Quanto tempo tocou até atender
+- atendida — Em quais eventos: encerrada; O que é: true ou false
+- duracao_segundos — Em quais eventos: encerrada; O que é: Do primeiro toque ao fim
+- conversa_segundos — Em quais eventos: encerrada; O que é: Tempo de conversa (0 se não atendida)
+- causa — Em quais eventos: encerrada; O que é: A causa do fim, como o Asterisk informa (ex.: Normal Clearing)
+
+Exemplo:
+
+    {
+      "evento": "chamada.atendida",
+      "id": "1760370000.123",
+      "quando": "2026-10-13T10:15:42-03:00",
+      "ramal": "1001",
+      "espera_segundos": 7,
+      "de": "11999990000",
+      "nome": "Maria Souza",
+      "para": "1001"
+    }
+
+Assinatura: com segredo cadastrado, o aviso leva o cabeçalho
+
+    X-Telium-Assinatura: sha256=<HMAC-SHA256 do corpo, com o segredo, em hexadecimal>
+
+O outro sistema calcula o HMAC do corpo recebido (os bytes, sem reformatar o JSON) com o mesmo segredo e compara: se bate, o aviso veio da central.
+
+    <?php
+    $corpo = file_get_contents('php://input');
+    $esperado = 'sha256=' . hash_hmac('sha256', $corpo, getenv('TELIUM_SEGREDO'));
+    if (!hash_equals($esperado, $_SERVER['HTTP_X_TELIUM_ASSINATURA'] ?? '')) {
+        http_response_code(401);
+        exit;
+    }
+    $aviso = json_decode($corpo, true);
+
+
+Como a central envia
+~~~~~~~~~~~~~~~~~~~~
+
+- Quem envia é o serviço de tempo real telium-cc (o mesmo do call center). Não precisa reiniciar nada ao cadastrar: ele relê os webhooks a cada 15 segundos.
+- Responda com HTTP 2xx: qualquer outra resposta fica como falhou em Último envio.
+- Cada aviso tem 5 segundos de prazo e não é repetido: um sistema lento ou fora do ar perde o aviso, mas não atrasa a central.
+- O aviso não segue redirecionamento: use a URL final.
+- Um aviso por chamada: transferências e filas não multiplicam o chamada.encerrada.
 
 
 7. SUPORTE
@@ -401,9 +479,9 @@ Esta instalação
 - asterisk: Se o Asterisk responde pelo AMI, com a versão
 - Configuração pendente: sim — aplique antes de testar ou não
 
-Cada linha é verde quando está bem e vermelha com o motivo quando não está (sem resposta, se não houve resposta). Embaixo aparece a versão do Telium PABX: cite-a no chamado.
+Cada linha é verde quando está bem e vermelha com o motivo quando não está (sem resposta, se não houve resposta). Embaixo aparece a versão do Telium PABX com o commit (ex.: Versão 1.1.0 (commit ae4f854)) e o link para Versões e Novidades: cite a versão e o commit no chamado.
 
-Os mesmos dados vêm de GET /api/health. Sem login, esse endereço só diz o nome, a versão e se está saudável; o detalhe de cada serviço só vai para quem está logado.
+Os mesmos dados vêm de GET /api/health. Sem login, esse endereço só diz o nome, a versão e se está saudável; o commit e o detalhe de cada serviço só vão para quem está logado.
 
 
 Antes de abrir o chamado
@@ -426,19 +504,53 @@ A tela traz estes comandos prontos:
     sudo asterisk -rx "pjsip show contacts"         # quais aparelhos estão registrados
     sudo asterisk -rx "pjsip show registrations"    # se o tronco está registrado na operadora
     sudo tail -f /var/log/asterisk/full             # o que a central está fazendo, ao vivo
-    cd /opt/telium/api && php bin/telium testar     # confere a instalação inteira
+    sudo -u teliumpbx php /opt/telium/api/bin/telium testar   # confere a instalação inteira
 
 Mais comandos em 05-Servidor-Comandos-e-Servicos.md (ver página 05) e o roteiro de diagnóstico em 07-Solucao-de-Problemas.md (ver página 07).
 
 
-8. PROBLEMAS COMUNS
+8. VERSÕES E NOVIDADES
+----------------------
+
+Telium › Versões e Novidades
+
+A versão que está rodando nesta central e o que mudou em cada entrega.
+
+[PRINT: a tela com o quadro Esta central e o cartão da versão 1.1.0]
+
+
+Esta central
+~~~~~~~~~~~~
+
+- Telium PABX e o número da versão (ex.: 1.1.0).
+- O commit publicado (ex.: ae4f854). Terminado em +, a central foi publicada de um clone com alterações fora do Git. Commit desconhecido quando não foi possível descobrir.
+- Cite a versão e o commit ao abrir um chamado de suporte.
+
+A mesma informação aparece no rodapé do menu (Console 1.1.0 (ae4f854)) e em Suporte.
+
+
+O histórico
+~~~~~~~~~~~
+
+Um cartão por versão, a mais recente primeiro, com a data, o resumo e os itens separados em Novidades, Correções, Mudanças e Segurança. Embaixo, os commits que compõem a versão.
+
+- A versão instalada leva a etiqueta nesta central; se houver uma mais nova no histórico, ela leva mais recente.
+- Procurar no histórico… filtra os itens pelo texto (ex.: fax, backup).
+- O histórico vem do arquivo api/CHANGELOG.md que acompanha o código: depois de uma atualização, a tela já mostra o que entrou.
+
+Permissão: módulo Versões e Novidades (telium.versoes). A atualização para a 1.1.0 deu a tela a todos os perfis, uma vez só: se o administrador tirá-la de um perfil, as próximas atualizações não a devolvem.
+
+Até a 1.1.0, o número no console ficou parado em 1.0.1 por várias entregas; as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central de antes da 1.1.0, quem diz o que está rodando é o commit (git log --oneline -1 em /opt/TeliumPABX). Como atualizar está em 02-Atualizacao.md (ver página 02).
+
+
+9. PROBLEMAS COMUNS
 -------------------
 
 O custo do mês está em R$ 0,00.
 Veja o aviso no topo de Tarifação: preços zerados, chamadas pendentes ou chamadas sem classificação. Digite os preços na Tabela de Tarifas e use Recalcular o mês.
 
 Mudei o preço e o custo das chamadas antigas não mudou.
-É o comportamento esperado: a chamada tarifada fica com o preço da época. Só as chamadas ainda sem custo recebem o preço novo.
+O cálculo automático só tarifa chamadas sem custo. Escolha o mês e clique em Recalcular o mês: ele refaz o mês inteiro com os preços de agora.
 
 Continua aparecendo "chamada(s) ainda não tarifada(s)" depois de recalcular.
 Não há tarifa ativa para a classe dessas chamadas. Crie uma linha para a classe (ou uma de Qualquer chamada) na Tabela de Tarifas.
@@ -467,8 +579,17 @@ Depende do aparelho aceitar atendimento automático e de a opção estar habilit
 429 "Muitas chaves inválidas deste endereço".
 O IP errou a chave 20 vezes em 10 minutos. Corrija a chave e espere alguns minutos.
 
-Cadastrei um webhook e ele nunca dispara.
-Nesta versão os webhooks são só um cadastro (seção 6).
+Cadastrei um webhook e o Último envio continua "nunca".
+- Use o botão de teste da linha: ele diz se o destino responde.
+- O webhook está ativo, com URL http(s)://, e é do tipo webhook (cadastro antigo com a etiqueta sem efeito não envia nada)?
+- Os eventos escolhidos aconteceram? chamada.tocando só sai quando um ramal toca.
+- O serviço telium-cc está rodando? systemctl status telium-cc; os erros de envio ficam no log dele (journalctl -u telium-cc).
+
+O Último envio mostra "falhou".
+O destino não respondeu 2xx em 5 segundos. Veja o código HTTP ou o erro na coluna, e se a central alcança o endereço (firewall, DNS, certificado). O aviso perdido não é reenviado.
+
+O outro sistema recusa a assinatura.
+O HMAC tem de ser calculado sobre o corpo exatamente como chegou, com o mesmo segredo, e comparado com o valor depois de sha256=. Trocou o segredo no console? Troque também do outro lado.
 
 A tela de Suporte mostra "sem resposta" no asterisk.
 O Asterisk está parado ou o AMI não autentica. Veja 07-Solucao-de-Problemas.md (ver página 07).

@@ -121,7 +121,10 @@ final class GeradorDialplan
             $b->branco()
               ->comentario(($n['descricao'] ?: 'sem descrição') . " — {$n['tratamento']}")
               ->exten($numero, "NoOp(Lista negra: {$numero})")
-              ->same('Set(CDR(userfield)=lista-negra)');
+              ->same('Set(CDR(userfield)=lista-negra)')
+              // Conta o bloqueio no cadastro. Falhar aqui (banco fora) não
+              // pode deixar a chamada passar: o ODBC só escreve, e segue.
+              ->same('Set(ODBC_TELIUM_LN_CONTA(' . (int) $n['id'] . ')=1)');
 
             $b->apps(match ($n['tratamento']) {
                 'ocupado'  => ['Busy(5)', 'Hangup()'],
@@ -221,23 +224,49 @@ final class GeradorDialplan
             // Só número de ramal: com o texto do cadastro cru, um membro
             // "00551199999999@Vivo" discava direto pelo tronco, sem passar
             // pela permissão de ninguém.
-            $canais = implode('&', array_map(
-                static fn (string $r): string => 'PJSIP/' . $r,
-                array_filter(array_map(
-                    static fn (string $r): string => preg_replace('/[^0-9]/', '', $r) ?? '',
-                    explode('-', (string) $g['ramais'])
-                ), static fn (string $r): bool => $r !== '')
-            ));
-            if ($canais === '') {
+            $membros = array_values(array_filter(array_map(
+                static fn (string $r): string => preg_replace('/[^0-9]/', '', $r) ?? '',
+                explode('-', (string) $g['ramais'])
+            ), static fn (string $r): bool => $r !== ''));
+            if ($membros === []) {
                 continue;
             }
 
+            $numero = (string) $g['numero'];
+            $toque = max(5, (int) $g['tempo_toque']);
             $b->branco()
-              ->comentario("{$g['numero']} — {$g['nome']}")
-              ->exten($g['numero'], "NoOp(Grupo de toque {$g['nome']})")
-              ->same('Set(CDR(direcao)=interna)')
-              ->same(sprintf('Dial(%s,%d,tT)', $canais, (int) $g['tempo_toque']))
-              ->apps($this->destino->linhas($g['destino_falha_tipo'], $g['destino_falha_valor']));
+              ->comentario("{$numero} — {$g['nome']} (" . ($g['estrategia'] === 'linear' ? 'um de cada vez' : 'todos juntos') . ')')
+              ->exten($numero, "NoOp(Grupo de toque {$g['nome']})")
+              ->same('Set(CDR(direcao)=interna)');
+
+            // Quem está em não perturbe ou com desvio de todas as chamadas
+            // não está na mesa: fica fora do grupo. Antes o grupo chamava o
+            // aparelho direto e tocava assim mesmo. O siga-me pessoal não
+            // entra: a chamada é do grupo, não da pessoa.
+            $livre = static fn (string $r): string =>
+                "!\${DB_EXISTS(dnd/{$r})} & \"\${DB(cf/{$r})}\" = \"\"";
+
+            if (($g['estrategia'] ?? '') === 'linear') {
+                // Um de cada vez, na ordem da lista: cada um toca pelo tempo
+                // de toque, e o primeiro que atender fica com a chamada.
+                foreach ($membros as $r) {
+                    $b->same("ExecIf(\$[{$livre($r)}]?Dial(PJSIP/{$r},{$toque},tT))")
+                      ->same('GotoIf($["${DIALSTATUS}" = "ANSWER"]?fim-' . $numero . ')');
+                }
+            } else {
+                // Todos juntos: monta a lista só com quem está disponível.
+                $b->same('Set(TELIUM_GRUPO=)');
+                foreach ($membros as $r) {
+                    $b->same("ExecIf(\$[{$livre($r)}]?Set(TELIUM_GRUPO=\${TELIUM_GRUPO}&PJSIP/{$r}))");
+                }
+                $b->same('ExecIf($["${TELIUM_GRUPO}" != ""]?Dial(${TELIUM_GRUPO:1},' . $toque . ',tT))')
+                  ->same('GotoIf($["${DIALSTATUS}" = "ANSWER"]?fim-' . $numero . ')');
+            }
+
+            // Ninguém atendeu (ou ninguém estava disponível): o destino de
+            // falha do grupo. Sem ele, a chamada é encerrada.
+            $b->apps($this->destino->linhas($g['destino_falha_tipo'], $g['destino_falha_valor']))
+              ->same('Hangup()', 'fim-' . $numero);
         }
 
         return $b->texto();
@@ -1019,10 +1048,14 @@ final class GeradorDialplan
 
             $b->branco();
 
+            // Discagem direta: um a um, os ramais que existem. Os padrões
+            // _XXX e _XXXX deixavam de fora ramal de 2 ou de 5 dígitos ou
+            // mais, e mandavam número que não é ramal para um Goto vazio.
             if ((int) $u['discagem_direta'] === 1) {
-                $b->comentario('discagem direta de ramal')
-                  ->exten('_XXXX', 'Goto(telium-ramais,${EXTEN},1)')
-                  ->exten('_XXX',  'Goto(telium-ramais,${EXTEN},1)');
+                $b->comentario('discagem direta de ramal');
+                foreach ($this->ramais as $r) {
+                    $b->exten((string) $r['numero'], 'Goto(telium-ramais,${EXTEN},1)');
+                }
             }
 
             // Tecla que não existe no menu: avisa e repete. Depois de

@@ -27,7 +27,6 @@ final class Portal
         'siga_me'        => 'numero',
         'siga_me_ativo'  => 'bool',
         'siga_me_modo'   => ['junto', 'depois'],
-        'siga_me_confirmar' => 'bool',
         'chamada_espera' => 'bool',
         'tempo_toque'    => 'inteiro',
         'vm_email'       => 'bool',
@@ -512,7 +511,6 @@ final class Portal
             'siga_me'        => $r['siga_me'] ?? null,
             'siga_me_ativo'  => (int) ($r['siga_me_ativo'] ?? 0),
             'siga_me_modo'   => $r['siga_me_modo'] ?? 'junto',
-            'siga_me_confirmar' => (int) ($r['siga_me_confirmar'] ?? 0),
             'chamada_espera' => (int) ($r['chamada_espera'] ?? 1),
             'tempo_toque'    => (int) ($r['tempo_toque'] ?? 20),
             'voicemail'      => (int) ($r['voicemail'] ?? 0),
@@ -575,7 +573,9 @@ final class Portal
             ['dnd', (int) ($r['dnd'] ?? 0) === 1, '1'],
             ['cw', (int) ($r['chamada_espera'] ?? 1) === 1, '1'],
             ['sigame', $sigaMe !== '', $sigaMe],
-            ['sigame-modo', $sigaMe !== '', (string) ($r['siga_me_modo'] ?? 'junto')],
+            // O modo fica gravado mesmo com o siga-me desligado: é o que o
+            // *21 usa quando a pessoa liga pelo telefone.
+            ['sigame-modo', true, (string) ($r['siga_me_modo'] ?? 'junto')],
         ];
 
         foreach ($acoes as [$familia, $tem, $valor]) {

@@ -4,9 +4,11 @@
 # Telium PABX — executor de backup e restauração
 #
 # Roda como root, sem argumentos. Lê o que fazer no banco:
-#   · sistema.restaurar_backup_id  → restaura aquele arquivo
-#   · backups com estado 'pendente' → executa o backup
-#   · rotinas vencidas              → cria o job e executa
+#   · sistema.restaurar_backup_id    → restaura aquele arquivo
+#   · backups com estado 'removendo' → apaga o arquivo e o registro
+#   · backups com estado 'pendente'  → executa o backup
+#   · rotinas vencidas                → cria o job e executa
+#   · uma vez por dia                 → apaga as gravações vencidas
 #
 # Não receber argumentos é intencional: a regra de sudo para a API
 # fica sem curinga nenhum.
@@ -19,9 +21,18 @@ DIR_CONFIG_ASTERISK={{ asterisk_conf_dir }}
 DIR_TELIUM={{ telium_etc }}
 DIR_AUDIOS={{ audios_dir }}
 DIR_GRAVACOES={{ gravacoes_dir }}
+DIR_RECADOS=/var/spool/asterisk/voicemail
+DIR_FAX=/var/spool/asterisk/fax
+DIR_SSL=/etc/ssl/telium
+ASTDB=/var/lib/asterisk/astdb.sqlite3
 JANUS_ETC={{ janus_prefix }}/etc/janus
 API_DIR={{ telium_api }}
 API_USER={{ telium_user }}
+
+# Arquivos de /etc/asterisk com as senhas deste servidor (AMI, banco,
+# ARI). Restaurados de outro servidor, ou de antes de uma troca de
+# credencial, desligariam a API e o CDR do Asterisk.
+SEGREDOS_ASTERISK="manager.conf res_odbc.conf ari.conf"
 
 mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1" 2>/dev/null; }
 escapar() { printf '%s' "$1" | sed "s/'/''/g"; }
@@ -35,19 +46,56 @@ concluir() {   # concluir <id> <estado> <arquivo> <tamanho> <saida>
          tamanho=${tam}, concluido_em=NOW(), saida='${saida}' WHERE id=${id};"
 }
 
-podar() {      # mantém apenas os N mais recentes
-  local reter="$1"
+# A pasta e os arquivos são do root, com leitura para a API: é ela que
+# entrega o "Baixar" e manda o arquivo ao destino remoto. Escrever ali
+# continua só com o root, porque a restauração confia no que estiver na
+# pasta.
+preparar_pasta() {
+  mkdir -p "$DESTINO"
+  chown root:"$API_USER" "$DESTINO"
+  chmod 750 "$DESTINO"
+  local f
+  for f in "$DESTINO"/telium-*.tar.gz; do
+    [ -f "$f" ] || continue
+    chown root:"$API_USER" "$f"
+    chmod 640 "$f"
+  done
+}
+
+# A retenção vale dentro de cada rotina: os backups manuais contam entre
+# si, e cada rotina entre os seus. Contar a pasta inteira junto fazia um
+# backup manual com retenção 2 apagar os arquivos de uma rotina que
+# mantinha 5.
+podar() {      # podar <id do backup que acabou de terminar>
+  local id="$1" rotina reter filtro
+  read -r rotina reter <<< "$(mysql "SELECT IFNULL(rotina_id,0), retencao FROM backups WHERE id=${id};")"
   [ "$reter" -ge 1 ] 2>/dev/null || reter=5
+  if [ "${rotina:-0}" -gt 0 ] 2>/dev/null; then
+    filtro="rotina_id=${rotina}"
+  else
+    filtro="rotina_id IS NULL"
+  fi
 
-  local sobrando
-  sobrando=$(ls -1t "$DESTINO"/telium-*.tar.gz 2>/dev/null | tail -n +$((reter + 1)))
-  [ -z "$sobrando" ] && return 0
+  mysql "SELECT id, arquivo FROM backups
+          WHERE ${filtro} AND estado IN ('concluido','falha') AND arquivo IS NOT NULL
+          ORDER BY id DESC LIMIT 100000 OFFSET ${reter};" |
+  while IFS=$'\t' read -r velho arq; do
+    log "removendo backup antigo: ${arq}"
+    rm -f "$DESTINO/$(basename "$arq")"
+    mysql "UPDATE backups SET arquivo=NULL WHERE id=${velho};"
+  done
+}
 
-  echo "$sobrando" | while read -r velho; do
-    log "removendo backup antigo: $(basename "$velho")"
-    rm -f "$velho"
-    mysql "UPDATE backups SET estado='concluido', arquivo=NULL
-           WHERE arquivo='$(escapar "$(basename "$velho")")';"
+# Excluir pelo console: a API marca e o root apaga, porque a API não
+# escreve na pasta. O nome passa por basename: só se apaga dentro dela.
+remover_marcados() {
+  mysql "SELECT id, IFNULL(arquivo,'') FROM backups WHERE estado='removendo';" |
+  while IFS=$'\t' read -r id arq; do
+    if [ -n "$arq" ]; then
+      log "excluindo backup: ${arq}"
+      rm -f "$DESTINO/$(basename "$arq")"
+    fi
+    mysql "DELETE FROM backups WHERE id=${id};"
   done
 }
 
@@ -79,6 +127,15 @@ executar_backup() {
       saida+="banco: FALHOU — $(head -3 "$erros/banco")"$'\n'
       rc=1
     fi
+    # A base interna do Asterisk: siga-me, desvio, não perturbe, listas
+    # e os estados que os códigos do telefone ligam e desligam.
+    if [ -f "$ASTDB" ]; then
+      if command -v sqlite3 >/dev/null 2>&1; then
+        sqlite3 "$ASTDB" ".backup '$trabalho/astdb.sqlite3'" 2>/dev/null || cp -a "$ASTDB" "$trabalho/"
+      else
+        cp -a "$ASTDB" "$trabalho/" 2>/dev/null
+      fi
+    fi
   fi
 
   mkdir -p "$trabalho/config"
@@ -86,15 +143,22 @@ executar_backup() {
     log "copiando configuração"
     cp -a "$DIR_CONFIG_ASTERISK" "$trabalho/config/asterisk" 2>/dev/null
     cp -a "$DIR_TELIUM"          "$trabalho/config/telium"   2>/dev/null
+    [ -d "$DIR_SSL" ]   && cp -a "$DIR_SSL"   "$trabalho/config/ssl-telium" 2>/dev/null
     [ -d "$JANUS_ETC" ] && cp -a "$JANUS_ETC" "$trabalho/config/janus" 2>/dev/null
     cp -a /etc/odbc.ini /etc/odbcinst.ini "$trabalho/config/" 2>/dev/null
     saida+="config: $(du -sh "$trabalho/config" | cut -f1)"$'\n'
   fi
 
-  if [ "$audios" = "1" ] && [ -d "$DIR_AUDIOS" ]; then
-    log "copiando áudios"
-    cp -a "$DIR_AUDIOS" "$trabalho/audios" 2>/dev/null
-    saida+="áudios: $(du -sh "$trabalho/audios" | cut -f1)"$'\n'
+  if [ "$audios" = "1" ]; then
+    log "copiando áudios, recados e fax"
+    [ -d "$DIR_AUDIOS" ]  && cp -a "$DIR_AUDIOS"  "$trabalho/audios"  2>/dev/null
+    # Os recados do correio de voz dos ramais e das caixas postais.
+    [ -d "$DIR_RECADOS" ] && cp -a "$DIR_RECADOS" "$trabalho/recados" 2>/dev/null
+    [ -d "$DIR_FAX" ]     && cp -a "$DIR_FAX"     "$trabalho/fax"     2>/dev/null
+    local p
+    for p in audios recados fax; do
+      [ -d "$trabalho/$p" ] && saida+="${p}: $(du -sh "$trabalho/$p" | cut -f1)"$'\n'
+    done
   fi
 
   if [ "$gravacoes" = "1" ] && [ -d "$DIR_GRAVACOES" ]; then
@@ -113,7 +177,8 @@ MANIFESTO
 
   log "compactando"
   if tar -czf "$DESTINO/$nome" -C "$trabalho" . 2>>"$erros/tar"; then
-    chmod 600 "$DESTINO/$nome"
+    chown root:"$API_USER" "$DESTINO/$nome"
+    chmod 640 "$DESTINO/$nome"
     local tam
     tam=$(stat -c %s "$DESTINO/$nome")
     saida+="arquivo: ${nome} ($(du -h "$DESTINO/$nome" | cut -f1))"
@@ -130,7 +195,7 @@ MANIFESTO
       runuser -u "$API_USER" -- php "$API_DIR/bin/telium" backup-enviar "$id" 2>&1 | while read -r l; do log "  $l"; done
     fi
 
-    podar "$reter"
+    podar "$id"
     log "pronto: $nome"
   else
     saida+="tar: FALHOU — $(head -3 "$erros/tar")"
@@ -153,27 +218,121 @@ executar_restauracao() {
     return 1
   fi
 
-  log "RESTAURANDO $arq — o Asterisk será parado"
-  local trabalho
+  log "RESTAURANDO $arq — o Asterisk e o call center serão parados"
+  local trabalho guarda
   trabalho=$(mktemp -d /tmp/telium-restore.XXXXXX)
-  tar -xzf "$DESTINO/$arq" -C "$trabalho" || { log "falha ao extrair"; rm -rf "$trabalho"; return 1; }
+  guarda=$(mktemp -d /tmp/telium-guarda.XXXXXX)
+  tar -xzf "$DESTINO/$arq" -C "$trabalho" || { log "falha ao extrair"; rm -rf "$trabalho" "$guarda"; return 1; }
 
+  systemctl stop telium-cc 2>/dev/null
   systemctl stop asterisk 2>/dev/null
 
   if [ -f "$trabalho/banco.sql" ]; then
+    # O histórico de backups é o desta pasta, não o do arquivo: o dump
+    # foi tirado no meio do próprio backup (que lá aparece "executando" e
+    # sem arquivo) e não conhece os que vieram depois. Voltar com ele
+    # deixaria o console sem enxergar os arquivos que estão aqui.
+    mariadb-dump --protocol=socket -uroot --single-transaction "$BANCO" backups \
+      > "$guarda/backups.sql" 2>/dev/null
     log "restaurando o banco"
-    mariadb --protocol=socket -uroot "$BANCO" < "$trabalho/banco.sql"
+    mariadb --protocol=socket -uroot "$BANCO" < "$trabalho/banco.sql" \
+      || log "ATENÇÃO: o banco não voltou inteiro — confira a saída acima"
+    [ -s "$guarda/backups.sql" ] && mariadb --protocol=socket -uroot "$BANCO" < "$guarda/backups.sql"
   fi
+  if [ -f "$trabalho/astdb.sqlite3" ]; then
+    log "restaurando a base interna do Asterisk"
+    cp -a "$trabalho/astdb.sqlite3" "$ASTDB"
+    chown asterisk:asterisk "$ASTDB"
+  fi
+
   if [ -d "$trabalho/config/asterisk" ]; then
-    log "restaurando a configuração do Asterisk"
+    log "restaurando a configuração do Asterisk (menos as senhas deste servidor)"
+    local s
+    for s in $SEGREDOS_ASTERISK; do
+      [ -f "$DIR_CONFIG_ASTERISK/$s" ] && cp -a "$DIR_CONFIG_ASTERISK/$s" "$guarda/"
+    done
     cp -a "$trabalho/config/asterisk/." "$DIR_CONFIG_ASTERISK/"
+    for s in $SEGREDOS_ASTERISK; do
+      [ -f "$guarda/$s" ] && cp -a "$guarda/$s" "$DIR_CONFIG_ASTERISK/$s"
+    done
     chown -R asterisk:asterisk "$DIR_CONFIG_ASTERISK"
   fi
-  [ -d "$trabalho/audios" ] && cp -a "$trabalho/audios/." "$DIR_AUDIOS/"
+  # Do /etc/telium volta só o cofre de certificados. As credenciais são
+  # as deste servidor: as do arquivo não abririam o banco nem o AMI.
+  if [ -d "$trabalho/config/telium/certificados" ]; then
+    log "restaurando os certificados enviados pelo console"
+    mkdir -p "$DIR_TELIUM/certificados"
+    cp -a "$trabalho/config/telium/certificados/." "$DIR_TELIUM/certificados/"
+    chown -R "$API_USER":"$API_USER" "$DIR_TELIUM/certificados"
+  fi
+  local ssl_voltou=0
+  if [ -d "$trabalho/config/ssl-telium" ]; then
+    log "restaurando o certificado do console"
+    mkdir -p "$DIR_SSL"
+    cp -a "$trabalho/config/ssl-telium/." "$DIR_SSL/"
+    ssl_voltou=1
+  fi
+
+  if [ -d "$trabalho/audios" ]; then
+    log "restaurando os áudios"
+    mkdir -p "$DIR_AUDIOS"
+    cp -a "$trabalho/audios/." "$DIR_AUDIOS/"
+    chown -R "$API_USER":asterisk "$DIR_AUDIOS"
+  fi
+  local origem destino
+  for origem in recados:"$DIR_RECADOS" fax:"$DIR_FAX" gravacoes:"$DIR_GRAVACOES"; do
+    destino="${origem#*:}"
+    origem="${origem%%:*}"
+    [ -d "$trabalho/$origem" ] || continue
+    log "restaurando: ${origem}"
+    mkdir -p "$destino"
+    cp -a "$trabalho/$origem/." "$destino/"
+    chown -R asterisk:asterisk "$destino"
+  done
 
   systemctl start asterisk 2>/dev/null
-  rm -rf "$trabalho"
+  # A configuração gerada tem de bater com o banco que acabou de voltar:
+  # os .conf do console são refeitos a partir dele, como num "Aplicar".
+  local i
+  for i in $(seq 1 30); do
+    asterisk -rx 'core waitfullybooted' >/dev/null 2>&1 && break
+    sleep 2
+  done
+  if [ -x /usr/bin/php ] && [ -f "$API_DIR/bin/telium" ]; then
+    log "aplicando a configuração do banco restaurado"
+    runuser -u "$API_USER" -- php "$API_DIR/bin/telium" aplicar-config 2>&1 | while read -r l; do log "  $l"; done
+  fi
+  systemctl start telium-cc 2>/dev/null
+  [ "$ssl_voltou" = "1" ] && systemctl reload nginx 2>/dev/null
+
+  rm -rf "$trabalho" "$guarda"
   log "restauração concluída"
+}
+
+# ---------------------------------------------------------
+# Gravações vencidas: uma vez por dia, só com prazo definido no console
+# (Aplicações › Gravação de Chamadas). Zero, o padrão, guarda para sempre.
+# O registro da chamada fica; a tela mostra "sem arquivo".
+limpar_gravacoes() {
+  local dias hoje ultimo apagados
+  dias=$(mysql "SELECT valor FROM sistema WHERE chave='gravacoes_reter_dias';")
+  [[ "$dias" =~ ^[0-9]+$ ]] && [ "$dias" -gt 0 ] || return 0
+  [ -d "$DIR_GRAVACOES" ] || return 0
+
+  hoje=$(date '+%F')
+  ultimo=$(mysql "SELECT valor FROM sistema WHERE chave='gravacoes_limpeza_em';")
+  [ "$ultimo" = "$hoje" ] && return 0
+
+  log "apagando gravações com mais de ${dias} dias"
+  apagados=$(find "$DIR_GRAVACOES" -type f -mmin +$((dias * 1440)) -print -delete 2>/dev/null | wc -l)
+  find "$DIR_GRAVACOES" -mindepth 1 -type d -empty -delete 2>/dev/null
+
+  mysql "INSERT INTO sistema (chave, valor) VALUES ('gravacoes_limpeza_em', '${hoje}')
+           ON DUPLICATE KEY UPDATE valor = VALUES(valor);
+         INSERT INTO sistema (chave, valor)
+           VALUES ('gravacoes_limpeza_resultado', '$(date '+%F %T'): ${apagados} arquivo(s) com mais de ${dias} dias apagado(s)')
+           ON DUPLICATE KEY UPDATE valor = VALUES(valor);"
+  log "gravações apagadas: ${apagados}"
 }
 
 # ---------------------------------------------------------
@@ -207,8 +366,7 @@ criar_jobs_das_rotinas() {
 
 # ---------------------------------------------------------
 main() {
-  mkdir -p "$DESTINO"
-  chmod 700 "$DESTINO"
+  preparar_pasta
 
   local restaurar
   restaurar=$(mysql "SELECT valor FROM sistema WHERE chave='restaurar_backup_id';")
@@ -217,16 +375,22 @@ main() {
     return $?
   fi
 
+  remover_marcados
   criar_jobs_das_rotinas
 
-  local pendentes
+  local pendentes falhou=0
   pendentes=$(mysql "SELECT id FROM backups WHERE estado='pendente' ORDER BY id LIMIT 3;")
-  [ -z "$pendentes" ] && { log "nada a fazer"; return 0; }
-
-  local falhou=0
   for id in $pendentes; do
     executar_backup "$id" || falhou=1
   done
+
+  limpar_gravacoes
+
+  # Os avisos por e-mail (backup com falha, certificado, disco): logo depois
+  # de um backup que falhou, e de hora em hora. Cada um sai uma vez por dia.
+  if { [ "$falhou" = "1" ] || [ "$(date '+%M')" = "07" ]; } && [ -x /usr/bin/php ] && [ -f "$API_DIR/bin/telium" ]; then
+    runuser -u "$API_USER" -- php "$API_DIR/bin/telium" alertas 2>&1 | while read -r l; do log "  alertas: $l"; done
+  fi
   return $falhou
 }
 

@@ -16,6 +16,95 @@ final class Relatorios
     public function cdr(Request $req, Response $res): Response
     {
         $p = $req->getQueryParams();
+        [$filtro, $args] = $this->filtroCdr($p);
+        $limite = min(200, max(10, (int) ($p['limite'] ?? 50)));
+        $pagina = max(1, (int) ($p['pagina'] ?? 1));
+
+        $total = (int) Bd::valor("SELECT COUNT(*) FROM cdr{$filtro}", $args);
+        $linhas = Bd::todos(
+            "SELECT id, calldate, clid, src, dst, direcao, duration, billsec,
+                    disposition, tronco, motivo, fila, gravacao, custo
+               FROM cdr{$filtro}
+           ORDER BY calldate DESC
+              LIMIT {$limite} OFFSET " . (($pagina - 1) * $limite),
+            $args
+        );
+
+        return Resposta::json($res, [
+            'dados' => $linhas,
+            'total' => $total,
+            'pagina' => $pagina,
+            'limite' => $limite,
+            'paginas' => (int) ceil($total / $limite),
+        ]);
+    }
+
+    /** Teto da exportação: um ano de central grande cabe; uma planilha maior não abre. */
+    private const CDR_MAX_EXPORTAR = 200000;
+
+    /**
+     * GET /api/cdr/exportar — o mesmo filtro da tela, em CSV.
+     *
+     * Separador ";" e vírgula decimal, que é o que o Excel em português
+     * abre sem perguntar nada.
+     */
+    public function exportarCdr(Request $req, Response $res): Response
+    {
+        $p = $req->getQueryParams();
+        [$filtro, $args] = $this->filtroCdr($p);
+
+        $total = (int) Bd::valor("SELECT COUNT(*) FROM cdr{$filtro}", $args);
+        if ($total > self::CDR_MAX_EXPORTAR) {
+            return Resposta::erro($res, sprintf(
+                'São %s chamadas neste filtro; a exportação vai até %s. Diminua o período.',
+                number_format($total, 0, ',', '.'), number_format(self::CDR_MAX_EXPORTAR, 0, ',', '.')
+            ), 422);
+        }
+
+        $fh = fopen('php://temp', 'w+');
+        fwrite($fh, "\xEF\xBB\xBF");
+        fputcsv($fh, ['Data e hora', 'Origem', 'Nome de quem ligou', 'Destino', 'Sentido', 'Duração (s)',
+                      'Falada (s)', 'Resultado', 'Tronco', 'Motivo', 'Fila', 'Custo (R$)', 'Gravação'], ';', '"', '');
+        // Nome que comece com = + - @ vira fórmula no Excel de quem abre.
+        $celula = static fn ($v) => is_string($v) && $v !== '' && str_contains("=+-@\t\r", $v[0]) ? "'" . $v : $v;
+
+        $ultimo = PHP_INT_MAX;
+        do {
+            $lote = Bd::todos(
+                "SELECT id, calldate, clid, src, dst, direcao, duration, billsec, disposition,
+                        tronco, motivo, fila, custo, gravacao
+                   FROM cdr{$filtro}" . ($filtro === '' ? ' WHERE' : ' AND') . " id < ?
+               ORDER BY id DESC LIMIT 5000",
+                [...$args, $ultimo]
+            );
+            foreach ($lote as $l) {
+                $ultimo = (int) $l['id'];
+                fputcsv($fh, array_map($celula, [
+                    $l['calldate'], $l['src'], $l['clid'], $l['dst'], $l['direcao'], (int) $l['duration'],
+                    (int) $l['billsec'], $l['disposition'], $l['tronco'], $l['motivo'], $l['fila'],
+                    $l['custo'] === null ? '' : str_replace('.', ',', (string) $l['custo']),
+                    $l['gravacao'] ? 'sim' : '',
+                ]), ';', '"', '');
+            }
+        } while (count($lote) === 5000);
+
+        rewind($fh);
+        $conteudo = (string) stream_get_contents($fh);
+        fclose($fh);
+
+        \Telium\Dominio\Auditoria::registrar($req->getAttribute('usuario'), 'exportar', 'rel.cdr',
+            'CDR', ['linhas' => $total, 'de' => $p['de'] ?? '', 'ate' => $p['ate'] ?? '']);
+
+        $res->getBody()->write($conteudo);
+
+        return $res->withHeader('Content-Type', 'text/csv; charset=utf-8')
+            ->withHeader('Content-Disposition', 'attachment; filename="cdr-' . date('Y-m-d') . '.csv"')
+            ->withHeader('Cache-Control', 'no-store');
+    }
+
+    /** @return array{0:string, 1:list<string>} o WHERE do CDR, o mesmo da tela e da exportação */
+    private function filtroCdr(array $p): array
+    {
         $where = [];
         $args = [];
 
@@ -40,27 +129,7 @@ final class Relatorios
             $args = [...$args, "%{$p['q']}%", "%{$p['q']}%", "%{$p['q']}%"];
         }
 
-        $filtro = $where === [] ? '' : ' WHERE ' . implode(' AND ', $where);
-        $limite = min(200, max(10, (int) ($p['limite'] ?? 50)));
-        $pagina = max(1, (int) ($p['pagina'] ?? 1));
-
-        $total = (int) Bd::valor("SELECT COUNT(*) FROM cdr{$filtro}", $args);
-        $linhas = Bd::todos(
-            "SELECT id, calldate, clid, src, dst, direcao, duration, billsec,
-                    disposition, tronco, motivo, fila, gravacao, custo
-               FROM cdr{$filtro}
-           ORDER BY calldate DESC
-              LIMIT {$limite} OFFSET " . (($pagina - 1) * $limite),
-            $args
-        );
-
-        return Resposta::json($res, [
-            'dados' => $linhas,
-            'total' => $total,
-            'pagina' => $pagina,
-            'limite' => $limite,
-            'paginas' => (int) ceil($total / $limite),
-        ]);
+        return [$where === [] ? '' : ' WHERE ' . implode(' AND ', $where), $args];
     }
 
     /**
@@ -118,6 +187,9 @@ final class Relatorios
                     SUM(c.disposition = 'BUSY') AS ocupadas,
                     SUM(c.disposition = 'FAILED') AS falhas,
                     SUM(c.disposition = 'NO ANSWER') AS sem_resposta,
+                    -- Sem esta coluna, a congestionada entrava no total e em
+                    -- nenhum resultado: a conta da linha não fechava.
+                    SUM(c.disposition = 'CONGESTION') AS congestionadas,
                     COALESCE(SUM(c.billsec), 0) AS segundos,
                     COALESCE(SUM(c.custo), 0) AS custo
                FROM troncos t
@@ -273,13 +345,19 @@ final class Relatorios
         $r = RelatorioFilas::doPeriodo(date('Y-m-d', strtotime("-{$dias} days + 1 day")), date('Y-m-d'));
 
         return Resposta::json($res, [
+            // "identificacao": a matrícula de quem é agente do call center;
+            // nas filas comuns, o membro como a fila o registra. Antes a
+            // coluna se chamava "ramal" e repetia o nome.
             'dados' => array_map(static fn (array $a): array => [
-                'ramal'     => $a['matricula'] ?? $a['agente'],
-                'nome'      => $a['nome'],
-                'atendidas' => $a['atendidas'],
-                'tma'       => $a['tma'],
-                'pausado'   => $a['pausado'],
-                'nota'      => $a['nota'],
+                'identificacao' => $a['matricula'] ?? $a['agente'],
+                'callcenter'    => $a['matricula'] !== null,
+                'nome'          => $a['nome'],
+                'atendidas'     => $a['atendidas'],
+                'tma'           => $a['tma'],
+                'nao_atendeu'   => $a['nao_atendeu'],
+                'pausado'       => $a['pausado'],
+                'nota'          => $a['nota'],
+                'respostas'     => $a['respostas'],
             ], $r->agentes()),
             'dias' => $dias,
         ]);
@@ -355,12 +433,17 @@ final class Relatorios
             return Resposta::erro($res, 'Mês inválido.', 422, ['campo' => 'mes']);
         }
 
-        $r = Tarifa::aplicar($mes === '' ? null : $mes);
+        // Recalcular sem mês escolhido é o mês corrente, que é o que a tela mostra.
+        $refazer = !empty($c['refazer']);
+        if ($refazer && $mes === '') {
+            $mes = date('Y-m');
+        }
+        $r = Tarifa::aplicar($mes === '' ? null : $mes, 20000, $refazer);
 
         return Resposta::json($res, $r + [
             'detalhe' => $r['tarifadas'] === 0 && $r['sem_tarifa'] === 0
-                ? 'Nenhuma chamada nova para tarifar neste mês.'
-                : sprintf('%d chamada(s) tarifada(s).%s', $r['tarifadas'],
+                ? 'Nenhuma chamada de saída para tarifar neste mês.'
+                : sprintf('%d chamada(s) %s.%s', $r['tarifadas'], $refazer ? 'recalculada(s) com os preços de agora' : 'tarifada(s)',
                     $r['sem_tarifa'] > 0
                         ? " {$r['sem_tarifa']} ficaram sem tarifa que se aplique — falta uma linha "
                         . 'para a classe delas na Tabela de Tarifas.'

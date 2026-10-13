@@ -151,6 +151,19 @@ final class Cadastros
         }
 
         $corpo = (array) $req->getParsedBody();
+
+        // O perfil Administrador é o da conta admin, que nunca sai do ar:
+        // tirar módulos dele seria apagar a conta de recuperação por outra
+        // porta. A tela manda todos os perfis num salvamento só, então o
+        // Administrador intacto passa sem mexer em nada.
+        if ((string) $perfil['chave'] === 'admin') {
+            if (in_array('*', (array) ($corpo['allow'] ?? []), true)) {
+                return Resposta::json($res, ['ok' => true, 'inalterado' => true]);
+            }
+
+            return Resposta::erro($res, 'O perfil Administrador tem acesso a tudo e não pode ser alterado.', 409);
+        }
+
         $modulos = array_values(array_filter((array) ($corpo['allow'] ?? []), 'is_string'));
         $acoes = array_values(array_filter((array) ($corpo['caps'] ?? []), 'is_string'));
 
@@ -262,6 +275,8 @@ final class Cadastros
         Bd::executar("UPDATE empresa SET {$sets} WHERE id = 1", array_values($dados));
 
         Auditoria::registrar($req->getAttribute('usuario'), 'editar', 'cfg.empresa', null, $dados);
+        // Nome e telefone da empresa entram na configuração gerada.
+        \Telium\Gerador\Gerador::marcarPendente();
 
         return $this->empresa($req, $res);
     }

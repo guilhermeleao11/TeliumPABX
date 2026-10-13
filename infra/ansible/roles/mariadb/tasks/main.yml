@@ -135,7 +135,8 @@
       ansible.builtin.debug:
         msg:
           - "LIMPANDO a base operacional: ramais, troncos, filas, URAs,"
-          - "rotas, CDR, gravações e todos os usuários menos o admin."
+          - "rotas, CDR, call center, caixas postais, chaves de API e todos os"
+          - "usuários menos o admin. Os arquivos de gravação ficam no disco."
           - "Empresa, perfis, permissões e a conta admin são preservados."
 
     - name: Copiar o script de limpeza

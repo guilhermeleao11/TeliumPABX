@@ -46,7 +46,7 @@ O que o `subir.sh` faz, na ordem:
 
 1. Sobe o MariaDB (contêiner `v-db`) e aplica todos os `infra/sql/*.sql`.
 2. Escreve `api/.env` de bancada e sobe a API (contêiner `v-web`, imagem `php:8.4-cli`) em `http://127.0.0.1:18110/`.
-3. Renderiza os templates `infra/ansible/roles/asterisk/templates/*.conf.j2` com valores de bancada e cria os `*_custom.conf` vazios.
+3. Renderiza os templates `infra/ansible/roles/asterisk/templates/*.conf.j2` com valores de bancada e cria os `*_custom.conf` vazios: os de `telium/` (`extensions`, `pjsip`, `queues`, `queuerules`, `confbridge`, `voicemail`, `features`, `musiconhold`, `res_parking`, `rtp`) e o `manager_custom.conf` e o `ari_custom.conf` na raiz da configuração.
 4. Roda `php bin/telium gerar-config`.
 5. Sobe o Asterisk (contêiner `v-ast`, na rede do `v-web`), instala o driver ODBC para CDR/CEL e acerta o fuso.
 6. Instala áudios: os pacotes oficiais (em cache em `~/.cache/telium-pabx/sons`), o `pt_BR.tar.xz` e os de `telium-cc`.
@@ -67,7 +67,7 @@ Variáveis: `TELIUM_DEV_DIR` (padrão `/tmp/telium-dev`), `TELIUM_DEV_PORTA` (pa
 
 Diferenças de propósito em relação ao servidor: o Asterisk roda como `root`, `ASTERISK_GRUPO=root`, senhas de bancada e `APP_DEBUG=true`. A bancada **não prova** áudio de verdade (em parte), mídia WebRTC nem tronco de operadora.
 
-> O `router.php` da raiz do repositório está vazio. Use o `infra/dev/router-dev.php`.
+> O roteador da bancada é o `infra/dev/router-dev.php`. O `router.php` vazio que ficava na raiz do repositório foi removido na 1.1.0.
 
 ---
 
@@ -96,7 +96,7 @@ O `node --check` só confere sintaxe. Os arquivos do console são scripts globai
 
 ### Onde e como rodam
 
-- Ficam em `infra/sql/NN-nome.sql`, numeradas (a última hoje é `45-click2call.sql`). O próximo número é o seguinte.
+- Ficam em `infra/sql/NN-nome.sql`, numeradas (a última hoje é `47-versoes-e-webhooks.sql`). O próximo número é o seguinte.
 - **Todas rodam, sempre, em ordem**, a cada execução do playbook (role `mariadb`, tarefa "Aplicar schema") e no `php bin/telium migrar`. Não existe tabela de "migrações já aplicadas".
 - `infra/sql/opcional/` (`limpar.sql`, `cenario-teste.sql`) não roda sozinho: só com `-e limpar_banco=true` ou equivalentes no playbook.
 
@@ -112,6 +112,7 @@ Por isso **toda migração tem de ser idempotente**: rodar duas, dez vezes, dá 
 | Dado de catálogo | `INSERT ... ON DUPLICATE KEY UPDATE` só das colunas que são do sistema (nunca a que o cliente personaliza, como o `codigo` de um código de recurso) ou `INSERT IGNORE` |
 | Trocar um valor de fábrica | `UPDATE ... WHERE <coluna> = '<valor antigo>'`, para não desfazer o que o cliente mudou. Se pode bater em chave única, `UPDATE IGNORE` (exemplo: `42-callcenter-agente-e-pausas.sql`) |
 | Permissão para um módulo novo | `INSERT IGNORE INTO perfil_modulos (perfil_id, modulo) SELECT id, '<modulo>' FROM perfis WHERE chave = '...'` |
+| Módulo dado a todos os perfis **uma vez só** | O `INSERT IGNORE ... SELECT` com `WHERE NOT EXISTS (SELECT 1 FROM sistema WHERE chave = '<marca>')`, seguido de `INSERT IGNORE INTO sistema (chave, valor) VALUES ('<marca>', '1')`. Assim, se o administrador tirar a tela de um perfil, a próxima atualização não a devolve. Exemplo: `47-versoes-e-webhooks.sql` (módulo `telium.versoes`, marca `versoes_modulo_dado`) |
 | Cabeçalho | Comentário explicando o porquê e `SET NAMES utf8mb4;` |
 
 **Nada de marcar configuração pendente** (`sistema.config_pendente`) numa migração. O playbook já gera e aplica a configuração logo depois (`gerar-config` e `aplicar-config` no role `api`), e o `migrar` manual é seguido do Aplicar pelo próprio técnico.
@@ -266,6 +267,7 @@ $g->post('/minha-area/{id}/coisa', [MeuController::class, 'salvar'])
 - Rota pública (fora do grupo) só com motivo forte. Se for o caso, acrescente-a na lista `$publicas` do teste `rotas()`; se não, o teste reprova.
 - Regras de negócio vão para `api/src/Dominio/`; o controller só lê o pedido e monta a resposta.
 - Grave na auditoria o que muda estado (`Auditoria::registrar(...)`).
+- Se a rota muda algo que entra na configuração gerada sem passar por um Recurso com `afetaAsterisk`, chame `\Telium\Gerador\Gerador::marcarPendente()`: é o que acende a faixa "Alterações ainda não aplicadas". Exemplos: envio, troca de categoria e exclusão de áudio (`Audios`, por causa da música de espera) e os dados da empresa (`Cadastros::salvarEmpresa`).
 
 ---
 
@@ -360,7 +362,9 @@ Os códigos discados (`*xx`) vivem em `codigos_recurso`. O **código** é config
 5. Um teste em `Testes.php` para o dialplan gerado.
 6. Documente o código em [15-Codigos-de-Recurso.md](15-Codigos-de-Recurso.md).
 
-O formato aceito para códigos de pausa e caixa é `CodigosDiscagem::FORMATO` (`*` ou `#` e de 1 a 6 dígitos).
+O formato aceito para códigos de pausa e caixa é `CodigosDiscagem::FORMATO` (`*` ou `#` e de 1 a 6 dígitos). O de um código de recurso é `CodigosDiscagem::FORMATO_RECURSO` (`^[*#][0-9*#]{1,6}$`: `*` ou `#` e até mais 6 dígitos, `*` ou `#`, porque o catálogo tem `**` e `##`); desde a 1.1.0 a API também o confere, na regra `codigo` do recurso `codigos-recurso`.
+
+Alguns pares de fábrica são começo um do outro e funcionam, porque o Asterisk espera o próximo dígito antes de decidir pelo mais curto: `*8` com `*80`, `*82`, `*85`, `*86`, `*87` e `*88`; `*55` com `*555`; `*77` com `*7777`. Eles estão em `CodigosDiscagem::PARES_DE_FABRICA` e a `colisao()` não os recusa (antes, desligar `*8`, `*55` ou `*77` e ligar de novo dava erro). Par novo desse tipo entra nessa lista.
 
 ---
 
@@ -387,12 +391,55 @@ O formato aceito para códigos de pausa e caixa é `CodigosDiscagem::FORMATO` (`
 - Mensagens de commit em português, no estilo do histórico: frase curta dizendo o efeito para quem usa ("Click to call para outros sistemas, com chave de API").
 - Segredos nunca entram: `api/.env`, `vault.yml`, inventário, `servidor.yml`, `*.pem` e `*.key` estão no `.gitignore`.
 
-**Versão:** `api/src/Suporte/Versao.php` (`Versao::NUMERO`, hoje `1.0.1`). É a única fonte: aparece em `/api/health`, `/api/me` (console) e no `bin/telium`. Ao mudar de versão, confira também o texto fixo `Telium PABX 1.0.1` no resumo de instalação de `infra/ansible/site.yml`, que não lê essa constante.
+### Versão e histórico de mudanças
+
+A versão mora num lugar só: `Versao::NUMERO` em `api/src/Suporte/Versao.php` (hoje `1.1.0`). Dela saem:
+
+| Onde aparece | Como |
+|---|---|
+| Rodapé do menu do console ("Console 1.1.0 (ae4f854)") | `GET /api/me` devolve `versao` = `Versao::exibicao()` |
+| Telium › Versões e Novidades | `GET /api/sistema/versoes` (`versao`, `commit`, `exibicao` e o histórico) |
+| Telium › Suporte e monitoramento | `GET /api/health`: `versao` sempre; `commit` só com sessão |
+| `bin/telium` (ajuda e bateria de testes) | `Versao::completa()` e `Versao::NUMERO` |
+| Mensagens do playbook e resumo da instalação (`/etc/telium/instalacao.txt`) | `infra/ansible/site.yml` lê a constante do arquivo PHP (variável `telium_versao`); não há mais número escrito à mão ali |
+
+**O commit ao lado do número.** `Versao::commit()` lê o arquivo `api/COMMIT`, que o playbook (role `api`, tarefa "Registrar o commit publicado") grava a cada execução com o `git rev-parse --short HEAD` do clone, acrescido de `+` quando o clone tem alteração não commitada em arquivo do Git. Sem `api/COMMIT` (clone de desenvolvimento), lê o `HEAD` do próprio `.git`. Sem nenhum dos dois, fica vazio e só o número aparece. `Versao::exibicao()` monta `1.1.0 (ae4f854)`. O `api/COMMIT` está no `.gitignore`.
+
+**Quando subir o número** (a cada entrega para cliente, e não só de vez em quando, como aconteceu até a 1.1.0, que ficou em 1.0.1 várias entregas):
+
+| A entrega traz | Sobe | Exemplo, a partir de 1.1.0 |
+|---|---|---|
+| Só correções | o terceiro número | 1.1.1 |
+| Alguma novidade (tela, função, comando) | o segundo, zerando o terceiro | 1.2.0 |
+
+**O histórico: `api/CHANGELOG.md`.** Cada entrega ganha uma entrada **no topo** do arquivo, que a tela **Telium › Versões e Novidades** mostra (leitura em `Telium\Suporte\Changelog`). O formato é fixo:
+
+```
+## 1.2.0 — 2026-11-03
+Commits: abc1234, def5678
+Uma frase de resumo da entrega, para quem usa.
+
+### Novidades
+- **Tela ou área**: o que muda para quem usa.
+### Correções
+- ...
+### Mudanças
+- ...
+### Segurança
+- ...
+```
+
+- O cabeçalho é `## X.Y.Z — AAAA-MM-DD` (travessão ou hífen). A linha `Commits:` é opcional, com os commits separados por vírgula. A primeira linha de texto antes de qualquer `###` é o resumo.
+- As seções são `###` com itens `- `. A tela dá cor a **Novidades**, **Correções**, **Mudanças** e **Segurança**; outro título aparece com a cor neutra.
+- Nos itens, `**negrito**` e `` `código` `` são mostrados como tal; o resto é texto puro (escapado).
+- Linha fora do formato é ignorada: um erro de digitação não derruba a tela. O texto antes da primeira versão vira a introdução da tela.
+- Escreva para o operador (o que muda na central), não para o desenvolvedor.
 
 ---
 
 ## 12. Checklist de entrega
 
+- [ ] `Versao::NUMERO` subido (correção: 1.1.1; novidade: 1.2.0) e entrada nova no topo do `api/CHANGELOG.md`, no formato da seção 11.
 - [ ] Lint de PHP e JS limpo (seção 2).
 - [ ] Migração nova idempotente, testada **duas vezes** num banco limpo e uma vez sobre um banco com dados (seção 4).
 - [ ] Tabelas e colunas novas em `Esquema.php`.

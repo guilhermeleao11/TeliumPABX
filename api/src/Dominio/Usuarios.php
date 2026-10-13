@@ -40,8 +40,16 @@ final class Usuarios
      * @param  array<string,mixed> $eu    quem está pedindo
      * @return array{mensagem:string, campo?:string, codigo?:int}|null
      */
+    /** A conta que nasce com a central e nunca sai dela. */
+    public const CONTA_PROTEGIDA = 'admin';
+
     public static function conferir(string $acao, array $dados, array $atual, array $eu): ?array
     {
+        $protegida = self::protegida($acao, $dados, $atual);
+        if ($protegida !== null) {
+            return $protegida;
+        }
+
         // Ninguém mexe em conta mais poderosa que a própria, nem dá a alguém
         // mais do que tem: sem isto, um perfil com "usuários" criava uma
         // conta de administrador ou trocava a senha do admin e entrava.
@@ -317,6 +325,40 @@ final class Usuarios
      * @param  array<string,mixed> $eu
      * @return array{mensagem:string, campo?:string, codigo?:int}|null
      */
+    /**
+     * A conta admin nunca sai do ar.
+     *
+     * É a porta que sobra quando todo o resto dá errado, e a que o comando
+     * "telium senha admin" recupera pelo terminal. A tela só escondia o
+     * botão de excluir: pela API, outro administrador a apagava — ou a
+     * renomeava, desativava ou rebaixava, que dá no mesmo. Senha, nome e
+     * e-mail continuam editáveis.
+     *
+     * @return array{mensagem:string, campo?:string, codigo?:int}|null
+     */
+    private static function protegida(string $acao, array $dados, array $atual): ?array
+    {
+        if ((string) ($atual['usuario'] ?? '') !== self::CONTA_PROTEGIDA) {
+            return null;
+        }
+        if ($acao === 'excluir') {
+            return ['mensagem' => 'A conta admin não pode ser excluída: é a conta de recuperação da central.',
+                    'codigo' => 409];
+        }
+        if (array_key_exists('usuario', $dados) && trim((string) $dados['usuario']) !== self::CONTA_PROTEGIDA) {
+            return ['mensagem' => 'O login da conta admin não pode ser trocado.', 'campo' => 'usuario', 'codigo' => 409];
+        }
+        if (array_key_exists('status', $dados) && (string) $dados['status'] !== 'ativo') {
+            return ['mensagem' => 'A conta admin não pode ser desativada nem bloqueada.', 'campo' => 'status', 'codigo' => 409];
+        }
+        if (array_key_exists('perfil_id', $dados) && (int) $dados['perfil_id'] !== (int) ($atual['perfil_id'] ?? 0)
+            && Bd::valor("SELECT chave FROM perfis WHERE id = ?", [(int) $dados['perfil_id']]) !== 'admin') {
+            return ['mensagem' => 'A conta admin fica sempre no perfil Administrador.', 'campo' => 'perfil_id', 'codigo' => 409];
+        }
+
+        return null;
+    }
+
     private static function podeExcluir(array $atual, array $eu): ?array
     {
         $id = (int) ($atual['id'] ?? 0);

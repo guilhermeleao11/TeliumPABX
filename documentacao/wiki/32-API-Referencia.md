@@ -24,6 +24,7 @@ Veja também: [31-Arquitetura.md](31-Arquitetura.md) e [30-Desenvolvimento.md](3
 - **Base:** `https://<central>/api`. Exceções: o provisionamento, em `/prov/...` e `/p/...` (sem o `/api`).
 - **Corpo:** JSON (`Content-Type: application/json`). Upload de arquivo é `multipart/form-data`.
 - **Respostas:** JSON UTF-8, exceto downloads (áudio, CSV, backup, PEM) e o provisionamento.
+- **Versão:** a versão da central e o commit publicado saem em `GET /api/me` (`versao`, por exemplo `"1.1.0 (ae4f854)"`), em `GET /api/sistema/versoes` e em `GET /api/health`.
 - **Cabeçalhos em toda resposta:** `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `X-Telium-Api: 1.0`.
 - **Limites do nginx:** 30 pedidos/s por IP no `/api/` (com folga de 60), 10 por minuto no `/api/auth/login` (folga de 5). Passou do limite: **429**.
 - **Coluna "Permissão"** nas tabelas: `módulo` exige o módulo no perfil; `módulo + ação` exige também a ação (`criar`, `editar`, `excluir`, `exportar`, `reiniciar`, `permissoes`). "Também:" lista módulos que abrem a mesma porta (em geral, só para ler por referência). "sessão" quer dizer só estar logado.
@@ -64,7 +65,7 @@ A sessão vale `SESSAO_MINUTOS` (padrão 30) de inatividade e é renovada a cada
 | Método | Caminho | O que faz |
 |---|---|---|
 | POST | `/auth/logout` | Encerra a sessão e apaga o cookie |
-| GET | `/me` | Usuário, permissões (`allow`, `caps`), empresa, versão e dados do softphone |
+| GET | `/me` | Usuário, permissões (`allow`, `caps`), empresa, versão (`versao`: número e, quando conhecido, o commit entre parênteses, como `1.1.0 (ae4f854)`) e dados do softphone |
 | POST | `/me/senha` | Troca a própria senha (`atual`, `nova`); encerra as outras sessões |
 | POST | `/me/2fa/iniciar` | Gera o segredo TOTP e a URI do QR Code (ainda não liga) |
 | POST | `/me/2fa/confirmar` | Liga o 2FA provando um `codigo` |
@@ -95,6 +96,7 @@ Códigos usados:
 | 422 | Validação: campo obrigatório, formato, valor fora da lista |
 | 429 | Limite de tentativas ou de pedidos |
 | 502 | Serviço externo falhou (AMI no click to call, SMTP, destino de backup) |
+| 202 | Aceito, termina em segundo plano (ex.: `DELETE /api/backup/{id}` com o arquivo no disco) |
 | 503 | `/api/health` com alguma dependência fora |
 
 ---
@@ -159,7 +161,7 @@ Sem sessão. São só estas:
 Confere PHP, banco, esquema (o banco acompanha o código?) e Asterisk (AMI).
 
 - Sem sessão: `{ "servico", "versao", "saudavel" }`.
-- Com sessão válida (Bearer ou cookie): também `ambiente`, `horario` e `checagens` com o detalhe de cada uma (inclusive `config_pendente`).
+- Com sessão válida (Bearer ou cookie): também `commit` (o publicado, de `api/COMMIT`; termina em `+` se o clone tinha alteração fora do Git), `ambiente`, `horario` e `checagens` com o detalhe de cada uma (inclusive `config_pendente`).
 - Status **200** quando tudo está bem, **503** quando algo falhou. É a rota para monitoramento.
 
 ### GET /prov/{segredo}/{arquivo}
@@ -222,7 +224,7 @@ Formato: `{ "ok": false, "erro": "..." }`.
 | 404 | O ramal não existe ou está desativado |
 | 409 | O ramal não está registrado na central, ou está registrado mas não responde |
 | 422 | Faltou `ramal` ou `numero` (ou o número ficou vazio depois da limpeza) |
-| 429 | 20 ou mais pedidos com chave inválida do mesmo IP nos últimos 10 minutos |
+| 429 | 20 ou mais pedidos com chave ausente, inválida ou desativada do mesmo IP nos últimos 10 minutos. Os pedidos de uma chave que foi excluída depois não entram nessa conta |
 | 502 | A central não respondeu ou recusou a chamada (falha no AMI) |
 
 Todo pedido, aceito ou recusado, fica em `click2call_pedidos` e aparece na tela de Integrações.
@@ -267,16 +269,19 @@ Todos os caminhos abaixo são relativos a `/api`.
 | GET | `/tempo-real` | `dash.temporeal` | Wallboard |
 | GET | `/sistema/estatisticas` | `dash.sistema` | Estatísticas do servidor |
 | GET | `/sistema/asterisk` | `dash.asterisk` | Informações do Asterisk |
-| GET | `/cdr` | `rel.cdr` | Relatório de chamadas |
+| GET | `/cdr` | `rel.cdr` | Relatório de chamadas. Filtros: `de`, `ate` (AAAA-MM-DD), `direcao`, `status` (disposition), `q` (origem, destino ou nome); `limite` 10 a 200 (padrão 50), `pagina` |
+| GET | `/cdr/exportar` | `rel.cdr` + exportar | O mesmo filtro do `/cdr`, em CSV (`cdr-AAAA-MM-DD.csv`): UTF-8 com BOM, separador `;`, custo com vírgula decimal. Colunas: Data e hora, Origem, Nome de quem ligou, Destino, Sentido, Duração (s), Falada (s), Resultado, Tronco, Motivo, Fila, Custo (R$), Gravação. Texto que começa com `=`, `+`, `-` ou `@` sai com `'` na frente (não vira fórmula). Acima de 200 000 chamadas no filtro: 422 pedindo um período menor. Fica na auditoria (`exportar`, `rel.cdr`) |
 | GET | `/relatorios/filas` | `rel.filas` | Relatório de filas |
-| GET | `/relatorios/agentes` | `rel.agentes` | Relatório de agentes |
+| GET | `/relatorios/agentes` | `rel.agentes` | Produtividade de quem atendeu chamada de fila, pelo `queue_log`. `dias` de 1 a 90 (padrão 7; a tela usa 1, 7, 30 e 90). Cada linha: `identificacao` (matrícula do agente do call center ou o membro da fila), `callcenter`, `nome`, `atendidas`, `tma`, `nao_atendeu`, `pausado`, `nota`, `respostas` |
 | GET | `/relatorios/ramais` | `rel.ramais` | Relatório por ramal |
-| GET | `/relatorios/troncos` | `rel.troncos` | Relatório por tronco |
+| GET | `/relatorios/troncos` | `rel.troncos` | Ocupação de troncos: `chamadas`, `atendidas`, `ocupadas` (BUSY), `sem_resposta` (NO ANSWER), `falhas` (FAILED), `congestionadas` (CONGESTION), `segundos`, `custo` |
 | GET | `/relatorios/eventos` | `rel.cel` | Eventos (CEL) |
 | GET | `/relatorios/tarifacao` | `telium.tarifacao` | Tarifação |
-| POST | `/relatorios/tarifacao` | `telium.tarifacao` + editar | Tarifa as chamadas agora |
+| POST | `/relatorios/tarifacao` | `telium.tarifacao` + editar | Tarifa agora as chamadas de saída do `mes` (AAAA-MM) ainda sem custo. Com `refazer: 1` (o botão "Recalcular o mês"), recalcula **todas** as do mês com os preços de agora; sem `mes`, vale o mês corrente. A chamada que ficou sem tarifa que se aplique perde o custo antigo |
 | GET | `/auditoria` | `admin.auditoria` | Trilha de auditoria |
-| GET | `/gravacoes` | `apps.gravacao` | Lista gravações (não há rota de exclusão, de propósito) |
+| GET | `/sistema/versoes` | `telium.versoes` | `versao`, `commit`, `exibicao` e o histórico lido do `api/CHANGELOG.md`: `introducao` e `versoes` (cada uma com `numero`, `data`, `commits`, `resumo` e `secoes`, cada seção com `titulo` e `itens`) |
+| GET | `/gravacoes` | `apps.gravacao` | Lista gravações (não há rota de exclusão, de propósito). Traz também `retencao`: `dias` (prazo de guarda) e `ultima` (resultado da última limpeza) |
+| PUT | `/gravacoes/retencao` | `apps.gravacao` + editar | Prazo de guarda: `{ "dias": 0 a 3650 }`. Zero guarda para sempre. Não apaga na hora: o executor de backup apaga, uma vez por dia (e na passada seguinte ao salvar), as gravações mais antigas que o prazo. Valor fora da faixa: 422. Fica na auditoria com o prazo de antes e o novo |
 | GET | `/gravacoes/arquivo` | `apps.gravacao` | Áudio de uma gravação |
 | POST | `/gravacoes/pacote` | `apps.gravacao` + exportar | Pacote de gravações para baixar |
 
@@ -329,7 +334,7 @@ Todos os caminhos abaixo são relativos a `/api`.
 | Método | Caminho | Permissão | O que faz |
 |---|---|---|---|
 | GET | `/email` | `cfg.notificacoes` | Configuração de envio |
-| PUT | `/email` | `cfg.notificacoes` + editar | Grava a configuração |
+| PUT | `/email` | `cfg.notificacoes` + editar | Grava a configuração. Inclui `alertas_para`: e-mails dos alertas do sistema, separados por vírgula (aceita também `;` e espaço). Um endereço inválido na lista: 422 com `campo: alertas_para` |
 | POST | `/email/testar` | `cfg.notificacoes` + editar | Envia e-mail de teste |
 | GET | `/backup` | `admin.backup` | Backups e estado |
 | POST | `/backup/executar` | `admin.backup` + criar | Faz backup agora |
@@ -339,7 +344,7 @@ Todos os caminhos abaixo são relativos a `/api`.
 | POST | `/backup/{id}/enviar` | `admin.backup` + exportar | Envia ao destino remoto |
 | GET | `/backup/{id}/baixar` | `admin.backup` + exportar | Baixa o arquivo |
 | POST | `/backup/{id}/restaurar` | `admin.backup` + reiniciar | Restaura |
-| DELETE | `/backup/{id}` | `admin.backup` + excluir | Remove |
+| DELETE | `/backup/{id}` | `admin.backup` + excluir | Remove. Sem arquivo no disco: apaga o registro e responde 200. Com arquivo: marca o backup como `removendo` e responde **202** com `pendente: true` e `detalhe`; o executor de backup (root) apaga o arquivo e o registro em até um minuto. Backup na fila ou executando: 409 |
 | GET | `/audios` | `admin.gravacoes`. Também: telas que escolhem destino | Lista áudios do sistema |
 | POST | `/audios` | `admin.gravacoes` + criar. Também: `cfg.musica` | Envia áudio |
 | GET | `/audios/{id}/ouvir` | `admin.gravacoes`. Também: `cfg.musica` | Toca o áudio |
@@ -378,6 +383,33 @@ O fluxo ao vivo (SSE) está em `GET /api/cc/eventos`, servido pelo serviço `tel
 | GET | `/cc/config` | `cc.config` | Configuração do módulo |
 | PUT | `/cc/config` | `cc.config` + editar | Grava a configuração |
 | GET | `/cc/relatorio` | `cc.relatorios` | Relatório do call center |
+
+### Webhooks (Integrações / API)
+
+O cadastro é o recurso `integracoes` (seção 8). Além dele:
+
+| Método | Caminho | Permissão | O que faz |
+|---|---|---|---|
+| POST | `/integracoes/{id}/testar` | `telium.integracoes` + editar | Manda agora um aviso de teste para a URL do webhook, assinado como os de verdade. Responde `{ "ok": true/false, "detalhe": "..." }` (o código HTTP que o destino deu ou o erro de conexão). Integração que não é do tipo `webhook`: 404 |
+
+**O que a central manda.** Um `POST` com `Content-Type: application/json` e `User-Agent: Telium-PABX`, prazo de 5 segundos e sem seguir redirecionamento. Quem envia é o serviço `telium-cc`; com ele parado, não há aviso. Os eventos:
+
+| Evento | Quando | Campos além de `evento`, `id` e `quando` |
+|---|---|---|
+| `chamada.tocando` | Um ramal começou a tocar (um aviso por ramal que toca) | `ramal`, `de`, `nome`, `para` |
+| `chamada.atendida` | Alguém atendeu (o primeiro atendimento da chamada) | `ramal`, `espera_segundos`, `de`, `nome`, `para` |
+| `chamada.encerrada` | A chamada terminou (só as que tocaram algum ramal) | `atendida` (true/false), `duracao_segundos`, `conversa_segundos`, `causa`, `de`, `nome`, `para` |
+
+`id` é o identificador da chamada no Asterisk (o `Linkedid`), o mesmo nos três avisos; `quando` é a data e hora ISO 8601; `de` e `nome` são o número e o nome de quem ligou; `para` é o ramal. O aviso de teste traz `evento: "teste"` e `mensagem`.
+
+```json
+{ "evento": "chamada.atendida", "id": "1760360000.123", "quando": "2026-10-13T10:15:02-03:00",
+  "ramal": "1001", "espera_segundos": 7, "de": "11999990000", "nome": "Maria", "para": "1001" }
+```
+
+**Assinatura.** Com o campo Segredo preenchido, cada aviso leva `X-Telium-Assinatura: sha256=<hex>`, o HMAC-SHA256 do corpo exato com o segredo. Quem recebe calcula o mesmo HMAC sobre o corpo cru e compara.
+
+**Resultado.** Cada envio grava `ultimo_disparo` e `ultimo_status` (`ok (HTTP 200)`, `falhou (HTTP 500)` ou `falhou: <erro>`) no cadastro.
 
 ### Aplicações (além do CRUD)
 
@@ -495,3 +527,10 @@ Colunas graváveis, regras de validação, colunas ocultas, filtros e busca de c
 - **cc-pausas:** os motivos da central (`sistema = 1`) não podem ser excluídos, renomeados nem ganhar código.
 - **rotas-saida:** os padrões de discagem vão no campo `padroes` do corpo e voltam na resposta; gravados na mesma transação.
 - **conferencias, disa, pin-sets, caixas-postais, integracoes:** PINs, senhas e segredos nunca voltam.
+- **codigos-recurso:** `codigo` obrigatório no formato `^[*#][0-9*#]{1,6}$` (422). Os pares de fábrica (`*8` com `*80`/`*82`/`*85`/`*86`/`*87`/`*88`, `*55` com `*555`, `*77` com `*7777`) não são recusados como colisão.
+- **grupos-toque:** `estrategia` = `ringall` (todos juntos) ou `linear` (um de cada vez, na ordem da lista); `tempo_toque` de 5 a 300 segundos; destino de falha em `destino_falha_tipo`/`destino_falha_valor`.
+- **despertadores:** `tentativas` de 1 a 10 e `intervalo` de 60 a 3600 segundos. `ultimo_estado` é gravado pelo script `telium-despertador` do servidor: vazio ao começar a ligar, `atendido` ou `nao_atendeu` depois das tentativas (a tela também sabe mostrar `falha`, mas o script de hoje não grava esse valor).
+- **conferencias:** PIN de administrador igual ao PIN de entrada: 409 com `campo: pin_admin`. `esperar_admin` ligado sem PIN de administrador: 409. A conferência considera o valor que vai ficar (PIN em branco na edição mantém o gravado).
+- **fax-geral:** `minimo_bits` e `maximo_bits` só aceitam 2400, 4800, 7200, 9600, 12000 ou 14400; `email_destino` em formato de e-mail.
+- **pin-sets:** a listagem não traz os PINs, mas traz `pins_qtd`, a quantidade, recontada a cada gravação do campo `pins`.
+- **integracoes:** só webhook tem efeito. Na criação o `tipo` é sempre `webhook` (o campo não é gravável); os tipos antigos (`api_key`, `syslog`, `app`) continuam só na listagem. `url` obrigatória, começando com `http://` ou `https://`; `eventos` com `chamada.tocando`, `chamada.atendida` e/ou `chamada.encerrada`, separados por vírgula, `;` ou espaço (em branco, todos). A listagem traz `ultimo_disparo` e `ultimo_status`.

@@ -27,6 +27,34 @@ final class CodigosDiscagem
     public const FORMATO = '/^[*#][0-9]{1,6}$/';
 
     /**
+     * O de um código de recurso: começa com * ou # e segue com dígitos, * ou
+     * # — o catálogo tem ** (capturar um ramal) e ## (transferir às cegas).
+     */
+    public const FORMATO_RECURSO = '/^[*#][0-9*#]{1,6}$/';
+
+    /**
+     * Pares que já vêm assim de fábrica e funcionam: o Asterisk espera o
+     * próximo dígito antes de decidir pelo mais curto. Religar um deles
+     * não pode ser recusado por esbarrar no outro — era o que acontecia
+     * com quem desligava *8, *55 ou *77 e tentava ligar de novo.
+     */
+    private const PARES_DE_FABRICA = [
+        ['*8', '*80'], ['*8', '*82'], ['*8', '*85'], ['*8', '*86'], ['*8', '*87'], ['*8', '*88'],
+        ['*55', '*555'], ['*77', '*7777'],
+    ];
+
+    private static function deFabrica(string $a, string $b): bool
+    {
+        foreach (self::PARES_DE_FABRICA as [$x, $y]) {
+            if (($a === $x && $b === $y) || ($a === $y && $b === $x)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Os códigos ativos, menos o que está sendo gravado.
      *
      * @param string   $origem 'recurso', 'pausa' ou 'caixa' — de onde vem o que está sendo gravado
@@ -87,7 +115,7 @@ final class CodigosDiscagem
     public static function colisao(string $codigo, string $origem, ?int $id, ?array $outros = null): ?string
     {
         foreach ($outros ?? self::outros($origem, $id) as $o) {
-            if (self::colidem($codigo, $o['codigo'])) {
+            if (self::colidem($codigo, $o['codigo']) && !self::deFabrica($codigo, $o['codigo'])) {
                 return $codigo === $o['codigo']
                     ? "O código {$codigo} já é de \"{$o['nome']}\"."
                     : "Colide com \"{$o['nome']}\" ({$o['codigo']}): um é o começo do outro, e o telefone só alcançaria um deles.";

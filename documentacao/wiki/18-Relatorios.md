@@ -26,10 +26,10 @@ O histórico da central: cada chamada (CDR), o desempenho das filas, dos ramais 
 |---|---|---|---|
 | CDR — Registro de Chamadas | CDR — Registro de Chamadas | CDR | De / até (padrão: hoje) |
 | Desempenho de Filas | Desempenho de Filas | queue_log | 7, 30 ou 90 dias |
-| Desempenho de Ramais | Relatório por Ramal | CDR | De / até (padrão: todo o histórico) |
-| Ocupação de Troncos | Relatório por Tronco | CDR | De / até (padrão: todo o histórico) |
-| Eventos de Canal (CEL) | Eventos da Chamada | CEL | De / até (padrão: todo o histórico) |
-| Produtividade de Agentes | Produtividade de Agentes | queue_log | Últimos 7 dias, fixo |
+| Desempenho de Ramais | Desempenho de Ramais | CDR | De / até (padrão: todo o histórico) |
+| Ocupação de Troncos | Ocupação de Troncos | CDR | De / até (padrão: todo o histórico) |
+| Eventos de Canal (CEL) | Eventos de Canal (CEL) | CEL | De / até (padrão: todo o histórico) |
+| Produtividade de Agentes | Produtividade de Agentes | queue_log | Hoje, 7, 30 ou 90 dias |
 
 - **CDR** é uma linha por chamada (ou perna de chamada) gravada pelo Asterisk.
 - **queue_log** é o que o Asterisk escreve sobre cada chamada de fila: entrou, foi atendida, desistiu. Por isso os relatórios de fila e de agentes saem dele, e não do CDR.
@@ -91,7 +91,16 @@ Os filtros aplicam sozinhos ao mudar (a busca espera você parar de digitar).
 | Ligar para este número | Liga para a origem, numa chamada de entrada, ou para o destino, nas demais. Usa o telefone do navegador ou o de mesa ([11-Telefone-WebRTC.md](11-Telefone-WebRTC.md)) |
 | Ouvir | Abre um player logo abaixo da linha e toca a gravação. Clicar de novo fecha. Só uma gravação toca por vez |
 | Setas da paginação | 50 registros por página. O rodapé mostra o total e a página |
-| Exportar CSV | Aparece para quem tem a ação Exportar, mas **ainda não exporta**: mostra "Exportação assíncrona ainda não implementada no servidor." |
+| Exportar CSV | Baixa uma planilha com **o mesmo filtro da tela** (período, sentido, estado e busca), todas as páginas. Aparece para quem tem a ação **Exportar** no módulo do CDR |
+
+### Exportar CSV
+
+- O arquivo chega como `cdr-<de>_<até>.csv`, enquanto o botão mostra **Gerando…**.
+- Formato para o Excel em português abrir sem perguntar: separador `;`, vírgula decimal e UTF-8 (com BOM).
+- Colunas: **Data e hora**, **Origem**, **Nome de quem ligou**, **Destino**, **Sentido**, **Duração (s)**, **Falada (s)**, **Resultado**, **Tronco**, **Motivo**, **Fila**, **Custo (R$)** e **Gravação** ("sim" quando há gravação).
+- Limite de **200 000 chamadas** por exportação. Acima disso, a central recusa com "São N chamadas neste filtro; a exportação vai até 200.000. Diminua o período."
+- Texto que começa com `=`, `+`, `-` ou `@` (um nome de quem ligou, por exemplo) sai com um apóstrofo na frente, para o Excel não o tratar como fórmula.
+- Cada exportação fica na **Auditoria** (ação `exportar`, módulo do CDR), com a quantidade de linhas e o período.
 
 Para **ouvir** a gravação, o perfil precisa também do módulo **Aplicações › Gravação de Chamadas** (apps.gravacao). Sem ele, a central recusa e a mensagem aparece em vermelho. O CDR não tem botão de baixar: para baixar gravações, use **Aplicações › Gravação de Chamadas** ([13-Aplicacoes-Filas-URA-e-Atendimento.md](13-Aplicacoes-Filas-URA-e-Atendimento.md)).
 
@@ -140,11 +149,11 @@ Só filas **ativas** aparecem. Não há exportação nesta tela.
 
 ## 4. Desempenho de Ramais
 
-**Relatórios › Desempenho de Ramais** (título na tela: **Relatório por Ramal**)
+**Relatórios › Desempenho de Ramais**
 
 Quanto cada ramal falou no período e quantas chamadas deixou de atender.
 
-> 📷 **Print:** Relatório por Ramal com algumas linhas e as barras de uso.
+> 📷 **Print:** Desempenho de Ramais com algumas linhas e as barras de uso.
 
 ### Filtro de período
 
@@ -175,11 +184,11 @@ Regras:
 
 ## 5. Ocupação de Troncos
 
-**Relatórios › Ocupação de Troncos** (título na tela: **Relatório por Tronco**)
+**Relatórios › Ocupação de Troncos**
 
 Volume e qualidade de cada operadora. É o relatório para levar à operadora quando "a linha não completa".
 
-> 📷 **Print:** Relatório por Tronco com a coluna Completamento colorida.
+> 📷 **Print:** Ocupação de Troncos com a coluna Completamento colorida.
 
 O filtro de período é o mesmo do relatório de ramais ([seção 4](#4-desempenho-de-ramais)).
 
@@ -192,7 +201,9 @@ O filtro de período é o mesmo do relatório de ramais ([seção 4](#4-desempen
 | Chamadas | Registros do CDR que usaram o tronco |
 | Atendidas | Com resultado Atendida |
 | Ocupado | Com resultado Ocupado |
-| Falha | Com resultado Falha mais Não atendida |
+| Não atendeu | Com resultado Não atendida |
+| Falha | Com resultado Falha |
+| Congestionada | Com resultado Congestionada: a operadora ou a central não tinha canal livre |
 | Completamento | Atendidas ÷ Chamadas (ASR). "—" sem chamadas |
 | Média | Tempo falado ÷ atendidas (ACD): quanto dura, em média, a chamada atendida |
 | Total falado | Soma do tempo de conversa |
@@ -203,13 +214,13 @@ Como ler (texto da própria tela):
 - Completamento abaixo de 40% costuma ser problema da operadora ou da rota, não do PABX.
 - Média muito curta com completamento alto costuma ser áudio ruim, com o cliente desligando.
 
-Todos os troncos cadastrados aparecem, mesmo sem chamadas. Chamadas Congestionadas entram no total de **Chamadas**, mas em nenhuma das colunas de resultado.
+Todos os troncos cadastrados aparecem, mesmo sem chamadas. A conta da linha fecha: Atendidas + Ocupado + Não atendeu + Falha + Congestionada = Chamadas.
 
 ---
 
 ## 6. Eventos de Canal (CEL)
 
-**Relatórios › Eventos de Canal (CEL)** (título na tela: **Eventos da Chamada**)
+**Relatórios › Eventos de Canal (CEL)**
 
 O CDR diz que a chamada durou doze segundos; o CEL diz por quê. Mostra cada passo que a central registrou: atendeu, transferiu, entrou na ponte, desligou.
 
@@ -252,7 +263,11 @@ O botão **Voltar à lista** retorna à lista.
 
 **Relatórios › Produtividade de Agentes**
 
-Quem atendeu chamadas de fila nos **últimos 7 dias**, pelo queue_log. Não há escolha de período nesta tela.
+Quem atendeu as chamadas das filas no período, pelo registro das próprias filas (queue_log).
+
+### Período
+
+Botões **Hoje**, **7 dias** (padrão), **30 dias** e **90 dias**, sempre terminando hoje.
 
 > 📷 **Print:** Produtividade de Agentes com o ranking e o gráfico.
 
@@ -261,9 +276,12 @@ Quem atendeu chamadas de fila nos **últimos 7 dias**, pelo queue_log. Não há 
 | Coluna | Definição |
 |---|---|
 | Agente | Nome. Em fila de call center, o nome do agente do cadastro; em fila comum, o nome do membro (o nome do ramal) |
-| Ramal | Em agente de call center, a **matrícula**. Em fila comum, repete o nome do membro, e não o número do ramal |
+| Identificação | Em agente de call center, a **matrícula**, com o selo **call center**. Em fila comum, o membro como a fila o registra |
 | Atendidas | Chamadas de fila que o agente atendeu |
 | TMA | Conversa total ÷ chamadas encerradas |
+| Não atendeu | Vezes em que a fila tocou para o agente e ele não atendeu |
+| Em pausa | Tempo em pausa no período |
+| Satisfação | Índice da pesquisa de satisfação, de 0 (pior) a 100 (melhor), e entre parênteses quantas respostas. "—" sem resposta |
 
 Ordem: mais atendidas primeiro; empate, por nome.
 
@@ -271,7 +289,9 @@ Ordem: mais atendidas primeiro; empate, por nome.
 
 Gráfico de barras com as atendidas de cada agente.
 
-Para tempo logado, pausas, ocupação, satisfação e tabulações, use **Call Center › Relatórios** ([16-Call-Center.md](16-Call-Center.md)).
+Sem atendimento de fila no período, a tela mostra "Nenhum atendimento de fila no período".
+
+Para tempo logado, ocupação e tabulações, use **Call Center › Relatórios** ([16-Call-Center.md](16-Call-Center.md)).
 
 ---
 
@@ -282,10 +302,13 @@ Para tempo logado, pausas, ocupação, satisfação e tabulações, use **Call C
 
 **O botão Ouvir dá erro.**
 - O seu perfil não tem o módulo **Gravação de Chamadas**. Peça ao administrador.
-- O arquivo pode ter sido apagado pela retenção. Veja [04-Backup-e-Restauracao.md](04-Backup-e-Restauracao.md).
+- O arquivo pode ter sido apagado pelo prazo de guarda das gravações. Veja [13-Aplicacoes-Filas-URA-e-Atendimento.md](13-Aplicacoes-Filas-URA-e-Atendimento.md).
 
-**Exportar CSV do CDR só mostra um aviso.**
-- A exportação do CDR ainda não está implementada no servidor. Para CSV de filas e agentes, use **Call Center › Relatórios**.
+**Exportar CSV do CDR recusa com "a exportação vai até 200.000".**
+- O filtro tem mais de 200 000 chamadas. Diminua o período e exporte em partes.
+
+**O botão Exportar CSV não aparece.**
+- O seu perfil não tem a ação **Exportar** no módulo do CDR. Peça ao administrador.
 
 **Uma chamada aparece em várias linhas do CDR.**
 - O CDR registra pernas: uma chamada que toca vários destinos ou é transferida gera mais de uma linha. Para ver o caminho completo, use o **CEL**.
@@ -299,11 +322,11 @@ Para tempo logado, pausas, ocupação, satisfação e tabulações, use **Call C
 **Nível de serviço baixo com poucas chamadas abandonadas.**
 - A conta é dura de propósito: atendida fora da meta, tempo esgotado e "sem agente" também contam contra. Confira a **Meta de SLA** da fila em **Aplicações › Filas de Atendimento**.
 
-**Um ramal não aparece no Relatório por Ramal.**
+**Um ramal não aparece em Desempenho de Ramais.**
 - Não teve chamada no período, ou está inativo.
 
-**Na Produtividade de Agentes, a coluna Ramal mostra um nome.**
-- É uma fila comum: o relatório usa o nome do membro da fila. Em fila de call center aparece a matrícula.
+**Na Produtividade de Agentes, a coluna Identificação mostra um nome.**
+- É uma fila comum: o relatório usa o membro como a fila o registra. Em fila de call center aparece a matrícula, com o selo **call center**.
 
 **O relatório de troncos mostra zero para um tronco que funciona.**
 - As chamadas são ligadas ao tronco pelo nome. Se o tronco foi renomeado, as chamadas antigas ficam com o nome anterior.

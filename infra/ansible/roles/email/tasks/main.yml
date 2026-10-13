@@ -15,8 +15,17 @@
     name:
       - msmtp
       - msmtp-mta        # fornece /usr/sbin/sendmail
+      - libtiff-tools    # tiff2pdf: o fax recebido vai por e-mail em PDF
     state: present
     update_cache: true
+
+- name: Publicar o envio do fax por e-mail
+  ansible.builtin.template:
+    src: telium-fax-email.j2
+    dest: /usr/local/sbin/telium-fax-email
+    owner: root
+    group: root
+    mode: "0755"
 
 - name: Publicar o gerador da configuração de e-mail
   ansible.builtin.template:

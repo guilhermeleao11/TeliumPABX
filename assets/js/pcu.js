@@ -180,8 +180,9 @@ PAGES['pcu.sigame'] = {
                 É o que se usa quando o celular é o plano B.</li>
             <li>Se o destino não atender, a chamada volta para o <b>seu</b> correio de voz — e não
                 para a caixa postal da operadora do celular.</li>
-            <li>Pelo telefone: <span class="mono">*72</span> mais o número liga,
-                <span class="mono">*73</span> desliga.</li>
+            <li>Pelo telefone: <span class="mono">*21</span> mais o número liga,
+                <span class="mono">*22</span> desliga (códigos de fábrica; a central pode ter
+                outros — pergunte ao administrador).</li>
           </ul>
         </div>
       </div>`;

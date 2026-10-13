@@ -14,3 +14,9 @@ deny    = 0.0.0.0/0.0.0.0
 permit  = 127.0.0.1/255.255.255.255
 read    = system,call,agent,user,config,dtmf,reporting,cdr,dialplan
 write   = system,call,agent,user,config,command,reporting,originate
+
+; Usuários do AMI criados à mão (PABX de operadora, sistema de gravação,
+; outro monitoramento). O playbook nunca sobrescreve este arquivo, e ele
+; fica fora da pasta que o console edita: um usuário do AMI tem poder de
+; root sobre a central.
+#tryinclude "manager_custom.conf"

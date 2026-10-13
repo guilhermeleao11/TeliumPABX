@@ -20,10 +20,28 @@
     # Fax T.38 (UDPTL): sem esta faixa a operadora negocia o T.38 e o fax
     # não passa.
     - "{{ udptl_inicio | default(4000) }}:{{ udptl_fim | default(4999) }}/udp"
-    - "{{ janus_rtp_inicio }}:{{ janus_rtp_fim }}/udp"
   when: instalar_firewall
   register: ufw_regras
   changed_when: "'Rule added' in ufw_regras.stdout"
+
+# A faixa do Janus só abre com o Janus instalado: aberta sem ele, eram
+# duzentas portas UDP expostas sem ninguém escutando.
+- name: Regras de firewall do Janus
+  ansible.builtin.command:
+    cmd: "ufw allow {{ janus_rtp_inicio }}:{{ janus_rtp_fim }}/udp"
+  when: instalar_firewall and (instalar_janus | default(false) | bool)
+  register: ufw_janus
+  changed_when: "'Rule added' in ufw_janus.stdout"
+
+# A regra antiga (20000:20200, aberta mesmo sem Janus e encostada na faixa
+# de RTP do Asterisk) sai das centrais que já a tinham.
+- name: Fechar a faixa antiga do Janus
+  ansible.builtin.command:
+    cmd: "ufw delete allow 20000:20200/udp"
+  when: instalar_firewall
+  register: ufw_janus_velho
+  changed_when: "'Rule deleted' in ufw_janus_velho.stdout"
+  failed_when: false
 
 # As portas do TURN moram aqui, e não no papel do coturn, porque quem
 # instala o ufw é este papel — e ele roda por último. Abrir a porta lá

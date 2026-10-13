@@ -9,3 +9,6 @@ type     = user
 read_only = no
 password = {{ ari_senha }}
 password_format = plain
+
+; Usuários do ARI criados à mão. O playbook nunca sobrescreve este arquivo.
+#tryinclude "ari_custom.conf"

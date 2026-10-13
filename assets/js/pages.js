@@ -310,7 +310,7 @@ PAGES['dash.temporeal'] = {
   async render(ctx) {
     let d;
     try { d = await Api.get('/tempo-real'); }
-    catch (e) { return pageHead('Wallboard — Tempo Real', '') + blocoErro(e); }
+    catch (e) { return pageHead('Tempo Real (Wallboard)', '') + blocoErro(e); }
 
     const cards = d.filas.length ? d.filas.map(f => `
       <div class="card" style="padding:16px">
@@ -346,7 +346,7 @@ PAGES['dash.temporeal'] = {
         : vazio('alert', 'Sem comunicação com o Asterisk',
                 `Não foi possível ler os canais ativos. ${esc(d.asterisk_erro || '')}`);
 
-    return pageHead('Wallboard — Tempo Real',
+    return pageHead('Tempo Real (Wallboard)',
       'Filas e chamadas ativas, lidas direto do Asterisk.',
       d.asterisk
         ? `<span class="badge badge-ok"><i class="dot dot-pulse"></i>Ao vivo</span>`
@@ -1504,15 +1504,17 @@ const VAZIA_FILA = [
 
 PAGES['apps.filas'] = {
   async render(ctx) {
-    let r, anuncios, pesquisas, audios;
+    let r, anuncios, pesquisas, audios, destinos;
     try {
-      [r, anuncios, pesquisas, audios] = await Promise.all([
+      [r, anuncios, pesquisas, audios, destinos] = await Promise.all([
         Api.get('/filas', { limite: 200 }),
         Api.get('/anuncios', { limite: 200 }).catch(() => ({ dados: [] })),
         Api.get('/pesquisas', { limite: 100 }).catch(() => ({ dados: [] })),
-        Api.get('/audios').catch(() => ({ dados: [] }))
+        Api.get('/audios').catch(() => ({ dados: [] })),
+        opcoesDestino().catch(() => ({}))
       ]);
     } catch (e) { return pageHead('Filas de Atendimento', '') + blocoErro(e); }
+    this._destinos = destinos;
 
     this._itens = r.dados || [];
     this._anuncios = anuncios.dados || [];
@@ -1676,16 +1678,16 @@ PAGES['apps.filas'] = {
         tipo: 'switch', largura: 'full',
         ajuda: 'O agente ouve o sussurro e precisa apertar 1 para assumir. Evita a chamada morrer na caixa postal de um celular. Vale para os agentes montados nesta tela.' },
 
-      { aba: 'Failover', campo: 'destino_estouro_tipo', label: 'Tempo de espera esgotado — tipo',
-        tipo: 'select', opcoes: this._tiposDestino, largura: 'full' },
-      { aba: 'Failover', campo: 'destino_estouro_valor', label: 'Tempo esgotado — destino', mono: true,
-        ajuda: 'Ramal, fila, número da URA ou caixa postal, conforme o tipo.' },
-      { aba: 'Failover', campo: 'destino_vazia_tipo', label: 'Fila sem agente — tipo',
-        tipo: 'select', opcoes: this._tiposDestino, largura: 'full' },
-      { aba: 'Failover', campo: 'destino_vazia_valor', label: 'Sem agente — destino', mono: true },
-      { aba: 'Failover', campo: 'destino_cheia_tipo', label: 'Fila cheia — tipo',
-        tipo: 'select', opcoes: this._tiposDestino, largura: 'full' },
-      { aba: 'Failover', campo: 'destino_cheia_valor', label: 'Fila cheia — destino', mono: true },
+      // O mesmo seletor das outras telas: escolhe-se a URA, o anúncio ou o
+      // destino pelo nome. Com tipo e valor digitados, "número da URA" era
+      // o id interno dela, que nenhuma tela mostra.
+      { aba: 'Failover', campo: 'destino_estouro', tipo: 'destino', label: 'Tempo de espera esgotado',
+        largura: 'full', destinos: this._destinos, rotuloVazio: 'Desligar',
+        ajuda: 'Também é a saída para qualquer motivo sem destino próprio abaixo.' },
+      { aba: 'Failover', campo: 'destino_vazia', tipo: 'destino', label: 'Fila sem agente',
+        largura: 'full', destinos: this._destinos, rotuloVazio: 'Igual ao tempo esgotado' },
+      { aba: 'Failover', campo: 'destino_cheia', tipo: 'destino', label: 'Fila cheia',
+        largura: 'full', destinos: this._destinos, rotuloVazio: 'Igual ao tempo esgotado' },
 
       { aba: 'Pesquisa', campo: 'pesquisa_id', label: 'Pesquisa de satisfação', tipo: 'select',
         opcoes: [{ valor: '', rotulo: '— não perguntar nada —' },
@@ -1694,15 +1696,6 @@ PAGES['apps.filas'] = {
         largura: 'full',
         ajuda: 'Quando o atendente desliga, o cliente vai automaticamente para a pesquisa em vez de a chamada cair.' }
     ];
-  },
-
-  get _tiposDestino() {
-    return [{ valor: '', rotulo: '— nada, apenas desliga —' },
-            { valor: 'ramal', rotulo: 'Ramal' }, { valor: 'fila', rotulo: 'Outra fila' },
-            { valor: 'ura', rotulo: 'URA' }, { valor: 'voicemail', rotulo: 'Correio de voz' },
-            { valor: 'anuncio', rotulo: 'Anúncio' },
-            { valor: 'personalizado', rotulo: 'Destino personalizado' },
-            { valor: 'desligar', rotulo: 'Desligar' }];
   },
 
   mount(ctx) {
@@ -1770,6 +1763,13 @@ PAGES['apps.filas'] = {
             campos.forEach(c => {
               const el = dw.querySelector(`[name="${c.campo}"]`);
               if (!el) return;
+              // Um seletor de destino grava duas colunas.
+              if (c.tipo === 'destino') {
+                const d = lerDestino(el);
+                dados[`${c.campo}_tipo`] = d.tipo;
+                dados[`${c.campo}_valor`] = d.valor;
+                return;
+              }
               dados[c.campo] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value.trim();
             });
 
@@ -2110,8 +2110,32 @@ PAGES['rel.cdr'] = {
       this._f.pagina = Number(b.dataset.pagina);
       App.route();
     });
-    document.getElementById('exportarCdr')?.addEventListener('click',
-      () => toast('Exportação assíncrona ainda não implementada no servidor.', 'warn'));
+    // O mesmo filtro da tela, em planilha. Vem com a sessão: um link
+    // simples não levaria o token.
+    document.getElementById('exportarCdr')?.addEventListener('click', async ev => {
+      const b = ev.currentTarget;
+      const antes = b.innerHTML;
+      b.disabled = true;
+      b.innerHTML = '<span class="spin"></span> Gerando…';
+      try {
+        const { pagina, ...filtro } = this._f;
+        const q = new URLSearchParams(Object.fromEntries(Object.entries(filtro).filter(([, v]) => v !== '' && v != null)));
+        const r = await fetch(`/api/cdr/exportar?${q}`, {
+          headers: Api.token ? { Authorization: `Bearer ${Api.token}` } : {}, credentials: 'same-origin'
+        });
+        if (!r.ok) {
+          const erro = await r.json().catch(() => null);
+          throw new Error(erro?.erro || 'Não foi possível gerar a planilha.');
+        }
+        const url = URL.createObjectURL(await r.blob());
+        const a = document.createElement('a');
+        a.href = url; a.download = `cdr-${this._f.de || 'tudo'}_${this._f.ate || ''}.csv`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (e) { toast(e.message, 'err'); }
+      b.disabled = false;
+      b.innerHTML = antes;
+    });
   }
 };
 
@@ -2419,7 +2443,7 @@ PAGES['admin.permissoes'] = {
             <span class="tiny muted">${esc(a.ajuda)}</span></span></td>
         ${r.dados.map(p => `<td class="role-cell">
           <label class="switch"><input type="checkbox" ${(p.caps || []).includes(a.chave) ? 'checked' : ''}
-                 ${editavel ? '' : 'disabled'} data-perfil="${p.id}" data-acao="${a.chave}">
+                 ${editavel && p.chave !== 'admin' ? '' : 'disabled'} data-perfil="${p.id}" data-acao="${a.chave}">
             <span class="track"></span></label></td>`).join('')}
       </tr>`).join('');
 
@@ -2431,7 +2455,7 @@ PAGES['admin.permissoes'] = {
               <span class="tiny muted mono">${esc(i.id)}</span></span></td>
           ${r.dados.map(p => `<td class="role-cell">
             <label class="switch"><input type="checkbox" ${podeModulo(p, i.id) ? 'checked' : ''}
-                   ${editavel ? '' : 'disabled'} data-perfil="${p.id}" data-modulo="${esc(i.id)}">
+                   ${editavel && p.chave !== 'admin' ? '' : 'disabled'} data-perfil="${p.id}" data-modulo="${esc(i.id)}">
               <span class="track"></span></label></td>`).join('')}
         </tr>`).join('')}`).join('');
 
@@ -2552,10 +2576,24 @@ PAGES['admin.permissoes'] = {
           const tinhaCuringa = (p.allow || []).includes('*');
           const total = document.querySelectorAll(`[data-perfil="${p.id}"][data-modulo]`).length;
 
-          await Api.put(`/perfis/${p.id}/permissoes`, {
-            allow: (tinhaCuringa && modulos.length === total) ? ['*'] : modulos,
-            caps: acoes
-          });
+          // O mesmo vale para o curinga de um grupo (rel.*, dash.*): quem o
+          // tinha e continua com o grupo inteiro marcado fica com o curinga.
+          // Trocá-lo pela lista de hoje fazia os módulos que chegassem nas
+          // próximas versões não aparecerem para o Supervisor nem o Auditor.
+          let allow = modulos;
+          if (tinhaCuringa && modulos.length === total) {
+            allow = ['*'];
+          } else {
+            for (const g of MENU) {
+              const curinga = `${g.id}.*`;
+              const doGrupo = g.items.map(i => i.id);
+              if ((p.allow || []).includes(curinga) && doGrupo.every(m => modulos.includes(m))) {
+                allow = [...allow.filter(m => !doGrupo.includes(m)), curinga];
+              }
+            }
+          }
+
+          await Api.put(`/perfis/${p.id}/permissoes`, { allow, caps: acoes });
         }
         toast('Permissões salvas. Cada usuário verá a mudança no próximo carregamento.', 'ok');
         App.route();

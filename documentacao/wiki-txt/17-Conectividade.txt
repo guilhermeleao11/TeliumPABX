@@ -500,11 +500,12 @@ Tela só de leitura com todos os números que chegam à central, venham de rota 
 
 - Número: O DID
 - Descrição: Da rota, ou do DID do ramal ("Ramal 1001" se vazia)
-- Vai para: O destino
+- Vai para: O destino pelo nome (a URA, a fila, o anúncio…), com o mesmo texto da rota de entrada
 - Cadastrado em: rota de entrada ou DID do ramal
 - Estado: Ativo, Desativado ou duplicado
 
 - Duplicado: o mesmo número está numa rota de entrada e no cadastro de um ramal. A rota de entrada vence; o DID do ramal fica sem efeito. A tela mostra um aviso no topo com a quantidade.
+- A comparação é só pelos dígitos: (11) 3325-5800 no ramal e 1133255800 na rota são o mesmo número e aparecem como duplicado.
 - O DID do ramal vira rota sozinho: a chamada cai direto no ramal, grava se o ramal grava entrantes e usa o CID de entrada como prefixo no visor.
 
 [PRINT: lista de DIDs com uma linha duplicado]
@@ -606,6 +607,26 @@ A lista mostra MAC, Aparelho, Ramal, Buscou a configuração (quando, de qual IP
 Para a central, qualquer recusa responde "não encontrado" ao aparelho, que volta a tentar no próximo boot.
 
 
+Últimos pedidos dos telefones
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Cartão com os 30 pedidos mais recentes de configuração. É aqui que se descobre por que um aparelho não pegou a configuração. Só aparece depois do primeiro pedido.
+
+- Quando: Data e hora do pedido
+- MAC: O MAC que o aparelho pediu
+- IP: De onde veio o pedido
+- Resultado: Veja abaixo
+- Aparelho: Como o telefone se identificou no pedido (o User-Agent: em geral, modelo e firmware)
+
+- entregue: O aparelho recebeu a configuração
+- MAC não cadastrado: Cadastre o aparelho com este MAC na lista abaixo
+- aparelho sem ramal: O aparelho está cadastrado, mas sem ramal
+- segredo errado: O endereço configurado no telefone está com o segredo antigo
+- fora da rede interna: O pedido veio de fora das redes internas
+
+[PRINT: cartão "Últimos pedidos dos telefones" com uma linha recusada]
+
+
 Linphone no celular (QR Code)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -648,7 +669,7 @@ Alerta "a chamada conecta e ninguém ouve": aparece quando a máquina sai pela i
 Outros cartões
 ~~~~~~~~~~~~~~
 
-- Transportes SIP: Transportes carregados no Asterisk e onde escutam
+- Transportes SIP: Transportes carregados no Asterisk e onde escutam. Quem atende o navegador é o nginx, que termina o TLS com o certificado do console e repassa ao Asterisk em 127.0.0.1; o transport-wss escuta em 0.0.0.0 de propósito: preso no loopback, o áudio do softphone do navegador não sai
 - Faixa de portas de voz (RTP): Lido do Asterisk
 - STUN ativo no RTP: Alerta quando o rtp.conf tem stunaddr: se o endereço não responder, cada chamada atrasa nove segundos. Tire, a menos que haja motivo
 - Servidor HTTP do Asterisk: Estado do servidor que atende o WebSocket do WebRTC
@@ -659,6 +680,7 @@ STUN e TURN
 
 - O STUN do botão Descobrir é um servidor de fora (por padrão, do Google e da Cloudflare), usado só quando alguém clica.
 - O STUN e o TURN do softphone do navegador são outros, definidos na instalação. Veja a seção 10.
+- O endereço público desta tela também chega ao TURN da central (coturn, external-ip): vale o nat_ip_publico do servidor.yml; sem ele, o endereço gravado aqui. Isso é aplicado pelo playbook: depois de mudar o endereço, rode a atualização (ou o playbook) para o TURN passar a usá-lo.
 
 [PRINT: cartão Central atrás de NAT preenchido]
 
@@ -677,6 +699,7 @@ Ligar e desligar
 - O telefone pelo navegador vem desligado. Desligado, o discador do console continua funcionando: liga pelo telefone de mesa de quem clicou (a central chama o ramal e, quando a pessoa atende, completa a chamada).
 - Ligar o telefone pelo navegador e Desligar valem na hora. Ao ligar, cada usuário precisa recarregar o console. Ao desligar, chamadas em curso não caem.
 - Para o ramal aparecer no discador do navegador, ele precisa estar marcado como Softphone do navegador no cadastro e vinculado ao usuário em Administrador › Gerenciador de Usuários.
+- Numa instalação nova, o softphone do navegador já funciona antes do primeiro "Aplicar configurações": o transporte WSS nasce do playbook com o mesmo ajuste que o console grava.
 - O navegador só libera o microfone em página segura (HTTPS) ou em localhost. O certificado é o mesmo do console, gerido em Administrador › Certificados (Administrador (ver página 12)).
 
 
@@ -843,7 +866,7 @@ O telefone não se provisiona.
 - Aparelho sem ramal, ou ramal inativo.
 - Telefone fora das faixas internas: acrescente a faixa em Configurações de Rede.
 - URL antiga depois de Gerar novo segredo.
-- O badge de pedidos recusados mostra se o telefone chegou a pedir.
+- O badge de pedidos recusados e o cartão Últimos pedidos dos telefones mostram se o telefone chegou a pedir e por que foi recusado.
 
 O QR do Linphone não funciona.
 - Venceu (10 minutos) ou já foi lido uma vez: gere outro.

@@ -170,14 +170,20 @@ final class Tarifa
      *
      * @return array{tarifadas:int, sem_tarifa:int, total:float}
      */
-    public static function aplicar(?string $mes = null, int $teto = 20000): array
+    public static function aplicar(?string $mes = null, int $teto = 20000, bool $refazer = false): array
     {
         $tarifas = Bd::todos('SELECT * FROM tarifas WHERE ativo = 1 ORDER BY ordem, id');
-        if ($tarifas === []) {
+        if ($tarifas === [] && !$refazer) {
             return ['tarifadas' => 0, 'sem_tarifa' => 0, 'total' => 0.0];
         }
 
-        $onde = ["direcao = 'saida'", 'custo IS NULL'];
+        // O temporizador só tarifa o que ainda não tem custo. "Recalcular o
+        // mês" refaz o mês inteiro: sem isso, um preço corrigido não mudava
+        // nenhuma chamada que já tinha custo, e o botão não fazia nada.
+        $onde = ["direcao = 'saida'"];
+        if (!$refazer || $mes === null || $mes === '') {
+            $onde[] = 'custo IS NULL';
+        }
         $args = [];
         if ($mes !== null && $mes !== '') {
             $onde[] = "DATE_FORMAT(calldate, '%Y-%m') = ?";
@@ -204,6 +210,11 @@ final class Tarifa
                 $ultimo = (int) $c['id'];
                 $t = self::escolher($tarifas, $c['classe'] ?? null, (string) ($c['dst'] ?? ''));
                 if ($t === null) {
+                    // Recalculando, a tarifa que valia pode ter sido apagada:
+                    // o custo antigo não vale mais.
+                    if ($refazer) {
+                        Bd::executar('UPDATE cdr SET custo = NULL WHERE id = ?', [(int) $c['id']]);
+                    }
                     $semTarifa++;
                     continue;
                 }

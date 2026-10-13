@@ -29,3 +29,5 @@ infra/ansible/group_vars/all/servidor.yml
 # center) vai no Git; o AudiosPt-br/ é clone de outro projeto, com Git
 # próprio, e fica de fora.
 AudiosPt-br/
+api/COMMIT
+api/.env.*

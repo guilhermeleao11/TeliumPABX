@@ -131,6 +131,8 @@ final class Audios
             ]
         );
 
+        // Música de espera e anúncios viram configuração gerada.
+        \Telium\Gerador\Gerador::marcarPendente();
         Auditoria::registrar($req->getAttribute('usuario'), 'criar', 'admin.gravacoes', $base,
                              ['formatos' => $formatos, 'duracao' => $duracao]);
 
@@ -160,6 +162,8 @@ final class Audios
                 $audio['id'],
             ]
         );
+        // Trocar a categoria tira ou põe o áudio na música de espera.
+        \Telium\Gerador\Gerador::marcarPendente();
 
         return Resposta::json($res, ['ok' => true]);
     }
@@ -200,6 +204,7 @@ final class Audios
 
         Auditoria::registrar($req->getAttribute('usuario'), 'excluir', 'admin.gravacoes',
                              (string) $audio['arquivo']);
+        \Telium\Gerador\Gerador::marcarPendente();
 
         return Resposta::json($res, ['removido' => true]);
     }

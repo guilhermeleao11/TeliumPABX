@@ -98,7 +98,7 @@ ari_senha: "{{ vault_ari_senha | default(lookup('password', credenciais_dir ~ '/
 janus_http_porta: 8088
 janus_ws_porta: 8188
 janus_admin_porta: 7088
-janus_rtp_inicio: 20000
+janus_rtp_inicio: 20001         # logo depois da faixa do Asterisk, sem sobrepor
 janus_rtp_fim: 20200
 janus_prefix: /opt/janus
 

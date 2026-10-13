@@ -329,7 +329,7 @@ final class Autenticacao
             'usuario'    => $this->publico($usuario),
             'permissoes' => ['allow' => $allow, 'caps' => $caps],
             'empresa'    => Bd::um('SELECT nome, plano, ramais_contratados FROM empresa WHERE id = 1'),
-            'versao'     => Versao::NUMERO,
+            'versao'     => Versao::exibicao(),
             'softphone'  => $this->softphone($usuario, $allow),
         ]);
     }

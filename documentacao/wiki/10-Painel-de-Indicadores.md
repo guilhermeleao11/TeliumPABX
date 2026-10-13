@@ -48,10 +48,10 @@ O resumo do dia. Os números saem do CDR (registro de chamadas) e do estado atua
 |---|---|
 | Chamadas hoje | Total de registros do CDR com data de hoje. A seta compara com o total de ontem, em porcentagem, e o rodapé diz "vs. N ontem". Sem chamadas ontem, aparece "sem histórico de ontem" e não há seta |
 | Em atendimento | Chamadas ativas agora, lidas do Asterisk. O rodapé mostra quantos canais estão abertos. Se o Asterisk não responder, aparece "—" e "Asterisk não respondeu" |
-| Taxa de abandono | Chamadas de hoje com resultado Não atendida, Ocupado ou Falha, divididas pelo total de hoje. O rodapé mostra "N de M chamadas" |
+| Entrada não atendida | Chamadas **de fora** (entrada) de hoje que ninguém atendeu, divididas pelo total de chamadas de entrada de hoje. O rodapé mostra "N de M chamadas de fora"; sem chamada de fora no dia, aparece "—" e "nenhuma chamada de fora hoje" |
 | TMA — tempo médio | Média do tempo falado das chamadas de hoje que tiveram conversa (as de tempo falado zero ficam fora da conta) |
 
-Atenção: a **Taxa de abandono** daqui é de todas as chamadas da central (internas e externas), não só de fila. O abandono de fila de verdade está em **Relatórios › Desempenho de Filas** ([18-Relatorios.md](18-Relatorios.md)).
+Atenção: o cartão **Entrada não atendida** conta só as chamadas que vieram de fora; ligação de ramal para ramal que ninguém atendeu não entra (até a versão 1.0.7 o cartão se chamava "Taxa de abandono" e misturava as internas). Não é o abandono de fila: esse, medido pela própria fila, está em **Relatórios › Desempenho de Filas** ([18-Relatorios.md](18-Relatorios.md)).
 
 ### Volume de chamadas por hora
 
@@ -96,7 +96,7 @@ As oito últimas linhas da auditoria (quem fez o quê, em qual módulo, IP e hor
 
 **Painel de Indicadores › Tempo Real (Wallboard)**
 
-O título da tela é **Wallboard — Tempo Real**. Mostra as filas ativas e as chamadas em andamento, lidas direto do Asterisk. **Atualiza sozinha a cada 5 segundos** enquanto a tela está aberta.
+O título da tela é **Tempo Real (Wallboard)**, o mesmo do menu. Mostra as filas ativas e as chamadas em andamento, lidas direto do Asterisk. **Atualiza sozinha a cada 5 segundos** enquanto a tela está aberta.
 
 > 📷 **Print:** wallboard com duas ou três filas e a tabela de chamadas em andamento.
 
@@ -220,8 +220,8 @@ Para rodar outros comandos, use **Administrador › CLI Asterisk** ([12-Administ
 **A fila não aparece no wallboard.**
 - A fila está desativada no cadastro. Só filas ativas aparecem.
 
-**Na Visão Geral, "Taxa de abandono" está alta, mas as filas estão bem.**
-- Esse cartão conta todas as chamadas não atendidas, ocupadas ou com falha da central, inclusive ligações entre ramais. Para abandono de fila, use o relatório de filas.
+**Na Visão Geral, "Entrada não atendida" está alta, mas as filas estão bem.**
+- O cartão conta toda chamada de fora cujo resultado no CDR não é "atendida" (não atendida, ocupado, falha), em qualquer destino, e não só nas filas. O abandono das filas está em **Relatórios › Desempenho de Filas**.
 
 **O quadro "Atividade recente" está sempre vazio.**
 - O seu perfil não tem o módulo Auditoria. É de propósito: a trilha mostra usuários e IPs.

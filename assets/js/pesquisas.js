@@ -52,14 +52,14 @@ PAGES['apps.pesquisas'] = {
         Api.get('/filas', { limite: 500 }).catch(() => ({ dados: [] }))
       ]);
     } catch (e) {
-      return pageHead('Pesquisa de satisfação', '') + blocoErro(e);
+      return pageHead('Pesquisa de Satisfação', '') + blocoErro(e);
     }
     this._pesquisas = pesquisas.dados || [];
     this._anuncios = anuncios.dados || [];
     this._filas = filas.dados || [];
     if (!this._aba) this._aba = this._pesquisas.length ? 'resultados' : 'pesquisas';
 
-    const cabecalho = pageHead('Pesquisa de satisfação',
+    const cabecalho = pageHead('Pesquisa de Satisfação',
       'O cliente dá a nota do atendimento logo depois que o atendente desliga, ou quando é transferido para a pesquisa.',
       `${readOnlyNote(ctx)}${ctx.can('criar') ? `<button class="btn btn-primary btn-sm" data-nova-pesquisa>
         ${icon('plus','ico ico-sm')} Nova pesquisa</button>` : ''}`);
