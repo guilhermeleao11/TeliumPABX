@@ -129,7 +129,7 @@ sudo ansible-playbook site.yml
 
 | Endereço | Usuário | Senha |
 |---|---|---|
-| `https://voz.cliente.com.br/` | `admin` | `T3l1um_@2024_@aD1m` (inicial) |
+| `https://voz.cliente.com.br/` | `admin` | a senha inicial, mostrada no fim da instalação e em `/etc/telium/instalacao.txt` (só root) |
 
 > **Troque a senha no primeiro acesso** (Meu Perfil e Segurança). A senha
 > inicial é a mesma de fábrica em toda central e está no repositório. O

@@ -352,7 +352,7 @@ docker exec v-ast sh -c 'rm -rf /var/lib/asterisk/sounds/pt_BR &&
 echo
 passo "pronto"
 echo "   console : http://127.0.0.1:${PORTA}/"
-echo "   entrada : admin / T3l1um_@2024_@aD1m"
+echo "   entrada : admin / senha_padrao_console (infra/ansible/group_vars/all/main.yml)"
 echo "   asterisk: docker exec -it v-ast asterisk -rvvv"
 echo "   testes  : docker exec v-web sh -c 'cd /w/api && php bin/telium testar'"
 echo "${amarelo}   a bancada usa senhas de bancada; nada aqui vai para produção.${zero}"

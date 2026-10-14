@@ -36,7 +36,7 @@ Vale para todos os guias.
 
 | Endereço | Usuário | Senha |
 |---|---|---|
-| `https://<nome ou IP do servidor>/` | `admin` | `T3l1um_@2024_@aD1m` |
+| `https://<nome ou IP do servidor>/` | `admin` | a senha inicial, mostrada no fim da instalação e em `/etc/telium/instalacao.txt` (só root) |
 
 Essa é a senha **inicial**: troque-a no primeiro acesso. O playbook só a
 define na primeira instalação, e as atualizações não voltam a mexer nela.

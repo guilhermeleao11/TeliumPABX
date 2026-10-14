@@ -280,7 +280,7 @@ nem entram no Git.
 
 | Usuário | Senha |
 |---|---|
-| `admin` | `T3l1um_@2024_@aD1m` |
+| `admin` | a senha inicial, mostrada no fim da instalação e em `/etc/telium/instalacao.txt` (só root) |
 
 O playbook a define **só na primeira instalação** (a marca é
 `/etc/telium/.senha-admin-inicial`); as atualizações não voltam a mexer
@@ -334,7 +334,7 @@ sudo ansible-playbook verificar.yml
 |---|---|
 | Console | `https://<ip-da-vm>/` |
 | API | `https://<ip-da-vm>/api/health` |
-| Login | `admin` / `T3l1um_@2024_@aD1m` |
+| Login | `admin`, com a senha inicial mostrada no fim da instalação e em `/etc/telium/instalacao.txt` (só root) |
 
 Antes de virar a chave num cliente, preencha o
 [caderno de aceitação](../docs/CADERNO-DE-TESTE.md): ele separa o que é

@@ -5,7 +5,7 @@
 -- perfis de acesso com suas permissões e a conta de administrador.
 -- NENHUM ramal, tronco, fila ou rota fictícia.
 --
--- Senha do admin: T3l1um_@2024_@aD1m
+-- Senha do admin: a inicial, definida pelo playbook (senha_padrao_console).
 -- Reaplicar este script restaura essa senha e desbloqueia a conta.
 --
 -- A base nasce vazia de dados operacionais: ramais, troncos, filas,

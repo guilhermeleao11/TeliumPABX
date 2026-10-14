@@ -39,7 +39,7 @@ python3 -m http.server 8080   # e acesse http://localhost:8080
 
 | Usuário | Senha |
 |---|---|
-| `admin` | `T3l1um_@2024_@aD1m` |
+| `admin` | a senha inicial, mostrada no fim da instalação e em `/etc/telium/instalacao.txt` (só root) |
 
 É a única conta que nasce com a instalação, com essa senha **inicial**: troque-a
 no primeiro acesso. O playbook só a define na primeira instalação — as

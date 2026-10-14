@@ -801,8 +801,8 @@ final class Testes
     // ---------------------------------------------------------------
     private function senha(): void
     {
-        $hash = Senha::criar('T3l1um_@2024_@aD1m');
-        $this->ok(Senha::verificar('T3l1um_@2024_@aD1m', $hash), 'a senha certa confere');
+        $hash = Senha::criar('Exemplo_de_s3nha!');
+        $this->ok(Senha::verificar('Exemplo_de_s3nha!', $hash), 'a senha certa confere');
         $this->ok(!Senha::verificar('outra', $hash), 'a senha errada não confere');
         $this->ok(!Senha::verificar('', $hash), 'senha vazia não confere');
         $this->ok(str_starts_with($hash, 'pbkdf2_sha256$'), 'o hash sai no formato esperado');
