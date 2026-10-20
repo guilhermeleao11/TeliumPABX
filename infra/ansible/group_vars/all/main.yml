@@ -105,6 +105,21 @@ ami_senha: "{{ vault_ami_senha | default(lookup('password', credenciais_dir ~ '/
 ari_usuario: telium
 ari_senha: "{{ vault_ari_senha | default(lookup('password', credenciais_dir ~ '/ari_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho), true) }}"
 
+# ---------- Asternic Call Center Stats PRO (opcional) ----------
+# Relatórios de filas da House Internet, em Call Center › Stats. É software
+# comercial: cada central precisa de uma licença comprada, presa ao MAC do
+# servidor. Os arquivos não vão para o Git (a licença proíbe redistribuir):
+# o playbook baixa o pacote oficial na instalação. Ligue só nas centrais
+# com licença, no servidor.yml: instalar_asternic: true
+instalar_asternic: false
+asternic_versao: "2.3.19"
+asternic_url: "https://download.fop2.com/asternic-stats-pro-{{ asternic_versao }}.tgz"
+asternic_dir: /opt/asternic            # a tela fica em {{ asternic_dir }}/stats, servida em /stats/
+ioncube_url: "https://downloads.ioncube.com/loader_downloads/ioncube_loaders_lin_x86-64.tar.gz"
+asternic_db_senha: "{{ lookup('password', credenciais_dir ~ '/asternic_db_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho) }}"
+asternic_ami_senha: "{{ lookup('password', credenciais_dir ~ '/asternic_ami_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho) }}"
+asternic_admin_senha: "{{ lookup('password', credenciais_dir ~ '/asternic_admin_senha chars=' ~ senha_alfabeto ~ ' length=16') }}"
+
 janus_http_porta: 8088
 janus_ws_porta: 8188
 janus_admin_porta: 7088

@@ -35,6 +35,10 @@
 # Nome da empresa, usado na identificação da central.
 # pabx_empresa: "Sua Empresa"
 
+# Asternic Call Center Stats PRO (Call Center › Stats). Só com licença
+# comprada para ESTE servidor: ela é presa ao MAC da placa de rede.
+# instalar_asternic: true
+
 # Arquivo da ferramenta de backup da empresa (a lista com linhas "I /etc",
 # "I /home"…). O padrão é /root/.backup_telium: o playbook mantém nele um
 # bloco marcado "Telium PABX" com o que é essencial da central, sem tocar

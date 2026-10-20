@@ -1,0 +1,267 @@
+---
+# Asternic Call Center Stats PRO, integrado ao Telium.
+#
+# O instalador do fornecedor (make install) pressupõe Apache, cria o banco
+# com usuário de senha fixa e permissão SUPER, deixa o login admin/admin e
+# carrega o ionCube em todo PHP da máquina. Aqui ele vira parte da central:
+#
+#   · o pacote vem do site oficial, na versão de asternic_versao — os
+#     arquivos não vão para o Git, porque a licença proíbe redistribuir;
+#   · a tela fica em {{ asternic_dir }}/stats, servida pelo nginx em /stats/,
+#     num pool do PHP-FPM próprio, com usuário próprio: o código fechado
+#     não enxerga as senhas da API nem do Telium;
+#   · o /stats/ só abre para quem está logado no console com a permissão
+#     Call Center › Stats (o nginx pergunta à API a cada acesso);
+#   · banco qstats com usuário e senha aleatória por central, sem SUPER;
+#   · o Asterisk grava o queue_log também em arquivo (papel asterisk), e o
+#     serviço asterniclog o lê para o banco qstats.
+#
+# Atualizar: troque asternic_versao e rode o playbook. A licença
+# (asterniclic.php), o config.php e as personalizações ficam.
+
+- name: Instalar o que o Asternic usa
+  ansible.builtin.apt:
+    name:
+      - php8.4-xml
+      - php8.4-apcu
+      - php8.4-mysql
+      - libdbi-perl
+      - libdbd-mysql-perl
+      - rsync
+    state: present
+
+- name: Criar o usuário do Asternic
+  ansible.builtin.user:
+    name: asternic
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ asternic_dir }}"
+    create_home: false
+
+- name: Criar as pastas do Asternic
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: asternic
+    group: nginx
+    mode: "0750"
+  loop:
+    - "{{ asternic_dir }}"
+    - "{{ asternic_dir }}/stats"
+
+# ------------------------------------------------------------------
+# ionCube: o Asternic é distribuído codificado. O carregador entra no
+# PHP-FPM (onde a tela roda); a linha de comando o carrega só quando o
+# playbook precisa (update_db.php), sem mudar o php de todo mundo.
+# ------------------------------------------------------------------
+- name: Baixar o carregador ionCube
+  ansible.builtin.get_url:
+    url: "{{ ioncube_url }}"
+    dest: "{{ src_dir }}/ioncube_loaders_lin_x86-64.tar.gz"
+    mode: "0644"
+
+- name: Extrair o carregador ionCube
+  ansible.builtin.unarchive:
+    src: "{{ src_dir }}/ioncube_loaders_lin_x86-64.tar.gz"
+    dest: /usr/local
+    remote_src: true
+    creates: /usr/local/ioncube/ioncube_loader_lin_8.4.so
+
+- name: Carregar o ionCube no PHP-FPM
+  ansible.builtin.copy:
+    dest: /etc/php/8.4/fpm/conf.d/00-ioncube.ini
+    content: |
+      ; Gerado pelo Ansible — Telium PABX (Asternic). Não edite à mão.
+      zend_extension=/usr/local/ioncube/ioncube_loader_lin_8.4.so
+    mode: "0644"
+  notify: reiniciar php-fpm
+
+# ------------------------------------------------------------------
+# O pacote do fornecedor
+# ------------------------------------------------------------------
+- name: Baixar o Asternic {{ asternic_versao }}
+  ansible.builtin.get_url:
+    url: "{{ asternic_url }}"
+    dest: "{{ src_dir }}/asternic-stats-pro-{{ asternic_versao }}.tgz"
+    mode: "0644"
+
+- name: Extrair o Asternic
+  ansible.builtin.unarchive:
+    src: "{{ src_dir }}/asternic-stats-pro-{{ asternic_versao }}.tgz"
+    dest: "{{ src_dir }}"
+    remote_src: true
+    creates: "{{ src_dir }}/asternic-stats-pro-{{ asternic_versao }}/html/config.php"
+
+# A cópia preserva o que é da central: a licença ativada, o config.php e as
+# personalizações. Na primeira vez eles vêm do pacote; depois, ficam.
+- name: Publicar a tela do Asternic
+  ansible.builtin.shell:
+    cmd: |
+      origem="{{ src_dir }}/asternic-stats-pro-{{ asternic_versao }}/html/"
+      destino="{{ asternic_dir }}/stats/"
+      rsync -a --itemize-changes \
+        --exclude config.php --exclude custom.php --exclude asterniclic.php \
+        --exclude css/custom.css --exclude js/custom.js \
+        "$origem" "$destino"
+      for f in config.php custom.php css/custom.css js/custom.js; do
+        [ -e "$destino$f" ] || { cp -p "$origem$f" "$destino$f" && echo "novo $f"; }
+      done
+      chown -R asternic:nginx "$destino"
+      find "$destino" -type d -exec chmod 0750 {} +
+      find "$destino" -type f -exec chmod 0640 {} +
+  register: asternic_web
+  changed_when: asternic_web.stdout | length > 0
+
+- name: Configurar o banco e o AMI do Asternic
+  ansible.builtin.replace:
+    path: "{{ asternic_dir }}/stats/config.php"
+    regexp: "{{ item.de }}"
+    replace: "{{ item.para }}"
+  loop:
+    - { de: "^\\$DBUSER\\s*=.*$",          para: "$DBUSER = 'qstatsUser';" }
+    - { de: "^\\$DBPASS\\s*=.*$",          para: "$DBPASS = '{{ asternic_db_senha }}';" }
+    - { de: "^\\$MANAGER_HOST\\s*=.*$",    para: "$MANAGER_HOST   = \"127.0.0.1\";" }
+    - { de: "^\\$MANAGER_USER\\s*=.*$",    para: "$MANAGER_USER   = \"asternic\";" }
+    - { de: "^\\$MANAGER_SECRET\\s*=.*$",  para: "$MANAGER_SECRET = \"{{ asternic_ami_senha }}\";" }
+    - { de: "^\\$REST_PASS\\s*=.*$",       para: "$REST_PASS = \"{{ asternic_db_senha | hash('sha1') }}\";" }
+  loop_control:
+    label: "{{ item.de | regex_replace('[^A-Z_]', '') }}"
+  no_log: true
+
+# ------------------------------------------------------------------
+# Banco qstats: usuário próprio, sem SUPER (o instalador do fornecedor
+# dava SUPER em tudo e uma senha que está no manual dele).
+# ------------------------------------------------------------------
+- name: Ver se o banco do Asternic já existe
+  ansible.builtin.command:
+    cmd: mariadb --protocol=socket -uroot -N -B -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'qstats'"
+  register: asternic_tabelas
+  changed_when: false
+
+- name: Criar o banco do Asternic
+  ansible.builtin.shell:
+    cmd: |
+      mariadb --protocol=socket -uroot -e "CREATE DATABASE IF NOT EXISTS qstats DEFAULT CHARACTER SET utf8"
+      mariadb --protocol=socket -uroot qstats < "{{ src_dir }}/asternic-stats-pro-{{ asternic_versao }}/sql/mysql-tables.sql"
+      mariadb --protocol=socket -uroot qstats < "{{ src_dir }}/asternic-stats-pro-{{ asternic_versao }}/sql/trigger.sql"
+  when: (asternic_tabelas.stdout | trim | int) == 0
+
+- name: Usuário do banco do Asternic
+  ansible.builtin.shell:
+    cmd: >-
+      mariadb --protocol=socket -uroot -e "
+      CREATE USER IF NOT EXISTS 'qstatsUser'@'localhost' IDENTIFIED BY '{{ asternic_db_senha }}';
+      ALTER USER 'qstatsUser'@'localhost' IDENTIFIED BY '{{ asternic_db_senha }}' ACCOUNT UNLOCK;
+      GRANT ALL PRIVILEGES ON qstats.* TO 'qstatsUser'@'localhost';"
+  changed_when: false
+  no_log: true
+
+# Quem rodou o "make install" do fornecedor antes ficou com SUPER: sai.
+# Sem a permissão, o MariaDB reclama, e isso é o esperado.
+- name: Tirar o SUPER que o instalador do fornecedor dava
+  ansible.builtin.command:
+    cmd: mariadb --protocol=socket -uroot -e "REVOKE SUPER ON *.* FROM 'qstatsUser'@'localhost'"
+  changed_when: false
+  failed_when: false
+
+# O login da tela nasce admin/admin no pacote. Aqui ele ganha uma senha
+# aleatória, uma vez só: depois, quem manda é quem administra o Asternic.
+- name: Senha inicial do admin do Asternic
+  ansible.builtin.shell:
+    cmd: >-
+      mariadb --protocol=socket -uroot qstats -e "
+      UPDATE users SET password = SHA1('{{ asternic_admin_senha }}') WHERE login = 'admin';
+      UPDATE users SET password = SHA1('{{ asternic_db_senha | hash('sha1') }}') WHERE login = 'restUser';"
+      && touch {{ telium_etc }}/.asternic-admin-inicial
+    creates: "{{ telium_etc }}/.asternic-admin-inicial"
+  no_log: true
+
+- name: Atualizar as tabelas do Asternic para a versão instalada
+  ansible.builtin.command:
+    cmd: php -d zend_extension=/usr/local/ioncube/ioncube_loader_lin_8.4.so {{ asternic_dir }}/stats/update_db.php
+    chdir: "{{ asternic_dir }}/stats"
+  register: asternic_update
+  changed_when: false
+  failed_when: false
+
+# ------------------------------------------------------------------
+# asterniclog: lê o queue_log (arquivo) e grava no banco qstats
+# ------------------------------------------------------------------
+- name: Publicar os scripts do Asternic
+  ansible.builtin.copy:
+    src: "{{ src_dir }}/asternic-stats-pro-{{ asternic_versao }}/parselog/"
+    dest: /usr/local/parselog/
+    remote_src: true
+    mode: "0755"
+
+- name: Opções do asterniclog
+  ansible.builtin.copy:
+    dest: /etc/default/asterniclog
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão.
+      OPTIONS="-u qstatsUser -p {{ asternic_db_senha }} -d qstats -h localhost -l /var/log/asterisk/queue_log --daemon"
+  no_log: true
+  notify: reiniciar asterniclog
+
+- name: Serviço asterniclog
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/asterniclog.service
+    mode: "0644"
+    content: |
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão.
+      [Unit]
+      Description=Asternic — leitura do queue_log para o banco qstats
+      After=network.target mariadb.service asterisk.service
+
+      [Service]
+      EnvironmentFile=-/etc/default/asterniclog
+      ExecStart=/usr/local/parselog/asterniclog $OPTIONS
+      Type=forking
+      PIDFile=/var/run/asterniclog.pid
+      Restart=on-failure
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: reiniciar asterniclog
+
+- name: Ligar o asterniclog
+  ansible.builtin.systemd_service:
+    name: asterniclog
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# ------------------------------------------------------------------
+# PHP-FPM próprio: o Asternic roda como "asternic", e não como a API
+# ------------------------------------------------------------------
+- name: Pool do PHP-FPM do Asternic
+  ansible.builtin.copy:
+    dest: /etc/php/8.4/fpm/pool.d/asternic.conf
+    mode: "0644"
+    content: |
+      ; Gerado pelo Ansible — Telium PABX (Asternic). Não edite à mão.
+      [asternic]
+      user  = asternic
+      group = nginx
+      listen       = /run/php/asternic.sock
+      listen.owner = nginx
+      listen.group = nginx
+      listen.mode  = 0660
+      pm = ondemand
+      pm.max_children = 10
+      pm.process_idle_timeout = 60s
+      php_admin_value[error_log] = /var/log/telium/php-asternic.log
+      php_admin_flag[log_errors] = on
+  notify: reiniciar php-fpm
+
+- name: Resumo do Asternic
+  ansible.builtin.debug:
+    msg:
+      - "Asternic {{ asternic_versao }} em https://{{ pabx_hostname }}/stats/ (Call Center › Stats)"
+      - "Login inicial: admin, senha em {{ credenciais_dir }}/asternic_admin_senha (só root)"
+      - "Na primeira vez a tela pede o código de ativação da licença deste servidor."
+      - "{{ 'update_db: ' ~ (asternic_update.stdout_lines | default([]) | last | default('ok')) }}"

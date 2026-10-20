@@ -154,6 +154,10 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.2.0 — Asternic em Call Center › Stats
+- Novo menu **Call Center › Stats**, com o Asternic Call Center Stats PRO. **Só para centrais com licença comprada**: acrescente `instalar_asternic: true` no `servidor.yml` daquela central e rode a atualização. Detalhes na página 16 (Call Center).
+- Nas outras centrais, nada muda: a tela Stats explica como ligar.
+
 ### 1.1.4 — backup da empresa sem linha repetida
 - O bloco em **`/root/.backup_telium`** passa a trazer só o que o arquivo ainda não tem (inclusive `/Telium`). Nada fica repetido: se `/etc`, `/home`, `/root` ou `/var/Backup` já estão nas linhas de vocês, não entram de novo no bloco.
 

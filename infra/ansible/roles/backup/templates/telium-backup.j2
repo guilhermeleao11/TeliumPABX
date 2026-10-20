@@ -35,6 +35,7 @@ API_USER={{ telium_user }}
 SEGREDOS_ASTERISK="manager.conf res_odbc.conf ari.conf"
 
 mysql() { mariadb --protocol=socket -uroot -N -B "$BANCO" -e "$1" 2>/dev/null; }
+mysql_raiz() { mariadb --protocol=socket -uroot -N -B -e "$1" 2>/dev/null; }
 escapar() { printf '%s' "$1" | sed "s/'/''/g"; }
 log() { echo "[$(date '+%F %T')] $*"; }
 
@@ -126,6 +127,17 @@ executar_backup() {
     else
       saida+="banco: FALHOU — $(head -3 "$erros/banco")"$'\n'
       rc=1
+    fi
+    # O banco do Asternic (Call Center › Stats), quando ele está instalado:
+    # relatórios e configuração dele. Sem o banco, nada a levar.
+    if [ -n "$(mysql_raiz "SHOW DATABASES LIKE 'qstats'")" ]; then
+      if mariadb-dump --protocol=socket -uroot --single-transaction --routines --triggers \
+           --default-character-set=utf8mb4 qstats > "$trabalho/asternic.sql" 2>"$erros/asternic"; then
+        saida+="asternic: $(du -h "$trabalho/asternic.sql" | cut -f1)"$'\n'
+      else
+        saida+="asternic: FALHOU — $(head -3 "$erros/asternic")"$'\n'
+        rc=1
+      fi
     fi
     # A base interna do Asterisk: siga-me, desvio, não perturbe, listas
     # e os estados que os códigos do telefone ligam e desligam.
@@ -238,6 +250,12 @@ executar_restauracao() {
     mariadb --protocol=socket -uroot "$BANCO" < "$trabalho/banco.sql" \
       || log "ATENÇÃO: o banco não voltou inteiro — confira a saída acima"
     [ -s "$guarda/backups.sql" ] && mariadb --protocol=socket -uroot "$BANCO" < "$guarda/backups.sql"
+  fi
+  if [ -f "$trabalho/asternic.sql" ]; then
+    log "restaurando o banco do Asternic"
+    mariadb --protocol=socket -uroot -e "CREATE DATABASE IF NOT EXISTS qstats DEFAULT CHARACTER SET utf8"
+    mariadb --protocol=socket -uroot qstats < "$trabalho/asternic.sql" \
+      || log "ATENÇÃO: o banco do Asternic não voltou inteiro"
   fi
   if [ -f "$trabalho/astdb.sqlite3" ]; then
     log "restaurando a base interna do Asterisk"

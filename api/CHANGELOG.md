@@ -2,8 +2,21 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.1.4 — 2026-10-13
+## 1.2.0 — 2026-10-20
 Commits:
+O Asternic Call Center Stats PRO entra no console, em Call Center › Stats, para as centrais com licença.
+
+### Novidades
+- **Call Center › Stats**: o Asternic Call Center Stats PRO dentro do console, em `/stats/`. Opcional, por central: `instalar_asternic: true` no `servidor.yml`, com a licença comprada para aquele servidor. O pacote oficial é baixado na instalação; nada do Asternic vai para o repositório.
+- **Asternic integrado ao nginx**: PHP-FPM próprio com usuário próprio, banco `qstats` com senha aleatória e sem SUPER, senha inicial aleatória do admin, usuário do AMI que só lê e mexe em fila e agente, e o `/stats/` aberto só para quem está logado no console com a permissão.
+- **Backup**: o banco do Asternic entra no backup do console (`asternic.sql`) e volta na restauração.
+### Mudanças
+- **Asterisk**: com o Asternic instalado, o `queue_log` é gravado também em `/var/log/asterisk/queue_log`; os relatórios do Telium continuam lendo o do banco.
+### Segurança
+- **Asternic**: quem tinha rodado o `make install` do fornecedor perde o SUPER do usuário `qstatsUser`, que ganha senha nova.
+
+## 1.1.4 — 2026-10-13
+Commits: f200da3
 O bloco do Telium no backup da empresa só acrescenta o que falta, sem repetir linha.
 
 ### Mudanças

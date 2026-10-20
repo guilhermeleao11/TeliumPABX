@@ -188,6 +188,51 @@ server {
         proxy_send_timeout 3600s;
     }
 
+{% if instalar_asternic | default(false) | bool %}
+    # ---------- Asternic (Call Center › Stats) ----------
+    # Só abre para quem está logado no console com a permissão de Stats:
+    # a cada acesso o nginx pergunta à API, pelo cookie da sessão. Sem
+    # sessão, volta para o login do console. O PHP é um pool próprio, com
+    # usuário próprio: o código do fornecedor não enxerga a API.
+    location ^~ /stats/ {
+        auth_request /_telium_stats_acesso;
+        error_page 401 403 = @telium_stats_login;
+        root {{ asternic_dir }};
+        index index.php;
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header X-Content-Type-Options nosniff always;
+
+        # O ^~ pula o "deny" de arquivo oculto do fim do server.
+        location ~ /\. { deny all; }
+
+        location ~ \.php$ {
+            auth_request /_telium_stats_acesso;
+            include        /etc/nginx/fastcgi_params;
+            fastcgi_pass   unix:/run/php/asternic.sock;
+            fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_param  DOCUMENT_ROOT   $document_root;
+            fastcgi_read_timeout 300s;
+        }
+    }
+
+    location = /_telium_stats_acesso {
+        internal;
+        include        /etc/nginx/fastcgi_params;
+        fastcgi_pass   unix:/run/php/telium.sock;
+        fastcgi_param  SCRIPT_FILENAME {{ telium_api }}/public/index.php;
+        fastcgi_param  DOCUMENT_ROOT   {{ telium_api }}/public;
+        fastcgi_param  REQUEST_URI     /api/cc/stats/acesso;
+        fastcgi_param  REQUEST_METHOD  GET;
+        fastcgi_param  CONTENT_LENGTH  "";
+        fastcgi_param  QUERY_STRING    "";
+        fastcgi_pass_request_body off;
+    }
+
+    location @telium_stats_login {
+        return 302 /;
+    }
+{% endif %}
+
     # ---------- gravações (protegidas pela API) ----------
     location /gravacoes/ {
         internal;

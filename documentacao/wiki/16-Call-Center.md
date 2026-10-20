@@ -644,6 +644,68 @@ Os botões **CSV** exportam as tabelas de filas, de horas e de agentes para plan
 | Ocupação | Quanto do tempo disponível o agente passou em conversa |
 | Escutar / Sussurrar / Intervir | Formas de o supervisor entrar numa chamada em andamento |
 
+
+---
+
+## Stats (Asternic Call Center Stats)
+
+**Call Center › Stats**
+
+Relatórios de filas do **Asternic Call Center Stats PRO**, um produto comercial da House Internet, dentro do console. Ele roda na própria central, em `https://<central>/stats/`.
+
+> [PRINT: tela Stats com o Asternic aberto dentro do console]
+
+### Licença
+
+- **Cada central precisa de uma licença comprada**, presa ao endereço MAC do servidor e ativada pela internet na primeira abertura.
+- Se a VPS mudar de placa de rede ou de máquina (por exemplo, restaurada numa VPS nova), a licença precisa ser transferida pelo fornecedor.
+- Os arquivos do Asternic **não estão no repositório do Telium** (a licença proíbe redistribuir): a instalação baixa o pacote oficial.
+
+### Instalar numa central
+
+1. Compre a licença para o servidor.
+2. No `servidor.yml` da central, acrescente `instalar_asternic: true`.
+3. Rode a atualização de sempre (o playbook). Ela:
+   - instala o carregador ionCube no PHP-FPM e baixa o Asternic da versão de `asternic_versao`;
+   - publica a tela em `/opt/asternic/stats`, servida em `/stats/` por um PHP-FPM próprio, com usuário próprio (`asternic`), que não enxerga a API;
+   - cria o banco `qstats` com usuário e senha aleatória (em `/etc/telium/credenciais/asternic_db_senha`), sem permissão sobre o resto do MariaDB;
+   - faz o Asterisk gravar o `queue_log` também em `/var/log/asterisk/queue_log` (os relatórios do Telium continuam lendo o do banco);
+   - liga o serviço `asterniclog`, que lê esse arquivo para o banco `qstats`;
+   - cria o usuário `asternic` no AMI, que só lê e mexe em fila e agente.
+4. Abra **Call Center › Stats**. Na primeira vez, a tela do Asternic pede o **código de ativação** e o nome do licenciado.
+5. Entre com o usuário **`admin`**. A senha inicial é aleatória e fica em `/etc/telium/credenciais/asternic_admin_senha` (só root). Troque-a dentro do Asternic.
+
+### Quem acessa
+
+- O `/stats/` só abre para quem está **logado no console** e tem a permissão **Call Center › Stats** no perfil. A cada acesso, o nginx pergunta isso à API; sem sessão, volta para o login do console.
+- Dentro dele vale também o login do próprio Asternic.
+- O Supervisor e o Administrador já têm a permissão.
+
+### Atualizar o Asternic
+
+Troque `asternic_versao` no `servidor.yml` e rode o playbook. A licença (`asterniclic.php`), o `config.php` e as personalizações (`custom.php`, `css/custom.css`, `js/custom.js`) ficam como estão.
+
+### O que saber
+
+- **Agentes do call center** aparecem no Asternic como `Agente/<número>`. Dê nome a eles na tela de agentes do Asternic.
+- **O ionCube desliga o JIT do PHP** no FPM da central (aviso no log). Não muda nada no funcionamento do console.
+- **O PDF** dos relatórios depende do `wkhtmltopdf`, que o fornecedor não oferece para Debian 13. Os relatórios em tela e em planilha funcionam.
+- O banco `qstats` entra no backup do console (`asternic.sql` dentro do arquivo), e `/opt/asternic` (com a licença) entra no backup da empresa.
+
+### Problemas comuns
+
+**A tela Stats diz que o Asternic não está instalado.** Falta `instalar_asternic: true` no `servidor.yml` e rodar o playbook.
+
+**O `/stats/` volta para o login do console.** A sessão expirou, ou o perfil não tem **Call Center › Stats**.
+
+**A tela do Asternic diz que a licença não foi encontrada.** Ainda não foi ativada nesta central: use o código de ativação comprado. Licença de outro servidor não vale aqui.
+
+**Os relatórios ficam vazios.** Confira o serviço e se o arquivo cresce:
+```bash
+systemctl status asterniclog
+tail -3 /var/log/asterisk/queue_log
+```
+
 ---
 
 ## Veja também

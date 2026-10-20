@@ -1285,3 +1285,35 @@ PAGES['cc.config'] = {
     });
   }
 };
+
+/* =================================================================
+   Stats — o Asternic Call Center Stats, dentro do console
+   ================================================================= */
+/**
+ * O Asternic mora em /stats/, no mesmo endereço do console: a sessão do
+ * console vale para ele (o nginx confere a permissão a cada acesso), e o
+ * login dele é o próprio, de dentro da tela.
+ */
+PAGES['cc.stats'] = {
+  async render() {
+    let d;
+    try { d = await Api.get('/cc/stats/estado'); }
+    catch (e) { return pageHead('Stats', '') + blocoErro(e); }
+
+    if (!d.instalado) {
+      return pageHead('Stats', 'Relatórios de filas do Asternic Call Center Stats.') + `
+        <div class="card">${vazio('chart', 'O Asternic não está instalado nesta central',
+          `É um produto comercial, com uma licença por servidor. Com a licença comprada, o suporte liga
+           <span class="mono">instalar_asternic: true</span> no <span class="mono">servidor.yml</span> e roda a
+           atualização; na primeira vez, a tela pede o código de ativação.`)}</div>`;
+    }
+
+    return pageHead('Stats', 'Relatórios de filas do Asternic Call Center Stats.',
+      `<a class="btn btn-outline btn-sm" href="${esc(d.url)}" target="_blank" rel="noopener">
+         ${icon('globe','ico ico-sm')} Abrir em outra aba</a>`) + `
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe src="${esc(d.url)}" title="Asternic Call Center Stats"
+                style="width:100%;height:calc(100vh - 190px);min-height:520px;border:0;display:block"></iframe>
+      </div>`;
+  }
+};

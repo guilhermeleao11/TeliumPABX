@@ -14,6 +14,17 @@ deny    = 0.0.0.0/0.0.0.0
 permit  = 127.0.0.1/255.255.255.255
 read    = system,call,agent,user,config,dtmf,reporting,cdr,dialplan
 write   = system,call,agent,user,config,command,reporting,originate
+{% if instalar_asternic | default(false) | bool %}
+
+; Asternic (Call Center › Stats): o painel em tempo real das filas. Só lê
+; e mexe em fila e agente; não origina chamada nem roda comando.
+[asternic]
+secret  = {{ asternic_ami_senha }}
+deny    = 0.0.0.0/0.0.0.0
+permit  = 127.0.0.1/255.255.255.255
+read    = system,call,agent,user,reporting
+write   = agent
+{% endif %}
 
 ; Usuários do AMI criados à mão (PABX de operadora, sistema de gravação,
 ; outro monitoramento). O playbook nunca sobrescreve este arquivo, e ele

@@ -228,6 +228,7 @@ Ficam no clone, não no código publicado.
 | `coturn` | TURN do softphone do navegador | Instalado por padrão (`instalar_turn`) |
 | `fail2ban` | Bane IPs que erram senha (SIP, console, SSH) | |
 | `janus` | Gateway WebRTC **opcional** | Só existe com `instalar_janus=true`; o softphone não precisa dele |
+| `asterniclog` | Asternic (**opcional**): lê `/var/log/asterisk/queue_log` para o banco `qstats` | Só existe com `instalar_asternic: true`. O Asternic roda no pool `asternic` do PHP-FPM (`/run/php/asternic.sock`) |
 
 Comandos:
 

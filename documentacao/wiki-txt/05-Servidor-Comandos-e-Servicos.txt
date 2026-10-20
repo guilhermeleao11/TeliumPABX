@@ -214,6 +214,7 @@ NOTA: O diagnostico.sh confere janus na lista de serviços; numa central sem Jan
 - coturn — O que faz: TURN do softphone do navegador; Observação: Instalado por padrão (instalar_turn)
 - fail2ban — O que faz: Bane IPs que erram senha (SIP, console, SSH)
 - janus — O que faz: Gateway WebRTC opcional; Observação: Só existe com instalar_janus=true; o softphone não precisa dele
+- asterniclog — O que faz: Asternic (opcional): lê /var/log/asterisk/queue_log para o banco qstats; Observação: Só existe com instalar_asternic: true. O Asternic roda no pool asternic do PHP-FPM (/run/php/asternic.sock)
 
 Comandos:
 

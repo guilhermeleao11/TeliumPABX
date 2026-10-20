@@ -129,6 +129,8 @@
     - certificados
     - email
     - api
+    - role: asternic
+      when: instalar_asternic | default(false) | bool
     # Logs para o syslog central do grupo VoIP (syslog_central).
     - syslog
     - seguranca

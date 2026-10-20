@@ -2,10 +2,11 @@
 [general]
 dateformat = %F %T
 use_callids = yes
-; O queue_log vai para o banco (extconfig.conf), não para arquivo, e com
-; os campos separados em data1…data5 — é o que o relatório consulta.
+; O queue_log vai para o banco (extconfig.conf), com os campos separados
+; em data1…data5 — é o que o relatório consulta. Com o Asternic instalado,
+; vai TAMBÉM para /var/log/asterisk/queue_log, que é o que ele lê.
 queue_log = yes
-queue_log_to_file = no
+queue_log_to_file = {{ 'yes' if (instalar_asternic | default(false) | bool) else 'no' }}
 queue_adaptive_realtime = yes
 
 [logfiles]

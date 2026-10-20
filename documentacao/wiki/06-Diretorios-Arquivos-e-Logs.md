@@ -337,3 +337,22 @@ sudo du -sh /var/spool/asterisk/monitor /var/Backup/pabx-telium /var/log/asteris
 ```
 
 Para as gravações, defina o prazo de guarda em **Aplicações › Gravação de Chamadas**. Com o campo de alertas preenchido em **Configurações › Notificações e E-mail**, a central avisa por e-mail quando o disco das gravações passa de 90% de uso (menos de 10% livre).
+
+---
+
+## Asternic (opcional)
+
+Só nas centrais com `instalar_asternic: true` ([Call Center › Stats](16-Call-Center.md)).
+
+| Caminho | O que é |
+|---|---|
+| `/opt/asternic/stats` | A tela do Asternic, servida em `/stats/`. Dono `asternic`, grupo `nginx`. Guarda a licença (`asterniclic.php`) e o `config.php` |
+| `/usr/local/parselog` | Os scripts do Asternic, entre eles o `asterniclog` |
+| `/usr/local/ioncube` | O carregador ionCube, ligado só no PHP-FPM (`/etc/php/8.4/fpm/conf.d/00-ioncube.ini`) |
+| `/etc/default/asterniclog` | Opções do serviço, com a senha do banco (só root) |
+| `/etc/php/8.4/fpm/pool.d/asternic.conf` | O pool do PHP-FPM do Asternic |
+| `/var/log/asterisk/queue_log` | O registro das filas em arquivo, que o Asternic lê |
+| `/var/log/telium/php-asternic.log` | Erros de PHP da tela do Asternic |
+| `/etc/telium/credenciais/asternic_*` | Senhas do banco, do AMI e a inicial do admin do Asternic |
+| Banco `qstats` | Dados e configuração do Asternic |
+

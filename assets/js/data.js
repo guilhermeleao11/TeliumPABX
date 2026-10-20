@@ -75,6 +75,7 @@ const MENU = [
       { id: 'cc.tabulacoes', label: 'Tabulações',        icon: 'list' },
       { id: 'cc.retornos',   label: 'Retornos',          icon: 'phoneIn' },
       { id: 'cc.relatorios', label: 'Relatórios',        icon: 'chart' },
+      { id: 'cc.stats',      label: 'Stats',             icon: 'activity' },
       { id: 'cc.config',     label: 'Configurações',     icon: 'settings' }
     ]
   },

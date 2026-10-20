@@ -1250,6 +1250,21 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('admin.gravacoes', 'excluir', ['cfg.musica']));
 
     // ---- call center ----
+    // Asternic (Call Center › Stats). "acesso" é o que o nginx pergunta a
+    // cada pedido em /stats/: 204 deixa passar; sem sessão, 401; sem a
+    // permissão, 403. "estado" diz à tela se o Asternic está nesta central.
+    $g->get('/cc/stats/acesso', static fn (
+        \Psr\Http\Message\ServerRequestInterface $req,
+        \Psr\Http\Message\ResponseInterface $res
+    ): \Psr\Http\Message\ResponseInterface => $res->withStatus(204))
+      ->add(new Permissao('cc.stats'));
+    $g->get('/cc/stats/estado', static fn (
+        \Psr\Http\Message\ServerRequestInterface $req,
+        \Psr\Http\Message\ResponseInterface $res
+    ): \Psr\Http\Message\ResponseInterface => Resposta::json($res, [
+        'instalado' => (string) Ambiente::get('ASTERNIC', '0') === '1',
+        'url' => '/stats/',
+    ]))->add(new Permissao('cc.stats'));
     $g->get('/cc/estado', [CtrlCallCenter::class, 'estado'])
       ->add(new Permissao('cc.agente', null, ['cc.supervisor']));
     $g->get('/cc/eu', [CtrlCallCenter::class, 'eu'])->add(new Permissao('cc.agente'));
