@@ -25,6 +25,7 @@
       - php8.4-xml
       - php8.4-apcu
       - php8.4-mysql
+      - php8.4-ldap
       - libdbi-perl
       - libdbd-mysql-perl
       - rsync
@@ -49,11 +50,10 @@
     - "{{ asternic_dir }}"
     - "{{ asternic_dir }}/stats"
 
-# A sessão do PHP e o log de erros do Asternic são dele: a pasta de sessões
-# do sistema (/var/lib/php/sessions) e a de logs (/var/log/telium) são do
-# usuário da API. Sem gravar a sessão, o Asternic conferia a senha, não
-# conseguia guardar o login e voltava para a tela de senha — como se ela
-# estivesse errada.
+# A sessão do PHP e o log de erros do Asternic são dele, fora das pastas do
+# usuário da API (/var/lib/php e /var/log/telium, que ele nem atravessa).
+# Sem gravar a sessão, o Asternic conferia a senha, não conseguia guardar o
+# login e voltava para a tela de senha — como se ela estivesse errada.
 - name: Pastas de sessão e de log do Asternic
   ansible.builtin.file:
     path: "{{ item }}"
@@ -62,8 +62,16 @@
     group: asternic
     mode: "0700"
   loop:
-    - /var/lib/php/sessions-asternic
+    - /var/lib/asternic
+    - /var/lib/asternic/sessoes
     - /var/log/asternic
+
+# A tentativa anterior (1.2.2) ficou dentro do /var/lib/php, que o usuário
+# do Asternic não atravessa.
+- name: Tirar a pasta de sessão antiga do Asternic
+  ansible.builtin.file:
+    path: /var/lib/php/sessions-asternic
+    state: absent
 
 # ------------------------------------------------------------------
 # ionCube: o Asternic é distribuído codificado. O carregador entra no
@@ -304,7 +312,7 @@
       pm.process_idle_timeout = 60s
       php_admin_value[error_log] = /var/log/asternic/php.log
       php_admin_flag[log_errors] = on
-      php_admin_value[session.save_path] = /var/lib/php/sessions-asternic
+      php_admin_value[session.save_path] = /var/lib/asternic/sessoes
   notify: reiniciar php-fpm
 
 - name: Resumo do Asternic
