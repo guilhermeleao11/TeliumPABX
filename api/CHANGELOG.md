@@ -2,8 +2,16 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.2.4 — 2026-10-20
+## 1.2.5 — 2026-10-20
 Commits:
+O tempo real do Asternic conecta no AMI da central, e o serviço asterniclog tem o script que ele roda.
+
+### Correções
+- **Asternic**: o tempo real dizia "Could not connect to the Asterisk Manager Interface". Ele usa a tabela de servidores AMI do próprio Asternic (Setup › AMI Servers), que vinha com `localhost/admin/amp111`, e não o `config.php`. A linha da central passa a usar o usuário `asternic` do `manager.conf`, em `127.0.0.1`.
+- **Asternic**: o serviço `asterniclog` reiniciava sem parar com "Unable to locate executable": a cópia dos scripts para `/usr/local/parselog` não deixava o `asterniclog` lá. A cópia agora é como a do instalador do fornecedor e confere o arquivo.
+
+## 1.2.4 — 2026-10-20
+Commits: 7f582e9
 O login do Asternic aceita a senha, e os agentes e filas de antes da instalação aparecem nos relatórios.
 
 ### Correções

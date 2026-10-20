@@ -154,6 +154,9 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.2.5 — tempo real e serviço do Asternic
+- O tempo real do Asternic não conectava no AMI, e o serviço `asterniclog` podia ficar sem o script. Corrigido: rode a atualização.
+
 ### 1.2.4 — login e agentes no Asternic
 - O login do Asternic respondia "Bad username or password" com a senha certa. Corrigido: rode a atualização.
 - Os agentes e filas com movimento antes da instalação do Asternic passam a aparecer nos relatórios dele (o histórico da central é carregado uma vez).

@@ -734,6 +734,10 @@ A tela do Asternic diz que a licença não foi encontrada. Ainda não foi ativad
 
 A senha do admin está certa e a tela volta para o login. Era a sessão do PHP sem pasta própria (corrigido na 1.2.3): rode a atualização. Os erros ficam em /var/log/asternic/php.log.
 
+"Could not connect to the Asterisk Manager Interface" no tempo real. O Asternic usa a sua própria lista de servidores AMI (Setup › AMI Servers), não o config.php. O playbook deixa a linha da central em 127.0.0.1, usuário asternic e a senha de /etc/telium/credenciais/asternic_ami_senha (corrigido na 1.2.5). Não troque para localhost: o AMI só escuta no IPv4. Para conferir o usuário no Asterisk: asterisk -rx "manager show user asternic".
+
+O serviço asterniclog reinicia sem parar ("Unable to locate executable"). Falta o /usr/local/parselog/asterniclog (corrigido na 1.2.5): rode a atualização.
+
 "Bad username or password" com a senha certa. A senha do usuário ainda está no formato antigo (SHA1, 40 caracteres) e o update_db.php não a converteu (corrigido na 1.2.4): rode a atualização. Para conferir o formato sem mostrar a senha: sudo mariadb qstats -e "SELECT login, LENGTH(password) FROM users".
 
 Os relatórios ficam vazios. Confira o serviço e se o arquivo cresce:

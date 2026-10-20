@@ -233,15 +233,46 @@
     or 'Fatal error' in asternic_update.stdout
     or 'Fatal error' in asternic_update.stderr
 
+# O tempo real do Asternic não usa o $MANAGER_* do config.php: usa a
+# tabela "ami" (Setup › AMI Servers), que nasce com localhost/admin/amp111
+# — e a tela dizia "Could not connect to the Asterisk Manager Interface".
+# A linha da própria central passa a usar o usuário "asternic" do
+# manager.conf, em 127.0.0.1 (o AMI só escuta no IPv4; "localhost" pode
+# virar ::1). Outros servidores cadastrados à mão ficam como estão.
+- name: Servidor AMI da central no Asternic
+  ansible.builtin.shell:
+    cmd: >-
+      mariadb --protocol=socket -uroot qstats -e "
+      UPDATE ami SET server = '127.0.0.1', user = 'asternic', secret = '{{ asternic_ami_senha }}'
+      WHERE server IN ('localhost', '127.0.0.1', '127.0.0.1:{{ ami_porta }}', 'localhost:{{ ami_porta }}');
+      INSERT INTO ami (server, name, user, secret)
+      SELECT '127.0.0.1', 'Local', 'asternic', '{{ asternic_ami_senha }}' FROM DUAL
+      WHERE NOT EXISTS (SELECT 1 FROM ami WHERE server = '127.0.0.1');
+      INSERT INTO userami (users_id, ami_ami_id)
+      SELECT u.id, a.ami_id FROM users u JOIN ami a ON a.server = '127.0.0.1'
+      WHERE NOT EXISTS (SELECT 1 FROM userami x WHERE x.users_id = u.id AND x.ami_ami_id = a.ami_id);"
+  changed_when: false
+  no_log: true
+
 # ------------------------------------------------------------------
 # asterniclog: lê o queue_log (arquivo) e grava no banco qstats
 # ------------------------------------------------------------------
+# Do jeito do instalador do fornecedor (install -m 755 parselog/*), por
+# rsync. O copy com remote_src deixava a central sem o
+# /usr/local/parselog/asterniclog, e o serviço reiniciava sem parar com
+# "Unable to locate executable". A tarefa agora confere o arquivo.
 - name: Publicar os scripts do Asternic
-  ansible.builtin.copy:
-    src: "{{ src_dir }}/asternic-stats-pro-{{ asternic_versao }}/parselog/"
-    dest: /usr/local/parselog/
-    remote_src: true
-    mode: "0755"
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      install -d -m 0755 /usr/local/parselog
+      rsync -a --chmod=D0755,F0755 --itemize-changes \
+        "{{ src_dir }}/asternic-stats-pro-{{ asternic_versao }}/parselog/" /usr/local/parselog/
+      test -x /usr/local/parselog/asterniclog
+      test -f /usr/local/parselog/Tail.pm
+  register: asternic_parselog
+  changed_when: asternic_parselog.stdout | length > 0
+  notify: reiniciar asterniclog
 
 - name: Opções do asterniclog
   ansible.builtin.copy:
