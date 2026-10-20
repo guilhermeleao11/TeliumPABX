@@ -2,8 +2,18 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.2.1 — 2026-10-20
+## 1.2.2 — 2026-10-20
 Commits:
+O login do Asternic volta a funcionar.
+
+### Correções
+- **Asternic**: com a senha certa, a tela voltava para o login. O PHP do Asternic roda com usuário próprio e não conseguia gravar a sessão na pasta do console; agora ele tem pasta de sessão (`/var/lib/php/sessions-asternic`) e de log (`/var/log/asternic/php.log`) próprias.
+- **Asternic**: a senha inicial do admin é gravada depois da atualização das tabelas do fornecedor.
+### Segurança
+- **Asternic**: os usuários de exemplo `user` e `supervisor`, que vêm com a senha igual ao nome, ganham uma senha que ninguém conhece.
+
+## 1.2.1 — 2026-10-20
+Commits: 4202af9
 A instalação do Asternic não para mais ao ligar o serviço asterniclog.
 
 ### Correções

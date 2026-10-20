@@ -154,6 +154,9 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.2.2 — login do Asternic
+- Com a senha certa, o Asternic voltava para o login. Corrigido: rode a atualização.
+
 ### 1.2.1 — correção da instalação do Asternic
 - A instalação com `instalar_asternic: true` parava em "Ligar o asterniclog". Corrigido: basta rodar a atualização de novo.
 

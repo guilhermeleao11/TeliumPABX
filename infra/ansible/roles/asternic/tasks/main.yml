@@ -49,6 +49,22 @@
     - "{{ asternic_dir }}"
     - "{{ asternic_dir }}/stats"
 
+# A sessão do PHP e o log de erros do Asternic são dele: a pasta de sessões
+# do sistema (/var/lib/php/sessions) e a de logs (/var/log/telium) são do
+# usuário da API. Sem gravar a sessão, o Asternic conferia a senha, não
+# conseguia guardar o login e voltava para a tela de senha — como se ela
+# estivesse errada.
+- name: Pastas de sessão e de log do Asternic
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: asternic
+    group: asternic
+    mode: "0700"
+  loop:
+    - /var/lib/php/sessions-asternic
+    - /var/log/asternic
+
 # ------------------------------------------------------------------
 # ionCube: o Asternic é distribuído codificado. O carregador entra no
 # PHP-FPM (onde a tela roda); a linha de comando o carrega só quando o
@@ -164,18 +180,6 @@
   changed_when: false
   failed_when: false
 
-# O login da tela nasce admin/admin no pacote. Aqui ele ganha uma senha
-# aleatória, uma vez só: depois, quem manda é quem administra o Asternic.
-- name: Senha inicial do admin do Asternic
-  ansible.builtin.shell:
-    cmd: >-
-      mariadb --protocol=socket -uroot qstats -e "
-      UPDATE users SET password = SHA1('{{ asternic_admin_senha }}') WHERE login = 'admin';
-      UPDATE users SET password = SHA1('{{ asternic_db_senha | hash('sha1') }}') WHERE login = 'restUser';"
-      && touch {{ telium_etc }}/.asternic-admin-inicial
-    creates: "{{ telium_etc }}/.asternic-admin-inicial"
-  no_log: true
-
 - name: Atualizar as tabelas do Asternic para a versão instalada
   ansible.builtin.command:
     cmd: php -d zend_extension=/usr/local/ioncube/ioncube_loader_lin_8.4.so {{ asternic_dir }}/stats/update_db.php
@@ -183,6 +187,30 @@
   register: asternic_update
   changed_when: false
   failed_when: false
+
+# O login da tela nasce admin/admin no pacote, e os usuários de exemplo
+# "user" e "supervisor" com a senha igual ao nome. Aqui o admin ganha uma
+# senha aleatória e os de exemplo uma que ninguém conhece, uma vez só e
+# DEPOIS do update_db.php do fornecedor, que mexe na tabela de usuários.
+# Daí em diante, quem manda é quem administra o Asternic.
+- name: Senhas iniciais do Asternic
+  ansible.builtin.shell:
+    cmd: >-
+      mariadb --protocol=socket -uroot qstats -e "
+      UPDATE users SET password = SHA1('{{ asternic_admin_senha }}') WHERE login = 'admin';
+      UPDATE users SET password = SHA1('{{ asternic_db_senha | hash('sha1') }}') WHERE login = 'restUser';
+      UPDATE users SET password = SHA1(UUID()) WHERE login IN ('user', 'supervisor') AND password IN (SHA1('user'), SHA1('supervisor'));"
+      && touch {{ telium_etc }}/.asternic-admin-inicial
+    creates: "{{ telium_etc }}/.asternic-admin-inicial"
+  no_log: true
+
+# Em toda execução: usuário de exemplo com a senha de fábrica não fica.
+- name: Usuários de exemplo do Asternic sem a senha de fábrica
+  ansible.builtin.command:
+    cmd: >-
+      mariadb --protocol=socket -uroot qstats -e "UPDATE users SET password = SHA1(UUID())
+      WHERE (login = 'user' AND password = SHA1('user')) OR (login = 'supervisor' AND password = SHA1('supervisor'))"
+  changed_when: false
 
 # ------------------------------------------------------------------
 # asterniclog: lê o queue_log (arquivo) e grava no banco qstats
@@ -274,8 +302,9 @@
       pm = ondemand
       pm.max_children = 10
       pm.process_idle_timeout = 60s
-      php_admin_value[error_log] = /var/log/telium/php-asternic.log
+      php_admin_value[error_log] = /var/log/asternic/php.log
       php_admin_flag[log_errors] = on
+      php_admin_value[session.save_path] = /var/lib/php/sessions-asternic
   notify: reiniciar php-fpm
 
 - name: Resumo do Asternic

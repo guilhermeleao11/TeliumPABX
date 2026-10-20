@@ -336,6 +336,7 @@ Só nas centrais com instalar_asternic: true (Call Center › Stats (ver página
 - /etc/default/asterniclog: Opções do serviço, com a senha do banco (só root)
 - /etc/php/8.4/fpm/pool.d/asternic.conf: O pool do PHP-FPM do Asternic
 - /var/log/asterisk/queue_log: O registro das filas em arquivo, que o Asternic lê
-- /var/log/telium/php-asternic.log: Erros de PHP da tela do Asternic
+- /var/log/asternic/php.log: Erros de PHP da tela do Asternic
+- /var/lib/php/sessions-asternic: As sessões (logins) da tela do Asternic, separadas das do console
 - /etc/telium/credenciais/asternic_*: Senhas do banco, do AMI e a inicial do admin do Asternic
 - Banco qstats: Dados e configuração do Asternic

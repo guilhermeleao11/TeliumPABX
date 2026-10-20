@@ -700,6 +700,8 @@ Troque `asternic_versao` no `servidor.yml` e rode o playbook. A licença (`aster
 
 **A tela do Asternic diz que a licença não foi encontrada.** Ainda não foi ativada nesta central: use o código de ativação comprado. Licença de outro servidor não vale aqui.
 
+**A senha do admin está certa e a tela volta para o login.** Era a sessão do PHP sem pasta própria (corrigido na 1.2.2): rode a atualização. Os erros ficam em `/var/log/asternic/php.log`.
+
 **Os relatórios ficam vazios.** Confira o serviço e se o arquivo cresce:
 ```bash
 systemctl status asterniclog
