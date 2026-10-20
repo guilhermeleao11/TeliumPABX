@@ -2,8 +2,15 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.2.0 — 2026-10-20
+## 1.2.1 — 2026-10-20
 Commits:
+A instalação do Asternic não para mais ao ligar o serviço asterniclog.
+
+### Correções
+- **Asternic**: a instalação parava em "Ligar o asterniclog" (`Unable to start service asterniclog`). O serviço sai com erro se o `/var/log/asterisk/queue_log` ainda não existe, e o Asterisk só passava a gravá-lo no fim do playbook. Agora o papel faz o Asterisk reler o `logger.conf` e cria o arquivo antes de ligar o serviço.
+
+## 1.2.0 — 2026-10-20
+Commits: 88a42fa
 O Asternic Call Center Stats PRO entra no console, em Call Center › Stats, para as centrais com licença.
 
 ### Novidades

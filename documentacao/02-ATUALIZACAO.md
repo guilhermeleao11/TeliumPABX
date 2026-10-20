@@ -154,6 +154,9 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.2.1 — correção da instalação do Asternic
+- A instalação com `instalar_asternic: true` parava em "Ligar o asterniclog". Corrigido: basta rodar a atualização de novo.
+
 ### 1.2.0 — Asternic em Call Center › Stats
 - Novo menu **Call Center › Stats**, com o Asternic Call Center Stats PRO. **Só para centrais com licença comprada**: acrescente `instalar_asternic: true` no `servidor.yml` daquela central e rode a atualização. Detalhes na página 16 (Call Center).
 - Nas outras centrais, nada muda: a tela Stats explica como ligar.

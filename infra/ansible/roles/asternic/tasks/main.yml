@@ -228,6 +228,26 @@
       WantedBy=multi-user.target
   notify: reiniciar asterniclog
 
+# O asterniclog sai com erro se o queue_log ainda não existe em arquivo. O
+# papel asterisk já ligou o queue_log_to_file, mas o Asterisk só relê o
+# logger.conf no fim do playbook (handler) — então: relê agora e, sem
+# nenhum evento de fila ainda, o arquivo nasce vazio.
+- name: Fazer o Asterisk gravar o queue_log em arquivo agora
+  ansible.builtin.command:
+    cmd: asterisk -rx "logger reload"
+  changed_when: false
+  failed_when: false
+
+- name: Garantir o arquivo do queue_log
+  ansible.builtin.file:
+    path: /var/log/asterisk/queue_log
+    state: touch
+    owner: asterisk
+    group: asterisk
+    mode: "0640"
+    modification_time: preserve
+    access_time: preserve
+
 - name: Ligar o asterniclog
   ansible.builtin.systemd_service:
     name: asterniclog
