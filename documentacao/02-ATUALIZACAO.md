@@ -154,6 +154,10 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.2.4 — login e agentes no Asternic
+- O login do Asternic respondia "Bad username or password" com a senha certa. Corrigido: rode a atualização.
+- Os agentes e filas com movimento antes da instalação do Asternic passam a aparecer nos relatórios dele (o histórico da central é carregado uma vez).
+
 ### 1.2.3 — login do Asternic (de novo)
 - A correção da 1.2.2 deixou a sessão numa pasta que o Asternic não alcança. Corrigido: rode a atualização.
 

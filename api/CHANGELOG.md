@@ -2,8 +2,17 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.2.3 — 2026-10-20
+## 1.2.4 — 2026-10-20
 Commits:
+O login do Asternic aceita a senha, e os agentes e filas de antes da instalação aparecem nos relatórios.
+
+### Correções
+- **Asternic**: o login respondia "Bad username or password" com a senha certa. A 2.3.19 confere a senha em `crypt`, e quem converte a senha gravada pelo instalador (SHA1) é o `update_db.php` do fornecedor — que nunca rodava: na linha de comando o ionCube não era a primeira extensão do PHP ("The Loader must appear as the first entry"), e o erro era ignorado. Agora ele roda com as configurações do PHP-FPM, depois das senhas, e um erro nele para o playbook.
+### Novidades
+- **Asternic**: na primeira execução, o histórico do `queue_log` que a central já tinha no banco (anterior ao arquivo que o Asternic lê) é carregado no `qstats`. Sem isso, o Asternic só conhecia os agentes e as filas com evento depois da instalação.
+
+## 1.2.3 — 2026-10-20
+Commits: 28d95d4
 O login do Asternic, agora de fato.
 
 ### Correções

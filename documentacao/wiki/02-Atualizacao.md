@@ -213,6 +213,10 @@ O que muda na operação, e não só por dentro. A mais recente primeiro.
 
 A tela **Telium › Versões e Novidades** mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo `api/CHANGELOG.md`). As notas abaixo resumem o que muda para quem opera.
 
+### 1.2.4 — login e agentes no Asternic
+- O login do Asternic respondia "Bad username or password" com a senha certa. Corrigido: rode a atualização.
+- Os agentes e filas com movimento antes da instalação do Asternic passam a aparecer nos relatórios dele (o histórico da central é carregado uma vez).
+
 ### 1.2.3 — login do Asternic (de novo)
 - A correção da 1.2.2 deixou a sessão numa pasta que o Asternic não alcança. Corrigido: rode a atualização.
 

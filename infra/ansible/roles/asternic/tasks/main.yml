@@ -75,8 +75,8 @@
 
 # ------------------------------------------------------------------
 # ionCube: o Asternic é distribuído codificado. O carregador entra no
-# PHP-FPM (onde a tela roda); a linha de comando o carrega só quando o
-# playbook precisa (update_db.php), sem mudar o php de todo mundo.
+# PHP-FPM (onde a tela roda); a linha de comando só o usa quando o
+# playbook roda o update_db.php, com as configurações do FPM.
 # ------------------------------------------------------------------
 - name: Baixar o carregador ionCube
   ansible.builtin.get_url:
@@ -188,19 +188,14 @@
   changed_when: false
   failed_when: false
 
-- name: Atualizar as tabelas do Asternic para a versão instalada
-  ansible.builtin.command:
-    cmd: php -d zend_extension=/usr/local/ioncube/ioncube_loader_lin_8.4.so {{ asternic_dir }}/stats/update_db.php
-    chdir: "{{ asternic_dir }}/stats"
-  register: asternic_update
-  changed_when: false
-  failed_when: false
-
 # O login da tela nasce admin/admin no pacote, e os usuários de exemplo
 # "user" e "supervisor" com a senha igual ao nome. Aqui o admin ganha uma
-# senha aleatória e os de exemplo uma que ninguém conhece, uma vez só e
-# DEPOIS do update_db.php do fornecedor, que mexe na tabela de usuários.
+# senha aleatória e os de exemplo uma que ninguém conhece, uma vez só.
 # Daí em diante, quem manda é quem administra o Asternic.
+#
+# A senha é gravada em SHA1, como no instalador do fornecedor, e ANTES do
+# update_db.php: é ele que a converte para o formato que o login da 2.3.19
+# confere (crypt). Em SHA1, o login responde "Bad username or password".
 - name: Senhas iniciais do Asternic
   ansible.builtin.shell:
     cmd: >-
@@ -219,6 +214,24 @@
       mariadb --protocol=socket -uroot qstats -e "UPDATE users SET password = SHA1(UUID())
       WHERE (login = 'user' AND password = SHA1('user')) OR (login = 'supervisor' AND password = SHA1('supervisor'))"
   changed_when: false
+
+# O carregador ionCube tem de ser a primeira extensão do PHP; na linha de
+# comando o opcache entra antes e o "-d zend_extension=" morre com "The
+# Loader must appear as the first entry". As configurações do PHP-FPM já
+# têm o 00-ioncube.ini na frente — o update_db.php roda com elas. Ele cria
+# o que falta nas tabelas e converte as senhas SHA1 dos usuários.
+- name: Atualizar as tabelas e as senhas do Asternic
+  ansible.builtin.command:
+    cmd: php {{ asternic_dir }}/stats/update_db.php
+    chdir: "{{ asternic_dir }}/stats"
+  environment:
+    PHP_INI_SCAN_DIR: /etc/php/8.4/fpm/conf.d
+  register: asternic_update
+  changed_when: false
+  failed_when: >-
+    asternic_update.rc != 0
+    or 'Fatal error' in asternic_update.stdout
+    or 'Fatal error' in asternic_update.stderr
 
 # ------------------------------------------------------------------
 # asterniclog: lê o queue_log (arquivo) e grava no banco qstats
@@ -292,6 +305,41 @@
     daemon_reload: true
 
 # ------------------------------------------------------------------
+# Histórico: o arquivo do queue_log só existe desde que o Asternic foi
+# instalado, mas a central grava o queue_log no banco desde sempre. Uma
+# vez só, o que é anterior ao arquivo vai para o qstats — sem isso, o
+# Asternic só conhece os agentes e as filas que tiveram evento depois da
+# instalação. O asterniclog para durante a carga (que pode demorar numa
+# central com muito histórico) e volta em seguida.
+# ------------------------------------------------------------------
+- name: Trazer o histórico de filas da central para o Asternic
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      hist=/var/lib/asternic/queue_log-historico
+      corte=$(head -n 1 /var/log/asterisk/queue_log | cut -d'|' -f1)
+      case "$corte" in ''|*[!0-9]*) corte=$(date +%s) ;; esac
+      mariadb --protocol=socket -uroot -N -B -r {{ db_nome }} -e "
+        SELECT CONCAT_WS('|', FLOOR(UNIX_TIMESTAMP(time)), callid, queuename, agent, event,
+                         data1, data2, data3, data4, data5)
+        FROM queue_log
+        WHERE time IS NOT NULL AND UNIX_TIMESTAMP(time) < $corte
+        ORDER BY time, id" | sed -E 's/\|+$//' > "$hist"
+      linhas=$(wc -l < "$hist")
+      if [ "$linhas" -gt 0 ]; then
+        systemctl stop asterniclog
+        trap 'systemctl start asterniclog' EXIT
+        /usr/local/parselog/asterniclog -u qstatsUser -p '{{ asternic_db_senha }}' -d qstats -h localhost \
+          -l "$hist" -r -P /var/lib/asternic/historico.pid > /var/log/asternic/historico.log 2>&1
+      fi
+      rm -f "$hist" /var/lib/asternic/historico.pid
+      touch {{ telium_etc }}/.asternic-historico
+      echo "$linhas eventos"
+    creates: "{{ telium_etc }}/.asternic-historico"
+  register: asternic_historico
+  no_log: true
+
+# ------------------------------------------------------------------
 # PHP-FPM próprio: o Asternic roda como "asternic", e não como a API
 # ------------------------------------------------------------------
 - name: Pool do PHP-FPM do Asternic
@@ -322,3 +370,4 @@
       - "Login inicial: admin, senha em {{ credenciais_dir }}/asternic_admin_senha (só root)"
       - "Na primeira vez a tela pede o código de ativação da licença deste servidor."
       - "{{ 'update_db: ' ~ (asternic_update.stdout_lines | default([]) | last | default('ok')) }}"
+      - "{{ 'Histórico importado do queue_log da central: ' ~ asternic_historico.stdout if (asternic_historico.stdout | default('')) else 'Histórico do queue_log: já importado antes' }}"
