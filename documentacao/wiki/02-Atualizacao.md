@@ -213,6 +213,10 @@ O que muda na operação, e não só por dentro. A mais recente primeiro.
 
 A tela **Telium › Versões e Novidades** mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo `api/CHANGELOG.md`). As notas abaixo resumem o que muda para quem opera.
 
+### 1.2.6 — revisão do Asternic
+- O admin do Asternic passa a entrar com a mesma senha do admin do console.
+- Relatórios agendados e alertas do Asternic funcionam sem configurar nada à mão.
+
 ### 1.2.5 — tempo real e serviço do Asternic
 - O tempo real do Asternic não conectava no AMI, e o serviço `asterniclog` podia ficar sem o script. Corrigido: rode a atualização.
 

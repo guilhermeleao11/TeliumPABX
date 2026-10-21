@@ -354,6 +354,9 @@ Só nas centrais com `instalar_asternic: true` ([Call Center › Stats](16-Call-
 | `/var/log/asterisk/queue_log` | O registro das filas em arquivo, que o Asternic lê |
 | `/var/log/asternic/php.log` | Erros de PHP da tela do Asternic |
 | `/var/lib/asternic/sessoes` | As sessões (logins) da tela do Asternic, separadas das do console |
-| `/etc/telium/credenciais/asternic_*` | Senhas do banco, do AMI e a inicial do admin do Asternic |
+| `/etc/telium/credenciais/asternic_*` | Senhas do banco e do AMI do Asternic. O admin do Asternic usa a senha do admin do console |
+| `/etc/cron.d/asternic` | Cron dos relatórios agendados e alertas (`sched_check.php` a cada minuto) |
+| `/var/log/asternic/agendados.log` | Erros dos relatórios agendados |
+| `/var/log/asternic/historico.log` | A carga única do histórico de filas da central no Asternic |
 | Banco `qstats` | Dados e configuração do Asternic |
 

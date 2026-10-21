@@ -2,8 +2,21 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.2.5 — 2026-10-20
+## 1.2.6 — 2026-10-21
 Commits:
+Revisão da instalação do Asternic: tudo pelo playbook, e o admin do Asternic com a senha do admin do console.
+
+### Mudanças
+- **Asternic**: o usuário `admin` do Asternic entra com a mesma senha do admin do console (a senha padrão do console), gravada uma vez por central. A senha aleatória das versões anteriores (`/etc/telium/credenciais/asternic_admin_senha`) sai.
+### Novidades
+- **Asternic**: relatórios agendados e alertas por e-mail funcionam sem passo manual: o cron do `sched_check.php` é instalado, e a tela responde em `http://127.0.0.1/stats/` só para a própria máquina, que é por onde o agendador pede o relatório.
+- **Asternic**: rotação semanal dos logs em `/var/log/asternic`.
+### Correções
+- **Asternic**: o playbook confere, depois do `update_db.php`, se as tabelas estão na versão instalada, e para com erro se não estiverem.
+- **Asternic**: o usuário dos relatórios agendados (`restUser`) tem a senha alinhada ao `config.php` em toda execução.
+
+## 1.2.5 — 2026-10-20
+Commits: d337da0
 O tempo real do Asternic conecta no AMI da central, e o serviço asterniclog tem o script que ele roda.
 
 ### Correções
@@ -15,7 +28,7 @@ Commits: 7f582e9
 O login do Asternic aceita a senha, e os agentes e filas de antes da instalação aparecem nos relatórios.
 
 ### Correções
-- **Asternic**: o login respondia "Bad username or password" com a senha certa. A 2.3.19 confere a senha em `crypt`, e quem converte a senha gravada pelo instalador (SHA1) é o `update_db.php` do fornecedor — que nunca rodava: na linha de comando o ionCube não era a primeira extensão do PHP ("The Loader must appear as the first entry"), e o erro era ignorado. Agora ele roda com as configurações do PHP-FPM, depois das senhas, e um erro nele para o playbook.
+- **Asternic**: o login respondia "Bad username or password" com a senha certa. As tabelas não estavam na versão instalada (faltavam colunas de `users`, como `auth_type` e `active`), porque o `update_db.php` do fornecedor nunca rodava: na linha de comando o ionCube não era a primeira extensão do PHP ("The Loader must appear as the first entry"), e o erro era ignorado. Agora ele roda com as configurações do PHP-FPM, e um erro nele para o playbook.
 ### Novidades
 - **Asternic**: na primeira execução, o histórico do `queue_log` que a central já tinha no banco (anterior ao arquivo que o Asternic lê) é carregado no `qstats`. Sem isso, o Asternic só conhecia os agentes e as filas com evento depois da instalação.
 

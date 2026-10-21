@@ -154,6 +154,10 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.2.6 — revisão do Asternic
+- O admin do Asternic passa a entrar com a mesma senha do admin do console.
+- Relatórios agendados e alertas do Asternic funcionam sem configurar nada à mão.
+
 ### 1.2.5 — tempo real e serviço do Asternic
 - O tempo real do Asternic não conectava no AMI, e o serviço `asterniclog` podia ficar sem o script. Corrigido: rode a atualização.
 

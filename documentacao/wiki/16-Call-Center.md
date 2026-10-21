@@ -671,9 +671,14 @@ Relatórios de filas do **Asternic Call Center Stats PRO**, um produto comercial
    - cria o banco `qstats` com usuário e senha aleatória (em `/etc/telium/credenciais/asternic_db_senha`), sem permissão sobre o resto do MariaDB;
    - faz o Asterisk gravar o `queue_log` também em `/var/log/asterisk/queue_log` (os relatórios do Telium continuam lendo o do banco);
    - liga o serviço `asterniclog`, que lê esse arquivo para o banco `qstats`;
-   - cria o usuário `asternic` no AMI, que só lê e mexe em fila e agente.
-4. Abra **Call Center › Stats**. Na primeira vez, a tela do Asternic pede o **código de ativação** e o nome do licenciado.
-5. Entre com o usuário **`admin`**. A senha inicial é aleatória e fica em `/etc/telium/credenciais/asternic_admin_senha` (só root). Troque-a dentro do Asternic.
+   - cria o usuário `asternic` no AMI, que só lê e mexe em fila e agente, e já o cadastra no Asternic (Setup › AMI Servers);
+   - atualiza as tabelas do Asternic para a versão instalada (`update_db.php` do fornecedor);
+   - carrega no Asternic, uma vez, o histórico de filas que a central já tinha;
+   - agenda o cron dos relatórios agendados e alertas por e-mail.
+4. Abra **Call Center › Stats**. Na primeira vez, a tela do Asternic pede o **código de ativação** e o nome do licenciado. É o único passo manual: o código é o da compra.
+5. Entre com o usuário **`admin`** e **a mesma senha do admin do console**.
+
+A senha do admin do Asternic é gravada uma vez por central, com a senha padrão do admin do console. Se a senha do console for trocada depois, a do Asternic não acompanha; troque também dentro do Asternic, que o playbook não a desfaz.
 
 ### Quem acessa
 
@@ -707,7 +712,9 @@ Troque `asternic_versao` no `servidor.yml` e rode o playbook. A licença (`aster
 
 **O serviço `asterniclog` reinicia sem parar ("Unable to locate executable").** Falta o `/usr/local/parselog/asterniclog` (corrigido na 1.2.5): rode a atualização.
 
-**"Bad username or password" com a senha certa.** A senha do usuário ainda está no formato antigo (SHA1, 40 caracteres) e o `update_db.php` não a converteu (corrigido na 1.2.4): rode a atualização. Para conferir o formato sem mostrar a senha: `sudo mariadb qstats -e "SELECT login, LENGTH(password) FROM users"`.
+**"Bad username or password" com a senha certa.** As tabelas do Asternic não foram atualizadas para a versão instalada: falta a coluna `auth_type` em `users`, que o `update_db.php` cria (corrigido na 1.2.4). Rode a atualização; o playbook agora para com erro se as tabelas não estiverem certas. Para conferir: `sudo mariadb qstats -e "SHOW COLUMNS FROM users LIKE 'auth_type'"`.
+
+**Relatórios agendados não chegam por e-mail.** Confira o cron (`/etc/cron.d/asternic`) e os erros em `/var/log/asternic/agendados.log`. Ele chama o `sched_check.php` a cada minuto; o relatório é pedido à própria tela em `http://127.0.0.1/stats/`, que só responde para a própria máquina. O envio usa o servidor de e-mail configurado no Setup do Asternic.
 
 **Os relatórios ficam vazios.** Confira o serviço e se o arquivo cresce:
 ```bash

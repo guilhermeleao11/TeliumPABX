@@ -22,6 +22,35 @@ server {
         fastcgi_param  DOCUMENT_ROOT   {{ telium_api }}/public;
         fastcgi_read_timeout 30s;
     }
+{% if instalar_asternic | default(false) | bool %}
+
+    # Os relatórios agendados do Asternic (cron) pedem o relatório à
+    # própria tela, em http://127.0.0.1/stats/, com o restUser — sem o
+    # cookie do console. Só a própria máquina entra por aqui; de fora, o
+    # /stats/ segue para o https, onde vale o login do console.
+    location ^~ /stats/ {
+        allow 127.0.0.1;
+        allow ::1;
+        deny  all;
+        error_page 403 = @telium_https;
+        root {{ asternic_dir }};
+        index index.php;
+
+        location ~ /\. { deny all; }
+
+        location ~ \.php$ {
+            include        /etc/nginx/fastcgi_params;
+            fastcgi_pass   unix:/run/php/asternic.sock;
+            fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_param  DOCUMENT_ROOT   $document_root;
+            fastcgi_read_timeout 300s;
+        }
+    }
+
+    location @telium_https {
+        return 301 https://$host$request_uri;
+    }
+{% endif %}
 }
 
 server {

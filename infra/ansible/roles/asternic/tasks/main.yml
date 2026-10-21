@@ -15,6 +15,9 @@
 #   · banco qstats com usuário e senha aleatória por central, sem SUPER;
 #   · o Asterisk grava o queue_log também em arquivo (papel asterisk), e o
 #     serviço asterniclog o lê para o banco qstats.
+#   · o admin do Asternic entra com a senha do admin do console, o AMI e
+#     o cron dos relatórios agendados já ficam configurados: o único passo
+#     à mão é o código de ativação da licença, na primeira abertura.
 #
 # Atualizar: troque asternic_versao e rode o playbook. A licença
 # (asterniclic.php), o config.php e as personalizações ficam.
@@ -29,6 +32,7 @@
       - libdbi-perl
       - libdbd-mysql-perl
       - rsync
+      - cron
     state: present
 
 - name: Criar o usuário do Asternic
@@ -148,6 +152,7 @@
     - { de: "^\\$MANAGER_USER\\s*=.*$",    para: "$MANAGER_USER   = \"asternic\";" }
     - { de: "^\\$MANAGER_SECRET\\s*=.*$",  para: "$MANAGER_SECRET = \"{{ asternic_ami_senha }}\";" }
     - { de: "^\\$REST_PASS\\s*=.*$",       para: "$REST_PASS = \"{{ asternic_db_senha | hash('sha1') }}\";" }
+    - { de: "^(//)?\\s*\\$REST_URL\\s*=.*$", para: "$REST_URL  = \"http://127.0.0.1\";" }
   loop_control:
     label: "{{ item.de | regex_replace('[^A-Z_]', '') }}"
   no_log: true
@@ -188,39 +193,16 @@
   changed_when: false
   failed_when: false
 
-# O login da tela nasce admin/admin no pacote, e os usuários de exemplo
-# "user" e "supervisor" com a senha igual ao nome. Aqui o admin ganha uma
-# senha aleatória e os de exemplo uma que ninguém conhece, uma vez só.
-# Daí em diante, quem manda é quem administra o Asternic.
+# O update_db.php do fornecedor acrescenta às tabelas o que a versão
+# instalada usa — entre outras, as colunas auth_type e active de "users".
+# Sem elas o login responde "Bad username or password" com a senha certa
+# (foi o que aconteceu até a 1.2.4). Ele não mexe nas senhas.
 #
-# A senha é gravada em SHA1, como no instalador do fornecedor, e ANTES do
-# update_db.php: é ele que a converte para o formato que o login da 2.3.19
-# confere (crypt). Em SHA1, o login responde "Bad username or password".
-- name: Senhas iniciais do Asternic
-  ansible.builtin.shell:
-    cmd: >-
-      mariadb --protocol=socket -uroot qstats -e "
-      UPDATE users SET password = SHA1('{{ asternic_admin_senha }}') WHERE login = 'admin';
-      UPDATE users SET password = SHA1('{{ asternic_db_senha | hash('sha1') }}') WHERE login = 'restUser';
-      UPDATE users SET password = SHA1(UUID()) WHERE login IN ('user', 'supervisor') AND password IN (SHA1('user'), SHA1('supervisor'));"
-      && touch {{ telium_etc }}/.asternic-admin-inicial
-    creates: "{{ telium_etc }}/.asternic-admin-inicial"
-  no_log: true
-
-# Em toda execução: usuário de exemplo com a senha de fábrica não fica.
-- name: Usuários de exemplo do Asternic sem a senha de fábrica
-  ansible.builtin.command:
-    cmd: >-
-      mariadb --protocol=socket -uroot qstats -e "UPDATE users SET password = SHA1(UUID())
-      WHERE (login = 'user' AND password = SHA1('user')) OR (login = 'supervisor' AND password = SHA1('supervisor'))"
-  changed_when: false
-
 # O carregador ionCube tem de ser a primeira extensão do PHP; na linha de
 # comando o opcache entra antes e o "-d zend_extension=" morre com "The
 # Loader must appear as the first entry". As configurações do PHP-FPM já
-# têm o 00-ioncube.ini na frente — o update_db.php roda com elas. Ele cria
-# o que falta nas tabelas e converte as senhas SHA1 dos usuários.
-- name: Atualizar as tabelas e as senhas do Asternic
+# têm o 00-ioncube.ini na frente — o update_db.php roda com elas.
+- name: Atualizar as tabelas do Asternic para a versão instalada
   ansible.builtin.command:
     cmd: php {{ asternic_dir }}/stats/update_db.php
     chdir: "{{ asternic_dir }}/stats"
@@ -232,6 +214,59 @@
     asternic_update.rc != 0
     or 'Fatal error' in asternic_update.stdout
     or 'Fatal error' in asternic_update.stderr
+
+- name: Conferir as tabelas do Asternic
+  ansible.builtin.command:
+    cmd: >-
+      mariadb --protocol=socket -uroot -N -B -e "SELECT COUNT(*) FROM information_schema.columns
+      WHERE table_schema = 'qstats' AND table_name = 'users' AND column_name IN ('auth_type', 'active')"
+  register: asternic_colunas
+  changed_when: false
+  failed_when: (asternic_colunas.stdout | trim | int) != 2
+
+# O admin do Asternic entra com a mesma senha do admin do console
+# (senha_padrao_console). Gravada uma vez por central: se alguém trocar a
+# senha dentro do Asternic, o playbook não a desfaz. O SHA1 é o formato
+# que o instalador do fornecedor grava e que o login confere.
+- name: Senha do admin do Asternic igual à do admin do console
+  ansible.builtin.command:
+    cmd: mariadb --protocol=socket -uroot qstats
+    stdin: >-
+      UPDATE users SET password = SHA1('{{ senha_padrao_console | replace("\\", "\\\\") | replace("'", "''") }}'),
+      auth_type = 'local', active = 1 WHERE login = 'admin';
+    creates: "{{ telium_etc }}/.asternic-admin-console"
+  register: asternic_admin
+  no_log: true
+
+- name: Marcar a senha do admin do Asternic como gravada
+  ansible.builtin.file:
+    path: "{{ telium_etc }}/.asternic-admin-console"
+    state: touch
+    mode: "0600"
+  when: asternic_admin is changed
+
+# A senha aleatória das versões 1.2.0 a 1.2.5 deixou de valer.
+- name: Tirar a senha antiga do admin do Asternic
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ credenciais_dir }}/asternic_admin_senha"
+    - "{{ telium_etc }}/.asternic-admin-inicial"
+
+# Em toda execução, junto com o $REST_PASS do config.php: o restUser é o
+# usuário que os relatórios agendados usam para pedir o relatório à tela.
+# E usuário de exemplo ("user", "supervisor") com a senha igual ao nome
+# ganha uma que ninguém conhece.
+- name: Usuário dos relatórios agendados e usuários de exemplo do Asternic
+  ansible.builtin.shell:
+    cmd: >-
+      mariadb --protocol=socket -uroot qstats -e "
+      UPDATE users SET password = SHA1('{{ asternic_db_senha | hash('sha1') }}') WHERE login = 'restUser';
+      UPDATE users SET password = SHA1(UUID())
+      WHERE (login = 'user' AND password = SHA1('user')) OR (login = 'supervisor' AND password = SHA1('supervisor'))"
+  changed_when: false
+  no_log: true
 
 # O tempo real do Asternic não usa o $MANAGER_* do config.php: usa a
 # tabela "ami" (Setup › AMI Servers), que nasce com localhost/admin/amp111
@@ -394,11 +429,45 @@
       php_admin_value[session.save_path] = /var/lib/asternic/sessoes
   notify: reiniciar php-fpm
 
+# ------------------------------------------------------------------
+# Relatórios agendados e alertas por e-mail (Setup › Schedule): o
+# fornecedor pede um cron com o sched_check.php pela linha de comando do
+# PHP. Ele roda como "asternic", com o PHP do FPM (por causa do ionCube),
+# e busca o relatório na própria tela por http://127.0.0.1/stats/.
+# ------------------------------------------------------------------
+- name: Cron dos relatórios agendados do Asternic
+  ansible.builtin.copy:
+    dest: /etc/cron.d/asternic
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Gerado pelo Ansible — Telium PABX (Asternic). Não edite à mão.
+      SHELL=/bin/sh
+      PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      * * * * * asternic cd {{ asternic_dir }}/stats && PHP_INI_SCAN_DIR=/etc/php/8.4/fpm/conf.d php -q sched_check.php >/dev/null 2>>/var/log/asternic/agendados.log
+
+- name: Rotação dos logs do Asternic
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/asternic
+    mode: "0644"
+    content: |
+      # Gerado pelo Ansible — Telium PABX (Asternic). Não edite à mão.
+      /var/log/asternic/*.log {
+          weekly
+          rotate 4
+          compress
+          missingok
+          notifempty
+          copytruncate
+          su asternic asternic
+      }
+
 - name: Resumo do Asternic
   ansible.builtin.debug:
     msg:
       - "Asternic {{ asternic_versao }} em https://{{ pabx_hostname }}/stats/ (Call Center › Stats)"
-      - "Login inicial: admin, senha em {{ credenciais_dir }}/asternic_admin_senha (só root)"
+      - "Login: admin, com a mesma senha do admin do console"
       - "Na primeira vez a tela pede o código de ativação da licença deste servidor."
       - "{{ 'update_db: ' ~ (asternic_update.stdout_lines | default([]) | last | default('ok')) }}"
       - "{{ 'Histórico importado do queue_log da central: ' ~ asternic_historico.stdout if (asternic_historico.stdout | default('')) else 'Histórico do queue_log: já importado antes' }}"
