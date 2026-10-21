@@ -957,8 +957,12 @@ PAGES['conn.ramais'] = paginaCrud({
   acoesExtra: ctx => `
     <button class="btn btn-ghost btn-sm" data-csv-modelo data-tip="Planilha com as colunas e dois exemplos">
       ${icon('file','ico ico-sm')} Modelo CSV</button>
-    ${ctx.can('exportar') ? `<button class="btn btn-ghost btn-sm" data-csv-exportar>
+    ${ctx.can('exportar') ? `<button class="btn btn-ghost btn-sm" data-csv-exportar
+        data-tip="Sem as senhas: é a planilha que pode circular por e-mail">
       ${icon('download','ico ico-sm')} Exportar</button>` : ''}
+    ${ctx.can('exportar') && ctx.can('editar') ? `<button class="btn btn-ghost btn-sm" data-csv-exportar-senhas
+        data-tip="Com a senha SIP e a do correio de voz, para configurar os aparelhos">
+      ${icon('key','ico ico-sm')} Exportar com senhas</button>` : ''}
     ${ctx.can('criar') ? `<button class="btn btn-ghost btn-sm" data-csv-importar>
       ${icon('upload','ico ico-sm')} Importar CSV</button>` : ''}`,
 
@@ -1208,6 +1212,17 @@ PAGES['conn.ramais'] = paginaCrud({
       baixar(ev.currentTarget, '/ramais/csv/modelo'));
     document.querySelector('[data-csv-exportar]')?.addEventListener('click', ev =>
       baixar(ev.currentTarget, '/ramais/csv'));
+    document.querySelector('[data-csv-exportar-senhas]')?.addEventListener('click', async ev => {
+      const botao = ev.currentTarget;
+      const ok = await Modal.confirm({
+        titulo: 'Exportar com as senhas?',
+        texto: 'A planilha vai com a senha SIP e a do correio de voz de todos os ramais. Quem tiver o arquivo '
+             + 'registra um telefone em qualquer ramal e liga por conta da empresa: não mande por e-mail nem '
+             + 'deixe em pasta compartilhada, e apague depois de usar. A exportação fica na auditoria.',
+        ok: 'Exportar com senhas', tone: 'danger', ico: 'key'
+      });
+      if (ok) baixar(botao, '/ramais/csv?senhas=1');
+    });
     document.querySelector('[data-csv-importar]')?.addEventListener('click', () => importarRamaisCsv(ctx));
 
     document.querySelectorAll('[data-credencial]').forEach(b => b.onclick = async () => {

@@ -60,21 +60,36 @@ final class RamaisCsv
         return self::planilha($res, 'modelo-ramais.csv', self::COLUNAS, $exemplos);
     }
 
-    /** GET /api/ramais/csv — todos os ramais, sem senha nenhuma. */
+    /**
+     * GET /api/ramais/csv — todos os ramais, sem senha nenhuma.
+     * GET /api/ramais/csv?senhas=1 — com a senha SIP e a do correio de voz.
+     *
+     * A comum circula por e-mail: não leva senha. A com senhas é para quem
+     * vai configurar os aparelhos, e pede o mesmo que a tela de credenciais
+     * do ramal pede para mostrar uma senha (poder editar ramais); fica na
+     * auditoria como exportação com senhas.
+     */
     public function exportar(Request $req, Response $res): Response
     {
+        $comSenhas = filter_var($req->getQueryParams()['senhas'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($comSenhas && !Permissoes::podeAcao((array) $req->getAttribute('caps'), 'editar')) {
+            return Resposta::erro($res, 'Exportar com as senhas pede a permissão de editar ramais.', 403);
+        }
+
         $linhas = [];
         foreach (Bd::todos('SELECT * FROM ramais ORDER BY CAST(numero AS UNSIGNED), numero') as $r) {
             $linhas[] = array_map(
-                static fn (string $c): string => in_array($c, self::SEGREDOS, true) ? '' : (string) ($r[$c] ?? ''),
+                static fn (string $c): string => !$comSenhas && in_array($c, self::SEGREDOS, true) ? '' : (string) ($r[$c] ?? ''),
                 self::COLUNAS
             );
         }
 
-        Auditoria::registrar($req->getAttribute('usuario'), 'exportar', 'conn.ramais',
-                             count($linhas) . ' ramais', [], $req->getServerParams()['REMOTE_ADDR'] ?? null);
+        Auditoria::registrar($req->getAttribute('usuario'), $comSenhas ? 'exportar com senhas' : 'exportar', 'conn.ramais',
+                             count($linhas) . ' ramais', $comSenhas ? ['senhas' => 'senha SIP e do correio de voz'] : [],
+                             $req->getServerParams()['REMOTE_ADDR'] ?? null);
 
-        return self::planilha($res, 'ramais-' . date('Ymd-His') . '.csv', self::COLUNAS, $linhas);
+        return self::planilha($res, 'ramais-' . ($comSenhas ? 'com-senhas-' : '') . date('Ymd-His') . '.csv',
+                              self::COLUNAS, $linhas);
     }
 
     /**

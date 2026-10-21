@@ -198,6 +198,11 @@ O que muda na operação, e não só por dentro. A mais recente primeiro.
 A tela Telium › Versões e Novidades mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo api/CHANGELOG.md). As notas abaixo resumem o que muda para quem opera.
 
 
+1.5.3 — exportar ramais com senhas
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- Em Ramais, o botão Exportar com senhas traz a planilha com a senha SIP e a do correio de voz. Só para quem pode editar ramais, e registrado na auditoria.
+
+
 1.5.2 — revisão da migração e das rotas por grupo
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - Corrige "Unknown column 'grupo_saida'" (banco desatualizado). Numa central com o erro: sudo -u teliumpbx php /opt/telium/api/bin/telium migrar, ou rode a atualização completa.

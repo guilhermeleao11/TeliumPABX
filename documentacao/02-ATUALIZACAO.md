@@ -154,6 +154,9 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.5.3 — exportar ramais com senhas
+- Em Ramais, o botão **Exportar com senhas** traz a planilha com a senha SIP e a do correio de voz. Só para quem pode editar ramais, e registrado na auditoria.
+
 ### 1.5.2 — revisão da migração e das rotas por grupo
 - Corrige "Unknown column 'grupo_saida'" (banco desatualizado). Numa central com o erro: `sudo -u teliumpbx php /opt/telium/api/bin/telium migrar`, ou rode a atualização completa.
 - A migração do SNEP não grava nada que deixaria a central com erro, e informa o que fica para ser feito à mão.

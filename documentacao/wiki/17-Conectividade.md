@@ -70,7 +70,8 @@ A lista mostra **Ramal**, **Nome**, **Setor**, **Tecnologia**, **Correio** (se t
 |---|---|
 | Adicionar ramal | Abre o formulário em branco |
 | Modelo CSV | Baixa a planilha modelo, com as colunas aceitas e dois exemplos |
-| Exportar | Baixa todos os ramais em CSV, **sem as senhas** (a exportação fica na auditoria) |
+| Exportar | Baixa todos os ramais em CSV, **sem as senhas** (a exportação fica na auditoria). É a planilha que pode circular |
+| Exportar com senhas | A mesma planilha **com** a senha SIP e a do correio de voz, para configurar os aparelhos. Só para quem pode editar ramais; pede confirmação e fica na auditoria como "exportar com senhas". Quem tiver o arquivo registra um telefone em qualquer ramal: não mande por e-mail e apague depois de usar |
 | Importar CSV | Abre a importação em lote (veja abaixo) |
 | Chave (em cada linha) | **Credenciais SIP:** mostra usuário, senha e transporte do ramal. A consulta fica registrada na auditoria |
 
@@ -239,7 +240,7 @@ Quatro regras, uma para cada sentido: **Externa recebida**, **Externa feita**, *
 9. Se houve senhas geradas, clique em **Baixar ramais e senhas** **na hora**: depois elas só voltam pela tela de credenciais de cada ramal.
 10. **Aplique as configurações.**
 
-Limites: até 2 MB e 2.000 ramais por arquivo; separador `;` ou `,`; UTF-8 ou o formato salvo pelo Excel. A importação passa pelas mesmas validações do formulário. A exportação nunca traz `senha_sip` nem `vm_senha`.
+Limites: até 2 MB e 2.000 ramais por arquivo; separador `;` ou `,`; UTF-8 ou o formato salvo pelo Excel. A importação passa pelas mesmas validações do formulário. O **Exportar** nunca traz `senha_sip` nem `vm_senha`; o **Exportar com senhas** traz as duas, e a planilha volta na importação com as mesmas senhas.
 
 > 📷 **Print:** prévia da importação, com uma linha em erro e o aviso de senhas geradas.
 

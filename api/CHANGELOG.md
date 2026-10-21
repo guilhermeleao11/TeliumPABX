@@ -2,8 +2,15 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.5.2 — 2026-10-21
+## 1.5.3 — 2026-10-21
 Commits:
+Ramais: exportar a planilha com as senhas.
+
+### Novidades
+- **Ramais › Exportar com senhas**: a planilha com a senha SIP e a do correio de voz de todos os ramais, para configurar os aparelhos (e que a importação por planilha aceita de volta). Pede a permissão de editar ramais — a mesma que mostra a senha na tela de credenciais —, confirma antes e fica na auditoria como "exportar com senhas". O **Exportar** de sempre continua sem senha.
+
+## 1.5.2 — 2026-10-21
+Commits: b04d2b5
 Revisão da migração do SNEP e das rotas por grupo: a migração não deixa a central quebrada, e o banco anda junto com o código.
 
 ### Correções
