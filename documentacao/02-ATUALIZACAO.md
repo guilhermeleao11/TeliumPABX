@@ -154,6 +154,9 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.4.1 — comando do SNEP em dois
+- Na Migração do SNEP, o comando que gera o pacote virou dois (a senha e o pacote): colado inteiro, o pedido de senha engolia a linha seguinte.
+
 ### 1.4.0 — migração do SNEP completa
 - A tela de Migração do SNEP mostra um comando para gerar, no SNEP, um pacote com o banco (sem CDR), os áudios e as músicas de espera. Enviado o pacote, a migração traz também os agentes, os horários das regras e os áudios.
 

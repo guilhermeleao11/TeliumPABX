@@ -2,8 +2,15 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.4.0 — 2026-10-21
+## 1.4.1 — 2026-10-21
 Commits:
+O comando do SNEP vira dois: a senha e o pacote.
+
+### Correções
+- **Migração do SNEP**: colado inteiro, o comando que gera o pacote tinha o pedido de senha lendo a linha seguinte do próprio comando como se fosse a senha. Agora são dois comandos, cada um com o seu botão de copiar: (a) a senha do MySQL e (b) o pacote. O (b) roda numa subshell (não muda a pasta de quem colou) e, sem o (a), só avisa.
+
+## 1.4.0 — 2026-10-21
+Commits: 2d0dc7d
 A migração do SNEP traz os agentes, os horários das regras e os áudios, a partir de um pacote gerado por um comando no próprio SNEP.
 
 ### Novidades

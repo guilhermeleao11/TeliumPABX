@@ -7622,12 +7622,18 @@ PAGES['telium.migracao'] = {
     return pageHead('Migração do SNEP',
         'Traz do SNEP 3 os troncos, ramais, filas, agentes, as regras de entrada e de saída e os áudios.')
       + passo(1, 'Gere o pacote no servidor do SNEP', `
-        <p class="small" style="margin:0 0 8px">Cole no terminal do servidor do SNEP, como root. Ele junta num arquivo só
-          o banco <b>sem o CDR</b> (só as tabelas da migração), os áudios que as regras, URAs e filas usam, as músicas
-          de espera e os <span class="mono">.conf</span> do Asterisk (para mostrar aqui os contextos próprios).</p>
-        <pre class="mono tiny" id="snepComando" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:10px;border-radius:8px;margin:0 0 8px">${esc(this.comando(tabelas))}</pre>
+        <p class="small" style="margin:0 0 8px">No terminal do servidor do SNEP, como root, e na mesma sessão, um
+          comando depois do outro.</p>
+        <p class="small" style="margin:0 0 4px"><b>a)</b> A senha do root do MySQL do SNEP. Digite e tecle Enter (ela não
+          aparece; sem senha, só Enter).</p>
+        <pre class="mono tiny" id="snepComandoSenha" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:10px;border-radius:8px;margin:0 0 6px">${esc(this.comandos(tabelas).senha)}</pre>
+        <button class="btn btn-ghost btn-sm" data-snep-copiar="snepComandoSenha" style="margin-bottom:12px">${icon('copy','ico ico-sm')} Copiar</button>
+        <p class="small" style="margin:0 0 4px"><b>b)</b> O pacote: o banco <b>sem o CDR</b> (só as tabelas da migração), os
+          áudios que as regras, URAs e filas usam, as músicas de espera e os <span class="mono">.conf</span> do Asterisk
+          (para mostrar aqui os contextos próprios).</p>
+        <pre class="mono tiny" id="snepComandoPacote" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:10px;border-radius:8px;margin:0 0 6px">${esc(this.comandos(tabelas).pacote)}</pre>
         <div class="row gap-8 wrap" style="align-items:center">
-          <button class="btn btn-ghost btn-sm" id="snepCopiar">${icon('copy','ico ico-sm')} Copiar o comando</button>
+          <button class="btn btn-ghost btn-sm" data-snep-copiar="snepComandoPacote">${icon('copy','ico ico-sm')} Copiar</button>
           <span class="small muted">Gera <span class="mono">/root/snep-telium.tar.gz</span>. Traga-o para o seu computador
             (WinSCP, scp) e <b>apague-o do SNEP</b> depois: ele tem as senhas dos ramais e troncos.</span>
         </div>`)
@@ -7654,21 +7660,30 @@ PAGES['telium.migracao'] = {
         <div id="snepResultado"></div>`);
   },
 
-  /** O comando que gera o pacote no servidor do SNEP. */
-  comando(tabelas) {
-    return [
-      "read -rsp 'Senha do root do MySQL (Enter se não tiver): ' MYSQL_PWD; echo; export MYSQL_PWD",
-      'P=$(mktemp -d) && cd "$P" && mkdir -p sons moh conf && \\',
-      `mysqldump -u root --single-transaction snep ${tabelas} > snep.sql && \\`,
-      "mysql -N -u root snep -e \"SELECT value FROM regras_negocio_actions_config WHERE \\`key\\` = 'file'"
-        + " UNION SELECT announce FROM queues UNION SELECT periodic_announce FROM queues"
-        + " UNION SELECT arquivo FROM sounds WHERE descricao LIKE '%fakepath%' OR secao NOT IN ('', 'default')\""
-        + " | sort -u | while read -r n; do [ -n \"$n\" ] && find /var/lib/asterisk/sounds -maxdepth 3 -type f"
-        + " -name \"${n%.*}.*\" -exec cp {} sons/ \\; ; done; \\",
-      'cp -r /var/lib/asterisk/moh/. moh/ 2>/dev/null; cp /etc/asterisk/*.conf conf/ 2>/dev/null; \\',
-      'cp /etc/asterisk/snep/*.conf conf/ 2>/dev/null; tar czf /root/snep-telium.tar.gz . && \\',
-      'cd / && rm -rf "$P"; unset MYSQL_PWD; ls -lh /root/snep-telium.tar.gz'
-    ].join('\n');
+  /**
+   * Os dois comandos do SNEP. Separados de propósito: colado junto, o
+   * "read" da senha lia a linha seguinte do próprio comando como se fosse
+   * a senha. O segundo roda numa subshell (não muda a pasta de quem cola)
+   * e, sem o primeiro, avisa em vez de tentar sem senha.
+   */
+  comandos(tabelas) {
+    return {
+      senha: "read -rsp 'Senha do root do MySQL (Enter se não tiver): ' MYSQL_PWD; echo; export MYSQL_PWD",
+      pacote: [
+        'if [ -z "${MYSQL_PWD+x}" ]; then echo "Rode antes o comando da senha (a)."; else (',
+        '  P=$(mktemp -d) && cd "$P" && mkdir -p sons moh conf &&',
+        `  mysqldump -u root --single-transaction snep ${tabelas} > snep.sql &&`,
+        "  mysql -N -u root snep -e \"SELECT value FROM regras_negocio_actions_config WHERE \\`key\\` = 'file'"
+          + " UNION SELECT announce FROM queues UNION SELECT periodic_announce FROM queues"
+          + " UNION SELECT arquivo FROM sounds WHERE descricao LIKE '%fakepath%' OR secao NOT IN ('', 'default')\""
+          + " | sort -u | while read -r n; do [ -n \"$n\" ] && find /var/lib/asterisk/sounds -maxdepth 3 -type f"
+          + " -name \"${n%.*}.*\" -exec cp {} sons/ \\; ; done;",
+        '  cp -r /var/lib/asterisk/moh/. moh/ 2>/dev/null; cp /etc/asterisk/*.conf conf/ 2>/dev/null;',
+        '  cp /etc/asterisk/snep/*.conf conf/ 2>/dev/null;',
+        '  tar czf /root/snep-telium.tar.gz . && cd / && rm -rf "$P" && ls -lh /root/snep-telium.tar.gz',
+        '); unset MYSQL_PWD; fi'
+      ].join('\n')
+    };
   },
 
   mount() {
@@ -7702,12 +7717,12 @@ PAGES['telium.migracao'] = {
         alvo.innerHTML = `<p class="small" style="color:var(--danger)">${esc(e.message)}</p>`;
       }
     };
-    document.getElementById('snepCopiar').onclick = async () => {
+    document.querySelectorAll('[data-snep-copiar]').forEach(b => b.onclick = async () => {
       try {
-        await navigator.clipboard.writeText(document.getElementById('snepComando').textContent);
+        await navigator.clipboard.writeText(document.getElementById(b.dataset.snepCopiar).textContent);
         toast('Comando copiado.', 'ok');
       } catch { toast('Não foi possível copiar: selecione o texto e copie.', 'err'); }
-    };
+    });
     previa.onclick = () => this.enviar(true);
     importar.onclick = async () => {
       const ok = await Modal.confirm({

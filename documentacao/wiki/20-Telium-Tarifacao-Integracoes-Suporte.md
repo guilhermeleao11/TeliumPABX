@@ -551,7 +551,11 @@ Traz de uma central **SNEP 3** os troncos, ramais, filas, agentes, as regras de 
 
 ### Passo a passo
 
-1. **Gere o pacote no SNEP.** A tela mostra um comando: copie e cole no terminal do servidor do SNEP, como root. Ele pede a senha do root do MySQL (Enter se não tiver) e gera `/root/snep-telium.tar.gz` com:
+1. **Gere o pacote no SNEP.** A tela mostra dois comandos, para colar no terminal do servidor do SNEP, como root, na mesma sessão e um depois do outro:
+   - **a)** o da senha do root do MySQL do SNEP: cole, digite a senha (ela não aparece; sem senha, só Enter) e tecle Enter;
+   - **b)** o do pacote, que gera `/root/snep-telium.tar.gz`. Rodado sem o (a), ele só avisa.
+
+   Os dois são separados de propósito: colado junto, o pedido de senha lia a linha seguinte do próprio comando como se fosse a senha. O pacote leva:
    - o banco **sem o CDR**, só com as tabelas da migração;
    - os áudios que as regras, URAs e filas usam e os enviados pela tela do SNEP (`/var/lib/asterisk/sounds`);
    - as músicas de espera (`/var/lib/asterisk/moh`);
