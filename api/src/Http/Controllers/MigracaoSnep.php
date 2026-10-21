@@ -123,7 +123,12 @@ final class MigracaoSnep
         }
 
         $corpo = (array) $req->getParsedBody();
-        $simular = filter_var($corpo['simular'] ?? true, FILTER_VALIDATE_BOOLEAN);
+        // Na dúvida, prévia: só "false" de verdade grava.
+        $simular = filter_var($corpo['simular'] ?? true, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true;
+        // A importação converte áudios e cria centenas de itens: não pode
+        // parar no meio porque o navegador desistiu de esperar.
+        @set_time_limit(900);
+        ignore_user_abort(true);
         $inicio = trim((string) ($corpo['fila_inicio'] ?? '8000'));
         if (preg_match('/^[0-9]{2,10}$/', $inicio) !== 1) {
             return Resposta::erro($res, 'O primeiro número de fila é só de dígitos, de 2 a 10.', 422,
@@ -148,7 +153,9 @@ final class MigracaoSnep
             $dados, ['fila_inicio' => $inicio, 'pacote' => $pacote, 'ignorar' => array_slice($ignorar, 0, 5000)], $simular
         );
 
-        if (!$simular) {
+        // Cancelada pela trava (deixaria a central com erro): o dump fica,
+        // para desmarcar o item e importar de novo.
+        if (!$simular && ($resultado['cancelada'] ?? null) === null) {
             @unlink($arquivo);
             self::apagar("{$this->diretorio()}/{$id}");
             Auditoria::registrar($req->getAttribute('usuario'), 'importar', 'telium.migracao',

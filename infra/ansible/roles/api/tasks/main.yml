@@ -29,6 +29,19 @@
     group: "{{ telium_group }}"
     mode: preserve
 
+# O papel mariadb já aplica o banco, mas quem atualiza só a API
+# (--start-at-task "Publicar o código da API") pulava essa parte e ficava
+# com código novo sobre banco velho: "Unknown column 'grupo_saida'" na
+# primeira gravação. Os scripts são idempotentes; aplicar de novo aqui,
+# logo depois do código, garante que os dois andam juntos.
+- name: Atualizar o banco para o código publicado
+  ansible.builtin.shell:
+    cmd: "mariadb --protocol=socket -uroot {{ db_nome }} < {{ telium_base }}/sql/{{ item | basename }}"
+  loop: "{{ query('fileglob', playbook_dir + '/../sql/*.sql') | sort }}"
+  loop_control:
+    label: "{{ item | basename }}"
+  changed_when: false
+
 # O commit do clone vai junto com o código: é o que a tela mostra ao lado
 # do número da versão ("1.1.0 (ae4f854)") e o que o suporte pede. Entre
 # duas versões, o número é o mesmo e só o commit diz o que está rodando.

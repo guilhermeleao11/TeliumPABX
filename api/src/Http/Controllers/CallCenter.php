@@ -497,8 +497,15 @@ final class CallCenter
         });
 
         // Quem está logado sente a mudança agora, não no próximo login:
-        // fila nova entra, fila tirada sai, nível novo vale já.
+        // fila nova entra, fila tirada sai, nível novo vale já. A migração
+        // do SNEP cria agentes que ninguém logou ainda: pula o AMI.
         $aviso = null;
+        if ($req->getAttribute('sem_ami')) {
+            Auditoria::registrar($req->getAttribute('usuario'), $atual === null ? 'criar' : 'editar',
+                                 'cc.agentes', "agente {$matricula}");
+
+            return Resposta::json($res, ['id' => $id, 'aviso' => null], $atual === null ? 201 : 200);
+        }
         try {
             $cc = Cc::compartilhado();
             if ($ativo === 0) {

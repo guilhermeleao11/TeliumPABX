@@ -264,6 +264,12 @@ Também existe `--start-at-task` do Ansible, para reprovisionar só a partir de 
 sudo ansible-playbook site.yml --start-at-task="Publicar o código da API"
 ```
 
+A partir da 1.5.2, essa etapa também atualiza o banco logo depois de publicar o código. Antes, ela pulava a atualização do banco, e o código novo rodava sobre o banco velho ("Unknown column ..." ao gravar). Se isso acontecer numa central antiga, rode no servidor:
+
+```bash
+sudo -u teliumpbx php /opt/telium/api/bin/telium migrar
+```
+
 ### -e limpar_banco=true — APAGA DADOS
 
 > **Destrutivo e sem volta. Nunca numa central com cliente.** O backup é seu.

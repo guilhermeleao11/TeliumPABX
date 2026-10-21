@@ -7639,6 +7639,9 @@ PAGES['telium.migracao'] = {
   // "Grupo|item" desmarcados na prévia: ficam fora da importação.
   _ignorar: new Set(),
   _refazer: null,
+  // Cada pedido ganha um número: a resposta de um pedido velho (de uma
+  // escolha que já mudou) é descartada, e não pinta a tela por cima.
+  _geracao: 0,
 
   render() {
     const passo = (n, titulo, corpo) => `<div class="card" style="margin-bottom:16px">
@@ -7702,7 +7705,10 @@ PAGES['telium.migracao'] = {
       pacote: [
         'if [ -z "${MYSQL_PWD+x}" ]; then echo "Rode antes o comando da senha (a)."; else (',
         '  P=$(mktemp -d) && cd "$P" && mkdir -p sons moh conf &&',
-        `  mysqldump -u root --single-transaction snep ${tabelas} > snep.sql &&`,
+        // Só as tabelas que existem nesta versão do SNEP: pedir uma que não
+        // existe derrubava o dump inteiro.
+        `  T=$(mysql -N -u root snep -e "SHOW TABLES" | grep -x -E '${tabelas.trim().split(/\s+/).join('|')}' | tr '\\n' ' ') &&`,
+        '  mysqldump -u root --single-transaction snep $T > snep.sql &&',
         // Em que filas cada agente entrou nos últimos 90 dias: do arquivo
         // queue_log (e dos rotacionados) e da tabela, quando o SNEP grava lá.
         "  { zcat -f /var/log/asterisk/queue_log* 2>/dev/null; mysql -N -B -u root snep -e"
@@ -7713,8 +7719,8 @@ PAGES['telium.migracao'] = {
         "  mysql -N -u root snep -e \"SELECT value FROM regras_negocio_actions_config WHERE \\`key\\` = 'file'"
           + " UNION SELECT announce FROM queues UNION SELECT periodic_announce FROM queues"
           + " UNION SELECT arquivo FROM sounds WHERE descricao LIKE '%fakepath%' OR secao NOT IN ('', 'default')\""
-          + " | sort -u | while read -r n; do [ -n \"$n\" ] && find /var/lib/asterisk/sounds -maxdepth 3 -type f"
-          + " -name \"${n%.*}.*\" -exec cp {} sons/ \\; ; done;",
+          + " | sort -u | while read -r n; do b=$(basename \"$n\"); [ -n \"$b\" ] && find /var/lib/asterisk/sounds -maxdepth 3"
+          + " -type f -name \"${b%.*}.*\" -exec cp {} sons/ \\; ; done;",
         '  cp -r /var/lib/asterisk/moh/. moh/ 2>/dev/null; cp /etc/asterisk/*.conf conf/ 2>/dev/null;',
         '  cp /etc/asterisk/snep/*.conf conf/ 2>/dev/null;',
         '  tar czf /root/snep-telium.tar.gz . && cd / && rm -rf "$P" && ls -lh /root/snep-telium.tar.gz',
@@ -7776,7 +7782,9 @@ PAGES['telium.migracao'] = {
       alvo.querySelectorAll('[data-snep-item]').forEach(c => { c.checked = !this._ignorar.has(c.value); });
       importar.disabled = true;
       clearTimeout(this._refazer);
-      this._refazer = setTimeout(() => this.enviar(true), 700);
+      this._refazer = setTimeout(() => {
+        if (document.getElementById('snepPrevia')) this.enviar(true);   // saiu da tela: nada a fazer
+      }, 700);
     });
     importar.onclick = async () => {
       const ok = await Modal.confirm({
@@ -7793,30 +7801,46 @@ PAGES['telium.migracao'] = {
     const previa = document.getElementById('snepPrevia');
     const importar = document.getElementById('snepImportar');
     const alvo = document.getElementById('snepResultado');
+    if (!previa || !importar || !alvo) return;
+    // O rótulo de cada botão é fixo: guardar o que estava na tela pegava o
+    // "Conferindo…" de um pedido ainda em andamento, e ele ficava para sempre.
+    const rotulos = {
+      previa: `${icon('search','ico ico-sm')} Ver prévia`,
+      importar: `${icon('upload','ico ico-sm')} Importar`
+    };
     const botao = simular ? previa : importar;
-    const texto = botao.innerHTML;
+    const minha = ++this._geracao;
     botao.disabled = true;
+    importar.disabled = true;
     botao.innerHTML = `<span class="spin"></span> ${simular ? 'Conferindo…' : 'Importando…'}`;
     try {
       const r = await Api.post(`/migracao-snep/${this._dump}`, {
         simular, fila_inicio: document.getElementById('snepFilaInicio').value.trim(),
         ignorar: [...this._ignorar]
       });
+      if (minha !== this._geracao || !document.body.contains(alvo)) return;   // já há um pedido mais novo
       this._ultimo = r;
       alvo.innerHTML = this.pintar(r);
       this.ligarSenhas(r);
       importar.disabled = !simular || !((r.resumo.criar || 0) + (r.resumo.aviso || 0));
-      if (!simular) {
+      if (!simular && r.cancelada) {
+        toast('Importação cancelada: nada foi gravado. Veja o motivo no topo da lista.', 'err');
+      } else if (!simular) {
         this._dump = null;
         previa.disabled = true;
         toast('Migração feita. Aplique as configurações para o Asterisk assumir.', 'ok');
       }
     } catch (e) {
+      if (minha !== this._geracao) return;
       alvo.innerHTML = `<p class="small" style="color:var(--danger)">${esc(e.message)}</p>`;
       importar.disabled = true;
+    } finally {
+      if (minha === this._geracao) {
+        previa.innerHTML = rotulos.previa;
+        importar.innerHTML = rotulos.importar;
+        previa.disabled = !this._dump;
+      }
     }
-    botao.innerHTML = texto;
-    if (simular) previa.disabled = !this._dump;
   },
 
   pintar(r) {
@@ -7832,6 +7856,8 @@ PAGES['telium.migracao'] = {
     const grupos = [...new Set(r.linhas.map(l => l.grupo))];
 
     return `
+      ${r.cancelada ? `<div class="aviso-form" style="margin:0 0 10px;border-color:var(--danger)">${icon('alert','ico')}
+        <div class="small"><b>Importação cancelada.</b> ${esc(r.cancelada)}</div></div>` : ''}
       ${r.simulado ? `<p class="small muted" style="margin:0 0 8px">${icon('check','ico ico-sm')} Desmarque o que não
         quer trazer (item por item, ou o grupo inteiro na caixa do título). A prévia se refaz a cada escolha e mostra
         o que deixa de funcionar sem o item — a rota do tronco que saiu, o agente da fila que saiu.</p>` : ''}

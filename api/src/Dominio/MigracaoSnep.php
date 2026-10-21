@@ -34,7 +34,9 @@ use Telium\Suporte\Bd;
  */
 final class MigracaoSnep
 {
-    private const CODECS = ['ulaw', 'alaw', 'gsm', 'g722', 'opus', 'g729'];
+    // Sem g729: o Asterisk não o transcodifica, e um ramal ou tronco só com
+    // ele derruba a chamada que chega em outro codec (veja a migração 21).
+    private const CODECS = ['ulaw', 'alaw', 'gsm', 'g722', 'opus'];
     private const ESTRATEGIAS = ['ringall', 'rrmemory', 'leastrecent', 'fewestcalls', 'linear', 'random', 'wrandom'];
     private const DTMF = ['rfc2833' => 'rfc4733', 'rfc4733' => 'rfc4733', 'inband' => 'inband',
                           'info' => 'info', 'auto' => 'auto'];
@@ -63,7 +65,7 @@ final class MigracaoSnep
     private array $numeroDaFila = [];
     /** @var array<int, array{fila:string, numero:string}> regras que eram só o número interno de uma fila */
     private array $atalhos = [];
-    /** @var array<int, array{destino:?array, avisos:list<string>}> destino já resolvido de cada regra */
+    /** @var array<string, array{destino:?array, avisos:list<string>}> destino já resolvido de cada regra e número */
     private array $destinosDasRegras = [];
     /** @var array<int,string> core_groups do SNEP: id => nome */
     private array $grupos = [];
@@ -71,6 +73,8 @@ final class MigracaoSnep
     private array $gruposDoRamal = [];
     /** @var array<int,true> grupos que alguma regra de saída usa como origem */
     private array $gruposDeSaida = [];
+    /** @var list<string> áudios gravados no disco nesta importação (apagados se ela for desfeita) */
+    private array $gravados = [];
     /** @var array<int, list<array<string,?string>>> date_alias do SNEP: id => datas */
     private array $datas = [];
     /** @var array<string,string> fila do SNEP => [agente => vezes], do histórico do pacote */
@@ -101,6 +105,11 @@ final class MigracaoSnep
         $this->ignorar = array_fill_keys(array_map('strval', $opcoes['ignorar'] ?? []), true);
         $this->indexar($snep);
 
+        // Os erros que a central já tinha: a trava do fim só olha o que a
+        // migração acrescentou.
+        $antes = self::errosDaCentral();
+        $cancelada = null;
+
         $pdo = Bd::conexao();
         $pdo->beginTransaction();
         try {
@@ -117,8 +126,24 @@ final class MigracaoSnep
             $this->migrarSaida($regras);
             $this->migrarEntrada($regras);
 
-            if ($simular) {
+            // A trava: a mesma conferência que a atualização da central roda
+            // (e que para o playbook quando acha erro). Se a migração
+            // acrescentar um erro, nada é gravado — e a prévia mostra qual,
+            // para desmarcar o item e tentar de novo.
+            $novos = array_values(array_diff(self::errosDaCentral(), $antes));
+            foreach ($novos as $erro) {
+                $this->linha('Conferência da central', $erro, 'erro',
+                    'A central ficaria com este problema. Desmarque o item que o causa ou corrija-o depois de importar o resto.');
+            }
+            if ($novos !== [] && !$simular) {
+                $cancelada = 'A importação foi cancelada e nada foi gravado: ela deixaria a central com '
+                           . count($novos) . ' problema(s) que a atualização não aceita. Veja "Conferência da central" '
+                           . 'na lista abaixo, desmarque o que os causa e importe de novo.';
+            }
+
+            if ($simular || $cancelada !== null) {
                 $pdo->rollBack();
+                $this->apagarGravados();
             } else {
                 $pdo->commit();
             }
@@ -126,6 +151,7 @@ final class MigracaoSnep
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
+            $this->apagarGravados();
             throw $e;
         }
 
@@ -135,7 +161,8 @@ final class MigracaoSnep
         }
 
         return [
-            'simulado' => $simular,
+            'simulado' => $simular || $cancelada !== null,
+            'cancelada' => $cancelada,
             'resumo' => $resumo,
             'linhas' => $this->linhas,
             'audios' => array_values($this->audios),
@@ -143,7 +170,7 @@ final class MigracaoSnep
                 'nome' => explode(',', $chave)[0],
                 'texto' => $this->pacote !== null ? SnepPacote::contexto($this->pacote['conf'], explode(',', $chave)[0]) : null,
             ], array_keys($this->contextos)),
-            'senhas' => $simular ? [] : $this->senhas,
+            'senhas' => $simular || $cancelada !== null ? [] : $this->senhas,
         ];
     }
 
@@ -526,7 +553,9 @@ final class MigracaoSnep
             }
 
             $resposta = (new CallCenter())->salvar(
-                $this->req->withParsedBody(array_filter([
+                // Agente novo não está logado: não há o que sincronizar no
+                // Asterisk. Sem o AMI, a prévia não espera o timeout de cada um.
+                $this->req->withAttribute('sem_ami', true)->withParsedBody(array_filter([
                     'nome' => $nome, 'matricula' => $matricula, 'pin' => $pin, 'filas' => $filas,
                     'ativo' => (string) ($a['status'] ?? '1') === '0' ? 0 : 1,
                 ], static fn ($v) => $v !== null)),
@@ -591,7 +620,7 @@ final class MigracaoSnep
             }
             $acoes = $this->acoes[(int) $r['id']] ?? [];
             $discar = self::acao($acoes, 'discartronco');
-            $nome = mb_substr(trim((string) $r['desc']) ?: "Regra {$r['id']}", 0, 80);
+            $nome = $this->nomeDaRegra($r);
             $ordem += 10;
             if ($this->pulou('Regras de saída', $nome)) {
                 continue;
@@ -813,7 +842,7 @@ final class MigracaoSnep
                 continue;
             }
             $acoes = $this->acoes[(int) $r['id']] ?? [];
-            $nome = mb_substr(trim((string) $r['desc']) ?: "Regra {$r['id']}", 0, 120);
+            $nome = $this->nomeDaRegra($r, 120);
             $destinos = array_values(array_filter(array_map('trim', explode(',', (string) $r['destino']))));
 
             if (count($destinos) === 1 && preg_match('/^RX?:(.+)$/', $destinos[0], $m) === 1 && isset($opcoes[$m[1]])) {
@@ -881,7 +910,7 @@ final class MigracaoSnep
     private function rotaDeEntrada(string $did, string $cid, array $regras): void
     {
         $principal = $regras[0];
-        $nome = mb_substr(trim((string) $principal['desc']) ?: "Regra {$principal['id']}", 0, 120);
+        $nome = $this->nomeDaRegra($principal, 120);
         $item = "{$nome} ({$did})";
         $avisos = [];
         if ($this->pulou('Regras de entrada', $item)) {
@@ -953,7 +982,7 @@ final class MigracaoSnep
         $marca = count($avisos);
         $fora = $this->encadear($resto, $did, $avisos) ?? ['desligar', ''];
 
-        $nome = mb_substr('SNEP: ' . trim((string) $r['desc']), 0, 80);
+        $nome = 'SNEP: ' . $this->nomeDaRegra($r, 74);
         $existente = Bd::valor('SELECT id FROM condicoes_horarias WHERE nome = ?', [$nome]);
         if ($existente !== false) {
             return ['condicao', (string) $existente];
@@ -986,7 +1015,7 @@ final class MigracaoSnep
      */
     private function grupoDeHorario(array $r, array &$avisos): ?int
     {
-        $nome = mb_substr('SNEP: ' . trim((string) $r['desc']), 0, 80);
+        $nome = 'SNEP: ' . $this->nomeDaRegra($r, 74);
         $existente = Bd::valor('SELECT id FROM grupos_horario WHERE nome = ?', [$nome]);
         if ($existente !== false) {
             return (int) $existente;
@@ -1060,7 +1089,11 @@ final class MigracaoSnep
     /** @return list<array{0:string,1:string}> */
     private static function partirMeiaNoite(string $ini, string $fim): array
     {
-        return substr($ini, 0, 5) > substr($fim, 0, 5) && $fim !== ''
+        // Em minutos: "8:00" > "18:00" como texto, e o SNEP aceita hora sem zero.
+        $minutos = static fn (string $h): int => preg_match('/^(\d{1,2}):(\d{2})/', trim($h), $m) === 1
+            ? (int) $m[1] * 60 + (int) $m[2] : 0;
+
+        return $fim !== '' && $minutos($ini) > $minutos($fim)
             ? [[$ini, '23:59'], ['00:00', $fim]]
             : [[$ini, $fim]];
     }
@@ -1092,15 +1125,18 @@ final class MigracaoSnep
     private function destinoDaRegra(array $r, string $did, array &$avisos): ?array
     {
         $id = (int) $r['id'];
-        if (!isset($this->destinosDasRegras[$id])) {
+        // Por regra E número: "discar o próprio número" e a reescrita usam o
+        // número chamado — cada DID da regra tem o seu destino.
+        $chave = "{$id}|{$did}";
+        if (!isset($this->destinosDasRegras[$chave])) {
             $proprios = [];
-            $nome = mb_substr(trim((string) $r['desc']) ?: "Regra {$id}", 0, 120);
+            $nome = $this->nomeDaRegra($r, 120);
             $destino = $this->resolver($this->acoes[$id] ?? [], $nome, $did, $proprios);
-            $this->destinosDasRegras[$id] = ['destino' => $destino, 'avisos' => $proprios];
+            $this->destinosDasRegras[$chave] = ['destino' => $destino, 'avisos' => $proprios];
         }
-        array_push($avisos, ...$this->destinosDasRegras[$id]['avisos']);
+        array_push($avisos, ...$this->destinosDasRegras[$chave]['avisos']);
 
-        return $this->destinosDasRegras[$id]['destino'];
+        return $this->destinosDasRegras[$chave]['destino'];
     }
 
     /** Regra de saída: a do tipo "outgoing", ou a que disca por tronco a partir de um ramal. */
@@ -1213,8 +1249,16 @@ final class MigracaoSnep
 
             case 'discarramal':
                 $ramal = preg_replace('/\D/', '', (string) (($cfg['ramal'] ?? '') !== '' ? $cfg['ramal'] : $numero)) ?? '';
-                if ($ramal === '' || Bd::valor('SELECT id FROM ramais WHERE numero = ?', [$ramal]) === false) {
+                $ativo = $ramal === '' ? false : Bd::valor('SELECT ativo FROM ramais WHERE numero = ?', [$ramal]);
+                if ($ativo === false) {
                     $avisos[] = "o ramal {$ramal} não existe no Telium";
+
+                    return null;
+                }
+                // Apontar para ramal desativado é erro na conferência da
+                // central — e a atualização para nele.
+                if ((int) $ativo !== 1) {
+                    $avisos[] = "o ramal {$ramal} está desativado: ative-o e aponte para ele à mão";
 
                     return null;
                 }
@@ -1227,6 +1271,11 @@ final class MigracaoSnep
                 $fila = (string) ($cfg['queue'] ?? $cfg['fila'] ?? '');
                 if (!isset($this->filas[$fila])) {
                     $avisos[] = "a fila \"{$fila}\" não foi migrada";
+
+                    return null;
+                }
+                if ((int) Bd::valor('SELECT ativo FROM filas WHERE numero = ?', [$this->filas[$fila]]) !== 1) {
+                    $avisos[] = "a fila {$this->filas[$fila]} está desativada: ative-a e aponte para ela à mão";
 
                     return null;
                 }
@@ -1449,6 +1498,26 @@ final class MigracaoSnep
 
     /** @var list<array<string,?string>> */
     private array $regras = [];
+    /** @var array<string,int> quantas regras do SNEP têm cada descrição */
+    private array $descricoes = [];
+
+    /**
+     * O nome de uma regra no Telium. Duas regras do SNEP com a mesma
+     * descrição (comum: "Celular" do NOC e "Celular" geral) virariam a
+     * mesma rota, URA ou condição — a segunda tomada pela primeira como
+     * "já existe". Repetida, a descrição leva o número da regra; o nome
+     * sai igual a cada execução, e rodar de novo continua achando o item.
+     */
+    private function nomeDaRegra(array $r, int $max = 80): string
+    {
+        $desc = trim((string) $r['desc']);
+        if ($desc === '') {
+            return "Regra {$r['id']}";
+        }
+        $sufixo = ($this->descricoes[mb_strtolower($desc)] ?? 1) > 1 ? " (#{$r['id']})" : '';
+
+        return mb_substr($desc, 0, $max - mb_strlen($sufixo)) . $sufixo;
+    }
 
     private function indexar(array $snep): void
     {
@@ -1482,6 +1551,10 @@ final class MigracaoSnep
     private function regrasEmOrdem(array $regras): array
     {
         usort($regras, static fn ($a, $b) => [(int) $b['prio'], (int) $a['id']] <=> [(int) $a['prio'], (int) $b['id']]);
+        foreach ($regras as $r) {
+            $chave = mb_strtolower(trim((string) $r['desc']));
+            $this->descricoes[$chave] = ($this->descricoes[$chave] ?? 0) + 1;
+        }
 
         return $this->regras = $regras;
     }
@@ -1505,7 +1578,7 @@ final class MigracaoSnep
         // Veio no pacote do SNEP: converte e cadastra em Áudios.
         $arquivo = $achado === null ? $this->somDoPacote($nome) : null;
         if ($arquivo !== null) {
-            $achado = Audios::importar($arquivo, $nome, $categoria, $this->usuarioId(), !$this->simular);
+            $achado = $this->anotar(Audios::importar($arquivo, $nome, $categoria, $this->usuarioId(), !$this->simular));
             $origem = $achado !== null ? 'pacote' : 'falhou';
         }
 
@@ -1519,12 +1592,17 @@ final class MigracaoSnep
     /** O arquivo do pacote com este nome (sem extensão), se veio. */
     private function somDoPacote(string $nome): ?string
     {
+        // O pacote guarda o arquivo com o nome limpo ("Boas Vindas" vira
+        // "Boas_Vindas"): a busca limpa do mesmo jeito.
         $sons = $this->pacote['sons'] ?? [];
-        if (isset($sons[$nome])) {
-            return $sons[$nome];
+        $limpo = SnepPacote::limpo($nome);
+        foreach ([$nome, $limpo] as $n) {
+            if (isset($sons[$n])) {
+                return $sons[$n];
+            }
         }
         foreach ($sons as $chave => $caminho) {
-            if (strcasecmp((string) $chave, $nome) === 0) {
+            if (strcasecmp((string) $chave, $nome) === 0 || strcasecmp((string) $chave, $limpo) === 0) {
                 return $caminho;
             }
         }
@@ -1545,7 +1623,7 @@ final class MigracaoSnep
         if ($moh === []) {
             return null;
         }
-        $pasta = SnepPacote::classesDeMusica($this->pacote['conf'] ?? [])[$classe] ?? $classe;
+        $pasta = SnepPacote::limpo(SnepPacote::classesDeMusica($this->pacote['conf'] ?? [])[$classe] ?? $classe);
         $arquivos = $moh[$pasta] ?? null;
         if ($arquivos === null) {
             // Sem o .conf, a pasta costuma ser o começo do nome da classe
@@ -1570,13 +1648,32 @@ final class MigracaoSnep
                      . ' -r 8000 -c 1 ' . escapeshellarg($junto) . ' 2>&1';
             exec($comando, $saida, $rc);
             if ($rc === 0 && is_file($junto)) {
-                $origem = $junto;
+                $origem = $junto;      // fica na pasta de trabalho, que some com o envio
             }
         }
-        $audio = Audios::importar($origem, $classe, 'espera', $this->usuarioId(), !$this->simular);
+        $audio = $this->anotar(Audios::importar($origem, $classe, 'espera', $this->usuarioId(), !$this->simular));
         $this->audios[$classe] = ['snep' => $classe, 'telium' => Audios::nomeBase($classe), 'categoria' => 'espera',
                                   'achado' => $audio !== null, 'origem' => $audio !== null ? 'pacote' : 'falhou',
                                   'usado_em' => ['música de espera (' . count($arquivos) . ' faixa(s))']];
+
+        return $audio;
+    }
+
+    /** Banco desfeito: os áudios convertidos nesta importação saem do disco. */
+    private function apagarGravados(): void
+    {
+        foreach ($this->gravados as $base) {
+            Audios::apagarArquivos($base);
+        }
+        $this->gravados = [];
+    }
+
+    /** Guarda o áudio que esta importação gravou no disco. */
+    private function anotar(?array $audio): ?array
+    {
+        if ($audio !== null && ($audio['novo'] ?? false) && !$this->simular) {
+            $this->gravados[] = (string) $audio['arquivo'];
+        }
 
         return $audio;
     }
@@ -1615,6 +1712,20 @@ final class MigracaoSnep
         $campo = (string) ($corpo['campo'] ?? '');
 
         return ($campo !== '' ? "{$campo}: " : '') . (string) ($corpo['erro'] ?? 'recusado');
+    }
+
+    /**
+     * Os erros da conferência do cadastro (os que param a atualização),
+     * como texto: "onde: o que".
+     *
+     * @return list<string>
+     */
+    private static function errosDaCentral(): array
+    {
+        return array_values(array_map(
+            static fn (array $p): string => "{$p['onde']}: {$p['texto']}",
+            array_filter(\Telium\Gerador\Conferencia::problemas(), static fn (array $p): bool => $p['nivel'] === 'erro')
+        ));
     }
 
     private function linha(string $grupo, string $item, string $acao, string $mensagem): void

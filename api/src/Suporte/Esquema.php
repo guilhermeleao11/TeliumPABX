@@ -33,7 +33,6 @@ final class Esquema
 
     /** Colunas acrescentadas depois, por tabela. */
     private const COLUNAS = [
-        'ramais' => ['webrtc', 'siga_me_ativo', 'dtmf_modo', 'dtls', 'grav_ext_entrada'],
         'filas'  => ['callcenter', 'anuncio_entrada_id', 'pesquisa_id',
                      'tabulacao_obrigatoria', 'retorno_tecla', 'ampliar_segundos'],
         'ura'    => ['anuncio_id'],
@@ -55,6 +54,9 @@ final class Esquema
         'pin_sets' => ['pins_qtd'],
         'integracoes' => ['ultimo_status'],
         'smtp' => ['alertas_para'],
+        // 1.5.0 (48): rota de saída por grupo de ramais e por horário.
+        'ramais' => ['webrtc', 'siga_me_ativo', 'dtmf_modo', 'dtls', 'grav_ext_entrada', 'grupo_saida'],
+        'rotas_saida' => ['grupos', 'grupo_horario_id'],
     ];
 
     /**

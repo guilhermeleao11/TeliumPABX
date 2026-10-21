@@ -163,6 +163,19 @@ server {
         try_files $uri /api/index.php$is_args$args;
     }
 
+    # A migração do SNEP converte os áudios e grava tudo numa requisição
+    # só: com o prazo de 60 s da API, o nginx respondia 504 no meio e o PHP
+    # seguia gravando sem ninguém ver o resultado — nem as senhas SIP novas.
+    location ^~ /api/migracao-snep {
+        limit_req  zone=telium_api burst=20 nodelay;
+        include        /etc/nginx/fastcgi_params;
+        fastcgi_pass   unix:/run/php/telium.sock;
+        fastcgi_param  SCRIPT_FILENAME {{ telium_api }}/public/index.php;
+        fastcgi_param  DOCUMENT_ROOT   {{ telium_api }}/public;
+        fastcgi_read_timeout 900s;
+        fastcgi_buffers 16 16k;
+    }
+
     location = /api/index.php {
         # Caminho absoluto de propósito: o nginx resolve include relativo
         # a partir do prefixo, e o prefixo muda quando a configuração é

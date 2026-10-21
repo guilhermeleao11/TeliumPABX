@@ -260,7 +260,7 @@ final class Audios
      * só registra — é a prévia, que desfaz o banco e não pode deixar
      * arquivo para trás.
      *
-     * @return array{id:int, arquivo:string}|null null quando não converteu
+     * @return array{id:int, arquivo:string, novo:bool}|null null quando não converteu
      */
     public static function importar(string $origem, string $nome, string $categoria, ?int $usuario, bool $gravar): ?array
     {
@@ -271,15 +271,28 @@ final class Audios
         }
         $existente = Bd::um('SELECT id, arquivo FROM audios WHERE arquivo = ?', [$base]);
         if ($existente !== null) {
-            return ['id' => (int) $existente['id'], 'arquivo' => (string) $existente['arquivo']];
+            return ['id' => (int) $existente['id'], 'arquivo' => (string) $existente['arquivo'], 'novo' => false];
         }
 
         $formatos = ['wav'];
         $duracao = 0;
+        $ext = strtolower(pathinfo($origem, PATHINFO_EXTENSION));
+        if (!$gravar) {
+            // A prévia não grava, mas confere o que a importação vai fazer:
+            // o arquivo que o sox não lê não converte, e lá vira "falhou".
+            if ($eu->conversorDisponivel()) {
+                exec(sprintf('soxi %s >/dev/null 2>&1', escapeshellarg($origem)), $saida, $rc);
+                if ($rc !== 0) {
+                    return null;
+                }
+            } elseif ($ext !== 'wav') {
+                return null;
+            }
+        }
         if ($gravar) {
             $dir = $eu->diretorio();
             $formatos = is_dir($dir) && is_writable($dir)
-                ? $eu->converter($origem, $dir, $base, strtolower(pathinfo($origem, PATHINFO_EXTENSION)))
+                ? $eu->converter($origem, $dir, $base, $ext)
                 : [];
             if ($formatos === []) {
                 return null;
@@ -294,7 +307,19 @@ final class Audios
              implode(',', $formatos), $usuario]
         );
 
-        return ['id' => (int) Bd::conexao()->lastInsertId(), 'arquivo' => $base];
+        return ['id' => (int) Bd::conexao()->lastInsertId(), 'arquivo' => $base, 'novo' => true];
+    }
+
+    /** Apaga do disco os formatos convertidos de um áudio (a importação desfeita). */
+    public static function apagarArquivos(string $base): void
+    {
+        $base = self::nomeBase($base);
+        if ($base === '') {
+            return;
+        }
+        foreach (['wav', 'gsm'] as $ext) {
+            @unlink((new self())->diretorio() . "/{$base}.{$ext}");
+        }
     }
 
     private function diretorio(): string

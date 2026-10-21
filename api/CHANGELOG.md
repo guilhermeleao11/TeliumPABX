@@ -2,8 +2,23 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.5.1 — 2026-10-21
+## 1.5.2 — 2026-10-21
 Commits:
+Revisão da migração do SNEP e das rotas por grupo: a migração não deixa a central quebrada, e o banco anda junto com o código.
+
+### Correções
+- **Atualização**: "Unknown column 'grupo_saida'" ao gravar. Quem atualizava só a API (`--start-at-task "Publicar o código da API"`) ficava com código novo sobre banco velho. A etapa agora atualiza o banco logo depois de publicar o código; a conferência do esquema (tela de Saúde) conhece as colunas da 48; e o erro de coluna que falta diz como resolver (`php bin/telium migrar`).
+- **Migração do SNEP — trava**: antes de gravar, roda a conferência do cadastro que a atualização roda; se a importação acrescentaria um erro, é cancelada sem gravar nada e mostra o motivo. Regra ou tecla de URA para ramal ou fila desativados fica para ser feita à mão.
+- **Migração do SNEP**: regras com a mesma descrição viravam uma só (a segunda tomada como "já existe", ou a condição horária de um número usada em outro); agora levam o número da regra no nome. Regra com vários números e destino que depende do número (discar o próprio número, reescrita) mandava todos para o primeiro.
+- **Migração do SNEP — áudios**: nome com espaço ou acento não era achado no pacote; a prévia passou a conferir se o arquivo é legível; importação desfeita apaga os áudios que converteu; agentes migrados não esperam o AMI.
+- **Migração do SNEP — tempo**: a importação tem 15 minutos (o nginx cortava em 60 s e o PHP seguia gravando sem a tela saber, perdendo as senhas novas) e não para se o navegador desistir. Pedido sem "simular" válido é prévia, nunca importação.
+- **Migração do SNEP — comando**: só pede ao mysqldump as tabelas que existem naquela versão do SNEP; acha o áudio que a regra cita com pasta (`custom/...`).
+- **Migração do SNEP — tela**: prévias seguidas não travam mais o botão em "Conferindo…" nem mostram uma prévia velha.
+- **Rotas de saída**: padrão só com rotas de grupo deixava sem saída quem não é ramal (desvio para número externo, DISA, siga-me); agora vai pela primeira do padrão. Rota de grupo com horário depois de uma do mesmo grupo sem horário é marcada como ignorada. O grupo de horário em uso por rota não pode ser apagado (chave estrangeira).
+- **API**: num deadlock dentro de transação aninhada, o erro original não é mais escondido pelo SAVEPOINT que já não existe.
+
+## 1.5.1 — 2026-10-21
+Commits: f00c448
 Na migração do SNEP, dá para escolher o que importar.
 
 ### Novidades

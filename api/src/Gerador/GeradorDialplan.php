@@ -1290,9 +1290,10 @@ final class GeradorDialplan
             $candidatas = [];
             $vistos = [];
             $fechou = null;
+            $fechouGrupo = [];      // grupo => a rota dele sem horário, que pega tudo do grupo
             foreach ($lista as $r) {
                 $chave = $r['grupos'] . '|' . $r['horario'];
-                $dona = $vistos[$chave] ?? ($r['grupos'] === '' ? $fechou : null);
+                $dona = $vistos[$chave] ?? ($r['grupos'] === '' ? $fechou : ($fechouGrupo[$r['grupos']] ?? null));
                 if ($dona !== null) {
                     // Dois cadastros com o mesmo padrão geravam a prioridade 1
                     // duas vezes; o Asterisk fica com a primeira e descarta a
@@ -1307,6 +1308,8 @@ final class GeradorDialplan
                 $candidatas[] = $r;
                 if ($r['grupos'] === '' && $r['horario'] === 0) {
                     $fechou = $r['nome'];
+                } elseif ($r['horario'] === 0) {
+                    $fechouGrupo[$r['grupos']] = $r['nome'];
                 }
             }
 
@@ -1341,7 +1344,11 @@ final class GeradorDialplan
                 $b->same('NoOp(Fora do horário da rota ' . $r['nome'] . ')', "pula-{$rotulo}");
             }
             if ($fechou === null) {
-                $b->same('NoOp(Nenhuma rota de saída para este ramal agora)')
+                // Sem rota geral, quem não é ramal — o desvio de uma rota de
+                // entrada para um número externo, a DISA, o siga-me — não tem
+                // grupo nenhum e ficaria sem saída: vai pela primeira do padrão.
+                $b->same('GotoIf($["${TELIUM_GRUPOS}" = ""]?rota-' . $candidatas[0]['rotulo'] . ')')
+                  ->same('NoOp(Nenhuma rota de saída para este ramal agora)')
                   ->same('Answer()')
                   ->same('Wait(1)')
                   ->same('Playback(cannot-complete-as-dialed)')

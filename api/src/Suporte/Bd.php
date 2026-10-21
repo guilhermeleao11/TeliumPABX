@@ -79,7 +79,12 @@ final class Bd
             $resultado = $trabalho();
             $pdo->exec("RELEASE SAVEPOINT {$ponto}");
         } catch (\Throwable $e) {
-            $pdo->exec("ROLLBACK TO SAVEPOINT {$ponto}");
+            // Num deadlock o MariaDB já desfez a transação inteira e o
+            // SAVEPOINT não existe mais: o erro que importa é o de cima.
+            try {
+                $pdo->exec("ROLLBACK TO SAVEPOINT {$ponto}");
+            } catch (\Throwable) {
+            }
             throw $e;
         } finally {
             $nivel--;

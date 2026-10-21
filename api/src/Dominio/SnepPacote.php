@@ -249,7 +249,8 @@ final class SnepPacote
         return $filas;
     }
 
-    private static function limpo(string $nome): string
+    /** O nome com que o arquivo fica na pasta de trabalho (e é procurado). */
+    public static function limpo(string $nome): string
     {
         return trim((string) preg_replace('/[^A-Za-z0-9._-]+/', '_', $nome), '._') ?: 'arquivo';
     }

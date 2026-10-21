@@ -25,3 +25,20 @@ ALTER TABLE ramais MODIFY grupo_saida VARCHAR(255) NULL;
 ALTER TABLE rotas_saida
   ADD COLUMN IF NOT EXISTS grupos VARCHAR(255) NULL AFTER pin_set_id,
   ADD COLUMN IF NOT EXISTS grupo_horario_id INT UNSIGNED NULL AFTER grupos;
+
+-- O grupo de horário em uso pela rota não pode sumir: apagado, a rota
+-- passava a não valer nunca, sem aviso. Como na condição horária, a
+-- chave impede apagar o grupo enquanto alguma rota o usa.
+SET @existe := (
+  SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS
+   WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'rotas_saida'
+     AND REFERENCED_TABLE_NAME = 'grupos_horario'
+);
+-- Rota apontando para grupo que já não existe (de antes da chave): solta.
+UPDATE rotas_saida SET grupo_horario_id = NULL
+ WHERE grupo_horario_id IS NOT NULL
+   AND grupo_horario_id NOT IN (SELECT id FROM grupos_horario);
+SET @sql := IF(@existe = 0,
+  'ALTER TABLE rotas_saida ADD CONSTRAINT fk_rota_saida_horario FOREIGN KEY (grupo_horario_id) REFERENCES grupos_horario (id)',
+  'DO 0');
+PREPARE p FROM @sql; EXECUTE p; DEALLOCATE PREPARE p;

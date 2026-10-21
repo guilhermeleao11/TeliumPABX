@@ -622,6 +622,13 @@ final class Recurso
         $codigo = $e->errorInfo[1] ?? 0;
         $texto = $e->errorInfo[2] ?? $e->getMessage();
 
+        // Coluna ou tabela que não existe: o código foi atualizado e o banco
+        // não. Dizer como resolver, e não só o erro do MariaDB.
+        $desatualizado = \Telium\Suporte\Esquema::explicarErro($e);
+        if ($desatualizado !== null) {
+            return Resposta::erro($res, $desatualizado, 500);
+        }
+
         // 1364: coluna obrigatória sem valor. Dizer QUAL coluna evita
         // devolver ao usuário uma mensagem de banco sem tradução.
         if ($codigo === 1364 && preg_match("/Field '([^']+)'/", $texto, $m) === 1) {

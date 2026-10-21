@@ -213,6 +213,10 @@ O que muda na operação, e não só por dentro. A mais recente primeiro.
 
 A tela **Telium › Versões e Novidades** mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo `api/CHANGELOG.md`). As notas abaixo resumem o que muda para quem opera.
 
+### 1.5.2 — revisão da migração e das rotas por grupo
+- Corrige "Unknown column 'grupo_saida'" (banco desatualizado). Numa central com o erro: `sudo -u teliumpbx php /opt/telium/api/bin/telium migrar`, ou rode a atualização completa.
+- A migração do SNEP não grava nada que deixaria a central com erro, e informa o que fica para ser feito à mão.
+
 ### 1.5.1 — escolher o que importar do SNEP
 - Na prévia da Migração do SNEP, cada item e cada grupo têm uma caixa: só o marcado é importado.
 

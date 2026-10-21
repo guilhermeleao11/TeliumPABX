@@ -154,6 +154,10 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.5.2 — revisão da migração e das rotas por grupo
+- Corrige "Unknown column 'grupo_saida'" (banco desatualizado). Numa central com o erro: `sudo -u teliumpbx php /opt/telium/api/bin/telium migrar`, ou rode a atualização completa.
+- A migração do SNEP não grava nada que deixaria a central com erro, e informa o que fica para ser feito à mão.
+
 ### 1.5.1 — escolher o que importar do SNEP
 - Na prévia da Migração do SNEP, cada item e cada grupo têm uma caixa: só o marcado é importado.
 

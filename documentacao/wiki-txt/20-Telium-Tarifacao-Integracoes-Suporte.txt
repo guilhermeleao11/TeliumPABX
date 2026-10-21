@@ -597,6 +597,14 @@ O que vira o quê
 - Áudios e músicas de espera do pacote: Convertidos e cadastrados em Áudios, com o nome do Telium (sem acento, minúsculo). A música de espera com várias faixas vira um áudio só
 
 
+A trava: a migração não deixa a central quebrada
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Antes de gravar, a migração roda a mesma conferência do cadastro que a atualização da central roda — e que para a atualização quando acha erro (uma rota de entrada apontando para ramal ou fila que não existe ou está desativado, por exemplo). Se a importação acrescentar algum erro, ela é cancelada inteira, sem gravar nada, e a lista mostra o grupo Conferência da central com cada problema. Desmarque o item que o causa e importe de novo; o envio continua no servidor. O que já estava errado na central antes da migração não conta.
+
+Além disso, regra ou tecla de URA que levaria a um ramal ou fila desativados não é criada: aparece para ser feita à mão, com o motivo. Áudio que o conversor não consegue ler aparece já na prévia como não importado; e, se a importação for desfeita, os áudios que ela converteu saem do disco.
+
+
 Ordem das regras
 ~~~~~~~~~~~~~~~~
 
