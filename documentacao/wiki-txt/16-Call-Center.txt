@@ -680,7 +680,8 @@ Licença
 
 - Cada central precisa de uma licença comprada, presa ao endereço MAC do servidor e ativada pela internet na primeira abertura.
 - Se a VPS mudar de placa de rede ou de máquina (por exemplo, restaurada numa VPS nova), a licença precisa ser transferida pelo fornecedor.
-- Os arquivos do Asternic não estão no repositório do Telium (a licença proíbe redistribuir): a instalação baixa o pacote oficial.
+- O pacote do Asternic e o carregador ionCube ficam no próprio projeto, em infra/ansible/roles/asternic/files/: a instalação não depende dos sites da Asternic nem da ionCube. Só a ativação da licença fala com a Asternic.
+- O pacote é comercial e a licença proíbe publicá-lo: o repositório do Telium tem de ser privado (GitLab e GitHub).
 
 
 Instalar numa central
@@ -689,7 +690,7 @@ Instalar numa central
 1. Compre a licença para o servidor.
 2. No servidor.yml da central, acrescente instalar_asternic: true.
 3. Rode a atualização de sempre (o playbook). Ela:
-   - instala o carregador ionCube no PHP-FPM e baixa o Asternic da versão de asternic_versao;
+   - instala o carregador ionCube no PHP-FPM e o Asternic da versão de asternic_versao, a partir dos arquivos do projeto;
    - publica a tela em /opt/asternic/stats, servida em /stats/ por um PHP-FPM próprio, com usuário próprio (asternic), que não enxerga a API;
    - cria o banco qstats com usuário e senha aleatória (em /etc/telium/credenciais/asternic_db_senha), sem permissão sobre o resto do MariaDB;
    - faz o Asterisk gravar o queue_log também em /var/log/asterisk/queue_log (os relatórios do Telium continuam lendo o do banco);
@@ -715,7 +716,7 @@ Quem acessa
 Atualizar o Asternic
 ~~~~~~~~~~~~~~~~~~~~
 
-Troque asternic_versao no servidor.yml e rode o playbook. A licença (asterniclic.php), o config.php e as personalizações (custom.php, css/custom.css, js/custom.js) ficam como estão.
+Ponha o pacote novo (asternic-stats-pro-<versão>.tgz, baixado do site da Asternic) em infra/ansible/roles/asternic/files/, envie ao Git, troque asternic_versao e rode o playbook. Sem o arquivo no projeto, o playbook baixa do site e avisa no resumo. A licença (asterniclic.php), o config.php e as personalizações (custom.php, css/custom.css, js/custom.js) ficam como estão.
 
 
 O que saber

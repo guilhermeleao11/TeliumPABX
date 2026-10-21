@@ -154,6 +154,9 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.2.7 — Asternic sem download externo
+- A instalação do Asternic usa os arquivos do projeto, sem baixar dos sites dos fornecedores.
+
 ### 1.2.6 — revisão do Asternic
 - O admin do Asternic passa a entrar com a mesma senha do admin do console.
 - Relatórios agendados e alertas do Asternic funcionam sem configurar nada à mão.
