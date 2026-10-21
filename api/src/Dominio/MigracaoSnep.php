@@ -65,6 +65,16 @@ final class MigracaoSnep
     private array $atalhos = [];
     /** @var array<int, array{destino:?array, avisos:list<string>}> destino já resolvido de cada regra */
     private array $destinosDasRegras = [];
+    /** @var array<int,string> core_groups do SNEP: id => nome */
+    private array $grupos = [];
+    /** @var array<string, list<int>> número do ramal => grupos do SNEP em que ele está */
+    private array $gruposDoRamal = [];
+    /** @var array<int,true> grupos que alguma regra de saída usa como origem */
+    private array $gruposDeSaida = [];
+    /** @var array<int, list<array<string,?string>>> date_alias do SNEP: id => datas */
+    private array $datas = [];
+    /** @var array<string,string> fila do SNEP => [agente => vezes], do histórico do pacote */
+    private array $historico = [];
     private bool $simular = true;
     /** @var array{sons:array<string,string>, moh:array<string,list<string>>, conf:list<string>}|null */
     private ?array $pacote = null;
@@ -89,9 +99,11 @@ final class MigracaoSnep
         $pdo->beginTransaction();
         try {
             $regras = $this->regrasEmOrdem($snep['regras_negocio'] ?? []);
+            $this->indexarGrupos($snep, $regras);
+            $this->historico = SnepPacote::historico($this->pacote['historico'] ?? null);
             $this->migrarTroncos($snep['trunks'] ?? []);
             $this->migrarRamais($snep['peers'] ?? []);
-            $this->agentesPorFila($snep['queues_agent'] ?? [], $snep['queue_members'] ?? []);
+            $this->agentesPorFila($snep['queues_agent'] ?? [], $snep['queue_members'] ?? [], $snep['agtfila'] ?? []);
             $this->atalhosDeFila($regras);
             $this->migrarFilas($snep['queues'] ?? [], $snep['queue_members'] ?? [],
                                (string) ($opcoes['fila_inicio'] ?? '8000'));
@@ -149,9 +161,11 @@ final class MigracaoSnep
             $hostSnep = strtolower(trim((string) $t['host']));
             if ($hostSnep === '' || $hostSnep === 'dynamic') {
                 $this->linha('Troncos', $item, 'erro', $hostSnep === 'dynamic'
-                    ? 'O equipamento registrava no SNEP (host dynamic), como um gateway GSM. No Telium, '
-                      . 'cadastre-o como ramal e aponte as rotas para ele à mão.'
-                    : 'O tronco não tem host no SNEP (era recebido por outro caminho). Cadastre-o à mão.');
+                    ? 'O equipamento registrava no SNEP (host dynamic), como um gateway GSM. No Telium o tronco '
+                      . 'precisa de um endereço: dê ao gateway um IP fixo e cadastre o tronco com ele, ou cadastre-o '
+                      . "como ramal. Usuário no SNEP: {$t['username']}."
+                    : 'No SNEP este tronco não tinha host (a operadora ou o SBC chegava por outro caminho, '
+                      . "pelo usuário {$t['username']}). Cadastre-o no Telium com o endereço do SBC.");
                 continue;
             }
 
@@ -223,10 +237,28 @@ final class MigracaoSnep
                 $senha = self::senhaForte();
             }
 
+            // Os grupos do SNEP: o primeiro (fora o "Default") vira o setor;
+            // o que uma regra de saída usa vira o grupo de saída.
+            $avisosRamal = [];
+            $dele = $this->gruposDoRamal[$numero] ?? [];
+            $setor = null;
+            foreach ($dele as $g) {
+                if (strcasecmp($this->grupos[$g] ?? '', 'Default') !== 0) {
+                    $setor = mb_substr(trim($this->grupos[$g] ?? ''), 0, 80) ?: null;
+                    break;
+                }
+            }
+            $deSaida = array_values(array_filter($dele, fn ($g) => isset($this->gruposDeSaida[$g])));
+            $grupoSaida = implode(',', array_unique(array_filter(
+                array_map(fn ($g) => self::nomeDeGrupo($this->grupos[$g] ?? ''), $deSaida)
+            )));
+
             $email = trim((string) ($p['email'] ?? ''));
             $r = $this->criar('ramais', array_filter([
                 'numero' => $numero,
                 'nome' => $nome,
+                'setor' => $setor,
+                'grupo_saida' => $grupoSaida ?: null,
                 'senha_sip' => $senha,
                 'email' => filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : null,
                 'callgroup' => trim((string) ($p['callgroup'] ?? '')) ?: null,
@@ -245,9 +277,12 @@ final class MigracaoSnep
             if ($gerada) {
                 $this->senhas[] = ['ramal' => $numero, 'senha' => $senha];
             }
-            $this->linha('Ramais', $item, 'criar', $gerada
+            $this->linha('Ramais', $item, $avisosRamal === [] ? 'criar' : 'aviso', ($gerada
                 ? 'Senha SIP nova (a do SNEP tinha menos de 12 caracteres): reconfigure o telefone.'
-                : 'Mesma senha SIP do SNEP: o telefone registra sem reconfigurar.');
+                : 'Mesma senha SIP do SNEP: o telefone registra sem reconfigurar.')
+                . ($setor !== null ? " Setor {$setor}." : '')
+                . ($grupoSaida ? " Grupos de saída {$grupoSaida}." : '')
+                . ($avisosRamal === [] ? '' : ' ' . ucfirst(implode('; ', $avisosRamal)) . '.'));
         }
     }
 
@@ -278,7 +313,9 @@ final class MigracaoSnep
                 $numero = $interno;
             } else {
                 if ($interno !== null) {
-                    $avisos[] = "o número interno {$interno} do SNEP já está em uso aqui";
+                    $avisos[] = "o número interno {$interno} do SNEP é de um ramal aqui (no SNEP, a regra passava "
+                              . 'na frente do ramal); para os ramais discarem esse número e cair na fila, troque o '
+                              . 'número do ramal ou o da fila';
                 }
                 while ($this->numeroOcupado((string) $proximo)) {
                     $proximo++;
@@ -397,9 +434,31 @@ final class MigracaoSnep
         return false;
     }
 
-    /** As filas de cada agente: queues_agent e os membros Agent/<n> da fila. */
-    private function agentesPorFila(array $queuesAgent, array $membros): void
+    /**
+     * As filas de cada agente: queues_agent, os membros Agent/<n> da fila
+     * e, do pacote, as filas em que ele entrou nos últimos 90 dias (no SNEP
+     * o agente escolhe a fila no login: é o histórico que diz quais são as
+     * dele). No histórico o agente aparece pelo nome, por "Agent/<n>" ou
+     * pela matrícula.
+     */
+    private function agentesPorFila(array $queuesAgent, array $membros, array $agtfila): void
     {
+        $porNome = [];
+        foreach ($agtfila as $a) {
+            $porNome[mb_strtolower(trim((string) $a['nome']))] = (string) $a['numero'];
+            $porNome[(string) $a['numero']] = (string) $a['numero'];
+        }
+        foreach ($this->historico as $fila => $agentes) {
+            $fila = (string) $fila;
+            foreach ($agentes as $quem => $vezes) {
+                $quem = (string) $quem;      // a matrícula vira chave numérica no PHP
+                $chave = preg_match('#^Agent/(\d+)$#i', $quem, $x) === 1 ? $x[1] : mb_strtolower(trim($quem));
+                if (isset($porNome[$chave])) {
+                    $this->agentesDaFila[$fila][] = ['agente' => $porNome[$chave], 'penalidade' => 0, 'historico' => $vezes];
+                }
+            }
+        }
+
         foreach ($queuesAgent as $qa) {
             $this->agentesDaFila[(string) $qa['queue']][] = [
                 'agente' => (string) $qa['agent_id'], 'penalidade' => (int) ($qa['penalty'] ?? 0),
@@ -434,7 +493,8 @@ final class MigracaoSnep
             $nomes = [];
             foreach ($this->agentesDaFila as $fila => $lista) {
                 foreach ($lista as $x) {
-                    if ($x['agente'] === $matricula && isset($this->filasCallCenter[$fila])) {
+                    if ($x['agente'] === $matricula && isset($this->filasCallCenter[$fila])
+                        && !in_array($fila, $nomes, true)) {
                         $filas[] = ['fila_id' => $this->filasCallCenter[$fila], 'penalidade' => min(9, $x['penalidade'])];
                         $nomes[] = $fila;
                     }
@@ -460,7 +520,10 @@ final class MigracaoSnep
                 continue;
             }
             if ($nomes === []) {
-                $avisos[] = 'no SNEP não tinha fila fixa (escolhia no login): ponha-o nas filas no Call Center';
+                $avisos[] = $this->historico === []
+                    ? 'no SNEP não tinha fila fixa (escolhia no login): ponha-o nas filas no Call Center '
+                      . '(com o pacote, as filas vêm do histórico)'
+                    : 'não entrou em nenhuma fila nos últimos 90 dias: ponha-o nas filas no Call Center';
             }
             if ((string) ($a['status'] ?? '1') === '0') {
                 $avisos[] = 'estava desativado no SNEP e ficou desativado';
@@ -468,7 +531,7 @@ final class MigracaoSnep
             $this->linha('Agentes', $item, $avisos === [] ? 'criar' : 'aviso',
                 'Entra pelo *11 com a mesma matrícula'
                 . ($pin !== null ? ' e a mesma senha do SNEP' : '')
-                . ($nomes !== [] ? ', nas filas ' . implode(', ', $nomes) : '') . '.'
+                . ($nomes !== [] ? ', nas filas ' . implode(', ', array_unique($nomes)) : '') . '.'
                 . ($avisos === [] ? '' : ' ' . ucfirst(implode('; ', $avisos)) . '.'));
         }
     }
@@ -523,18 +586,10 @@ final class MigracaoSnep
                     : 'A regra não discava por tronco nenhum: não há o que migrar.');
                 continue;
             }
-            // O Telium escolhe a rota pelo número discado, igual para todos
-            // os ramais. Regra só de um grupo ou ramal (o NOC sai pelo
-            // tronco A, o suporte pelo B) não tem como existir aqui sem
-            // brigar com a regra geral pelos mesmos padrões.
-            if (!in_array(trim((string) $r['origem']), ['G:all', 'X', ''], true)) {
-                $tronco = (int) ($discar['cfg']['tronco'] ?? 0);
-                $this->linha('Regras de saída', $nome, 'ignorado',
-                    "Valia só para {$r['origem']} no SNEP (padrões " . implode(', ', $this->expressoes((string) $r['destino']))
-                    . ", tronco SNEP {$tronco}). No Telium a rota vale para todos os ramais: se esse grupo precisa "
-                    . 'de outro tronco, use um PIN de rota ou as permissões de discagem.');
-                continue;
-            }
+            // Regra só de um grupo ou ramal (o NOC sai pelo tronco A, o
+            // suporte pelo B) vira rota "só para": os ramais do grupo saem
+            // por ela, e o resto pela geral do mesmo padrão.
+            $grupos = $this->gruposDaOrigem((string) $r['origem'], $avisosOrigem);
 
             if (Bd::valor('SELECT id FROM rotas_saida WHERE nome = ?', [$nome]) !== false) {
                 $this->linha('Regras de saída', $nome, 'existe', 'Já existe uma rota com este nome; não foi alterada.');
@@ -547,7 +602,11 @@ final class MigracaoSnep
                 continue;
             }
 
-            $avisos = $this->avisosDeValidade($r);
+            $avisos = $avisosOrigem;
+            $horario = null;
+            if (!self::semHorario($r)) {
+                $horario = $this->grupoDeHorario($r, $avisos);
+            }
             $adicionar = '';
             foreach ($acoes as $a) {
                 if ($a['acao'] === 'discartronco') {
@@ -575,7 +634,7 @@ final class MigracaoSnep
                               . 'cadastre-o à mão';
                     continue;
                 }
-                $chave = \Telium\Gerador\Padrao::normalizar($remover . $resto);
+                $chave = \Telium\Gerador\Padrao::normalizar($remover . $resto) . '|' . $grupos . '|' . ($horario ?? '');
                 if (isset($usados[$chave])) {
                     $avisos[] = "o padrão {$expressao} já está na rota {$usados[$chave]} e ficou só lá";
                     continue;
@@ -592,6 +651,8 @@ final class MigracaoSnep
                 'ordem' => $ordem,
                 'tronco_id' => $tronco,
                 'classe' => self::classe($nome . ' ' . $this->nomesDeAlias((string) $r['destino'])),
+                'grupos' => $grupos !== '' ? $grupos : null,
+                'grupo_horario_id' => $horario,
                 'ativo' => (int) $r['ativa'] === 1 ? 1 : 0,
                 'padroes' => $padroes,
             ]);
@@ -600,14 +661,80 @@ final class MigracaoSnep
                 continue;
             }
             foreach ($padroes as $p) {
-                $usados[\Telium\Gerador\Padrao::normalizar($p['padrao'])] = $nome;
+                $usados[\Telium\Gerador\Padrao::normalizar($p['padrao']) . '|' . $grupos . '|' . ($horario ?? '')] = $nome;
             }
             $this->linha('Regras de saída', $nome, $avisos === [] ? 'criar' : 'aviso',
-                'Padrões: ' . implode(', ', array_map(
+                ($grupos !== '' ? "Só para {$grupos}. " : '')
+                . ($horario !== null ? 'Só em ' . $this->textoDoHorario($r) . ' (fora dele, segue para a próxima rota do número). ' : '')
+                . 'Padrões: ' . implode(', ', array_map(
                     static fn ($p) => $p['padrao'] . ($p['prefixo_remover'] !== '' ? " (tira {$p['prefixo_remover']})" : '')
                         . ($p['prefixo_adicionar'] !== '' ? " (põe {$p['prefixo_adicionar']})" : ''),
                     $padroes
                 )) . '.' . ($avisos === [] ? '' : ' ' . ucfirst(implode('; ', $avisos)) . '.'));
+        }
+    }
+
+    /**
+     * "G:7,R:3602" => "NOC,3602": os grupos de saída e os ramais de uma
+     * origem do SNEP. "G:all" e "X" são todos: lista vazia.
+     *
+     * @param list<string>|null $avisos
+     */
+    private function gruposDaOrigem(string $origem, ?array &$avisos): string
+    {
+        $avisos = [];
+        $lista = [];
+        foreach (array_filter(array_map('trim', explode(',', $origem))) as $o) {
+            if ($o === 'G:all' || $o === 'X') {
+                return '';
+            }
+            if (preg_match('/^G:(\d+)$/', $o, $m) === 1) {
+                $nome = self::nomeDeGrupo($this->grupos[(int) $m[1]] ?? '');
+                if ($nome === '') {
+                    $avisos[] = "o grupo {$o} do SNEP não existe no dump";
+                    continue;
+                }
+                $lista[] = $nome;
+            } elseif (preg_match('/^R:(\d{2,10})$/', $o, $m) === 1) {
+                $lista[] = $m[1];
+            } else {
+                $avisos[] = "a origem {$o} do SNEP não foi migrada";
+            }
+        }
+
+        return implode(',', array_unique($lista));
+    }
+
+    /** "NOC  " => "NOC", "Pós Vendas" => "Pos-Vendas": nome que cabe numa expressão do dialplan. */
+    private static function nomeDeGrupo(string $nome): string
+    {
+        $sem = iconv('UTF-8', 'ASCII//TRANSLIT', trim($nome)) ?: trim($nome);
+
+        return mb_substr(trim((string) preg_replace('/[^A-Za-z0-9_-]+/', '-', $sem), '-'), 0, 40);
+    }
+
+    /** Os grupos do SNEP e quem está em cada um; e quais deles as regras de saída usam. */
+    private function indexarGrupos(array $snep, array $regras): void
+    {
+        foreach ($snep['core_groups'] ?? [] as $g) {
+            $this->grupos[(int) $g['id']] = (string) $g['name'];
+        }
+        $numeros = [];
+        foreach ($snep['peers'] ?? [] as $p) {
+            $numeros[(int) $p['id']] = trim((string) $p['name']);
+        }
+        foreach ($snep['core_peer_groups'] ?? [] as $pg) {
+            $numero = $numeros[(int) $pg['peer_id']] ?? null;
+            if ($numero !== null) {
+                $this->gruposDoRamal[$numero][] = (int) $pg['group_id'];
+            }
+        }
+        foreach ($regras as $r) {
+            if ($this->ehSaida($r) && preg_match_all('/G:(\d+)/', (string) $r['origem'], $m) > 0) {
+                foreach ($m[1] as $id) {
+                    $this->gruposDeSaida[(int) $id] = true;
+                }
+            }
         }
     }
 
@@ -732,9 +859,7 @@ final class MigracaoSnep
     /** Uma rota de entrada para o número, com as regras que o SNEP tinha para ele. */
     private function rotaDeEntrada(string $did, string $cid, array $regras): void
     {
-        $sempre = array_values(array_filter($regras, static fn ($r) => self::semHorario($r)));
-        $comHorario = array_values(array_filter($regras, static fn ($r) => !self::semHorario($r)));
-        $principal = $comHorario[0] ?? $sempre[0];
+        $principal = $regras[0];
         $nome = mb_substr(trim((string) $principal['desc']) ?: "Regra {$principal['id']}", 0, 120);
         $item = "{$nome} ({$did})";
         $avisos = [];
@@ -745,20 +870,7 @@ final class MigracaoSnep
             return;
         }
 
-        if ($comHorario === []) {
-            $destino = $this->destinoDaRegra($principal, $did, $avisos);
-            $usadas = [$principal];
-        } else {
-            $fora = $comHorario[1] ?? $sempre[0] ?? null;
-            $destino = $this->condicao($principal, $fora, $did, $avisos);
-            $usadas = array_filter([$principal, $fora]);
-        }
-        foreach ($regras as $r) {
-            if (!in_array($r, $usadas, true)) {
-                $avisos[] = "a regra \"" . trim((string) $r['desc']) . '" também era deste número e ficou de fora';
-            }
-        }
-
+        $destino = $this->encadear($regras, $did, $avisos);
         if ($destino === null) {
             $this->linha('Regras de entrada', $item, 'erro', ucfirst(implode('; ', array_unique($avisos))) . '.');
             return;
@@ -780,66 +892,176 @@ final class MigracaoSnep
     }
 
     /**
-     * Uma regra com horário (e a outra do mesmo número, para fora dele)
-     * vira grupo de horário + condição horária.
+     * As regras de um número, na ordem em que o SNEP as testa (prioridade
+     * maior primeiro): a primeira que vale na hora atende. Regra sem
+     * horário fecha a lista; com horário, vira condição horária — dentro
+     * dela, o destino da regra; fora, o resto da lista. Assim "manhã",
+     * "tarde" e "noite" do mesmo número viram condições encadeadas.
+     *
+     * @param list<array<string,?string>> $regras
+     * @return array{0:string,1:string}|null
      */
-    private function condicao(array $dentro, ?array $fora, string $did, array &$avisos): ?array
+    private function encadear(array $regras, string $did, array &$avisos): ?array
     {
-        $destinoDentro = $this->destinoDaRegra($dentro, $did, $avisos);
-        if ($destinoDentro === null) {
-            return null;
+        if ($regras === []) {
+            $avisos[] = 'fora dos horários das regras o SNEP não tinha regra para este número: aqui, desliga';
+
+            return ['desligar', ''];
         }
-        if ($fora !== null) {
-            $destinoFora = $this->destinoDaRegra($fora, $did, $avisos) ?? ['desligar', ''];
-        } else {
-            $destinoFora = ['desligar', ''];
-            $avisos[] = 'fora do horário o SNEP não tinha regra para este número: aqui, desliga';
+        $r = $regras[0];
+        $resto = array_slice($regras, 1);
+
+        if (self::semHorario($r)) {
+            foreach ($resto as $outra) {
+                $avisos[] = 'a regra "' . trim((string) $outra['desc']) . '" também era deste número, mas no SNEP '
+                          . 'nunca era alcançada (a "' . trim((string) $r['desc']) . '" vale o tempo todo e vem antes)';
+            }
+
+            return $this->destinoDaRegra($r, $did, $avisos);
         }
 
-        $nome = mb_substr('SNEP: ' . trim((string) $dentro['desc']), 0, 80);
+        $dentro = $this->destinoDaRegra($r, $did, $avisos);
+        if ($dentro === null) {
+            return null;
+        }
+        // O aviso desta regra vem antes dos da próxima: na ordem em que o
+        // SNEP as testa.
+        $marca = count($avisos);
+        $fora = $this->encadear($resto, $did, $avisos) ?? ['desligar', ''];
+
+        $nome = mb_substr('SNEP: ' . trim((string) $r['desc']), 0, 80);
         $existente = Bd::valor('SELECT id FROM condicoes_horarias WHERE nome = ?', [$nome]);
         if ($existente !== false) {
             return ['condicao', (string) $existente];
         }
-
-        $grupo = Bd::valor('SELECT id FROM grupos_horario WHERE nome = ?', [$nome]);
-        if ($grupo === false) {
-            $g = $this->criar('grupos-horario', ['nome' => $nome, 'descricao' => 'Horário de uma regra do SNEP']);
-            if ($g['erro'] !== null) {
-                $avisos[] = "o grupo de horário não foi criado: {$g['erro']}";
-                return null;
-            }
-            $grupo = $g['id'];
-            $faixas = [];
-            foreach (array_filter(array_map('trim', explode(',', (string) $dentro['validade']))) as $faixa) {
-                [$ini, $fim] = array_pad(explode('-', $faixa, 2), 2, '');
-                $faixas[] = ['hora_inicio' => $ini, 'hora_fim' => $fim, 'dias' => (string) $dentro['diasDaSemana']];
-            }
-            $resposta = (new Horarios())->salvarFaixas(
-                $this->req->withParsedBody(['faixas' => $faixas]), new SlimResponse(), ['id' => $grupo]
-            );
-            if ($resposta->getStatusCode() >= 400) {
-                $avisos[] = 'as faixas do horário não foram gravadas: ' . self::erroDe($resposta);
-                return null;
-            }
+        $grupo = $this->grupoDeHorario($r, $avisos);
+        if ($grupo === null) {
+            return null;
         }
-
         $c = $this->criar('condicoes-horarias', [
             'nome' => $nome,
             'descricao' => 'Migrada do SNEP',
-            'grupo_horario_id' => (int) $grupo,
-            'destino_dentro_tipo' => $destinoDentro[0], 'destino_dentro_valor' => $destinoDentro[1],
-            'destino_fora_tipo' => $destinoFora[0], 'destino_fora_valor' => $destinoFora[1],
+            'grupo_horario_id' => $grupo,
+            'destino_dentro_tipo' => $dentro[0], 'destino_dentro_valor' => $dentro[1],
+            'destino_fora_tipo' => $fora[0], 'destino_fora_valor' => $fora[1],
             'ativo' => 1,
         ]);
         if ($c['erro'] !== null) {
             $avisos[] = "a condição horária não foi criada: {$c['erro']}";
             return null;
         }
-        $avisos[] = "no horário {$dentro['validade']} ({$dentro['diasDaSemana']}) vai para "
-                  . $this->descrever($destinoDentro) . '; fora dele, para ' . $this->descrever($destinoFora);
+        array_splice($avisos, $marca, 0, ['em ' . $this->textoDoHorario($r) . ' vai para ' . $this->descrever($dentro)
+                  . '; fora dele, para ' . $this->descrever($fora)]);
 
         return ['condicao', (string) $c['id']];
+    }
+
+    /**
+     * O grupo de horário de uma regra do SNEP ("SNEP: <regra>"): as faixas
+     * da validade nos dias da semana dela, ou as datas do alias de datas.
+     */
+    private function grupoDeHorario(array $r, array &$avisos): ?int
+    {
+        $nome = mb_substr('SNEP: ' . trim((string) $r['desc']), 0, 80);
+        $existente = Bd::valor('SELECT id FROM grupos_horario WHERE nome = ?', [$nome]);
+        if ($existente !== false) {
+            return (int) $existente;
+        }
+
+        $g = $this->criar('grupos-horario', ['nome' => $nome, 'descricao' => 'Horário de uma regra do SNEP']);
+        if ($g['erro'] !== null) {
+            $avisos[] = "o grupo de horário não foi criado: {$g['erro']}";
+            return null;
+        }
+        $resposta = (new Horarios())->salvarFaixas(
+            $this->req->withParsedBody(['faixas' => $this->faixasDaRegra($r, $avisos)]), new SlimResponse(), ['id' => $g['id']]
+        );
+        if ($resposta->getStatusCode() >= 400) {
+            $avisos[] = 'as faixas do horário não foram gravadas: ' . self::erroDe($resposta);
+            return null;
+        }
+
+        return $g['id'];
+    }
+
+    /**
+     * As faixas de horário de uma regra, no formato do grupo de horário.
+     * Faixa que vira a meia-noite (18:00-07:59), que o SNEP aceita, vira
+     * duas. Com alias de datas, valem as datas (dia e mês, com a faixa de
+     * hora de cada uma), como no SNEP.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function faixasDaRegra(array $r, array &$avisos): array
+    {
+        $faixas = [];
+        $ids = array_filter(array_map('intval', explode(',', (string) ($r['dates_alias'] ?? ''))));
+        if ($ids !== []) {
+            foreach ($ids as $id) {
+                foreach ($this->datas[$id] ?? [] as $d) {
+                    $data = self::diaEMes((string) $d['date']);
+                    if ($data === null) {
+                        $avisos[] = "a data \"{$d['date']}\" do SNEP não foi entendida";
+                        continue;
+                    }
+                    [$dia, $mes, $ano] = $data;
+                    if ($ano !== null) {
+                        $avisos[] = "a data {$d['date']} era de {$ano}; aqui vale todo ano nesse dia (confira os feriados móveis)";
+                    }
+                    [$ini, $fim] = array_pad(explode('-', (string) ($d['timerange'] ?: '00:00-23:59'), 2), 2, '23:59');
+                    foreach (self::partirMeiaNoite(trim($ini), trim($fim)) as [$i, $f]) {
+                        $faixas[] = ['hora_inicio' => $i, 'hora_fim' => $f, 'dias' => '*',
+                                     'dia_mes_inicio' => $dia, 'dia_mes_fim' => $dia,
+                                     'mes_inicio' => $mes, 'mes_fim' => $mes];
+                    }
+                }
+            }
+            if (!self::semHorarioDaSemana($r)) {
+                $avisos[] = 'a regra tinha datas e também horário da semana; aqui valem as datas';
+            }
+
+            return $faixas;
+        }
+
+        foreach (array_filter(array_map('trim', explode(',', (string) $r['validade']))) as $faixa) {
+            [$ini, $fim] = array_pad(explode('-', $faixa, 2), 2, '');
+            foreach (self::partirMeiaNoite($ini, $fim) as [$i, $f]) {
+                $faixas[] = ['hora_inicio' => $i, 'hora_fim' => $f, 'dias' => (string) $r['diasDaSemana']];
+            }
+        }
+
+        return $faixas;
+    }
+
+    /** @return list<array{0:string,1:string}> */
+    private static function partirMeiaNoite(string $ini, string $fim): array
+    {
+        return substr($ini, 0, 5) > substr($fim, 0, 5) && $fim !== ''
+            ? [[$ini, '23:59'], ['00:00', $fim]]
+            : [[$ini, $fim]];
+    }
+
+    /** "2026-12-25", "25/12/2026", "25/12", "12-25" => [dia, mês, ano|null] */
+    private static function diaEMes(string $data): ?array
+    {
+        $data = trim($data);
+
+        return match (true) {
+            (bool) preg_match('/^(\d{4})-(\d{1,2})-(\d{1,2})$/', $data, $m) => [(int) $m[3], (int) $m[2], $m[1]],
+            (bool) preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})$#', $data, $m) => [(int) $m[1], (int) $m[2], $m[3]],
+            (bool) preg_match('#^(\d{1,2})/(\d{1,2})$#', $data, $m) => [(int) $m[1], (int) $m[2], null],
+            (bool) preg_match('/^(\d{1,2})-(\d{1,2})$/', $data, $m) => [(int) $m[2], (int) $m[1], null],
+            default => null,
+        };
+    }
+
+    private function textoDoHorario(array $r): string
+    {
+        if (trim((string) ($r['dates_alias'] ?? '')) !== '') {
+            return 'datas do SNEP (' . $r['dates_alias'] . ')';
+        }
+
+        return "{$r['validade']} ({$r['diasDaSemana']})";
     }
 
     /** O destino de uma regra, resolvido uma vez só (a regra pode ter vários números). */
@@ -913,7 +1135,14 @@ final class MigracaoSnep
 
     private static function semHorario(array $r): bool
     {
-        return trim((string) ($r['validade'] ?? '')) === '00:00:00-23:59:59'
+        return self::semHorarioDaSemana($r) && trim((string) ($r['dates_alias'] ?? '')) === '';
+    }
+
+    private static function semHorarioDaSemana(array $r): bool
+    {
+        $validade = trim((string) ($r['validade'] ?? ''));
+
+        return ($validade === '' || $validade === '00:00:00-23:59:59' || $validade === '00:00:00-23:59:00')
             && count(array_filter(explode(',', (string) ($r['diasDaSemana'] ?? '')))) >= 7;
     }
 
@@ -1012,7 +1241,11 @@ final class MigracaoSnep
                 if ($app === 'hangup') {
                     return ['desligar', ''];
                 }
-                $avisos[] = "a aplicação {$cfg['application']}({$cfg['parameters']}) do SNEP não tem equivalente migrado";
+                $avisos[] = "a aplicação {$cfg['application']}({$cfg['parameters']}) do SNEP não tem equivalente migrado. "
+                          . 'A regra fazia: ' . implode(' › ', array_map(static fn ($x) => $x['acao']
+                              . ($x['cfg'] !== [] ? '(' . implode(', ', array_map(static fn ($k, $v) => "{$k}={$v}",
+                                  array_keys($x['cfg']), $x['cfg'])) . ')' : ''), $acoes))
+                          . '. Monte o equivalente num contexto do extensions_custom.conf e aponte para ele com um destino personalizado';
 
                 return null;
 
@@ -1209,6 +1442,10 @@ final class MigracaoSnep
             ];
         }
 
+        foreach ($snep['date_alias_list'] ?? [] as $d) {
+            $this->datas[(int) $d['dateid']][] = $d;
+        }
+
         foreach ($snep['expr_alias'] ?? [] as $a) {
             $this->alias[(int) $a['aliasid']] = ['nome' => (string) $a['name'], 'expressoes' => []];
         }
@@ -1220,22 +1457,9 @@ final class MigracaoSnep
     /** @return list<array<string,?string>> */
     private function regrasEmOrdem(array $regras): array
     {
-        usort($regras, static fn ($a, $b) => [(int) $a['prio'], (int) $a['id']] <=> [(int) $b['prio'], (int) $b['id']]);
+        usort($regras, static fn ($a, $b) => [(int) $b['prio'], (int) $a['id']] <=> [(int) $a['prio'], (int) $b['id']]);
 
         return $this->regras = $regras;
-    }
-
-    /** @return list<string> */
-    private function avisosDeValidade(array $r): array
-    {
-        $avisos = [];
-        $dias = array_filter(explode(',', (string) ($r['diasDaSemana'] ?? '')));
-        if (trim((string) ($r['validade'] ?? '')) !== '00:00:00-23:59:59' || count($dias) < 7) {
-            $avisos[] = "no SNEP valia só em {$r['validade']} ({$r['diasDaSemana']}); aqui vale sempre — "
-                      . 'use uma condição horária se precisar';
-        }
-
-        return $avisos;
     }
 
     /**

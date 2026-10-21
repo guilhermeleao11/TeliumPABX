@@ -92,6 +92,9 @@ final class GeradorPjsip
           ->crua(sprintf('callerid = "%s" <%s>', $this->limpar((string) $r['nome']), $n))
           ->crua('set_var = TELIUM_PERM=' . self::permissoes($r))
           ->crua("set_var = TELIUM_RAMAL={$n}")
+          // O grupo de saída e o próprio número: é o que a rota de saída
+          // "só para" confere (NOC, ou só o ramal 3602).
+          ->crua('set_var = TELIUM_GRUPOS=' . self::gruposDeSaida($r))
           // Transferência pelo teclado (## e *2): sem isto o Asterisk
           // procura o destino no contexto em que o canal está naquele
           // momento — sub-ramal ou telium-saida para quem fez a chamada —,
@@ -562,6 +565,15 @@ final class GeradorPjsip
             $classes[] = 'especial';
         }
         return implode(',', $classes);
+    }
+
+    /** "NOC,VoIP,3602": os grupos de saída do ramal (se tiver) e o número dele. */
+    public static function gruposDeSaida(array $r): string
+    {
+        $grupos = array_map(static fn ($g) => preg_replace('/[^A-Za-z0-9_-]/', '', $g) ?? '',
+                            explode(',', (string) ($r['grupo_saida'] ?? '')));
+
+        return implode(',', array_filter([...$grupos, (string) $r['numero']], static fn ($g) => $g !== ''));
     }
 
     private function identificador(string $nome): string

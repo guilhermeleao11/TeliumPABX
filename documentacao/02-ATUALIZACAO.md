@@ -154,6 +154,10 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.5.0 — rotas por grupo e horário; migração do SNEP com horários
+- Rotas de saída podem valer **só para** grupos de ramais e **só num horário**. O ramal ganha "Grupos de saída", na aba Permissões. Sem usar isso, nada muda.
+- A migração do SNEP traz os grupos, os horários das regras (inclusive manhã/tarde/noite e feriados), as regras de saída por grupo e as filas dos agentes; e passou a escolher a regra que o SNEP de fato usa quando duas pegam o mesmo número.
+
 ### 1.4.1 — comando do SNEP em dois
 - Na Migração do SNEP, o comando que gera o pacote virou dois (a senha e o pacote): colado inteiro, o pedido de senha engolia a linha seguinte.
 

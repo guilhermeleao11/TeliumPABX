@@ -413,7 +413,12 @@ PAGES['conn.rotassaida'] = paginaCrud({
     { label: 'Padrões', render: r => (r.padroes || []).length
         ? r.padroes.map(p => `<div><span class="badge mono">${esc(p.padrao)}</span>${descrevePrefixos(p)}</div>`).join('')
         : '<span class="badge badge-warn">sem padrão</span>' },
-    { label: 'Classe', render: r => `<span class="badge">${esc(r.classe)}</span>` }
+    { label: 'Classe', render: r => `<span class="badge">${esc(r.classe)}</span>` },
+    { label: 'Vale para', render: (r, ctx, pagina) => (r.grupos
+        ? r.grupos.split(',').map(g => `<span class="badge badge-brand mono">${esc(g)}</span>`).join(' ')
+        : '<span class="small muted">todos</span>')
+        + (r.grupo_horario_id ? ` <span class="badge">${icon('clock','ico ico-sm')} ${esc(
+            ((pagina?._horarios) || []).find(h => String(h.id) === String(r.grupo_horario_id))?.nome || 'horário')}</span>` : '') }
   ],
 
   // Para onde vai um número: a mesma conta que o Asterisk faz.
@@ -430,11 +435,21 @@ PAGES['conn.rotassaida'] = paginaCrud({
     campo?.addEventListener('input', () => {
       const n = campo.value.replace(/\s+/g, '');
       if (!n) { alvo.innerHTML = `<span class="muted">${esc(AJUDA_PADRAO)}</span>`; return; }
-      const r = rotaVencedora(padroesDasRotas(pagina._itens), n);
-      const tronco = r && (pagina._troncos || []).find(t => String(t.id) === String(r.tronco_id));
-      alvo.innerHTML = r
-        ? `${icon('check','ico ico-sm')} Sai pela rota <b>${esc(r.nome)}</b> (<span class="mono">${esc(r.padrao)}</span>, classe ${esc(r.classe)})${tronco ? `, tronco ${esc(tronco.nome)}` : ''}. A operadora recebe <b class="mono">${esc(numeroParaOperadora(r, n))}</b>.`
-        : `<span style="color:var(--danger)">${icon('x','ico ico-sm')} Nenhuma rota ativa pega este número: a chamada não sai.</span>`;
+      // Primeiro a rota geral; depois, a de cada grupo que pega o número.
+      const itens = pagina._itens || [];
+      const r = rotaVencedora(padroesDasRotas(itens.filter(x => !x.grupos)), n);
+      const descreve = x => {
+        const tronco = (pagina._troncos || []).find(t => String(t.id) === String(x.tronco_id));
+        return `pela rota <b>${esc(x.nome)}</b> (<span class="mono">${esc(x.padrao)}</span>, classe ${esc(x.classe)})`
+             + `${tronco ? `, tronco ${esc(tronco.nome)}` : ''}; a operadora recebe <b class="mono">${esc(numeroParaOperadora(x, n))}</b>`;
+      };
+      const grupos = [...new Set(itens.filter(x => x.grupos).map(x => x.grupos))]
+        .map(g => [g, rotaVencedora(padroesDasRotas(itens.filter(x => x.grupos === g)), n)])
+        .filter(([, x]) => x);
+      alvo.innerHTML = (r
+        ? `${icon('check','ico ico-sm')} Sai ${descreve(r)}.`
+        : `<span style="color:var(--danger)">${icon('x','ico ico-sm')} Nenhuma rota geral pega este número${grupos.length ? '' : ': a chamada não sai'}.</span>`)
+        + grupos.map(([g, x]) => `<div class="small">Para <span class="mono">${esc(g)}</span>: ${descreve(x)}.</div>`).join('');
     });
   },
 
@@ -536,11 +551,13 @@ PAGES['conn.rotassaida'] = paginaCrud({
   aoCarregar: async (pagina) => {
     pagina._troncos = (await Api.get('/troncos', { limite: 200 }).catch(() => ({ dados: [] }))).dados;
     pagina._pins = (await Api.get('/pin-sets', { limite: 200 }).catch(() => ({ dados: [] }))).dados;
+    pagina._horarios = (await Api.get('/grupos-horario', { limite: 200 }).catch(() => ({ dados: [] }))).dados;
   },
 
   campos: (r, ctx, pagina) => {
     const troncos = (pagina._troncos || []).map(t => ({ valor: t.id, rotulo: t.nome }));
     const pins = (pagina._pins || []).map(p => ({ valor: p.id, rotulo: p.nome }));
+    const horarios = (pagina._horarios || []).map(h => ({ valor: h.id, rotulo: h.nome }));
     return [
       { campo: 'nome', label: 'Nome da rota', obrigatorio: true, placeholder: 'Celular' },
       { campo: 'ordem', label: 'Ordem na lista', tipo: 'number', padrao: 10,
@@ -560,6 +577,14 @@ PAGES['conn.rotassaida'] = paginaCrud({
         opcoes: troncos.length ? troncos : [{ valor: '', rotulo: 'cadastre um tronco antes' }] },
       { campo: 'tronco_falha_id', label: 'Tronco reserva', tipo: 'select',
         opcoes: [{ valor: '', rotulo: 'nenhum' }, ...troncos] },
+      { campo: 'grupos', label: 'Só para', largura: 'full', placeholder: 'vazio: todos os ramais',
+        ajuda: 'Grupos de saída e números de ramal, separados por vírgula (NOC,Suporte,3602). Com o mesmo '
+             + 'padrão numa rota geral, esses ramais saem por esta e o resto pela geral. O grupo de saída '
+             + 'de cada ramal fica no cadastro dele, na aba Permissões.' },
+      { campo: 'grupo_horario_id', label: 'Horário', tipo: 'select', largura: 'full',
+        opcoes: [{ valor: '', rotulo: 'o tempo todo' }, ...horarios],
+        ajuda: 'Com um grupo de horário, a rota só vale nele: fora, a chamada segue para a próxima rota do '
+             + 'mesmo número (uma geral ou outra com horário). Cadastre os horários em Aplicações › Grupos de Horário.' },
       { campo: 'pin_set_id', label: 'Pedir PIN', tipo: 'select', largura: 'full',
         opcoes: [{ valor: '', rotulo: 'não pedir senha nesta rota' }, ...pins],
         ajuda: pins.length
@@ -7617,7 +7642,8 @@ PAGES['telium.migracao'] = {
       <div class="card-head"><div class="card-title">${n}. ${titulo}</div></div>
       <div class="card-body">${corpo}</div></div>`;
     const tabelas = 'peers trunks queues queue_members regras_negocio regras_negocio_actions '
-                  + 'regras_negocio_actions_config expr_alias expr_alias_expression sounds agtfila queues_agent';
+                  + 'regras_negocio_actions_config expr_alias expr_alias_expression sounds agtfila queues_agent '
+                  + 'core_groups core_peer_groups date_alias date_alias_list';
 
     return pageHead('Migração do SNEP',
         'Traz do SNEP 3 os troncos, ramais, filas, agentes, as regras de entrada e de saída e os áudios.')
@@ -7629,8 +7655,9 @@ PAGES['telium.migracao'] = {
         <pre class="mono tiny" id="snepComandoSenha" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:10px;border-radius:8px;margin:0 0 6px">${esc(this.comandos(tabelas).senha)}</pre>
         <button class="btn btn-ghost btn-sm" data-snep-copiar="snepComandoSenha" style="margin-bottom:12px">${icon('copy','ico ico-sm')} Copiar</button>
         <p class="small" style="margin:0 0 4px"><b>b)</b> O pacote: o banco <b>sem o CDR</b> (só as tabelas da migração), os
-          áudios que as regras, URAs e filas usam, as músicas de espera e os <span class="mono">.conf</span> do Asterisk
-          (para mostrar aqui os contextos próprios).</p>
+          áudios que as regras, URAs e filas usam, as músicas de espera, os <span class="mono">.conf</span> do Asterisk
+          (para mostrar aqui os contextos próprios) e, do histórico das filas, em que filas cada agente entrou nos
+          últimos 90 dias.</p>
         <pre class="mono tiny" id="snepComandoPacote" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:10px;border-radius:8px;margin:0 0 6px">${esc(this.comandos(tabelas).pacote)}</pre>
         <div class="row gap-8 wrap" style="align-items:center">
           <button class="btn btn-ghost btn-sm" data-snep-copiar="snepComandoPacote">${icon('copy','ico ico-sm')} Copiar</button>
@@ -7673,6 +7700,13 @@ PAGES['telium.migracao'] = {
         'if [ -z "${MYSQL_PWD+x}" ]; then echo "Rode antes o comando da senha (a)."; else (',
         '  P=$(mktemp -d) && cd "$P" && mkdir -p sons moh conf &&',
         `  mysqldump -u root --single-transaction snep ${tabelas} > snep.sql &&`,
+        // Em que filas cada agente entrou nos últimos 90 dias: do arquivo
+        // queue_log (e dos rotacionados) e da tabela, quando o SNEP grava lá.
+        "  { zcat -f /var/log/asterisk/queue_log* 2>/dev/null; mysql -N -B -u root snep -e"
+          + " \"SELECT CONCAT_WS('|', UNIX_TIMESTAMP(LEFT(time,19)), callid, queuename, agent, event) FROM queue_log\" 2>/dev/null; }"
+          + " | awk -F'|' -v t=$(( $(date +%s) - 7776000 )) '$1 >= t && $3 != \"NONE\""
+          + " && ($5 == \"ADDMEMBER\" || $5 == \"AGENTLOGIN\" || $5 == \"CONNECT\") {print $3 \"|\" $4}'"
+          + " | sort | uniq -c > agentes-filas.txt;",
         "  mysql -N -u root snep -e \"SELECT value FROM regras_negocio_actions_config WHERE \\`key\\` = 'file'"
           + " UNION SELECT announce FROM queues UNION SELECT periodic_announce FROM queues"
           + " UNION SELECT arquivo FROM sounds WHERE descricao LIKE '%fakepath%' OR secao NOT IN ('', 'default')\""
@@ -7798,14 +7832,39 @@ PAGES['telium.migracao'] = {
           ${r.contextos.map(c => `<div style="margin-top:8px"><b class="mono">[${esc(c.nome)}]</b>
             ${c.texto ? `<pre class="mono tiny" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:8px;border-radius:8px;margin:4px 0 0;max-height:240px;overflow:auto">${esc(c.texto)}</pre>`
                       : ' — não veio no pacote; está nos arquivos do SNEP.'}</div>`).join('')}</div></div>` : ''}
-      ${grupos.map(g => `<div class="card" style="margin:0 0 12px"><div class="card-head"><div class="card-title">${esc(g)}</div></div>
-        <div class="table-wrap"><table class="table">
-          <thead><tr><th>Item</th><th>Resultado</th><th>Detalhe</th></tr></thead>
-          <tbody>${r.linhas.filter(l => l.grupo === g).map(l => `<tr>
-            <td>${esc(l.item)}</td>
-            <td><span class="badge ${tom[l.acao] || ''}">${rotulo[l.acao] || esc(l.acao)}</span></td>
-            <td class="small">${esc(l.mensagem)}</td></tr>`).join('')}</tbody>
-        </table></div></div>`).join('')}`;
+      ${grupos.map(g => this.grupo(g, r.linhas.filter(l => l.grupo === g), tom, rotulo)).join('')}`;
+  },
+
+  /**
+   * Um grupo da prévia. O que pede atenção (erro, aviso, não migra) vem
+   * primeiro e inteiro; o que só vai ser criado, sem observação, vira uma
+   * linha de resumo quando é muita coisa — 200 ramais "a criar" escondiam
+   * os três que precisavam de alguém.
+   */
+  grupo(g, linhas, tom, rotulo) {
+    const ordem = { erro: 0, aviso: 1, ignorado: 2, criar: 3, existe: 4 };
+    linhas = [...linhas].sort((a, b) => (ordem[a.acao] ?? 9) - (ordem[b.acao] ?? 9));
+    const atencao = linhas.filter(l => ['erro', 'aviso', 'ignorado'].includes(l.acao));
+    const resto = linhas.filter(l => !atencao.includes(l));
+    const linha = l => `<tr>
+      <td>${esc(l.item)}</td>
+      <td><span class="badge ${tom[l.acao] || ''}">${rotulo[l.acao] || esc(l.acao)}</span></td>
+      <td class="small">${esc(l.mensagem)}</td></tr>`;
+    const conta = acao => resto.filter(l => l.acao === acao).length;
+    const resumo = resto.length > 8 ? `<tr><td colspan="3">
+      <details><summary class="small" style="cursor:pointer">
+        ${[['criar', conta('criar')], ['existe', conta('existe')]].filter(([, n]) => n)
+          .map(([a, n]) => `<span class="badge ${tom[a] || ''}">${num(n)} ${rotulo[a]}</span>`).join(' ')}
+        sem observação — ver todos</summary>
+        <table class="table" style="margin-top:8px"><tbody>${resto.map(linha).join('')}</tbody></table>
+      </details></td></tr>` : resto.map(linha).join('');
+
+    return `<div class="card" style="margin:0 0 12px"><div class="card-head row-between">
+        <div class="card-title">${esc(g)}</div><span class="small muted">${num(linhas.length)} item(ns)</span></div>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Item</th><th>Resultado</th><th>Detalhe</th></tr></thead>
+        <tbody>${atencao.map(linha).join('')}${resumo}</tbody>
+      </table></div></div>`;
   },
 
   ligarSenhas(r) {

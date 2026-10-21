@@ -1158,7 +1158,11 @@ PAGES['conn.ramais'] = paginaCrud({
     { aba: 'Permissões', campo: 'perm_local', label: 'Ligações locais e 0800/0300', tipo: 'switch', padrao: 1 },
     { aba: 'Permissões', campo: 'perm_celular', label: 'Celular', tipo: 'switch', padrao: 1 },
     { aba: 'Permissões', campo: 'perm_ddd', label: 'DDD nacional', tipo: 'switch', padrao: 1 },
-    { aba: 'Permissões', campo: 'perm_ddi', label: 'Internacional', tipo: 'switch' }
+    { aba: 'Permissões', campo: 'perm_ddi', label: 'Internacional', tipo: 'switch' },
+    { aba: 'Permissões', campo: 'grupo_saida', label: 'Grupos de saída', largura: 'full', placeholder: 'NOC',
+      ajuda: 'Opcional. Rotas de saída marcadas "só para" um destes grupos valem para este ramal; para o mesmo '
+           + 'número, ele sai por elas, e não pela rota geral. Nomes curtos, sem espaço, separados por vírgula '
+           + '(NOC ou NOC,VoIP). Em dois grupos com rota para o mesmo número, vale a de menor ordem.' }
   ],
 
   /** Acrescenta o gerador de senha ao campo de senha SIP. */

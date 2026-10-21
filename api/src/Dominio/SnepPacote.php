@@ -11,6 +11,8 @@ namespace Telium\Dominio;
  *   sons/      os áudios que as regras, URAs e filas usam
  *   moh/       as músicas de espera, uma pasta por classe
  *   conf/      os .conf do Asterisk do SNEP (os contextos próprios)
+ *   agentes-filas.txt   quantas vezes cada agente entrou em cada fila
+ *              nos últimos 90 dias (do queue_log), "  N fila|agente"
  *
  * Nada do pacote é gravado com o caminho que veio nele: cada arquivo vai
  * para a pasta de trabalho com um nome limpo, e só os tipos esperados —
@@ -33,11 +35,11 @@ final class SnepPacote
     /**
      * Extrai para $destino e devolve o que achou.
      *
-     * @return array{sql:?string, sons:array<string,string>, moh:array<string,list<string>>, conf:list<string>}
+     * @return array{sql:?string, sons:array<string,string>, moh:array<string,list<string>>, conf:list<string>, historico:?string}
      */
     public static function extrair(string $arquivo, string $destino): array
     {
-        $achado = ['sql' => null, 'sons' => [], 'moh' => [], 'conf' => []];
+        $achado = ['sql' => null, 'sons' => [], 'moh' => [], 'conf' => [], 'historico' => null];
         $quantos = 0;
         $bytes = 0;
 
@@ -58,7 +60,9 @@ final class SnepPacote
             $ext = strtolower(pathinfo($nome, PATHINFO_EXTENSION));
 
             $para = null;
-            if ($ext === 'sql' && $achado['sql'] === null) {
+            if ($nome === 'agentes-filas.txt' && count($partes) === 1) {
+                $para = $achado['historico'] = "{$destino}/agentes-filas.txt";
+            } elseif ($ext === 'sql' && $achado['sql'] === null) {
                 $para = $achado['sql'] = "{$destino}/snep.sql";
             } elseif ($partes[0] === 'sons' && in_array($ext, self::AUDIO, true)
                       && !isset($achado['sons'][pathinfo($nome, PATHINFO_FILENAME)])) {
@@ -225,6 +229,24 @@ final class SnepPacote
         }
 
         return null;
+    }
+
+    /**
+     * As filas em que cada agente entrou, do histórico do pacote:
+     * fila => [agente => quantas vezes].
+     *
+     * @return array<string, array<string,int>>
+     */
+    public static function historico(?string $arquivo): array
+    {
+        $filas = [];
+        foreach ($arquivo !== null && is_file($arquivo) ? (file($arquivo) ?: []) : [] as $linha) {
+            if (preg_match('/^\s*(\d+)\s+([^|]+)\|(.+)$/', rtrim($linha), $m) === 1) {
+                $filas[trim($m[2])][trim($m[3])] = ($filas[trim($m[2])][trim($m[3])] ?? 0) + (int) $m[1];
+            }
+        }
+
+        return $filas;
     }
 
     private static function limpo(string $nome): string

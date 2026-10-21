@@ -1,4 +1,4 @@
-# Telium PABX 1.4.1
+# Telium PABX 1.5.0
 
 Central telefônica completa: Asterisk 22 com PJSIP, console web em HTML, CSS e
 JavaScript puro (sem build), API em PHP 8.4 e provisionamento por Ansible em
@@ -136,7 +136,7 @@ A pilha de produção está em `infra/` e `api/`:
 | Componente | Versão |
 |---|---|
 | Debian | 13 (trixie) |
-| Telium PABX | 1.4.1 |
+| Telium PABX | 1.5.0 |
 | Asterisk | 22.11.0 — PJSIP, compilado do fonte |
 | coturn | TURN/STUN próprio, credencial com prazo |
 | Janus | 1.4.1 — opcional e **desligado**, fora do caminho da chamada |

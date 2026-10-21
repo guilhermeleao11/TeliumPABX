@@ -109,7 +109,7 @@ $recursos = [
                       'voicemail','vm_senha','vm_email','vm_apagar','vm_max_mensagens','vm_max_segundos',
                       'vm_dizer_hora','vm_dizer_origem','gravar','dnd',
                       'siga_me','siga_me_ativo','siga_me_modo',
-                      'tempo_toque','pin_set_id','perm_local','perm_celular','perm_ddd','perm_ddi',
+                      'tempo_toque','pin_set_id','grupo_saida','perm_local','perm_celular','perm_ddd','perm_ddi',
                       'no_diretorio','ativo',
                       // identificação
                       'pin','accountcode','alias_sip','cid_pseudo','did','did_descricao',
@@ -192,12 +192,24 @@ $recursos = [
                 'gravar' => ['rotulo' => 'gravação', 'em' => ['nao', 'entrada', 'saida', 'ambas']],
                 'siga_me' => ['rotulo' => 'siga-me', 'padrao' => '/^[0-9*#+]{2,20}$/',
                               'mensagem' => 'O destino do siga-me é um ramal ou um número.'],
+                // Vira parte de uma expressão regular no dialplan: só letras,
+                // números, - e _, separados por vírgula.
+                'grupo_saida' => ['rotulo' => 'grupos de saída',
+                                  'padrao' => '/^\s*[A-Za-z0-9_-]{1,40}(\s*,\s*[A-Za-z0-9_-]{1,40})*\s*,?\s*$/',
+                                  'mensagem' => 'Os grupos de saída são nomes curtos, sem espaço (letras, números, - e _), '
+                                              . 'separados por vírgula: NOC ou NOC,VoIP.'],
             ],
             unicas: ['numero'],
             // Marcar WebRTC liga junto o que o navegador exige. Sem isto
             // o arquivo gerado ficava certo e o cadastro mostrava as
             // quatro opções desligadas — a tela mentindo sobre si mesma.
             normalizar: static function (array $dados, array $atual): array {
+                if (array_key_exists('grupo_saida', $dados)) {
+                    $lista = array_values(array_unique(array_filter(array_map('trim',
+                        explode(',', (string) $dados['grupo_saida'])), static fn ($g) => $g !== '')));
+                    $dados['grupo_saida'] = $lista === [] ? null : implode(',', $lista);
+                }
+
                 $webrtc = (int) ($dados['webrtc'] ?? $atual['webrtc'] ?? 0);
                 if ($webrtc !== 1) {
                     return $dados;
@@ -581,9 +593,24 @@ $recursos = [
             // forma de discar (9XXXXXXXX e 09XXXXXXXX na mesma rota, cada
             // um com o seu prefixo a tirar). As colunas antigas da tabela
             // ficaram vazias na migração 44 e não são mais gravadas.
-            colunas: ['nome','ordem','tronco_id','tronco_falha_id','pin_set_id','classe','ativo'],
+            colunas: ['nome','ordem','tronco_id','tronco_falha_id','pin_set_id','grupos','grupo_horario_id','classe','ativo'],
             ordem: 'ordem, id',
             busca: ['nome'],
+            regras: [
+                // Grupos de saída e números de ramal, separados por vírgula.
+                // Vazio: a rota vale para todos os ramais.
+                'grupos' => ['rotulo' => 'só para', 'padrao' => '/^\s*[A-Za-z0-9_-]{1,40}(\s*,\s*[A-Za-z0-9_-]{1,40})*\s*,?\s*$/',
+                             'mensagem' => 'Liste grupos de saída e números de ramal separados por vírgula (NOC,Suporte,3602).'],
+            ],
+            normalizar: static function (array $dados): array {
+                if (array_key_exists('grupos', $dados)) {
+                    $lista = array_values(array_unique(array_filter(array_map('trim',
+                        explode(',', (string) $dados['grupos'])), static fn ($g) => $g !== '')));
+                    $dados['grupos'] = $lista === [] ? null : implode(',', $lista);
+                }
+
+                return $dados;
+            },
             afetaAsterisk: true,
             modulo: 'conn.rotassaida',
             lista: [

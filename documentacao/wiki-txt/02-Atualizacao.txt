@@ -198,6 +198,12 @@ O que muda na operação, e não só por dentro. A mais recente primeiro.
 A tela Telium › Versões e Novidades mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo api/CHANGELOG.md). As notas abaixo resumem o que muda para quem opera.
 
 
+1.5.0 — rotas por grupo e horário; migração do SNEP com horários
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- Rotas de saída podem valer só para grupos de ramais e só num horário. O ramal ganha "Grupos de saída", na aba Permissões. Sem usar isso, nada muda.
+- A migração do SNEP traz os grupos, os horários das regras (inclusive manhã/tarde/noite e feriados), as regras de saída por grupo e as filas dos agentes; e passou a escolher a regra que o SNEP de fato usa quando duas pegam o mesmo número.
+
+
 1.4.1 — comando do SNEP em dois
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - Na Migração do SNEP, o comando que gera o pacote virou dois (a senha e o pacote): colado inteiro, o pedido de senha engolia a linha seguinte.

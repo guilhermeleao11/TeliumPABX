@@ -559,7 +559,8 @@ Traz de uma central **SNEP 3** os troncos, ramais, filas, agentes, as regras de 
    - o banco **sem o CDR**, só com as tabelas da migração;
    - os áudios que as regras, URAs e filas usam e os enviados pela tela do SNEP (`/var/lib/asterisk/sounds`);
    - as músicas de espera (`/var/lib/asterisk/moh`);
-   - os `.conf` do Asterisk do SNEP, para a tela mostrar o texto dos contextos próprios que as regras usam.
+   - os `.conf` do Asterisk do SNEP, para a tela mostrar o texto dos contextos próprios que as regras usam;
+   - do histórico das filas (o arquivo `queue_log` e a tabela, últimos 90 dias), em que filas cada agente entrou.
 2. **Traga o pacote** para o seu computador (WinSCP, `scp`) e **apague-o do SNEP**: ele tem as senhas dos ramais e dos troncos.
 3. **Envie o pacote** na tela (até 64 MB). Ela mostra quantos ramais, troncos, filas, agentes, regras e áudios achou e já roda a prévia.
 4. **Confira a prévia**, grupo por grupo. Cada item diz se vai ser criado, se já existe, se não migra (e por quê) ou se tem aviso.
@@ -573,12 +574,13 @@ Também dá para enviar **só o dump do banco** (`.sql`, `.sql.gz` ou `.sql.bz2`
 | No SNEP | No Telium |
 |---|---|
 | Tronco SIP | Tronco PJSIP, com o mesmo host, usuário e senha. Com usuário e senha, fica **com registro**; confira com a operadora. Tronco sem host, ou que registrava no SNEP (`dynamic`, como um gateway GSM), não migra |
-| Ramal | Ramal com o mesmo número, nome (o do callerid), senha SIP, e-mail, grupos de captura, DTMF e codecs |
+| Ramal | Ramal com o mesmo número, nome (o do callerid), senha SIP, e-mail, grupos de captura, DTMF e codecs. O grupo do SNEP vira o **setor**; os grupos que as regras de saída usam viram os **grupos de saída** |
 | Fila | Fila com a estratégia, tempos, limite, música de espera e os membros fixos. Fica com o **número interno** que uma regra do SNEP levava a ela (os ramais discavam 5600 e caíam no Suporte); sem isso, com o próximo livre a partir do **Primeiro número para as filas** (8000 de fábrica) |
-| Agente (login por código) | Agente do **Call Center**, com a mesma matrícula e a senha como PIN (entra pelo `*11`). Se o SNEP o punha em filas fixas, essas filas viram filas de call center. Agente desativado no SNEP fica desativado |
-| Regra de saída (DiscarTronco) | Rota de saída com os padrões da expressão ou do alias, o tronco e a classe tirada do nome (celular, DDD, DDI, especial, emergência ou local; fixo + celular juntos ficam local). O `0\|` do SNEP vira "prefixo a tirar", e o Reescrever com prefixo vira "prefixo a pôr" |
+| Agente (login por código) | Agente do **Call Center**, com a mesma matrícula e a senha como PIN (entra pelo `*11`), nas filas em que ele entrou nos últimos 90 dias (pelo histórico do pacote) ou nas fixas do SNEP. Essas filas viram filas de call center. Agente desativado no SNEP fica desativado |
+| Regra de saída (DiscarTronco) | Rota de saída com os padrões da expressão ou do alias, o tronco e a classe tirada do nome (celular, DDD, DDI, especial, emergência ou local; fixo + celular juntos ficam local). O `0\|` do SNEP vira "prefixo a tirar", e o Reescrever com prefixo vira "prefixo a pôr". Regra só de um grupo ou ramal vira rota **Só para** esse grupo ou ramal; regra com horário, rota com **Horário** |
 | Regra de entrada | Rota de entrada para o número chamado, com o destino das ações dela |
-| Duas regras para o mesmo número, em horários diferentes | **Condição horária**, com um grupo de horário com as faixas do SNEP: no horário vai para uma regra, fora dele para a outra. Regra com horário e sem a de fora: fora do horário, desliga |
+| Regras do mesmo número com horários (manhã, tarde, noite, feriado) | **Condições horárias encadeadas**, na ordem em que o SNEP testa: dentro do horário da primeira, o destino dela; fora, a próxima; depois da última com horário, a regra sem horário (ou desligar). Cada uma com um grupo de horário com as faixas do SNEP; faixa que vira a meia-noite (18:00–07:59) vira duas |
+| Datas da regra (feriados do SNEP) | Faixas por dia e mês no grupo de horário, com a faixa de hora de cada data. Data com ano vale todo ano nesse dia (aviso) |
 | Reescrever + DiscarTronco numa regra de entrada (desvio para um celular) | Destino **número externo**, que sai pelas rotas de saída do Telium |
 | Ação URA (IVR) | URA com a saudação, o tempo, as tentativas e uma entrada para cada tecla. As regras `<prefixo>-<tecla>` do SNEP viram as entradas dela |
 | Playback seguido de outra ação | Anúncio com o áudio, que segue para o destino da ação seguinte |
@@ -586,15 +588,23 @@ Também dá para enviar **só o dump do banco** (`.sql`, `.sql.gz` ou `.sql.bz2`
 | DiscarRamal, Fila, ExecuteApp(Hangup) | Ramal, Fila, Desligar |
 | Áudios e músicas de espera do pacote | Convertidos e cadastrados em Áudios, com o nome do Telium (sem acento, minúsculo). A música de espera com várias faixas vira um áudio só |
 
+### Ordem das regras
+
+O SNEP testa as regras da **prioridade maior para a menor** (e, na mesma prioridade, pela ordem de criação) e usa a **primeira que vale** — é o que está no código dele. A migração segue essa ordem: quando duas regras pegam o mesmo número, fica a que o SNEP usaria, e a outra aparece com o aviso de que nunca era alcançada.
+
+### A prévia
+
+Em cada grupo, o que pede atenção (erro, aviso, não migra) vem primeiro. O que só vai ser criado, sem observação, vira uma linha de resumo com **ver todos** quando passa de 8 itens.
+
 ### O que não migra (e aparece na prévia)
 
 - **Contextos do dialplan do SNEP** (GoContext): o destino personalizado é criado e a tela mostra o texto do contexto, mas é preciso revisá-lo e copiá-lo para o `extensions_custom.conf` desta central (o que ele chama precisa existir aqui também). Sem isso, a chamada para nele.
 - **Códigos do call center do SNEP** (contextos `ACD...`: login, logout e as pausas por código): no Telium, o agente entra e pausa pelos códigos do Call Center, e cada motivo de pausa tem o seu código.
-- **Regras de saída só de um grupo ou ramal** (o NOC sai pelo tronco A, o suporte pelo B): no Telium a rota vale para todos os ramais. A prévia mostra os padrões e o tronco de cada uma, para decidir à mão.
 - **Atalhos internos** (os ramais discavam um número que levava a um desvio, um contexto ou um ramal): a rota de entrada do Telium é para chamadas que chegam pelos troncos. O atalho para uma fila vira o número da fila (acima).
 - **O que vinha depois do destino** (Fila A e, sem atendimento, Fila B): use o destino de quando não atende, do ramal ou da fila.
 - **Padrões que tiravam curinga** (como `0XX|...`, o 0 mais o código da operadora), **reescrita com corte, troca ou sufixo**, **ExecuteApp** que não é Hangup e **Bloqueios** (use a Lista negra).
-- **Agente sem fila fixa** (escolhia a fila no login, no SNEP): é criado sem fila; ponha-o nas filas no Call Center.
+- **Agente que não entrou em nenhuma fila nos últimos 90 dias** (ou enviado só o dump, sem o histórico): é criado sem fila; ponha-o nas filas no Call Center.
+- **Ramal fixo numa fila que virou de call center** (a fila tinha ramais fixos e agentes): numa fila de call center só atende agente logado. A prévia lista esses ramais.
 
 ### Rodar de novo
 

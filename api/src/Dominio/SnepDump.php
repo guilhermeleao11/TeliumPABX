@@ -24,6 +24,10 @@ final class SnepDump
         'expr_alias', 'expr_alias_expression', 'sounds',
         // Agentes (login na fila por código) e as filas de cada um.
         'agtfila', 'queues_agent',
+        // Grupos de ramais: o setor do ramal e as regras de saída por grupo.
+        'core_groups', 'core_peer_groups',
+        // Datas (feriados) das regras.
+        'date_alias', 'date_alias_list',
     ];
 
     /**

@@ -1266,137 +1266,228 @@ final class GeradorDialplan
             }
         }
 
-        $padroes = [];
+        // As rotas de cada padrão, na ordem. Rota "só para" (grupos de
+        // saída ou ramais) divide o padrão com a geral: quem é do grupo sai
+        // pela dele, o resto pela geral. Rota com horário vale só nele: fora,
+        // a chamada segue para a próxima do mesmo padrão. Sem rota de grupo
+        // nem de horário no padrão, vale a de menor ordem, como sempre — e o
+        // arquivo sai igual ao de antes.
+        $porPadrao = [];
         foreach ($entradas as $r) {
             // "x." vira "_X.": quem cadastra escreve como fala.
             $r['padrao'] = Padrao::normalizar((string) $r['padrao']);
-            // Dois cadastros com o mesmo padrão geravam a prioridade 1 duas
-            // vezes; o Asterisk fica com a primeira e descarta a outra com
-            // um aviso no log. Aqui a regra fica explícita: vale a de menor
-            // ordem, e o reserva de verdade é o "tronco de falha". Os
-            // outros padrões da mesma rota continuam valendo.
-            if (isset($padroes[$r['padrao']])) {
-                $b->branco()->comentario("Padrão {$r['padrao']} da rota {$r['nome']} ignorado: ele já é da rota "
-                    . $padroes[$r['padrao']] . ' (use o tronco de falha para ter reserva)');
-                continue;
-            }
-            $padroes[$r['padrao']] = $r['nome'];
+            $r['grupos'] = trim((string) ($r['grupos'] ?? ''));
+            $r['horario'] = (int) ($r['grupo_horario_id'] ?? 0);
+            $porPadrao[$r['padrao']][] = $r;
+        }
 
-            // Tronco principal desativado (ou DAHDI, que esta central não
-            // carrega): não há endpoint com esse nome, e todo Dial falhava.
-            // Com reserva ativa, ela passa a ser a principal; sem reserva,
-            // quem discou ouve que não há linha em vez de silêncio.
-            if ((int) $r['tronco_usavel'] !== 1) {
-                if ($r['tronco_falha_nome']) {
-                    $r['tronco_nome'] = $r['tronco_falha_nome'];
-                    $r['tronco_cid'] = $r['tronco_falha_cid'];
-                    $r['tronco_falha_nome'] = null;
-                } else {
-                    $b->branco()
-                      ->comentario("Ordem {$r['ordem']} — {$r['nome']}: o tronco {$r['tronco_nome']} está desativado")
-                      ->exten($r['padrao'], "NoOp(Rota de saída {$r['nome']} sem tronco ativo)")
-                      ->same('Congestion(10)')
-                      ->same('Hangup()');
+        foreach ($porPadrao as $padrao => $lista) {
+            // Primeiro as de grupo, depois as gerais, cada uma na sua ordem.
+            // Uma geral sem horário pega tudo o que sobrou: depois dela,
+            // nada mais é alcançado.
+            $lista = [...array_filter($lista, static fn ($r) => $r['grupos'] !== ''),
+                      ...array_filter($lista, static fn ($r) => $r['grupos'] === '')];
+            $candidatas = [];
+            $vistos = [];
+            $fechou = null;
+            foreach ($lista as $r) {
+                $chave = $r['grupos'] . '|' . $r['horario'];
+                $dona = $vistos[$chave] ?? ($r['grupos'] === '' ? $fechou : null);
+                if ($dona !== null) {
+                    // Dois cadastros com o mesmo padrão geravam a prioridade 1
+                    // duas vezes; o Asterisk fica com a primeira e descarta a
+                    // outra com um aviso no log. Aqui a regra fica explícita:
+                    // vale a de menor ordem, e o reserva de verdade é o
+                    // "tronco de falha".
+                    $b->branco()->comentario("Padrão {$padrao} da rota {$r['nome']} ignorado: ele já é da rota "
+                        . $dona . ' (use o tronco de falha para ter reserva)');
                     continue;
+                }
+                $vistos[$chave] = $r['nome'];
+                $candidatas[] = $r;
+                if ($r['grupos'] === '' && $r['horario'] === 0) {
+                    $fechou = $r['nome'];
                 }
             }
 
-            $tronco = $this->identificador((string) $r['tronco_nome']);
-            // O rótulo sai do id porque dois padrões diferentes podem
-            // virar o mesmo texto depois de tirar os símbolos (_00X. e
-            // _00X viram "00X") e os labels colidiriam dentro do contexto.
-            // Com vários padrões na rota, o segundo em diante leva "p2", "p3".
-            $rotulo = $r['rotulo'];
-
-            // Atenção ao prefixo "0": com um teste de verdadeiro simples o
-            // PHP o trata como vazio e o dígito seguia para a operadora.
-            $remover = (string) ($r['prefixo_remover'] ?? '');
-            $numero = $remover !== ''
-                ? '${EXTEN:' . strlen($remover) . '}'
-                : '${EXTEN}';
-            $adicionar = (string) ($r['prefixo_adicionar'] ?? '');
-            if ($adicionar !== '') {
-                $numero = $adicionar . $numero;
+            if (count($candidatas) === 1 && $candidatas[0]['grupos'] === '' && $candidatas[0]['horario'] === 0) {
+                $this->corpoDaRota($b, $candidatas[0], true);
+                continue;
             }
 
             $b->branco()
-              ->comentario("Ordem {$r['ordem']} — {$r['nome']} ({$r['classe']}) via {$r['tronco_nome']}")
-              ->exten($r['padrao'], "NoOp(Rota de saída: {$r['nome']})")
-              ->same('Set(CDR(direcao)=saida)')
-              ->same('Set(__TELIUM_DESTINO=${EXTEN})')
-              ->same("Set(CDR(tronco)={$r['tronco_nome']})")
-              ->same("Set(__TELIUM_CLASSE={$r['classe']})")
-              // A classe vai para o CDR porque é ela que decide a tarifa.
-              // Refazer esse julgamento depois, por expressão regular
-              // sobre o número, seria uma segunda verdade — e as duas
-              // divergiriam no primeiro cadastro novo de rota.
-              ->same("Set(CDR(classe)={$r['classe']})")
-              ->same("GoSub(sub-permissao,s,1({$r['classe']}))")
-              ->same('GoSub(sub-limite-saida,s,1)');
+              ->comentario("{$padrao}: rotas por grupo de saída ou horário")
+              ->exten($padrao, 'NoOp(Grupos do ramal: ${TELIUM_GRUPOS})');
+            foreach ($candidatas as $r) {
+                $rotulo = $r['rotulo'];
+                $membro = $r['grupos'] === '' ? null
+                    : '${REGEX("(^|,)(' . implode('|', array_map(
+                        static fn ($g) => preg_replace('/[^A-Za-z0-9_-]/', '', $g) ?? '',
+                        explode(',', $r['grupos'])
+                    )) . ')(,|$)" ${TELIUM_GRUPOS})}';
 
-            if ($r['pin_set_id']) {
-                // A opção "a" grava o PIN digitado no accountcode, que é
-                // o que permite cobrar a ligação de um centro de custo.
-                $noCdr = (int) (Bd::valor('SELECT no_cdr FROM pin_sets WHERE id = ?',
-                                          [$r['pin_set_id']]) ?? 1);
-                $b->same(sprintf(
-                    'Authenticate(%s/pin-%d.txt%s)',
-                    $this->diretorioGerado(),
-                    (int) $r['pin_set_id'],
-                    $noCdr === 1 ? '' : ',a'
-                ));
+                if ($r['horario'] === 0) {
+                    $b->same($membro === null ? "Goto(rota-{$rotulo})" : "GotoIf(\$[{$membro} = 1]?rota-{$rotulo})");
+                    continue;
+                }
+                // Com horário: do grupo (se a rota pedir) e dentro de uma
+                // das faixas; senão, segue para a próxima.
+                if ($membro !== null) {
+                    $b->same("GotoIf(\$[{$membro} = 0]?pula-{$rotulo})");
+                }
+                foreach ($this->faixasDoGrupo($r['horario']) as $f) {
+                    $b->same('GotoIfTime(' . $this->faixaDeHorario($f) . "?rota-{$rotulo})");
+                }
+                $b->same('NoOp(Fora do horário da rota ' . $r['nome'] . ')', "pula-{$rotulo}");
             }
-
-            // A gravação do sainte é decidida pelo ramal que discou.
-            // Chamada externa feita: regra 2 do ramal que discou. A rota
-            // não tem opinião própria, então o pedido é "não".
-            $b->same('GoSub(sub-decidir-gravacao,s,1(2,nao,saida))');
-
-            // Sem isto o canal sai com o número interno do ramal no From
-            // e a operadora recusa. O CID do ramal manda; o do tronco é
-            // o padrão da casa.
-            $b->same('GoSub(sub-cid-saida,s,1('
-                   . $this->soNumero((string) ($r['tronco_cid'] ?? '')) . '))');
-
-            $b->same("Dial(PJSIP/{$numero}@{$tronco},60,tTb(sub-cid-tronco^s^1(\${TELIUM_CIDSAI})))")
-              ->same('NoOp(Tronco principal: ${DIALSTATUS})')
-              ->same('GoSub(sub-motivo-falha,s,1(' . $tronco . '))');
-
-            if ($r['tronco_falha_nome']) {
-                // Só cai no reserva quando o principal não completou. Sem
-                // esta checagem, uma chamada atendida e encerrada seguia
-                // para a próxima prioridade e discava de novo.
-                $falha = $this->identificador((string) $r['tronco_falha_nome']);
-                $b->same('GotoIf($["${DIALSTATUS}" = "ANSWER" | "${DIALSTATUS}" = "BUSY"'
-                       . ' | "${DIALSTATUS}" = "CANCEL"]?fim-' . $rotulo . ')')
-                  ->same("NoOp(Tentando o tronco reserva {$r['tronco_falha_nome']})")
-                  ->same("Set(CDR(tronco)={$r['tronco_falha_nome']})")
-                  // O reserva costuma ser de outra operadora, com outro
-                  // número contratado.
-                  ->same('GoSub(sub-cid-saida,s,1('
-                       . $this->soNumero((string) ($r['tronco_falha_cid'] ?? '')) . '))')
-                  ->same("Dial(PJSIP/{$numero}@{$falha},60,tTb(sub-cid-tronco^s^1(\${TELIUM_CIDSAI})))")
-                  ->same('NoOp(Tronco reserva: ${DIALSTATUS})')
-                  ->same('GoSub(sub-motivo-falha,s,1(' . $falha . '))');
+            if ($fechou === null) {
+                $b->same('NoOp(Nenhuma rota de saída para este ramal agora)')
+                  ->same('Answer()')
+                  ->same('Wait(1)')
+                  ->same('Playback(cannot-complete-as-dialed)')
+                  ->same('Hangup(31)');
             }
-
-            // Tradução do motivo para quem está no telefone: sem isto, a
-            // chamada apenas cai e ninguém sabe se foi bloqueio ou falha.
-            $b->same('NoOp(Encerrando a chamada)', 'fim-' . $rotulo)
-              ->same('GotoIf($["${DIALSTATUS}" = "BUSY"]?ocupado-' . $rotulo . ')')
-              ->same('GotoIf($["${DIALSTATUS}" = "CHANUNAVAIL" | "${DIALSTATUS}" = "CONGESTION"]'
-                   . '?semlinha-' . $rotulo . ')')
-              ->same('Hangup()')
-              ->same('Busy(10)', 'ocupado-' . $rotulo)
-              ->same('Hangup()')
-              ->same('NoOp(Nenhum tronco atendeu)', 'semlinha-' . $rotulo)
-              ->same('Congestion(10)')
-              ->same('Hangup()');
+            foreach ($candidatas as $r) {
+                $this->corpoDaRota($b, $r, false);
+            }
         }
 
         $this->subMotivoFalha($b);
 
         return $b->texto();
+    }
+
+    /** @return list<array<string,mixed>> as faixas de um grupo de horário */
+    private function faixasDoGrupo(int $grupo): array
+    {
+        return $this->consulta('SELECT * FROM grupo_horario_faixas WHERE grupo_id = ' . $grupo . ' ORDER BY ordem, id');
+    }
+
+    /**
+     * Uma rota de saída para um padrão. Sozinha no padrão, ela é a própria
+     * extensão; com rota de grupo no mesmo padrão, começa num rótulo
+     * (rota-<rótulo>) para onde o despachante salta.
+     *
+     * @param array<string,mixed> $r
+     */
+    private function corpoDaRota(Bloco $b, array $r, bool $comoExtensao): void
+    {
+        $comeco = static function (string $app) use ($b, $r, $comoExtensao): void {
+            $comoExtensao ? $b->exten($r['padrao'], $app) : $b->same($app, 'rota-' . $r['rotulo']);
+        };
+
+        // Tronco principal desativado (ou DAHDI, que esta central não
+        // carrega): não há endpoint com esse nome, e todo Dial falhava.
+        // Com reserva ativa, ela passa a ser a principal; sem reserva,
+        // quem discou ouve que não há linha em vez de silêncio.
+        if ((int) $r['tronco_usavel'] !== 1) {
+            if ($r['tronco_falha_nome']) {
+                $r['tronco_nome'] = $r['tronco_falha_nome'];
+                $r['tronco_cid'] = $r['tronco_falha_cid'];
+                $r['tronco_falha_nome'] = null;
+            } else {
+                $b->branco()
+                  ->comentario("Ordem {$r['ordem']} — {$r['nome']}: o tronco {$r['tronco_nome']} está desativado");
+                $comeco("NoOp(Rota de saída {$r['nome']} sem tronco ativo)");
+                $b->same('Congestion(10)')
+                  ->same('Hangup()');
+                return;
+            }
+        }
+
+        $tronco = $this->identificador((string) $r['tronco_nome']);
+        // O rótulo sai do id porque dois padrões diferentes podem
+        // virar o mesmo texto depois de tirar os símbolos (_00X. e
+        // _00X viram "00X") e os labels colidiriam dentro do contexto.
+        // Com vários padrões na rota, o segundo em diante leva "p2", "p3".
+        $rotulo = $r['rotulo'];
+
+        // Atenção ao prefixo "0": com um teste de verdadeiro simples o
+        // PHP o trata como vazio e o dígito seguia para a operadora.
+        $remover = (string) ($r['prefixo_remover'] ?? '');
+        $numero = $remover !== ''
+            ? '${EXTEN:' . strlen($remover) . '}'
+            : '${EXTEN}';
+        $adicionar = (string) ($r['prefixo_adicionar'] ?? '');
+        if ($adicionar !== '') {
+            $numero = $adicionar . $numero;
+        }
+
+        $b->branco()
+          ->comentario("Ordem {$r['ordem']} — {$r['nome']} ({$r['classe']}) via {$r['tronco_nome']}"
+                       . ($r['grupos'] !== '' ? " — só para {$r['grupos']}" : '')
+                       . ($r['horario'] !== 0 ? " — só no horário {$r['horario']}" : ''));
+        $comeco("NoOp(Rota de saída: {$r['nome']})");
+        $b->same('Set(CDR(direcao)=saida)')
+          ->same('Set(__TELIUM_DESTINO=${EXTEN})')
+          ->same("Set(CDR(tronco)={$r['tronco_nome']})")
+          ->same("Set(__TELIUM_CLASSE={$r['classe']})")
+          // A classe vai para o CDR porque é ela que decide a tarifa.
+          // Refazer esse julgamento depois, por expressão regular
+          // sobre o número, seria uma segunda verdade — e as duas
+          // divergiriam no primeiro cadastro novo de rota.
+          ->same("Set(CDR(classe)={$r['classe']})")
+          ->same("GoSub(sub-permissao,s,1({$r['classe']}))")
+          ->same('GoSub(sub-limite-saida,s,1)');
+
+        if ($r['pin_set_id']) {
+            // A opção "a" grava o PIN digitado no accountcode, que é
+            // o que permite cobrar a ligação de um centro de custo.
+            $noCdr = (int) (Bd::valor('SELECT no_cdr FROM pin_sets WHERE id = ?',
+                                      [$r['pin_set_id']]) ?? 1);
+            $b->same(sprintf(
+                'Authenticate(%s/pin-%d.txt%s)',
+                $this->diretorioGerado(),
+                (int) $r['pin_set_id'],
+                $noCdr === 1 ? '' : ',a'
+            ));
+        }
+
+        // A gravação do sainte é decidida pelo ramal que discou.
+        // Chamada externa feita: regra 2 do ramal que discou. A rota
+        // não tem opinião própria, então o pedido é "não".
+        $b->same('GoSub(sub-decidir-gravacao,s,1(2,nao,saida))');
+
+        // Sem isto o canal sai com o número interno do ramal no From
+        // e a operadora recusa. O CID do ramal manda; o do tronco é
+        // o padrão da casa.
+        $b->same('GoSub(sub-cid-saida,s,1('
+               . $this->soNumero((string) ($r['tronco_cid'] ?? '')) . '))');
+
+        $b->same("Dial(PJSIP/{$numero}@{$tronco},60,tTb(sub-cid-tronco^s^1(\${TELIUM_CIDSAI})))")
+          ->same('NoOp(Tronco principal: ${DIALSTATUS})')
+          ->same('GoSub(sub-motivo-falha,s,1(' . $tronco . '))');
+
+        if ($r['tronco_falha_nome']) {
+            // Só cai no reserva quando o principal não completou. Sem
+            // esta checagem, uma chamada atendida e encerrada seguia
+            // para a próxima prioridade e discava de novo.
+            $falha = $this->identificador((string) $r['tronco_falha_nome']);
+            $b->same('GotoIf($["${DIALSTATUS}" = "ANSWER" | "${DIALSTATUS}" = "BUSY"'
+                   . ' | "${DIALSTATUS}" = "CANCEL"]?fim-' . $rotulo . ')')
+              ->same("NoOp(Tentando o tronco reserva {$r['tronco_falha_nome']})")
+              ->same("Set(CDR(tronco)={$r['tronco_falha_nome']})")
+              // O reserva costuma ser de outra operadora, com outro
+              // número contratado.
+              ->same('GoSub(sub-cid-saida,s,1('
+                   . $this->soNumero((string) ($r['tronco_falha_cid'] ?? '')) . '))')
+              ->same("Dial(PJSIP/{$numero}@{$falha},60,tTb(sub-cid-tronco^s^1(\${TELIUM_CIDSAI})))")
+              ->same('NoOp(Tronco reserva: ${DIALSTATUS})')
+              ->same('GoSub(sub-motivo-falha,s,1(' . $falha . '))');
+        }
+
+        // Tradução do motivo para quem está no telefone: sem isto, a
+        // chamada apenas cai e ninguém sabe se foi bloqueio ou falha.
+        $b->same('NoOp(Encerrando a chamada)', 'fim-' . $rotulo)
+          ->same('GotoIf($["${DIALSTATUS}" = "BUSY"]?ocupado-' . $rotulo . ')')
+          ->same('GotoIf($["${DIALSTATUS}" = "CHANUNAVAIL" | "${DIALSTATUS}" = "CONGESTION"]'
+               . '?semlinha-' . $rotulo . ')')
+          ->same('Hangup()')
+          ->same('Busy(10)', 'ocupado-' . $rotulo)
+          ->same('Hangup()')
+          ->same('NoOp(Nenhum tronco atendeu)', 'semlinha-' . $rotulo)
+          ->same('Congestion(10)')
+          ->same('Hangup()');
     }
 
     /**

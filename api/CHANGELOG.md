@@ -2,8 +2,23 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.4.1 — 2026-10-21
+## 1.5.0 — 2026-10-21
 Commits:
+Rotas de saída por grupo de ramais e por horário, e a migração do SNEP com grupos, horários, datas e as filas dos agentes.
+
+### Novidades
+- **Rotas de saída — Só para**: uma rota pode valer só para alguns grupos de saída ou ramais (`NOC,Suporte,3602`). O ramal ganha **Grupos de saída** (aba Permissões). Com o mesmo padrão numa rota de grupo e numa geral, quem é do grupo sai pela dele e o resto pela geral.
+- **Rotas de saída — Horário**: uma rota pode valer só num grupo de horário; fora dele, a chamada segue para a próxima rota do mesmo número.
+- **Migração do SNEP — grupos**: o grupo do SNEP vira o setor do ramal, e as regras de saída de um grupo ou ramal viram rotas "Só para".
+- **Migração do SNEP — horários**: as regras do mesmo número com horários (manhã, tarde, noite) viram condições horárias encadeadas na ordem do SNEP; faixa que vira a meia-noite vira duas; as datas da regra (feriados) viram faixas por dia e mês; regra de saída com horário vira rota com Horário.
+- **Migração do SNEP — agentes**: o pacote leva, do histórico das filas dos últimos 90 dias, em que filas cada agente entrou, e o agente é criado nessas filas.
+- **Migração do SNEP — prévia**: o que pede atenção vem primeiro em cada grupo; o que só vai ser criado vira um resumo com "ver todos".
+### Correções
+- **Migração do SNEP — ordem das regras**: o SNEP usa a regra de prioridade **maior** primeiro (confirmado no código dele); a migração usava a menor. Com duas regras para o mesmo número, ficava a errada.
+- **Migração do SNEP**: os casos que ficam à mão (tronco sem host, gateway que registrava no SNEP, ExecuteApp, número interno que é ramal) dizem o que fazer e, no ExecuteApp, o que a regra fazia.
+
+## 1.4.1 — 2026-10-21
+Commits: 9c028e1
 O comando do SNEP vira dois: a senha e o pacote.
 
 ### Correções

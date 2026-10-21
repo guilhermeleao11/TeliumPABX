@@ -2786,6 +2786,49 @@ final class Testes
                     && str_contains($saida, 'Dial(PJSIP/${EXTEN:1}@teste-padroes'),
                 'cada padrão corta o próprio prefixo antes de discar'
             );
+
+            // Rota "só para" um grupo no mesmo padrão: o NOC sai pela dele,
+            // o resto pela geral.
+            Bd::executar("INSERT INTO rotas_saida (nome, ordem, tronco_id, classe, grupos, ativo)
+                          VALUES ('Teste NOC', 2, ?, 'celular', 'NOC,3602', 1)", [$tronco]);
+            $noc = (int) $pdo->lastInsertId();
+            \Telium\Dominio\RotasSaida::gravarPadroes($noc, [
+                ['padrao' => '_7777XXXX', 'prefixo_remover' => null, 'prefixo_adicionar' => '051'],
+            ]);
+            $saida = (new GeradorDialplan())->gerar()['extensions.saida.conf'] ?? '';
+            $this->ok(
+                str_contains($saida, "exten => _7777XXXX,1,NoOp(Grupos do ramal: \${TELIUM_GRUPOS})")
+                    && str_contains($saida, 'GotoIf($[${REGEX("(^|,)(NOC|3602)(,|$)" ${TELIUM_GRUPOS})} = 1]?rota-r' . $noc . ')')
+                    && str_contains($saida, 'Goto(rota-r' . $rota . ')')
+                    && str_contains($saida, 'same => n(rota-r' . $noc . '),NoOp(Rota de saída: Teste NOC)')
+                    && str_contains($saida, 'Dial(PJSIP/051${EXTEN}@teste-padroes'),
+                'rota de grupo no mesmo padrão: o grupo sai pela dele e o resto pela geral'
+            );
+            $this->ok(str_contains($saida, 'exten => _07777XXXX,1,NoOp(Rota de saída: Teste de padrões)'),
+                      'padrão sem rota de grupo continua como sempre');
+
+            // Rota com horário: dentro dele sai por ela; fora, segue para a
+            // próxima do mesmo padrão (aqui, a geral).
+            Bd::executar("INSERT INTO grupos_horario (nome) VALUES ('teste-horario-rota')");
+            $grupo = (int) $pdo->lastInsertId();
+            Bd::executar("INSERT INTO grupo_horario_faixas (grupo_id, hora_inicio, hora_fim, dias, ordem)
+                          VALUES (?, '08:00:00', '17:59:00', 'mon,tue,wed,thu,fri', 10)", [$grupo]);
+            Bd::executar("INSERT INTO rotas_saida (nome, ordem, tronco_id, classe, grupo_horario_id, ativo)
+                          VALUES ('Teste comercial', 0, ?, 'celular', ?, 1)", [$tronco, $grupo]);
+            $comercial = (int) $pdo->lastInsertId();
+            \Telium\Dominio\RotasSaida::gravarPadroes($comercial, [
+                ['padrao' => '_07777XXXX', 'prefixo_remover' => '0', 'prefixo_adicionar' => null],
+            ]);
+            $saida = (new GeradorDialplan())->gerar()['extensions.saida.conf'] ?? '';
+            $this->ok(
+                str_contains($saida, 'GotoIfTime(08:00-17:59,mon&tue&wed&thu&fri,*,*?rota-r' . $comercial . ')')
+                    && str_contains($saida, 'same => n(pula-r' . $comercial . '),NoOp(Fora do horário da rota Teste comercial)')
+                    && str_contains($saida, 'Goto(rota-r' . $rota . 'p2)'),
+                'rota com horário: dentro dele sai por ela, fora segue para a próxima do mesmo número'
+            );
+            $this->ok(\Telium\Gerador\GeradorPjsip::gruposDeSaida(['grupo_saida' => 'NOC,VoIP', 'numero' => '5555']) === 'NOC,VoIP,5555'
+                      && \Telium\Gerador\GeradorPjsip::gruposDeSaida(['grupo_saida' => null, 'numero' => '3602']) === '3602',
+                      'o ramal leva o grupo de saída e o próprio número para a rota conferir');
         } finally {
             $pdo->rollBack();
         }
@@ -2952,6 +2995,16 @@ final class Testes
         $this->ok($m('origemExterna', 'T:1,T:3') && $m('origemExterna', 'X') && $m('origemExterna', 'G:all,T:1')
                   && !$m('origemExterna', 'G:all') && !$m('origemExterna', 'R:3602'),
                   'origem da regra: tronco ou qualquer um é de fora; grupo e ramal são internos');
+        $this->ok($m('partirMeiaNoite', '18:00:00', '07:59:59') === [['18:00:00', '23:59'], ['00:00', '07:59:59']]
+                  && $m('partirMeiaNoite', '08:00:00', '17:59:59') === [['08:00:00', '17:59:59']],
+                  'faixa do SNEP que vira a meia-noite vira duas');
+        $this->ok($m('diaEMes', '2026-12-25') === [25, 12, '2026'] && $m('diaEMes', '01/01') === [1, 1, null]
+                  && $m('diaEMes', '25/12/2026') === [25, 12, '2026'] && $m('diaEMes', 'natal') === null,
+                  'datas do SNEP em dia e mês, com o ano à parte');
+        $this->ok($m('semHorario', ['validade' => '00:00:00-23:59:59', 'diasDaSemana' => 'sun,mon,tue,wed,thu,fri,sat', 'dates_alias' => ''])
+                  && !$m('semHorario', ['validade' => '00:00:00-23:59:59', 'diasDaSemana' => 'sun,mon,tue,wed,thu,fri,sat', 'dates_alias' => '1'])
+                  && !$m('semHorario', ['validade' => '08:00:00-17:59:59', 'diasDaSemana' => 'mon,tue,wed,thu,fri', 'dates_alias' => '']),
+                  'regra com horário ou com datas não vale o tempo todo');
         $this->ok($m('vazia', 'yes') === 'sim' && $m('vazia', 'strict') === 'estrito' && $m('vazia', '0') === 'nao',
                   'fila vazia do SNEP no formato do Telium');
     }

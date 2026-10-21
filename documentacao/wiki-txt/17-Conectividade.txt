@@ -211,6 +211,8 @@ Aba Permissões (permissões de discagem)
 - A permissão é conferida contra a Classe da rota de saída (seção 5). Sem permissão, quem disca ouve que a chamada não pode ser completada.
 - A permissão acompanha o ramal no siga-me, no desvio e na transferência às cegas: um ramal só-local não consegue transferir uma chamada para um número internacional.
 
+- Grupos de saída: Opcional. Nomes curtos, sem espaço, separados por vírgula (NOC ou NOC,VoIP). As rotas de saída marcadas Só para um desses grupos valem para este ramal: para o mesmo número, ele sai por elas, e não pela rota geral (seção 5)
+
 [PRINT: aba Permissões de um ramal só-local]
 
 
@@ -432,8 +434,26 @@ Campos
 - Classe: local, celular, ddd, ddi, emergencia ou especial. Decide quem pode usar a rota
 - Tronco: Tronco principal
 - Tronco reserva: Usado quando o principal não completa. "nenhum" por padrão
+- Só para: Opcional. Grupos de saída e números de ramal, separados por vírgula (NOC,Suporte,3602). Vazio: vale para todos os ramais
+- Horário: Opcional. Um grupo de horário: a rota só vale nele; fora, a chamada segue para a próxima rota do mesmo número
 - Pedir PIN: Pede uma senha de um Conjunto de PIN antes de completar. Os conjuntos ficam em Configurações › Conjuntos de PIN
 - Rota ativa: Padrão ligado
+
+
+Rota por grupo de ramais e por horário
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+O mesmo padrão pode estar em mais de uma rota quando elas valem para ramais ou horários diferentes. Para cada número, a central tenta, nesta ordem:
+
+1. as rotas Só para um grupo do ramal que discou (pela ordem da lista); a de Horário, só dentro dele;
+2. as rotas gerais com Horário, se estiver dentro;
+3. a rota geral sem horário.
+
+Exemplo: "Celular NOC" (9XXXXXXXX, Só para NOC, tronco A), "Celular comercial" (9XXXXXXXX, Horário: comercial, tronco B) e "Celular" (9XXXXXXXX, tronco C). Quem é do NOC sai pelo A; os demais, pelo B no horário comercial e pelo C fora dele. Se nenhuma rota servir (só há rotas de grupo, e o ramal não é de nenhum), quem discou ouve que a chamada não pode ser completada.
+
+O grupo vale para a chamada que o próprio ramal faz. No siga-me e no desvio, a chamada sai pela rota geral.
+
+[PRINT: lista de rotas de saída com a coluna "Vale para" mostrando grupos e horário]
 
 
 Vários padrões na mesma rota
@@ -477,7 +497,7 @@ Comportamentos automáticos
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - Quando vários padrões pegam o mesmo número, vence o mais específico, posição a posição: número exato, depois faixa, N, Z, X e por fim .. Não é a ordem da lista.
-- O mesmo padrão em duas rotas: vale o da rota de menor ordem; o outro é ignorado. Para ter reserva, use o Tronco reserva, não uma segunda rota.
+- O mesmo padrão em duas rotas (para os mesmos ramais e o mesmo horário): vale o da rota de menor ordem; o outro é ignorado. Para ter reserva, use o Tronco reserva, não uma segunda rota.
 - Permissão: a central confere a classe da rota contra as permissões do ramal (seção 2). Depois, o limite de chamadas simultâneas do ramal: estourado, ele ouve que todos os circuitos estão ocupados.
 - Ordem de failover: a central tenta o tronco principal por até 60 s. Se ele não completar (e não foi atendida, ocupado ou cancelada por quem discou), tenta o Tronco reserva, com a identificação de saída do reserva.
 - Tronco principal desativado: se há reserva ativa, ela vira a principal; sem reserva, quem disca ouve sinal de linha congestionada.
