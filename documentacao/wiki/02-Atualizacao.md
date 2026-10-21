@@ -213,6 +213,9 @@ O que muda na operação, e não só por dentro. A mais recente primeiro.
 
 A tela **Telium › Versões e Novidades** mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo `api/CHANGELOG.md`). As notas abaixo resumem o que muda para quem opera.
 
+### 1.5.1 — escolher o que importar do SNEP
+- Na prévia da Migração do SNEP, cada item e cada grupo têm uma caixa: só o marcado é importado.
+
 ### 1.5.0 — rotas por grupo e horário; migração do SNEP com horários
 - Rotas de saída podem valer **só para** grupos de ramais e **só num horário**. O ramal ganha "Grupos de saída", na aba Permissões. Sem usar isso, nada muda.
 - A migração do SNEP traz os grupos, os horários das regras (inclusive manhã/tarde/noite e feriados), as regras de saída por grupo e as filas dos agentes; e passou a escolher a regra que o SNEP de fato usa quando duas pegam o mesmo número.

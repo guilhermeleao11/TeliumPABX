@@ -141,8 +141,11 @@ final class MigracaoSnep
         $dados = json_decode((string) file_get_contents($arquivo), true) ?: [];
         $pacote = $dados['_pacote'] ?? null;
         unset($dados['_pacote']);
+        // O que a pessoa desmarcou na prévia: "Grupo|item".
+        $ignorar = array_values(array_filter(array_map('strval', (array) ($corpo['ignorar'] ?? [])),
+            static fn (string $c) => $c !== '' && strlen($c) <= 300));
         $resultado = (new Migracao($this->recursos, $req))->executar(
-            $dados, ['fila_inicio' => $inicio, 'pacote' => $pacote], $simular
+            $dados, ['fila_inicio' => $inicio, 'pacote' => $pacote, 'ignorar' => array_slice($ignorar, 0, 5000)], $simular
         );
 
         if (!$simular) {

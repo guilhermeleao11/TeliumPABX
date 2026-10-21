@@ -154,6 +154,9 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.5.1 — escolher o que importar do SNEP
+- Na prévia da Migração do SNEP, cada item e cada grupo têm uma caixa: só o marcado é importado.
+
 ### 1.5.0 — rotas por grupo e horário; migração do SNEP com horários
 - Rotas de saída podem valer **só para** grupos de ramais e **só num horário**. O ramal ganha "Grupos de saída", na aba Permissões. Sem usar isso, nada muda.
 - A migração do SNEP traz os grupos, os horários das regras (inclusive manhã/tarde/noite e feriados), as regras de saída por grupo e as filas dos agentes; e passou a escolher a regra que o SNEP de fato usa quando duas pegam o mesmo número.

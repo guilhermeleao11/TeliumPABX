@@ -76,6 +76,11 @@ final class MigracaoSnep
     /** @var array<string,string> fila do SNEP => [agente => vezes], do histórico do pacote */
     private array $historico = [];
     private bool $simular = true;
+    /** @var array<string,true> "Grupo|item" que a pessoa tirou da importação */
+    private array $ignorar = [];
+
+    /** Os grupos em que a pessoa escolhe item por item. */
+    public const ESCOLHIVEIS = ['Troncos', 'Ramais', 'Filas', 'Agentes', 'Regras de saída', 'Regras de entrada'];
     /** @var array{sons:array<string,string>, moh:array<string,list<string>>, conf:list<string>}|null */
     private ?array $pacote = null;
 
@@ -86,13 +91,14 @@ final class MigracaoSnep
 
     /**
      * @param array<string, list<array<string,?string>>> $snep o que SnepDump::ler devolveu
-     * @param array{fila_inicio?: string, pacote?: ?array} $opcoes
+     * @param array{fila_inicio?: string, pacote?: ?array, ignorar?: list<string>} $opcoes
      * @return array<string,mixed>
      */
     public function executar(array $snep, array $opcoes, bool $simular): array
     {
         $this->simular = $simular;
         $this->pacote = $opcoes['pacote'] ?? null;
+        $this->ignorar = array_fill_keys(array_map('strval', $opcoes['ignorar'] ?? []), true);
         $this->indexar($snep);
 
         $pdo = Bd::conexao();
@@ -150,6 +156,9 @@ final class MigracaoSnep
         foreach ($trunks as $t) {
             $nome = self::nomeDoCallerid((string) ($t['callerid'] ?? '')) ?: 'Tronco ' . $t['name'];
             $item = "{$nome} ({$t['host']})";
+            if ($this->pulou('Troncos', $item)) {
+                continue;
+            }
             $tecnologia = strtoupper((string) ($t['technology'] ?: $t['type']));
 
             if ($tecnologia !== 'SIP') {
@@ -218,6 +227,9 @@ final class MigracaoSnep
             $numero = trim((string) $p['name']);
             $nome = mb_substr(self::nomeDoCallerid((string) ($p['callerid'] ?? '')) ?: "Ramal {$numero}", 0, 120);
             $item = "{$numero} — {$nome}";
+            if ($this->pulou('Ramais', $item)) {
+                continue;
+            }
 
             if (preg_match('/^[0-9]{2,10}$/', $numero) !== 1) {
                 $this->linha('Ramais', $item, 'erro', 'O número do ramal no Telium é só de dígitos, de 2 a 10.');
@@ -296,6 +308,9 @@ final class MigracaoSnep
 
         foreach ($queues as $q) {
             $nome = mb_substr(trim((string) $q['name']), 0, 80);
+            if ($this->pulou('Filas', $nome)) {
+                continue;
+            }
 
             $existente = Bd::valor('SELECT numero FROM filas WHERE nome = ?', [$nome]);
             if ($existente !== false) {
@@ -483,6 +498,9 @@ final class MigracaoSnep
             $matricula = (string) $a['numero'];
             $nome = mb_substr(trim((string) $a['nome']) ?: "Agente {$matricula}", 0, 80);
             $item = "{$matricula} — {$nome}";
+            if ($this->pulou('Agentes', $item)) {
+                continue;
+            }
 
             if (Bd::valor('SELECT id FROM cc_agentes WHERE matricula = ?', [$matricula]) !== false) {
                 $this->linha('Agentes', $item, 'existe', 'Já existe um agente com esta matrícula; não foi alterado.');
@@ -575,6 +593,9 @@ final class MigracaoSnep
             $discar = self::acao($acoes, 'discartronco');
             $nome = mb_substr(trim((string) $r['desc']) ?: "Regra {$r['id']}", 0, 80);
             $ordem += 10;
+            if ($this->pulou('Regras de saída', $nome)) {
+                continue;
+            }
 
             if ($discar === null) {
                 $bloqueio = false;
@@ -863,6 +884,9 @@ final class MigracaoSnep
         $nome = mb_substr(trim((string) $principal['desc']) ?: "Regra {$principal['id']}", 0, 120);
         $item = "{$nome} ({$did})";
         $avisos = [];
+        if ($this->pulou('Regras de entrada', $item)) {
+            return;
+        }
 
         if (Bd::valor('SELECT id FROM rotas_entrada WHERE did = ? AND cid_origem = ?',
                       [\Telium\Gerador\Padrao::normalizar($did), $cid]) !== false) {
@@ -1595,7 +1619,24 @@ final class MigracaoSnep
 
     private function linha(string $grupo, string $item, string $acao, string $mensagem): void
     {
-        $this->linhas[] = ['grupo' => $grupo, 'item' => $item, 'acao' => $acao, 'mensagem' => $mensagem];
+        $this->linhas[] = [
+            'grupo' => $grupo, 'item' => $item, 'acao' => $acao, 'mensagem' => $mensagem,
+            // A chave com que a tela tira (ou devolve) o item da importação.
+            // Só o que vai ser criado — e o que já foi tirado — se escolhe.
+            'chave' => in_array($grupo, self::ESCOLHIVEIS, true)
+                       && in_array($acao, ['criar', 'aviso', 'erro', 'pulado'], true) ? "{$grupo}|{$item}" : null,
+        ];
+    }
+
+    /** A pessoa tirou este item da importação? Então ele fica de fora, e diz. */
+    private function pulou(string $grupo, string $item): bool
+    {
+        if (!isset($this->ignorar["{$grupo}|{$item}"])) {
+            return false;
+        }
+        $this->linha($grupo, $item, 'pulado', 'Fora da importação: desmarcado na prévia. O que dependia dele aparece com aviso ou erro.');
+
+        return true;
     }
 
     /** @param list<array{acao:string, cfg:array<string,string>}> $acoes */

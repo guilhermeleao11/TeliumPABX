@@ -596,6 +596,8 @@ O SNEP testa as regras da **prioridade maior para a menor** (e, na mesma priorid
 
 Em cada grupo, o que pede atenção (erro, aviso, não migra) vem primeiro. O que só vai ser criado, sem observação, vira uma linha de resumo com **ver todos** quando passa de 8 itens.
 
+**Escolher o que importar:** troncos, ramais, filas, agentes e regras de entrada e de saída têm uma caixa por item, e cada grupo tem uma no título, para marcar ou desmarcar todos. A importação traz só o que estiver marcado. A cada mudança a prévia se refaz e mostra o efeito: sem um tronco, as rotas de saída dele aparecem com erro; sem um ramal, a regra de entrada que ia para ele avisa. O desmarcado aparece como **fora da importação**, ainda com a caixa, para voltar atrás. URAs, anúncios, condições horárias e contextos não têm caixa própria: vêm junto com a regra que os usa.
+
 ### O que não migra (e aparece na prévia)
 
 - **Contextos do dialplan do SNEP** (GoContext): o destino personalizado é criado e a tela mostra o texto do contexto, mas é preciso revisá-lo e copiá-lo para o `extensions_custom.conf` desta central (o que ele chama precisa existir aqui também). Sem isso, a chamada para nele.

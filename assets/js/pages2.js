@@ -7636,6 +7636,9 @@ PAGES['telium.versoes'] = {
 PAGES['telium.migracao'] = {
   _dump: null,
   _ultimo: null,
+  // "Grupo|item" desmarcados na prévia: ficam fora da importação.
+  _ignorar: new Set(),
+  _refazer: null,
 
   render() {
     const passo = (n, titulo, corpo) => `<div class="card" style="margin-bottom:16px">
@@ -7739,6 +7742,7 @@ PAGES['telium.migracao'] = {
         fd.append('arquivo', f);
         const r = await Api.upload('/migracao-snep', fd);
         this._dump = r.id;
+        this._ignorar = new Set();
         const c = r.contagem;
         enviado.textContent = `${num(c.ramais)} ramais, ${num(c.troncos)} tronco(s), ${num(c.filas)} fila(s), `
                             + `${num(c.agentes || 0)} agente(s), ${num(c.regras)} regra(s)`
@@ -7758,6 +7762,22 @@ PAGES['telium.migracao'] = {
       } catch { toast('Não foi possível copiar: selecione o texto e copie.', 'err'); }
     });
     previa.onclick = () => this.enviar(true);
+
+    // Marcar e desmarcar refaz a prévia: o que depende do item que saiu
+    // (a rota do tronco desmarcado, o agente da fila) mostra o efeito antes
+    // de importar.
+    alvo.addEventListener('change', ev => {
+      const caixa = ev.target.closest('[data-snep-item], [data-snep-grupo]');
+      if (!caixa) return;
+      const chaves = caixa.dataset.snepGrupo !== undefined
+        ? [...alvo.querySelectorAll(`[data-snep-item][data-grupo="${CSS.escape(caixa.dataset.snepGrupo)}"]`)].map(c => c.value)
+        : [caixa.value];
+      chaves.forEach(c => caixa.checked ? this._ignorar.delete(c) : this._ignorar.add(c));
+      alvo.querySelectorAll('[data-snep-item]').forEach(c => { c.checked = !this._ignorar.has(c.value); });
+      importar.disabled = true;
+      clearTimeout(this._refazer);
+      this._refazer = setTimeout(() => this.enviar(true), 700);
+    });
     importar.onclick = async () => {
       const ok = await Modal.confirm({
         titulo: 'Importar do SNEP?',
@@ -7779,7 +7799,8 @@ PAGES['telium.migracao'] = {
     botao.innerHTML = `<span class="spin"></span> ${simular ? 'Conferindo…' : 'Importando…'}`;
     try {
       const r = await Api.post(`/migracao-snep/${this._dump}`, {
-        simular, fila_inicio: document.getElementById('snepFilaInicio').value.trim()
+        simular, fila_inicio: document.getElementById('snepFilaInicio').value.trim(),
+        ignorar: [...this._ignorar]
       });
       this._ultimo = r;
       alvo.innerHTML = this.pintar(r);
@@ -7800,15 +7821,20 @@ PAGES['telium.migracao'] = {
 
   pintar(r) {
     const s = r.resumo;
-    const tom = { criar: 'badge-ok', aviso: 'badge-warn', erro: 'badge-danger', existe: '', ignorado: '' };
+    const tom = { criar: 'badge-ok', aviso: 'badge-warn', erro: 'badge-danger', existe: '', ignorado: '', pulado: '' };
     const rotulo = r.simulado
-      ? { criar: 'a criar', aviso: 'a criar, com aviso', erro: 'erro', existe: 'já existe', ignorado: 'não migra' }
-      : { criar: 'criado', aviso: 'criado, com aviso', erro: 'erro', existe: 'já existia', ignorado: 'não migrado' };
+      ? { criar: 'a criar', aviso: 'a criar, com aviso', erro: 'erro', existe: 'já existe', ignorado: 'não migra',
+          pulado: 'fora da importação' }
+      : { criar: 'criado', aviso: 'criado, com aviso', erro: 'erro', existe: 'já existia', ignorado: 'não migrado',
+          pulado: 'não importado' };
     const faltam = r.audios.filter(a => !a.achado);
     const doPacote = r.audios.filter(a => a.origem === 'pacote');
     const grupos = [...new Set(r.linhas.map(l => l.grupo))];
 
     return `
+      ${r.simulado ? `<p class="small muted" style="margin:0 0 8px">${icon('check','ico ico-sm')} Desmarque o que não
+        quer trazer (item por item, ou o grupo inteiro na caixa do título). A prévia se refaz a cada escolha e mostra
+        o que deixa de funcionar sem o item — a rota do tronco que saiu, o agente da fila que saiu.</p>` : ''}
       <div class="row gap-8 wrap" style="margin-bottom:10px">
         <b>${r.simulado ? 'Prévia' : 'Importado'}:</b>
         ${Object.keys(rotulo).filter(k => s[k]).map(k =>
@@ -7832,7 +7858,7 @@ PAGES['telium.migracao'] = {
           ${r.contextos.map(c => `<div style="margin-top:8px"><b class="mono">[${esc(c.nome)}]</b>
             ${c.texto ? `<pre class="mono tiny" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:8px;border-radius:8px;margin:4px 0 0;max-height:240px;overflow:auto">${esc(c.texto)}</pre>`
                       : ' — não veio no pacote; está nos arquivos do SNEP.'}</div>`).join('')}</div></div>` : ''}
-      ${grupos.map(g => this.grupo(g, r.linhas.filter(l => l.grupo === g), tom, rotulo)).join('')}`;
+      ${grupos.map(g => this.grupo(g, r.linhas.filter(l => l.grupo === g), tom, rotulo, r.simulado)).join('')}`;
   },
 
   /**
@@ -7841,13 +7867,19 @@ PAGES['telium.migracao'] = {
    * linha de resumo quando é muita coisa — 200 ramais "a criar" escondiam
    * os três que precisavam de alguém.
    */
-  grupo(g, linhas, tom, rotulo) {
-    const ordem = { erro: 0, aviso: 1, ignorado: 2, criar: 3, existe: 4 };
+  grupo(g, linhas, tom, rotulo, escolhe) {
+    const ordem = { erro: 0, aviso: 1, ignorado: 2, pulado: 3, criar: 4, existe: 5 };
     linhas = [...linhas].sort((a, b) => (ordem[a.acao] ?? 9) - (ordem[b.acao] ?? 9));
-    const atencao = linhas.filter(l => ['erro', 'aviso', 'ignorado'].includes(l.acao));
+    const atencao = linhas.filter(l => ['erro', 'aviso', 'ignorado', 'pulado'].includes(l.acao));
     const resto = linhas.filter(l => !atencao.includes(l));
+    const caixa = l => escolhe && l.chave
+      ? `<input type="checkbox" data-snep-item data-grupo="${esc(g)}" value="${esc(l.chave)}"
+           ${this._ignorar.has(l.chave) ? '' : 'checked'} style="margin-right:8px;vertical-align:middle">`
+      : '';
+    const escolhiveis = linhas.filter(l => l.chave);
+    const todos = escolhiveis.length && escolhiveis.every(l => !this._ignorar.has(l.chave));
     const linha = l => `<tr>
-      <td>${esc(l.item)}</td>
+      <td><label style="cursor:${caixa(l) ? 'pointer' : 'default'}">${caixa(l)}${esc(l.item)}</label></td>
       <td><span class="badge ${tom[l.acao] || ''}">${rotulo[l.acao] || esc(l.acao)}</span></td>
       <td class="small">${esc(l.mensagem)}</td></tr>`;
     const conta = acao => resto.filter(l => l.acao === acao).length;
@@ -7860,7 +7892,11 @@ PAGES['telium.migracao'] = {
       </details></td></tr>` : resto.map(linha).join('');
 
     return `<div class="card" style="margin:0 0 12px"><div class="card-head row-between">
-        <div class="card-title">${esc(g)}</div><span class="small muted">${num(linhas.length)} item(ns)</span></div>
+        <div class="card-title">${escolhe && escolhiveis.length
+          ? `<label style="cursor:pointer"><input type="checkbox" data-snep-grupo="${esc(g)}" ${todos ? 'checked' : ''}
+               style="margin-right:8px;vertical-align:middle">${esc(g)}</label>` : esc(g)}</div>
+        <span class="small muted">${num(linhas.length)} item(ns)${escolhiveis.length && this._ignorar.size
+          ? ` · ${num(escolhiveis.filter(l => this._ignorar.has(l.chave)).length)} fora` : ''}</span></div>
       <div class="table-wrap"><table class="table">
         <thead><tr><th>Item</th><th>Resultado</th><th>Detalhe</th></tr></thead>
         <tbody>${atencao.map(linha).join('')}${resumo}</tbody>

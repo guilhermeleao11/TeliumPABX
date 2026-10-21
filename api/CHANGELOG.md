@@ -2,8 +2,15 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.5.0 — 2026-10-21
+## 1.5.1 — 2026-10-21
 Commits:
+Na migração do SNEP, dá para escolher o que importar.
+
+### Novidades
+- **Migração do SNEP — escolher**: caixa por item (troncos, ramais, filas, agentes, regras de entrada e de saída) e por grupo. Só o marcado é importado; a prévia se refaz a cada escolha e mostra o que deixa de funcionar sem o item desmarcado.
+
+## 1.5.0 — 2026-10-21
+Commits: 4e11fb4
 Rotas de saída por grupo de ramais e por horário, e a migração do SNEP com grupos, horários, datas e as filas dos agentes.
 
 ### Novidades
