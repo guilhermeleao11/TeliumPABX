@@ -1023,17 +1023,30 @@
         AMI_PORTA: "{{ ami_porta }}"
         AMI_USUARIO: "{{ ami_usuario }}"
         AMI_SENHA: "{{ ami_senha }}"
-      register: ami_teste
+      register: ami_teste_de_novo
       changed_when: false
       failed_when: false
 
+# A nova tentativa grava num nome próprio. Gravando em ami_teste, a tarefa
+# PULADA (o primeiro teste tinha passado) apagava o sucesso dele, e a
+# instalação avisava "O AMI não autenticou" logo depois de "Authentication
+# accepted".
+- name: Resultado final do teste de AMI
+  ansible.builtin.set_fact:
+    ami_rc: >-
+      {{ (ami_teste_de_novo.rc | default(1)) if (ami_teste_de_novo is defined and ami_teste_de_novo is not skipped)
+         else (ami_teste.rc | default(1)) }}
+    ami_saida: >-
+      {{ (ami_teste_de_novo.stdout | default('')) if (ami_teste_de_novo is defined and ami_teste_de_novo is not skipped)
+         else (ami_teste.stdout | default('')) }}
+
 - name: Diagnosticar falha de autenticação no AMI
-  when: ami_teste.rc | default(1) != 0
+  when: ami_rc | int != 0
   block:
     - name: Coletar estado do manager
       ansible.builtin.shell: |
         echo "### resposta do AMI"
-        echo "{{ ami_teste.stdout | default('(sem saída)') }}"
+        echo "{{ ami_saida | default('(sem saída)', true) }}"
         echo
         echo "### usuários do manager segundo o Asterisk"
         asterisk -rx "manager show users" 2>&1
@@ -1087,7 +1100,7 @@
 - name: Autenticação no AMI
   ansible.builtin.debug:
     msg: "AMI respondendo e autenticando como {{ ami_usuario }}"
-  when: ami_teste.rc | default(1) == 0
+  when: ami_rc | int == 0
 
 # O reinício só acontece quando a central fica sem chamada nenhuma. Numa
 # central movimentada isso pode demorar, e quem rodou o playbook precisa

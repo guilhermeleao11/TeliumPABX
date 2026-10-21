@@ -154,6 +154,9 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.3.1 — falso alarme do AMI na instalação
+- A atualização avisava "O AMI não autenticou" mesmo com o AMI funcionando. Era só o aviso; nada deixava de funcionar.
+
 ### 1.3.0 — migração do SNEP
 - Nova tela **Telium › Migração do SNEP**: traz troncos, ramais, filas e as regras de entrada e de saída de uma central SNEP 3, a partir do dump do banco, com prévia antes de importar. Só o Administrador tem a tela de fábrica.
 

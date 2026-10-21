@@ -2,8 +2,15 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.3.0 — 2026-10-21
+## 1.3.1 — 2026-10-21
 Commits:
+A instalação parou de avisar que o AMI não autenticou quando ele autenticou.
+
+### Correções
+- **Instalação**: logo depois de "Authentication accepted", o playbook mostrava o diagnóstico do manager e "O AMI não autenticou". A segunda tentativa de login, pulada porque a primeira tinha passado, gravava o resultado por cima do primeiro. Agora ela grava num nome próprio, e só a falha de verdade aciona o diagnóstico e o aviso.
+
+## 1.3.0 — 2026-10-21
+Commits: b6d1d24
 Migração do SNEP 3: troncos, ramais, filas e as regras de entrada e de saída, a partir do dump do banco do SNEP.
 
 ### Novidades
