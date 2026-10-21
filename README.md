@@ -1,4 +1,4 @@
-# Telium PABX 1.2.7
+# Telium PABX 1.2.8
 
 Central telefônica completa: Asterisk 22 com PJSIP, console web em HTML, CSS e
 JavaScript puro (sem build), API em PHP 8.4 e provisionamento por Ansible em
@@ -39,7 +39,7 @@ python3 -m http.server 8080   # e acesse http://localhost:8080
 
 | Usuário | Senha |
 |---|---|
-| `admin` | a senha inicial, mostrada no fim da instalação e em `/etc/telium/instalacao.txt` (só root) |
+| `admin` | a senha padrão da Telium, digitada na instalação (guardada em `/etc/telium/credenciais/senha_admin_console`, só root) |
 
 É a única conta que nasce com a instalação, com essa senha **inicial**: troque-a
 no primeiro acesso. O playbook só a define na primeira instalação — as
@@ -136,7 +136,7 @@ A pilha de produção está em `infra/` e `api/`:
 | Componente | Versão |
 |---|---|
 | Debian | 13 (trixie) |
-| Telium PABX | 1.2.7 |
+| Telium PABX | 1.2.8 |
 | Asterisk | 22.11.0 — PJSIP, compilado do fonte |
 | coturn | TURN/STUN próprio, credencial com prazo |
 | Janus | 1.4.1 — opcional e **desligado**, fora do caminho da chamada |

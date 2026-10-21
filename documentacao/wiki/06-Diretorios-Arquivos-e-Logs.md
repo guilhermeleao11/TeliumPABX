@@ -91,7 +91,8 @@ São duas coisas diferentes:
 | `/etc/telium/credenciais/` | Senhas de serviço geradas na instalação, uma por arquivo: `db_senha`, `db_cdr_senha`, `ami_senha`, `ari_senha`, `turn_segredo` | root, pasta `0700` |
 | `/etc/telium/certificados/` | Cofre dos certificados enviados pelo console | `teliumpbx`, `0700` |
 | `/etc/telium/msmtprc` | Configuração de e-mail usada pela API (gerada pelo `telium-smtp`) | `teliumpbx`, `0600` |
-| `/etc/telium/instalacao.txt` | Resumo da instalação, **com a senha inicial do console** | root, `0600` |
+| `/etc/telium/instalacao.txt` | Resumo da instalação | root, `0600` |
+| `/etc/telium/credenciais/senha_admin_console` | A senha inicial do admin do console e do Asternic, digitada na instalação (não fica no Git) | root, `0600` |
 | `/etc/telium/.senha-admin-inicial` | Marca de que a senha inicial já foi definida (o playbook não volta a mexer nela) | |
 
 - As senhas de serviço nunca aparecem na tela nem vão para o Git.

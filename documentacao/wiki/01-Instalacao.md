@@ -131,7 +131,7 @@ Todas vêm de `infra/ansible/group_vars/all/main.yml`, com o valor de fábrica a
 | `pabx_timezone` | `America/Sao_Paulo` | Fuso horário do servidor |
 | `pabx_locale` | `pt_BR.UTF-8` | Locale do sistema |
 | `pabx_idioma` | `pt_BR` | Idioma em que a central fala. Só mude junto com um pacote de áudios (`sons_url` ou `sons_dir`) |
-| `senha_padrao_console` | (senha de fábrica) | Senha inicial do `admin`. Só é usada na **primeira** instalação |
+| `senha_padrao_console` | (perguntada) | Senha inicial do `admin` do console e do Asternic. **Não fica no Git**: sem ela, a instalação pergunta e a guarda em `/etc/telium/credenciais/senha_admin_console` (só root). Só é usada na **primeira** instalação |
 
 **Áudios do sistema**
 
@@ -221,10 +221,11 @@ sudo ansible-playbook site.yml
 O que acontece, na ordem:
 
 1. **Pergunta do nome**, se ainda valer o de fábrica. A resposta é conferida e gravada no `servidor.yml`; as execuções seguintes não perguntam mais.
-2. **Resumo** do que será instalado (nome, sistema, versões).
-3. As partes (roles), na ordem da seção 7. A **compilação do Asterisk leva de 5 a 15 minutos**: é a parte demorada.
-4. A **bateria de testes** (`telium testar`). Uma falha ali **interrompe o playbook**. É o que se quer: não entregue uma central que não passou.
-5. Resumo final com o endereço do console, salvo também em `/etc/telium/instalacao.txt` (só root).
+2. **Pergunta da senha inicial do admin** (digitada duas vezes, sem aparecer na tela). Use a senha padrão da Telium. Ela não fica no Git: vai para `/etc/telium/credenciais/senha_admin_console` (só root). As atualizações não perguntam de novo. Sem terminal, passe `-e senha_padrao_console=...` ou grave o arquivo antes.
+3. **Resumo** do que será instalado (nome, sistema, versões).
+4. As partes (roles), na ordem da seção 7. A **compilação do Asterisk leva de 5 a 15 minutos**: é a parte demorada.
+5. A **bateria de testes** (`telium testar`). Uma falha ali **interrompe o playbook**. É o que se quer: não entregue uma central que não passou.
+6. Resumo final com o endereço do console, salvo também em `/etc/telium/instalacao.txt` (só root).
 
 O resultado tem de terminar com `failed=0`.
 
@@ -319,12 +320,12 @@ Detalhes de cada serviço: [Comandos e serviços](05-Servidor-Comandos-e-Servico
 |---|---|
 | Endereço | `https://<nome-do-servidor>/` |
 | Usuário | `admin` |
-| Senha | a inicial de fábrica, mostrada no fim do playbook e em `/etc/telium/instalacao.txt` |
+| Senha | a senha padrão da Telium, informada na instalação (guardada em `/etc/telium/credenciais/senha_admin_console`, só root) |
 
 - Na primeira visita o navegador avisa que o certificado não é confiável. É esperado: é o certificado de fábrica (seção 9).
-- **Troque a senha no primeiro acesso**, em **PCU — Meu Painel › Meu Perfil e Segurança**. A senha inicial é a mesma em toda central e está no repositório.
+- **Troque a senha no primeiro acesso**, em **PCU — Meu Painel › Meu Perfil e Segurança**. A senha inicial é a mesma em toda central (a padrão da Telium).
 - O playbook define a senha do `admin` **uma vez só** por servidor; as atualizações não voltam a mexer nela.
-- Para uma senha inicial diferente, ponha `senha_padrao_console` no `servidor.yml` antes de instalar.
+- Para uma senha inicial diferente, digite-a na pergunta da instalação (ou passe `-e senha_padrao_console=...`).
 - Perdeu a senha? No servidor:
 
 ```bash

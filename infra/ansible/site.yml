@@ -93,6 +93,108 @@
       run_once: true
       become: false
 
+    # ---------- a senha inicial do admin ----------
+    # Fora do Git (veja senha_admin_arquivo em main.yml). Só é pedida
+    # quando ainda vai ser usada: na primeira instalação, ou quando o
+    # Asternic entra numa central que já existia.
+    - name: Ver o que já foi feito com a senha do admin
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ telium_etc }}/.senha-admin-inicial"
+        - "{{ telium_etc }}/.asternic-admin-console"
+        - "{{ senha_admin_arquivo }}"
+      register: senha_marcas
+
+    - name: A senha do admin ainda vai ser usada?
+      ansible.builtin.set_fact:
+        senha_console_precisa: >-
+          {{ (not senha_marcas.results[0].stat.exists)
+             or ((instalar_asternic | default(false) | bool) and not senha_marcas.results[1].stat.exists) }}
+        senha_console_veio_de_fora: "{{ senha_padrao_console is defined and (senha_padrao_console | string | length > 0) }}"
+
+    - name: Ler a senha do admin guardada neste servidor
+      ansible.builtin.slurp:
+        src: "{{ senha_admin_arquivo }}"
+      register: senha_guardada
+      when: not (senha_console_veio_de_fora | bool) and senha_marcas.results[2].stat.exists
+      no_log: true
+
+    - name: Usar a senha guardada neste servidor
+      ansible.builtin.set_fact:
+        senha_padrao_console: "{{ senha_guardada.content | b64decode | trim }}"
+      when: senha_guardada.content is defined
+      no_log: true
+
+    - name: Perguntar a senha inicial do admin
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           Senha inicial do admin do console (e do Asternic)
+
+           Use a senha padrão da Telium. Ela não fica no Git: vai para
+           {{ senha_admin_arquivo }} neste servidor (só root).
+          ════════════════════════════════════════════════════════════════
+          Senha
+        echo: false
+      register: resposta_senha
+      when: senha_console_precisa | bool and (senha_padrao_console | default('') | string | length == 0)
+      no_log: true
+
+    - name: Confirmar a senha inicial do admin
+      ansible.builtin.pause:
+        prompt: "Repita a senha"
+        echo: false
+      register: resposta_senha2
+      when: resposta_senha.user_input is defined
+      no_log: true
+
+    - name: Usar a senha informada
+      ansible.builtin.set_fact:
+        senha_padrao_console: "{{ resposta_senha.user_input | default('') }}"
+        senha_console_confere: "{{ resposta_senha.user_input | default('') == resposta_senha2.user_input | default('') }}"
+      when: resposta_senha.user_input is defined
+      no_log: true
+
+    - name: Conferir a senha inicial do admin
+      ansible.builtin.assert:
+        that:
+          - senha_console_confere | default(true) | bool
+          - senha_padrao_console | default('') | string | length >= 8
+        fail_msg: >-
+          {% if not (senha_console_confere | default(true) | bool) %}As duas senhas digitadas são diferentes.
+          Rode de novo.{% else %}Falta a senha inicial do admin. Rodando sem terminal, passe-a com
+          -e senha_padrao_console=... ou grave-a antes em {{ senha_admin_arquivo }}
+          (sudo install -m 600 /dev/stdin {{ senha_admin_arquivo }}).{% endif %}
+        quiet: true
+      when: senha_console_precisa | bool
+
+    - name: Pasta das credenciais
+      ansible.builtin.file:
+        path: "{{ credenciais_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Guardar a senha inicial do admin neste servidor
+      ansible.builtin.copy:
+        dest: "{{ senha_admin_arquivo }}"
+        content: "{{ senha_padrao_console }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+        force: false
+      when: senha_padrao_console | default('') | string | length > 0
+      no_log: true
+
+    # Nas atualizações sem pergunta, os papéis ainda citam a variável.
+    - name: Senha do admin já definida antes
+      ansible.builtin.set_fact:
+        senha_padrao_console: ""
+      when: senha_padrao_console is not defined
+
     - name: Resumo do que será instalado
       ansible.builtin.debug:
         msg:
@@ -168,7 +270,7 @@
 
           Console ...... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/
           Usuário ...... admin
-          Senha inicial  {{ senha_padrao_console }}
+          Senha inicial  {{ 'a padrão da Telium (guardada em ' ~ senha_admin_arquivo ~ ')' }}
 
           A senha inicial vale só até a primeira troca: TROQUE no primeiro
           acesso (canto superior direito › Minha conta). O playbook não volta
@@ -186,7 +288,8 @@
           - "API ........... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/api/health"
           - "Janus ......... https://{{ ansible_facts.default_ipv4.address | default('127.0.0.1') }}/janus/info"
           - ""
-          - "Login ......... admin / {{ senha_padrao_console }}  (senha INICIAL)"
+          - "Login ......... admin, com a senha padrão da Telium (senha INICIAL)"
+          - "  Guardada neste servidor em {{ senha_admin_arquivo }} (só root)"
           - "  TROQUE no primeiro acesso: o playbook não volta a mexer nela."
           - "  Perdeu? sudo -u {{ telium_user }} php {{ telium_api }}/bin/telium senha admin"
           - "Senhas de serviço em {{ credenciais_dir }} (0600, só root)"

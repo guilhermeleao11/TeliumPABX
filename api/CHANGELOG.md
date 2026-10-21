@@ -2,8 +2,18 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.2.7 — 2026-10-21
+## 1.2.8 — 2026-10-21
 Commits:
+A senha padrão do admin sai do repositório.
+
+### Segurança
+- **Senha do admin fora do Git**: a senha inicial do admin do console (e do Asternic) não fica mais no `group_vars/all/main.yml`. A instalação a pergunta (duas vezes, sem eco) e a guarda em `/etc/telium/credenciais/senha_admin_console` (só root); ou ela vem de `-e senha_padrao_console=...`, do `servidor.yml` ou do `vault.yml`. Só é pedida quando ainda vai ser usada: as atualizações de centrais já instaladas não perguntam nada.
+- **Seed sem o hash da senha**: a conta `admin` nasce com um hash que não confere com senha nenhuma, até o playbook definir a senha. O hash da senha de fábrica saiu do `03-seed.sql`. Centrais já instaladas não mudam.
+### Mudanças
+- **Bancada de desenvolvimento**: o admin da bancada entra com `Bancada@2026`.
+
+## 1.2.7 — 2026-10-21
+Commits: c7b1693
 O Asternic e o ionCube são instalados a partir dos arquivos do projeto.
 
 ### Mudanças

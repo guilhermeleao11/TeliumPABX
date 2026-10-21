@@ -349,10 +349,15 @@ tar xJf "$RAIZ"/infra/ansible/roles/asterisk/files/sons/pt_BR.tar.xz -C "$TRAB/a
 docker exec v-ast sh -c 'rm -rf /var/lib/asterisk/sounds/pt_BR &&
   cp -r /etc/asterisk/sounds/pt_BR /var/lib/asterisk/sounds/pt_BR'
 
+# O seed cria o admin sem senha que funcione (a de produção não fica no
+# Git). A bancada usa a sua.
+passo "definindo a senha do admin da bancada"
+printf 'Bancada@2026\n' | docker exec -i v-web sh -c 'cd /w/api && php bin/telium senha admin' >/dev/null
+
 echo
 passo "pronto"
 echo "   console : http://127.0.0.1:${PORTA}/"
-echo "   entrada : admin / senha_padrao_console (infra/ansible/group_vars/all/main.yml)"
+echo "   entrada : admin / Bancada@2026"
 echo "   asterisk: docker exec -it v-ast asterisk -rvvv"
 echo "   testes  : docker exec v-web sh -c 'cd /w/api && php bin/telium testar'"
 echo "${amarelo}   a bancada usa senhas de bancada; nada aqui vai para produção.${zero}"

@@ -154,6 +154,9 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.2.8 — senha do admin fora do repositório
+- A instalação nova pergunta a senha inicial do admin (use a padrão da Telium). Centrais já instaladas: nada muda, a atualização não pergunta.
+
 ### 1.2.7 — Asternic sem download externo
 - A instalação do Asternic usa os arquivos do projeto, sem baixar dos sites dos fornecedores.
 

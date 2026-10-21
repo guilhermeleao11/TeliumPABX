@@ -31,3 +31,6 @@ infra/ansible/group_vars/all/servidor.yml
 AudiosPt-br/
 api/COMMIT
 api/.env.*
+
+# ---- dumps de centrais antigas (dados de cliente): nunca versionar ----
+DumpSnep/

@@ -417,7 +417,7 @@ O `/api/health` sem sessão devolve só versão e "saudável": a versão do PHP,
 
 ## 21. Boas práticas de implantação
 
-1. **Troque a senha do `admin` na entrega.** A senha inicial é a mesma em toda instalação e está no repositório. O playbook define a senha só na primeira execução; depois, a troca feita pelo console fica. Use **Meu Perfil e Segurança** ou `sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin`.
+1. **Troque a senha do `admin` na entrega.** A senha inicial é a mesma em toda instalação (a padrão da Telium, digitada na instalação e fora do Git). O playbook define a senha só na primeira execução; depois, a troca feita pelo console fica. Use **Meu Perfil e Segurança** ou `sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin`.
 2. **Crie contas nominais** para cada pessoa, com o perfil mínimo necessário, em vez de compartilhar o `admin`.
 3. **Ligue a verificação em dois passos** nas contas de administrador e supervisor.
 4. **Senhas SIP fortes**: mantenha as geradas pela central; não troque por número de ramal.

@@ -20,10 +20,14 @@ janus_versao: "v1.4.1"
 mariadb_versao: "12.3.3"
 nginx_canal: "mainline"          # mainline = 1.31.x
 
-# ---------- senha padrão de implantação ----------
-# Todas as contas do console nascem com esta senha (definida no seed SQL).
-# Troque depois com: php bin/telium senha admin
-senha_padrao_console: "T3l1um_@2024_@aD1m"
+# ---------- senha inicial do admin do console ----------
+# NÃO fica no Git. A instalação usa, nesta ordem: senha_padrao_console
+# passada por -e, posta no servidor.yml ou no vault.yml; a guardada no
+# próprio servidor em senha_admin_arquivo; e, sem nenhuma, pergunta no
+# terminal e guarda no arquivo (0600, só root). Ela define a senha do
+# admin do console e a do admin do Asternic, uma vez por servidor — nas
+# atualizações, quando as duas já foram definidas, ninguém pergunta.
+senha_admin_arquivo: "{{ credenciais_dir }}/senha_admin_console"
 
 # ---------- identidade da central ----------
 pabx_hostname: "pabx.telium.local"

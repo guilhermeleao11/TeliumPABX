@@ -16,7 +16,7 @@ Depois disso:
 | | |
 | --- | --- |
 | Console | <http://127.0.0.1:18110/> |
-| Entrada | `admin`, com a senha `senha_padrao_console` de `infra/ansible/group_vars/all/main.yml` |
+| Entrada | `admin`, com a senha `Bancada@2026` (só da bancada) |
 | Asterisk | `docker exec -it v-ast asterisk -rvvv` |
 | Testes | `docker exec v-web sh -c 'cd /w/api && php bin/telium testar'` |
 | Banco | `docker exec -it v-db mariadb -uroot -pr telium` |

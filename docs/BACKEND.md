@@ -443,7 +443,7 @@ nunca saem nas listagens.
 
 | O quê | Como nasce | Onde fica |
 |---|---|---|
-| Login do console | senha inicial definida na primeira instalação (`senha_padrao_console`), mostrada no fim da instalação e em `/etc/telium/instalacao.txt` (só root) | hash PBKDF2 na tabela `usuarios` |
+| Login do console | senha inicial definida na primeira instalação (`senha_padrao_console`, fora do Git: perguntada na instalação e guardada em `/etc/telium/credenciais/senha_admin_console`, só root) | hash PBKDF2 na tabela `usuarios` |
 | Senha do banco, ODBC do CDR, AMI, ARI | 28 caracteres aleatórios, **por instalação** | `/etc/telium/credenciais/`, 0600, só root |
 | Senha SIP de cada ramal | aleatória, por instalação | tabela `ramais` |
 

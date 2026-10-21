@@ -679,7 +679,7 @@ Relatórios de filas do **Asternic Call Center Stats PRO**, um produto comercial
 4. Abra **Call Center › Stats**. Na primeira vez, a tela do Asternic pede o **código de ativação** e o nome do licenciado. É o único passo manual: o código é o da compra.
 5. Entre com o usuário **`admin`** e **a mesma senha do admin do console**.
 
-A senha do admin do Asternic é gravada uma vez por central, com a senha padrão do admin do console. Se a senha do console for trocada depois, a do Asternic não acompanha; troque também dentro do Asternic, que o playbook não a desfaz.
+A senha do admin do Asternic é gravada uma vez por central, com a senha padrão do admin do console (a de `/etc/telium/credenciais/senha_admin_console`). Se a senha do console for trocada depois, a do Asternic não acompanha; troque também dentro do Asternic, que o playbook não a desfaz.
 
 ### Quem acessa
 

@@ -5,8 +5,9 @@
 -- perfis de acesso com suas permissões e a conta de administrador.
 -- NENHUM ramal, tronco, fila ou rota fictícia.
 --
--- Senha do admin: a inicial, definida pelo playbook (senha_padrao_console).
--- Reaplicar este script restaura essa senha e desbloqueia a conta.
+-- Senha do admin: a inicial, definida pelo playbook (senha_padrao_console,
+-- que não fica no Git). Reaplicar este script não mexe nela; só desbloqueia
+-- a conta.
 --
 -- A base nasce vazia de dados operacionais: ramais, troncos, filas,
 -- rotas e URAs são cadastrados pelo console, e o CDR é preenchido pelo
@@ -80,10 +81,10 @@ INSERT IGNORE INTO perfil_acoes (perfil_id, acao)
 SELECT p.id, 'exportar' FROM perfis p WHERE p.chave = 'auditor';
 
 -- ---------- conta de administrador ----------
--- A conta nasce com a senha de fábrica, e ela NÃO é reimposta depois: a
--- senha de fábrica está no repositório, e reimpô-la a cada atualização
--- deixava qualquer central em produção aberta a quem a conhecesse — e
--- desfazia em silêncio a troca que o cliente tinha feito. A senha inicial
+-- A conta nasce SEM senha que funcione (o hash abaixo é de mentira, o
+-- mesmo Senha::HASH_FALSO da API): nem a senha nem o hash dela ficam no
+-- repositório. A senha nunca é reimposta depois — reimpô-la desfaria em
+-- silêncio a troca que o cliente tinha feito. A senha inicial
 -- de cada servidor é definida uma única vez pelo playbook (papel api), e
 -- quem perder a senha recupera pelo terminal: php bin/telium senha admin.
 -- Cada execução ainda destrava a conta e a mantém administradora, para
@@ -92,7 +93,7 @@ SELECT p.id, 'exportar' FROM perfis p WHERE p.chave = 'auditor';
 -- INSERT direto (sem SELECT) para não haver ambiguidade de coluna com
 -- a tabela perfis no ON DUPLICATE KEY UPDATE.
 INSERT INTO usuarios (usuario, nome, email, senha_hash, perfil_id, setor, status)
-VALUES ('admin', 'Administrador', NULL, 'pbkdf2_sha256$390000$YOaItVoHDd2/hpoLNDFOcQ==$ad2bQSeyuzfdiIVwHPDZuvTYZ/FJMr8E4Yqu/vW0LJ4=',
+VALUES ('admin', 'Administrador', NULL, 'pbkdf2_sha256$390000$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
         (SELECT id FROM perfis WHERE chave = 'admin'), 'TI', 'ativo')
 ON DUPLICATE KEY UPDATE
   nome             = VALUES(nome),
