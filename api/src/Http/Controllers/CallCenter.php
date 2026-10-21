@@ -463,15 +463,13 @@ final class CallCenter
             return Resposta::erro($res, 'Confira os campos destacados.', 422, ['campos' => $erros]);
         }
 
-        $pdo = Bd::conexao();
-        $pdo->beginTransaction();
-        try {
+        $id = Bd::transacao(static function () use ($id, $nome, $usuarioId, $matricula, $ramal, $ativo, $pin, $c, $filas): int {
             if ($id === null) {
                 Bd::executar(
                     'INSERT INTO cc_agentes (nome, usuario_id, matricula, ramal_padrao, ativo) VALUES (?, ?, ?, ?, ?)',
                     [$nome, $usuarioId, $matricula, $ramal ?: null, $ativo]
                 );
-                $id = (int) $pdo->lastInsertId();
+                $id = (int) Bd::conexao()->lastInsertId();
             } else {
                 Bd::executar(
                     'UPDATE cc_agentes SET nome = ?, usuario_id = ?, matricula = ?, ramal_padrao = ?, ativo = ? WHERE id = ?',
@@ -494,11 +492,9 @@ final class CallCenter
                                  [$id, $filaId, $penalidade]);
                 }
             }
-            $pdo->commit();
-        } catch (\Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
-        }
+
+            return $id;
+        });
 
         // Quem está logado sente a mudança agora, não no próximo login:
         // fila nova entra, fila tirada sai, nível novo vale já.

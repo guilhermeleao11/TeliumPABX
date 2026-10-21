@@ -154,6 +154,9 @@ O GitLab pede usuário e token (ou use uma chave de implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.4.0 — migração do SNEP completa
+- A tela de Migração do SNEP mostra um comando para gerar, no SNEP, um pacote com o banco (sem CDR), os áudios e as músicas de espera. Enviado o pacote, a migração traz também os agentes, os horários das regras e os áudios.
+
 ### 1.3.1 — falso alarme do AMI na instalação
 - A atualização avisava "O AMI não autenticou" mesmo com o AMI funcionando. Era só o aviso; nada deixava de funcionar.
 

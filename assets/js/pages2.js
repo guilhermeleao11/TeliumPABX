@@ -7617,23 +7617,27 @@ PAGES['telium.migracao'] = {
       <div class="card-head"><div class="card-title">${n}. ${titulo}</div></div>
       <div class="card-body">${corpo}</div></div>`;
     const tabelas = 'peers trunks queues queue_members regras_negocio regras_negocio_actions '
-                  + 'regras_negocio_actions_config expr_alias expr_alias_expression sounds';
+                  + 'regras_negocio_actions_config expr_alias expr_alias_expression sounds agtfila queues_agent';
 
     return pageHead('Migração do SNEP',
-        'Traz do SNEP 3 os troncos, ramais, filas e as regras de entrada e de saída.')
-      + passo(1, 'Copie os áudios antes', `
-        <p class="small" style="margin:0 0 8px">Os áudios não vêm no dump. Copie do servidor do SNEP os que as URAs,
-          anúncios e filas usam (<span class="mono">/var/lib/asterisk/sounds/pt_BR</span> e
-          <span class="mono">/var/lib/asterisk/moh</span>) e envie em <a href="#/admin.gravacoes">Áudios</a>
-          com o <b>mesmo nome do arquivo</b>. A migração liga cada um ao que o usa; o que faltar aparece na lista
-          do resultado, e dá para escolher depois.</p>`)
-      + passo(2, 'Envie o dump do banco do SNEP', `
-        <p class="small" style="margin:0 0 8px">O dump completo do banco <span class="mono">snep</span> serve
-          (<span class="mono">.sql</span>, <span class="mono">.sql.gz</span> ou <span class="mono">.sql.bz2</span>, até 64 MB).
-          Se ele for grande, gere só as tabelas da migração, no servidor do SNEP:</p>
-        <pre class="mono tiny" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:10px;border-radius:8px;margin:0 0 12px">mysqldump -u root -p --single-transaction snep ${tabelas} | gzip > snep-migracao.sql.gz</pre>
+        'Traz do SNEP 3 os troncos, ramais, filas, agentes, as regras de entrada e de saída e os áudios.')
+      + passo(1, 'Gere o pacote no servidor do SNEP', `
+        <p class="small" style="margin:0 0 8px">Cole no terminal do servidor do SNEP, como root. Ele junta num arquivo só
+          o banco <b>sem o CDR</b> (só as tabelas da migração), os áudios que as regras, URAs e filas usam, as músicas
+          de espera e os <span class="mono">.conf</span> do Asterisk (para mostrar aqui os contextos próprios).</p>
+        <pre class="mono tiny" id="snepComando" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:10px;border-radius:8px;margin:0 0 8px">${esc(this.comando(tabelas))}</pre>
         <div class="row gap-8 wrap" style="align-items:center">
-          <input type="file" class="input" id="snepArquivo" accept=".sql,.gz,.bz2" style="max-width:420px">
+          <button class="btn btn-ghost btn-sm" id="snepCopiar">${icon('copy','ico ico-sm')} Copiar o comando</button>
+          <span class="small muted">Gera <span class="mono">/root/snep-telium.tar.gz</span>. Traga-o para o seu computador
+            (WinSCP, scp) e <b>apague-o do SNEP</b> depois: ele tem as senhas dos ramais e troncos.</span>
+        </div>`)
+      + passo(2, 'Envie o pacote', `
+        <p class="small" style="margin:0 0 8px">O pacote <span class="mono">snep-telium.tar.gz</span> (até 64 MB). Também
+          serve só o dump do banco (<span class="mono">.sql</span>, <span class="mono">.sql.gz</span> ou
+          <span class="mono">.sql.bz2</span>): aí os áudios ficam de fora, e você os envia em
+          <a href="#/admin.gravacoes">Áudios</a> com o mesmo nome do arquivo do SNEP, antes de migrar.</p>
+        <div class="row gap-8 wrap" style="align-items:center">
+          <input type="file" class="input" id="snepArquivo" accept=".tgz,.gz,.sql,.bz2" style="max-width:420px">
           <span class="small muted" id="snepEnviado"></span>
         </div>`)
       + passo(3, 'Confira a prévia e importe', `
@@ -7643,10 +7647,28 @@ PAGES['telium.migracao'] = {
           <button class="btn btn-ghost" id="snepPrevia" disabled>${icon('search','ico ico-sm')} Ver prévia</button>
           <button class="btn btn-primary" id="snepImportar" disabled>${icon('upload','ico ico-sm')} Importar</button>
         </div>
-        <p class="small muted" style="margin:0 0 12px">No SNEP a fila não tem número; aqui cada uma ganha o próximo
-          livre a partir deste. O que já existe no Telium (mesmo número de ramal, mesmo nome de tronco, fila ou rota)
-          é aproveitado e não muda: dá para rodar de novo.</p>
+        <p class="small muted" style="margin:0 0 12px">No SNEP a fila não tem número: ela fica com o número interno que
+          uma regra do SNEP levava a ela (5600 para o Suporte, por exemplo) ou, sem isso, com o próximo livre a partir
+          deste. O que já existe no Telium (mesmo número de ramal, mesmo nome de tronco, fila ou rota) é aproveitado e
+          não muda: dá para rodar de novo.</p>
         <div id="snepResultado"></div>`);
+  },
+
+  /** O comando que gera o pacote no servidor do SNEP. */
+  comando(tabelas) {
+    return [
+      "read -rsp 'Senha do root do MySQL (Enter se não tiver): ' MYSQL_PWD; echo; export MYSQL_PWD",
+      'P=$(mktemp -d) && cd "$P" && mkdir -p sons moh conf && \\',
+      `mysqldump -u root --single-transaction snep ${tabelas} > snep.sql && \\`,
+      "mysql -N -u root snep -e \"SELECT value FROM regras_negocio_actions_config WHERE \\`key\\` = 'file'"
+        + " UNION SELECT announce FROM queues UNION SELECT periodic_announce FROM queues"
+        + " UNION SELECT arquivo FROM sounds WHERE descricao LIKE '%fakepath%' OR secao NOT IN ('', 'default')\""
+        + " | sort -u | while read -r n; do [ -n \"$n\" ] && find /var/lib/asterisk/sounds -maxdepth 3 -type f"
+        + " -name \"${n%.*}.*\" -exec cp {} sons/ \\; ; done; \\",
+      'cp -r /var/lib/asterisk/moh/. moh/ 2>/dev/null; cp /etc/asterisk/*.conf conf/ 2>/dev/null; \\',
+      'cp /etc/asterisk/snep/*.conf conf/ 2>/dev/null; tar czf /root/snep-telium.tar.gz . && \\',
+      'cd / && rm -rf "$P"; unset MYSQL_PWD; ls -lh /root/snep-telium.tar.gz'
+    ].join('\n');
   },
 
   mount() {
@@ -7670,13 +7692,21 @@ PAGES['telium.migracao'] = {
         this._dump = r.id;
         const c = r.contagem;
         enviado.textContent = `${num(c.ramais)} ramais, ${num(c.troncos)} tronco(s), ${num(c.filas)} fila(s), `
-                            + `${num(c.regras)} regra(s).`;
+                            + `${num(c.agentes || 0)} agente(s), ${num(c.regras)} regra(s)`
+                            + (c.audios === null ? ' — sem áudios (só o banco).'
+                               : `, ${num(c.audios)} áudio(s) e ${num(c.musicas)} pasta(s) de música de espera.`);
         previa.disabled = false;
         this.enviar(true);
       } catch (e) {
         enviado.textContent = '';
         alvo.innerHTML = `<p class="small" style="color:var(--danger)">${esc(e.message)}</p>`;
       }
+    };
+    document.getElementById('snepCopiar').onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(document.getElementById('snepComando').textContent);
+        toast('Comando copiado.', 'ok');
+      } catch { toast('Não foi possível copiar: selecione o texto e copie.', 'err'); }
     };
     previa.onclick = () => this.enviar(true);
     importar.onclick = async () => {
@@ -7726,6 +7756,7 @@ PAGES['telium.migracao'] = {
       ? { criar: 'a criar', aviso: 'a criar, com aviso', erro: 'erro', existe: 'já existe', ignorado: 'não migra' }
       : { criar: 'criado', aviso: 'criado, com aviso', erro: 'erro', existe: 'já existia', ignorado: 'não migrado' };
     const faltam = r.audios.filter(a => !a.achado);
+    const doPacote = r.audios.filter(a => a.origem === 'pacote');
     const grupos = [...new Set(r.linhas.map(l => l.grupo))];
 
     return `
@@ -7738,14 +7769,20 @@ PAGES['telium.migracao'] = {
         <div class="small"><b>Senhas SIP novas</b> para os ramais que tinham senha curta no SNEP. Guarde agora e
           reconfigure esses telefones. <div style="margin-top:6px"><button class="btn btn-ghost btn-sm" data-snep-senhas>
           ${icon('download','ico ico-sm')} Baixar ramais e senhas</button></div></div></div>` : ''}
+      ${doPacote.length ? `<p class="small" style="margin:0 0 10px">${icon('mic','ico ico-sm')}
+        ${num(doPacote.length)} áudio(s) do pacote ${r.simulado ? 'serão convertidos e cadastrados' : 'foram convertidos e cadastrados'}
+        em Áudios: <span class="mono">${doPacote.map(a => esc(a.telium)).join(', ')}</span>.</p>` : ''}
       ${faltam.length ? `<div class="aviso-form atencao" style="margin:0 0 10px">${icon('alert','ico')}
-        <div class="small"><b>Áudios que ainda não estão em Áudios</b> — envie com o nome da coluna Telium e escolha no item:
+        <div class="small"><b>Áudios que não vieram</b> — envie em Áudios com o nome da coluna Telium e escolha no item:
           <ul class="lista-ajuda" style="margin:6px 0 0">${faltam.map(a => `<li><span class="mono">${esc(a.snep)}</span>
             → <span class="mono">${esc(a.telium)}</span> (${esc(a.usado_em.join(', '))})</li>`).join('')}</ul></div></div>` : ''}
       ${r.contextos.length ? `<div class="aviso-form atencao" style="margin:0 0 10px">${icon('terminal','ico')}
-        <div class="small"><b>Contextos do dialplan do SNEP</b> usados pelas regras viraram destinos personalizados.
-          Copie cada um para o <span class="mono">extensions_custom.conf</span> desta central:
-          <span class="mono">${r.contextos.map(c => esc(c.split(',')[0])).join(', ')}</span>.</div></div>` : ''}
+        <div class="small" style="min-width:0;flex:1"><b>Contextos do dialplan do SNEP</b> usados pelas regras viraram
+          destinos personalizados. Revise e copie cada um para o <span class="mono">extensions_custom.conf</span> desta
+          central (o que ele chama precisa existir aqui também):
+          ${r.contextos.map(c => `<div style="margin-top:8px"><b class="mono">[${esc(c.nome)}]</b>
+            ${c.texto ? `<pre class="mono tiny" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:8px;border-radius:8px;margin:4px 0 0;max-height:240px;overflow:auto">${esc(c.texto)}</pre>`
+                      : ' — não veio no pacote; está nos arquivos do SNEP.'}</div>`).join('')}</div></div>` : ''}
       ${grupos.map(g => `<div class="card" style="margin:0 0 12px"><div class="card-head"><div class="card-title">${esc(g)}</div></div>
         <div class="table-wrap"><table class="table">
           <thead><tr><th>Item</th><th>Resultado</th><th>Detalhe</th></tr></thead>

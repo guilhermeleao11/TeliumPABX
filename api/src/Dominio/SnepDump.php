@@ -22,6 +22,8 @@ final class SnepDump
         'peers', 'trunks', 'queues', 'queue_members',
         'regras_negocio', 'regras_negocio_actions', 'regras_negocio_actions_config',
         'expr_alias', 'expr_alias_expression', 'sounds',
+        // Agentes (login na fila por código) e as filas de cada um.
+        'agtfila', 'queues_agent',
     ];
 
     /**

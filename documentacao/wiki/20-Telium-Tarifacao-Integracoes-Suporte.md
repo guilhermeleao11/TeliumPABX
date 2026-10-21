@@ -543,53 +543,60 @@ Até a 1.1.0, o número no console ficou parado em 1.0.1 por várias entregas; a
 
 **Telium › Migração do SNEP**
 
-Traz de uma central **SNEP 3** os troncos, ramais, filas e as regras de entrada e de saída, a partir do dump do banco do SNEP. Cada item passa pelo mesmo cadastro das telas do Telium (as mesmas validações e a mesma auditoria), e a importação só acontece depois de uma **prévia** que mostra item por item o que vai ser criado.
+Traz de uma central **SNEP 3** os troncos, ramais, filas, agentes, as regras de entrada e de saída e os áudios que elas usam. Cada item passa pelo mesmo cadastro das telas do Telium (as mesmas validações e a mesma auditoria), e a importação só acontece depois de uma **prévia** que mostra item por item o que vai ser criado.
 
-> [PRINT: tela Migração do SNEP com a prévia de um dump]
+> [PRINT: tela Migração do SNEP com a prévia de um pacote]
 
-**Permissão:** módulo **Migração do SNEP** (`telium.migracao`). Só o Administrador tem de fábrica. Quem migra precisa também poder criar ramais, troncos, filas, rotas, URAs e anúncios.
+**Permissão:** módulo **Migração do SNEP** (`telium.migracao`). Só o Administrador tem de fábrica. Quem migra precisa também poder criar em todos os módulos que a migração usa (ramais, troncos, filas, agentes, rotas, URA, anúncios, destinos personalizados, grupos de horário e condições); sem isso, a tela diz quais faltam.
 
 ### Passo a passo
 
-1. **Áudios primeiro.** O dump não traz áudio. Copie do servidor do SNEP os arquivos que as URAs, os anúncios e as filas usam (`/var/lib/asterisk/sounds/pt_BR` e `/var/lib/asterisk/moh`) e envie-os em **Gravações do Sistema** com o **mesmo nome do arquivo**. A migração liga cada áudio a quem o usa. O que ainda faltar aparece numa lista no resultado; dá para enviar e escolher depois.
-2. **Gere o dump no servidor do SNEP.** O dump completo do banco `snep` serve (`.sql`, `.sql.gz` ou `.sql.bz2`, até 64 MB). Se ele passar disso (o CDR pesa), gere só as tabelas da migração:
-```bash
-mysqldump -u root -p --single-transaction snep peers trunks queues queue_members regras_negocio regras_negocio_actions regras_negocio_actions_config expr_alias expr_alias_expression sounds | gzip > snep-migracao.sql.gz
-```
-3. **Envie o dump** na tela. Ela mostra quantos ramais, troncos, filas e regras achou e já roda a prévia.
+1. **Gere o pacote no SNEP.** A tela mostra um comando: copie e cole no terminal do servidor do SNEP, como root. Ele pede a senha do root do MySQL (Enter se não tiver) e gera `/root/snep-telium.tar.gz` com:
+   - o banco **sem o CDR**, só com as tabelas da migração;
+   - os áudios que as regras, URAs e filas usam e os enviados pela tela do SNEP (`/var/lib/asterisk/sounds`);
+   - as músicas de espera (`/var/lib/asterisk/moh`);
+   - os `.conf` do Asterisk do SNEP, para a tela mostrar o texto dos contextos próprios que as regras usam.
+2. **Traga o pacote** para o seu computador (WinSCP, `scp`) e **apague-o do SNEP**: ele tem as senhas dos ramais e dos troncos.
+3. **Envie o pacote** na tela (até 64 MB). Ela mostra quantos ramais, troncos, filas, agentes, regras e áudios achou e já roda a prévia.
 4. **Confira a prévia**, grupo por grupo. Cada item diz se vai ser criado, se já existe, se não migra (e por quê) ou se tem aviso.
 5. **Importar.** Depois, **aplique as configurações** para o Asterisk assumir.
-6. **Senhas novas:** se algum ramal tinha senha curta no SNEP, ele ganha uma nova. Baixe a lista pelo botão do resultado e reconfigure esses telefones. Os demais mantêm a senha do SNEP e registram sem mexer no aparelho.
+6. **Senhas novas:** ramal com senha curta no SNEP ganha uma nova. Baixe a lista pelo botão do resultado e reconfigure esses telefones. Os demais mantêm a senha do SNEP e registram sem mexer no aparelho.
+
+Também dá para enviar **só o dump do banco** (`.sql`, `.sql.gz` ou `.sql.bz2`), sem áudios. Aí envie antes, em **Gravações do Sistema**, os áudios com o mesmo nome do arquivo do SNEP; a migração liga os que achar, e lista os que faltam.
 
 ### O que vira o quê
 
 | No SNEP | No Telium |
 |---|---|
-| Tronco SIP | Tronco PJSIP, com o mesmo host, usuário e senha. Com usuário e senha, fica **com registro**; confira com a operadora |
+| Tronco SIP | Tronco PJSIP, com o mesmo host, usuário e senha. Com usuário e senha, fica **com registro**; confira com a operadora. Tronco sem host, ou que registrava no SNEP (`dynamic`, como um gateway GSM), não migra |
 | Ramal | Ramal com o mesmo número, nome (o do callerid), senha SIP, e-mail, grupos de captura, DTMF e codecs |
-| Fila | Fila com a estratégia, tempos, limite e os membros fixos. Como a fila do SNEP não tem número, ganha o próximo livre a partir do **Primeiro número para as filas** (8000 de fábrica) |
-| Regra de saída (DiscarTronco) | Rota de saída com os padrões da expressão ou do alias, o tronco e a classe tirada do nome (celular, DDD, DDI, especial, emergência ou local). O `0\|` do SNEP vira "prefixo a tirar", e o Reescrever com prefixo vira "prefixo a pôr" |
+| Fila | Fila com a estratégia, tempos, limite, música de espera e os membros fixos. Fica com o **número interno** que uma regra do SNEP levava a ela (os ramais discavam 5600 e caíam no Suporte); sem isso, com o próximo livre a partir do **Primeiro número para as filas** (8000 de fábrica) |
+| Agente (login por código) | Agente do **Call Center**, com a mesma matrícula e a senha como PIN (entra pelo `*11`). Se o SNEP o punha em filas fixas, essas filas viram filas de call center. Agente desativado no SNEP fica desativado |
+| Regra de saída (DiscarTronco) | Rota de saída com os padrões da expressão ou do alias, o tronco e a classe tirada do nome (celular, DDD, DDI, especial, emergência ou local; fixo + celular juntos ficam local). O `0\|` do SNEP vira "prefixo a tirar", e o Reescrever com prefixo vira "prefixo a pôr" |
 | Regra de entrada | Rota de entrada para o número chamado, com o destino das ações dela |
+| Duas regras para o mesmo número, em horários diferentes | **Condição horária**, com um grupo de horário com as faixas do SNEP: no horário vai para uma regra, fora dele para a outra. Regra com horário e sem a de fora: fora do horário, desliga |
+| Reescrever + DiscarTronco numa regra de entrada (desvio para um celular) | Destino **número externo**, que sai pelas rotas de saída do Telium |
 | Ação URA (IVR) | URA com a saudação, o tempo, as tentativas e uma entrada para cada tecla. As regras `<prefixo>-<tecla>` do SNEP viram as entradas dela |
 | Playback seguido de outra ação | Anúncio com o áudio, que segue para o destino da ação seguinte |
-| GoContext | Destino personalizado para o mesmo contexto |
-| DiscarRamal, Fila | Ramal, Fila |
+| GoContext | Destino personalizado para o mesmo contexto; a tela mostra o texto dele, achado nos `.conf` do pacote |
+| DiscarRamal, Fila, ExecuteApp(Hangup) | Ramal, Fila, Desligar |
+| Áudios e músicas de espera do pacote | Convertidos e cadastrados em Áudios, com o nome do Telium (sem acento, minúsculo). A música de espera com várias faixas vira um áudio só |
 
-### O que não migra (e aparece como aviso)
+### O que não migra (e aparece na prévia)
 
-- **Contextos do dialplan do SNEP** (ações GoContext): o destino personalizado é criado, mas o contexto em si estava nos arquivos do SNEP. Copie-o para o `extensions_custom.conf` desta central; sem isso, a chamada para nele.
-- **Horário da regra** (validade e dias da semana): a rota do Telium vale sempre. Se a regra do SNEP tinha horário, use uma condição horária.
-- **Origem da regra de saída** restrita a um grupo ou ramal: no Telium, quem pode discar é definido nas permissões de discagem do ramal.
-- **Padrões que tiravam curinga** (como `0XX|...`, o 0 mais o código da operadora): o prefixo a tirar do Telium é só de dígitos. Cadastre esses à mão.
-- **Reescrita com corte, troca ou sufixo**, anúncios da fila e música de espera que ainda não está em Áudios.
-- **Agentes do SNEP** (login por código): monte-os no Call Center.
-- **Ligação entre ramais** (a regra interna do SNEP) não precisa de regra no Telium.
+- **Contextos do dialplan do SNEP** (GoContext): o destino personalizado é criado e a tela mostra o texto do contexto, mas é preciso revisá-lo e copiá-lo para o `extensions_custom.conf` desta central (o que ele chama precisa existir aqui também). Sem isso, a chamada para nele.
+- **Códigos do call center do SNEP** (contextos `ACD...`: login, logout e as pausas por código): no Telium, o agente entra e pausa pelos códigos do Call Center, e cada motivo de pausa tem o seu código.
+- **Regras de saída só de um grupo ou ramal** (o NOC sai pelo tronco A, o suporte pelo B): no Telium a rota vale para todos os ramais. A prévia mostra os padrões e o tronco de cada uma, para decidir à mão.
+- **Atalhos internos** (os ramais discavam um número que levava a um desvio, um contexto ou um ramal): a rota de entrada do Telium é para chamadas que chegam pelos troncos. O atalho para uma fila vira o número da fila (acima).
+- **O que vinha depois do destino** (Fila A e, sem atendimento, Fila B): use o destino de quando não atende, do ramal ou da fila.
+- **Padrões que tiravam curinga** (como `0XX|...`, o 0 mais o código da operadora), **reescrita com corte, troca ou sufixo**, **ExecuteApp** que não é Hangup e **Bloqueios** (use a Lista negra).
+- **Agente sem fila fixa** (escolhia a fila no login, no SNEP): é criado sem fila; ponha-o nas filas no Call Center.
 
 ### Rodar de novo
 
-O que já existe no Telium (ramal com o mesmo número; tronco, fila, URA ou rota de saída com o mesmo nome; rota de entrada para o mesmo número) é aproveitado e **não é alterado**. Rodar a migração de novo só cria o que falta, por exemplo depois de corrigir um item com erro.
+O que já existe no Telium (ramal com o mesmo número; agente com a mesma matrícula; tronco, fila, URA, condição ou rota de saída com o mesmo nome; rota de entrada para o mesmo número; áudio com o mesmo nome) é aproveitado e **não é alterado**. Rodar a migração de novo só cria o que falta.
 
-O dump enviado fica no servidor só até a importação (ou por um dia), em `/opt/telium/api/var/migracao-snep`, legível só pelo usuário da API: ele tem as senhas SIP do SNEP.
+O que foi enviado fica no servidor só até a importação (ou por um dia), em `/opt/telium/api/var/migracao-snep`, legível só pelo usuário da API: tem as senhas SIP do SNEP.
 
 ---
 

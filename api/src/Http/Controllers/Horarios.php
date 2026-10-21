@@ -52,44 +52,41 @@ final class Horarios
             }
         }
 
-        $pdo = Bd::conexao();
-        $pdo->beginTransaction();
         try {
-            Bd::executar('DELETE FROM grupo_horario_faixas WHERE grupo_id = ?', [$grupo['id']]);
+            Bd::transacao(function () use ($grupo, $lista): void {
+                Bd::executar('DELETE FROM grupo_horario_faixas WHERE grupo_id = ?', [$grupo['id']]);
 
-            foreach ($lista as $i => $f) {
-                Bd::executar(
-                    'INSERT INTO grupo_horario_faixas
-                       (grupo_id, hora_inicio, hora_fim, dia_semana_inicio, dia_semana_fim,
-                        dia_mes_inicio, dia_mes_fim, mes_inicio, mes_fim, ordem, dias, dia_mes, mes)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [
-                        $grupo['id'],
-                        $this->hora($f['hora_inicio'] ?? null),
-                        $this->hora($f['hora_fim'] ?? null),
-                        $this->numero($f['dia_semana_inicio'] ?? null),
-                        $this->numero($f['dia_semana_fim'] ?? null),
-                        $this->numero($f['dia_mes_inicio'] ?? null),
-                        $this->numero($f['dia_mes_fim'] ?? null),
-                        $this->numero($f['mes_inicio'] ?? null),
-                        $this->numero($f['mes_fim'] ?? null),
-                        ($i + 1) * 10,
-                        // Os dias da semana como LISTA. O par
-                        // início/fim só sabe dizer faixa contínua, e
-                        // "segunda, quarta e sexta" ou "sábado e
-                        // domingo" não são contínuos — este último nem
-                        // como "sáb-dom", porque a semana começa no
-                        // domingo. O GotoIfTime aceita "sat,sun" sem
-                        // problema; o formulário é que não deixava.
-                        $this->diasDaSemana($f['dias'] ?? null),
-                        '*', '*',
-                    ]
-                );
-            }
-            $pdo->commit();
+                foreach ($lista as $i => $f) {
+                    Bd::executar(
+                        'INSERT INTO grupo_horario_faixas
+                           (grupo_id, hora_inicio, hora_fim, dia_semana_inicio, dia_semana_fim,
+                            dia_mes_inicio, dia_mes_fim, mes_inicio, mes_fim, ordem, dias, dia_mes, mes)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [
+                            $grupo['id'],
+                            $this->hora($f['hora_inicio'] ?? null),
+                            $this->hora($f['hora_fim'] ?? null),
+                            $this->numero($f['dia_semana_inicio'] ?? null),
+                            $this->numero($f['dia_semana_fim'] ?? null),
+                            $this->numero($f['dia_mes_inicio'] ?? null),
+                            $this->numero($f['dia_mes_fim'] ?? null),
+                            $this->numero($f['mes_inicio'] ?? null),
+                            $this->numero($f['mes_fim'] ?? null),
+                            ($i + 1) * 10,
+                            // Os dias da semana como LISTA. O par
+                            // início/fim só sabe dizer faixa contínua, e
+                            // "segunda, quarta e sexta" ou "sábado e
+                            // domingo" não são contínuos — este último nem
+                            // como "sáb-dom", porque a semana começa no
+                            // domingo. O GotoIfTime aceita "sat,sun" sem
+                            // problema; o formulário é que não deixava.
+                            $this->diasDaSemana($f['dias'] ?? null),
+                            '*', '*',
+                        ]
+                    );
+                }
+            });
         } catch (\Throwable $e) {
-            $pdo->rollBack();
-
             return Resposta::erro($res, 'Não foi possível gravar as faixas: ' . $e->getMessage(), 400);
         }
 

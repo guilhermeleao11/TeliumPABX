@@ -2906,16 +2906,52 @@ final class Testes
             @unlink($arquivo);
         }
 
+        // O pacote do comando da tela: "tar czf x .", com nomes "./...".
+        $origem = sys_get_temp_dir() . '/snep-pacote-' . bin2hex(random_bytes(4));
+        $destino = "{$origem}-saida";
+        @mkdir("{$origem}/sons", 0700, true);
+        @mkdir("{$origem}/moh/Espera", 0700, true);
+        @mkdir("{$origem}/conf", 0700, true);
+        @mkdir($destino, 0700, true);
+        file_put_contents("{$origem}/snep.sql", $sql);
+        file_put_contents("{$origem}/sons/URA_Inicial.wav", 'RIFF');
+        file_put_contents("{$origem}/moh/Espera/2.wav", 'RIFF');
+        file_put_contents("{$origem}/moh/Espera/1.wav", 'RIFF');
+        file_put_contents("{$origem}/conf/extensions.conf", "[ctx-a]\nexten => s,1,Answer()\n\n[ctx-b]\nexten => s,1,Hangup()\n");
+        file_put_contents("{$origem}/conf/musiconhold.conf", "[MinhaClasse]\ndirectory=/var/lib/asterisk/moh/Espera\n");
+        @symlink('/etc/passwd', "{$origem}/sons/fora.wav");
+        exec('tar czf ' . escapeshellarg("{$origem}.tar.gz") . ' -C ' . escapeshellarg($origem) . ' . 2>&1', $saida, $rc);
+        try {
+            $p = \Telium\Dominio\SnepPacote::extrair("{$origem}.tar.gz", $destino);
+            $this->ok($rc === 0 && $p['sql'] !== null && is_file((string) $p['sql']) && isset($p['sons']['URA_Inicial']),
+                      'pacote com nomes "./": o dump e os áudios saem nos lugares deles');
+            $this->ok(!isset($p['sons']['fora']) && !is_file("{$destino}/sons/fora.wav"), 'link simbólico do pacote é pulado');
+            $this->ok(array_map('basename', $p['moh']['Espera'] ?? []) === ['1.wav', '2.wav'], 'música de espera: as faixas da pasta, em ordem');
+            $this->ok(\Telium\Dominio\SnepPacote::classesDeMusica($p['conf']) === ['MinhaClasse' => 'Espera'],
+                      'a classe de música aponta para a pasta dela (musiconhold.conf)');
+            $this->ok(\Telium\Dominio\SnepPacote::contexto($p['conf'], 'ctx-a') === "[ctx-a]\nexten => s,1,Answer()\n",
+                      'o texto do contexto do SNEP sai inteiro, até o próximo');
+        } finally {
+            exec('rm -rf ' . escapeshellarg($origem) . ' ' . escapeshellarg($destino) . ' ' . escapeshellarg("{$origem}.tar.gz"));
+        }
+
         $m = static fn (string $f, ...$a) => (new \ReflectionMethod(\Telium\Dominio\MigracaoSnep::class, $f))->invoke(null, ...$a);
         $this->ok($m('nomeDoCallerid', 'SAC - FAQ<4444><4444>') === 'SAC - FAQ' && $m('nomeDoCallerid', 'MBilling(112643379)') === 'MBilling',
                   'nome do ramal e do tronco sem o número do callerid');
         $this->ok($m('classe', 'Celular LDN') === 'ddd' && $m('classe', 'Celular Local') === 'celular'
-                  && $m('classe', 'Servicos') === 'especial' && $m('classe', 'Fixo Local') === 'local',
+                  && $m('classe', 'Servicos') === 'especial' && $m('classe', 'Fixo Local') === 'local'
+                  && $m('classe', 'LOCAL - Fixo<>Movel Fixo Local Celular Local') === 'local',
                   'classe da rota de saída pelo nome da regra');
         $this->ok($m('teclas', '0,1,2,3') === ['0', '1', '2', '3'] && $m('teclas', '12#') === ['1', '2', '#'],
                   'teclas da URA do SNEP');
         $this->ok($m('codecs', 'alaw;ulaw;gsm;h264') === 'alaw,ulaw,gsm' && $m('codecs', 'h264') === null,
                   'codecs do SNEP: só os de áudio que o Telium conhece');
+        $this->ok($m('pinDoSnep', '1234') === ['1234', null] && $m('pinDoSnep', '12')[0] === '0012'
+                  && $m('pinDoSnep', '')[0] === null && $m('pinDoSnep', '123456789')[0] === null,
+                  'senha do agente do SNEP vira PIN de 4 a 8 dígitos');
+        $this->ok($m('origemExterna', 'T:1,T:3') && $m('origemExterna', 'X') && $m('origemExterna', 'G:all,T:1')
+                  && !$m('origemExterna', 'G:all') && !$m('origemExterna', 'R:3602'),
+                  'origem da regra: tronco ou qualquer um é de fora; grupo e ramal são internos');
         $this->ok($m('vazia', 'yes') === 'sim' && $m('vazia', 'strict') === 'estrito' && $m('vazia', '0') === 'nao',
                   'fila vazia do SNEP no formato do Telium');
     }

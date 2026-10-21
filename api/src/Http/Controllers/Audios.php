@@ -254,6 +254,49 @@ final class Audios
         );
     }
 
+    /**
+     * Cadastra um áudio que já está no disco (a migração do SNEP): a mesma
+     * conversão e o mesmo registro do envio pela tela. Com $gravar falso
+     * só registra — é a prévia, que desfaz o banco e não pode deixar
+     * arquivo para trás.
+     *
+     * @return array{id:int, arquivo:string}|null null quando não converteu
+     */
+    public static function importar(string $origem, string $nome, string $categoria, ?int $usuario, bool $gravar): ?array
+    {
+        $eu = new self();
+        $base = self::nomeBase($nome);
+        if ($base === '') {
+            return null;
+        }
+        $existente = Bd::um('SELECT id, arquivo FROM audios WHERE arquivo = ?', [$base]);
+        if ($existente !== null) {
+            return ['id' => (int) $existente['id'], 'arquivo' => (string) $existente['arquivo']];
+        }
+
+        $formatos = ['wav'];
+        $duracao = 0;
+        if ($gravar) {
+            $dir = $eu->diretorio();
+            $formatos = is_dir($dir) && is_writable($dir)
+                ? $eu->converter($origem, $dir, $base, strtolower(pathinfo($origem, PATHINFO_EXTENSION)))
+                : [];
+            if ($formatos === []) {
+                return null;
+            }
+            $duracao = $eu->duracao($origem);
+        }
+
+        Bd::executar(
+            'INSERT INTO audios (nome, arquivo, descricao, categoria, duracao, tamanho, formatos, enviado_por)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [$nome, $base, 'Migrado do SNEP', $categoria, $duracao, (int) @filesize($origem),
+             implode(',', $formatos), $usuario]
+        );
+
+        return ['id' => (int) Bd::conexao()->lastInsertId(), 'arquivo' => $base];
+    }
+
     private function diretorio(): string
     {
         return rtrim((string) Ambiente::get('AUDIOS_DIR', '/var/lib/asterisk/sounds/telium'), '/');

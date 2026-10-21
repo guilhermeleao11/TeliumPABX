@@ -2,8 +2,24 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.3.1 — 2026-10-21
+## 1.4.0 — 2026-10-21
 Commits:
+A migração do SNEP traz os agentes, os horários das regras e os áudios, a partir de um pacote gerado por um comando no próprio SNEP.
+
+### Novidades
+- **Migração do SNEP — pacote**: a tela mostra um comando para colar no SNEP que gera `snep-telium.tar.gz` com o banco sem CDR, os áudios usados, as músicas de espera e os `.conf`. Enviado o pacote, os áudios são convertidos e cadastrados em Áudios e ligados às URAs, anúncios e filas, e os contextos próprios que as regras usam aparecem com o texto, prontos para copiar.
+- **Migração do SNEP — agentes**: os agentes do SNEP (login por código) viram agentes do Call Center, com a mesma matrícula e a senha como PIN; com fila fixa no SNEP, as filas viram filas de call center.
+- **Migração do SNEP — horários**: duas regras para o mesmo número em horários diferentes viram condição horária com grupo de horário.
+- **Migração do SNEP — desvios**: Reescrever + DiscarTronco numa regra de entrada vira destino "número externo"; ExecuteApp(Hangup) vira desligar; o número interno que levava a uma fila vira o número da fila.
+### Mudanças
+- **Migração do SNEP**: as regras de saída só de um grupo de ramais, os atalhos internos e os códigos de call center do SNEP (contextos ACD) aparecem como "não migra", com o motivo e o que fazer. Um padrão já usado por outra rota fica só na primeira. Rota com fixo e celular juntos fica com a classe local.
+### Correções
+- **Migração do SNEP**: a importação conferia só a permissão da tela de migração; agora exige poder criar em cada módulo que ela usa (o cadastro chamado por ela não passa pela checagem de cada tela).
+- **Migração do SNEP**: arquivo acima do limite de envio dizia só "envie o arquivo"; agora diz o tamanho e o limite.
+- **API**: grupos de horário, filas e agentes gravam numa transação que aceita estar dentro de outra (SAVEPOINT), como a prévia da migração precisa.
+
+## 1.3.1 — 2026-10-21
+Commits: ff3d4ee
 A instalação parou de avisar que o AMI não autenticou quando ele autenticou.
 
 ### Correções

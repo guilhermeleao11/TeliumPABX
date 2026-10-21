@@ -8,21 +8,37 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Http\Message\UploadedFileInterface;
 use Telium\Dominio\Auditoria;
 use Telium\Dominio\MigracaoSnep as Migracao;
+use Telium\Dominio\Permissoes;
 use Telium\Dominio\SnepDump;
+use Telium\Dominio\SnepPacote;
 use Telium\Http\Recurso;
 use Telium\Suporte\Resposta;
 
 /**
  * Telium › Migração do SNEP.
  *
- * Dois passos: o envio do dump (lido uma vez e guardado só com as tabelas
- * que interessam) e a migração, que roda primeiro como prévia e depois
- * de verdade. O dump guardado tem as senhas SIP do SNEP: fica com o dono
- * da API, 0600, e some depois da importação ou em um dia.
+ * Dois passos: o envio (o pacote que o comando da tela gera no SNEP, com
+ * banco, áudios e .conf, ou só o dump do banco), lido uma vez e guardado
+ * só com o que interessa; e a migração, que roda primeiro como prévia e
+ * depois de verdade. O que fica guardado tem as senhas SIP do SNEP: é do
+ * dono da API, 0600, e some depois da importação ou em um dia.
  */
 final class MigracaoSnep
 {
     private const TAMANHO_MAX = 64 * 1024 * 1024;
+
+    /**
+     * Os módulos em que a migração cria coisas. O cadastro chamado daqui
+     * não passa pela rota de cada tela, que é quem confere a permissão:
+     * a conferência é esta.
+     */
+    private const MODULOS = [
+        'conn.troncos' => 'Troncos', 'conn.ramais' => 'Ramais', 'apps.filas' => 'Filas',
+        'cc.agentes' => 'Agentes do Call Center', 'conn.rotassaida' => 'Rotas de saída',
+        'conn.rotasentrada' => 'Rotas de entrada', 'apps.ura' => 'URA', 'apps.anuncios' => 'Anúncios',
+        'admin.destinos' => 'Destinos personalizados', 'apps.grupohorario' => 'Grupos de horário',
+        'apps.condicoes' => 'Condições horárias',
+    ];
     private const VALIDADE = 86400;
 
     /** @param array<string, Recurso> $recursos */
@@ -34,29 +50,50 @@ final class MigracaoSnep
     public function enviar(Request $req, Response $res): Response
     {
         $enviado = $req->getUploadedFiles()['arquivo'] ?? null;
+        // Acima do post_max_size o PHP descarta o envio inteiro, calado: o
+        // pedido chega sem arquivo nenhum.
+        $tamanho = (int) ($req->getServerParams()['CONTENT_LENGTH'] ?? 0);
+        if ($enviado === null && $tamanho > 0) {
+            return Resposta::erro($res, sprintf('O arquivo (%.0f MB) passa do limite de envio deste servidor (%s). '
+                . 'Gere só as tabelas da migração (veja a tela).', $tamanho / 1048576, ini_get('post_max_size')), 422);
+        }
         if (!$enviado instanceof UploadedFileInterface || $enviado->getError() !== UPLOAD_ERR_OK) {
             return Resposta::erro($res, 'Envie o arquivo do dump do SNEP no campo "arquivo".', 422);
         }
         if ($enviado->getSize() > self::TAMANHO_MAX) {
-            return Resposta::erro($res, 'O dump passa de 64 MB. Gere só as tabelas da migração (veja a tela).', 422);
+            return Resposta::erro($res, 'O arquivo passa de 64 MB. Gere o pacote pelo comando da tela (sem CDR).', 422);
         }
 
         $dir = $this->diretorio();
         $this->limparAntigos($dir);
 
-        $temp = tempnam($dir, 'dump-');
+        $id = bin2hex(random_bytes(16));
+        $trabalho = "{$dir}/{$id}";
+        @mkdir($trabalho, 0700, true);
+        $temp = tempnam($dir, 'envio-');
         $enviado->moveTo($temp);
+        $pacote = null;
         try {
-            $dados = SnepDump::ler($temp);
+            if (SnepPacote::ehPacote((string) $enviado->getClientFilename())) {
+                $pacote = SnepPacote::extrair($temp, $trabalho);
+                $dados = SnepDump::ler((string) $pacote['sql']);
+                @unlink((string) $pacote['sql']);
+            } else {
+                $dados = SnepDump::ler($temp);
+            }
         } catch (\RuntimeException $e) {
+            self::apagar($trabalho);
+
             return Resposta::erro($res, $e->getMessage(), 422);
         } finally {
             @unlink($temp);
         }
+        if ($pacote === null) {
+            self::apagar($trabalho);
+        }
 
-        $id = bin2hex(random_bytes(16));
         $arquivo = "{$dir}/{$id}.json";
-        file_put_contents($arquivo, json_encode($dados, JSON_UNESCAPED_UNICODE));
+        file_put_contents($arquivo, json_encode($dados + ['_pacote' => $pacote], JSON_UNESCAPED_UNICODE));
         @chmod($arquivo, 0600);
 
         $ramais = count(array_filter($dados['peers'], static fn ($p) => ($p['peer_type'] ?? 'R') === 'R'));
@@ -69,6 +106,9 @@ final class MigracaoSnep
                 'troncos' => count($dados['trunks']),
                 'filas' => count($dados['queues']),
                 'regras' => count($dados['regras_negocio']),
+                'agentes' => count($dados['agtfila']),
+                'audios' => $pacote === null ? null : count($pacote['sons']),
+                'musicas' => $pacote === null ? null : count($pacote['moh']),
             ],
         ], 201);
     }
@@ -90,11 +130,24 @@ final class MigracaoSnep
                                   ['campo' => 'fila_inicio']);
         }
 
+        $allow = (array) $req->getAttribute('allow', []);
+        $falta = array_values(array_filter(self::MODULOS,
+            static fn (string $modulo) => !Permissoes::podeModulo($allow, $modulo), ARRAY_FILTER_USE_KEY));
+        if ($falta !== [] || !Permissoes::podeAcao((array) $req->getAttribute('caps', []), 'criar')) {
+            return Resposta::erro($res, 'Para migrar, o seu perfil precisa poder criar em: '
+                . ($falta !== [] ? implode(', ', $falta) : 'todos os módulos da migração') . '.', 403);
+        }
+
         $dados = json_decode((string) file_get_contents($arquivo), true) ?: [];
-        $resultado = (new Migracao($this->recursos, $req))->executar($dados, ['fila_inicio' => $inicio], $simular);
+        $pacote = $dados['_pacote'] ?? null;
+        unset($dados['_pacote']);
+        $resultado = (new Migracao($this->recursos, $req))->executar(
+            $dados, ['fila_inicio' => $inicio, 'pacote' => $pacote], $simular
+        );
 
         if (!$simular) {
             @unlink($arquivo);
+            self::apagar("{$this->diretorio()}/{$id}");
             Auditoria::registrar($req->getAttribute('usuario'), 'importar', 'telium.migracao',
                                  'SNEP', $resultado['resumo'], $req->getServerParams()['REMOTE_ADDR'] ?? null);
         }
@@ -115,9 +168,25 @@ final class MigracaoSnep
     private function limparAntigos(string $dir): void
     {
         foreach (glob("{$dir}/*") ?: [] as $f) {
-            if (is_file($f) && filemtime($f) < time() - self::VALIDADE) {
-                @unlink($f);
+            if (filemtime($f) < time() - self::VALIDADE) {
+                is_dir($f) ? self::apagar($f) : @unlink($f);
             }
         }
+    }
+
+    /** Apaga a pasta de trabalho de um envio, com o que tiver dentro. */
+    private static function apagar(string $pasta): void
+    {
+        if (!is_dir($pasta)) {
+            return;
+        }
+        $itens = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($pasta, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+        foreach ($itens as $item) {
+            $item->isDir() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
+        }
+        @rmdir($pasta);
     }
 }
