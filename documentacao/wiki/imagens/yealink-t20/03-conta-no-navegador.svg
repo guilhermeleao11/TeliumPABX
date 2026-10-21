@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="780" viewBox="0 0 960 780" font-family="DejaVu Sans, Arial, sans-serif">
+<rect width="960" height="780" fill="#ffffff"/>
+<text x="24" y="34" font-size="20" font-weight="bold" fill="#0b4f8a">3. Account › Register › Account 1</text>
+<rect x="24" y="52" width="912" height="700" rx="8" fill="#f4f7fb" stroke="#cbd5e1"/>
+<rect x="24" y="52" width="912" height="32" rx="8" fill="#e2e8f0"/><text x="44" y="73" font-size="13" fill="#64748b" font-family="DejaVu Sans Mono, monospace">http://192.168.0.50  ›  Account  ›  Register  ›  Account 1</text>
+<rect x="40" y="96" width="82" height="34" fill="#e2e8f0"/><text x="81.0" y="118" font-size="14" text-anchor="middle" fill="#334155">Status</text><rect x="126" y="96" width="91" height="34" fill="#0b4f8a"/><text x="171.5" y="118" font-size="14" text-anchor="middle" fill="#fff">Account</text><rect x="221" y="96" width="91" height="34" fill="#e2e8f0"/><text x="266.5" y="118" font-size="14" text-anchor="middle" fill="#334155">Network</text><rect x="316" y="96" width="91" height="34" fill="#e2e8f0"/><text x="361.5" y="118" font-size="14" text-anchor="middle" fill="#334155">DSS Key</text><rect x="411" y="96" width="100" height="34" fill="#e2e8f0"/><text x="461.0" y="118" font-size="14" text-anchor="middle" fill="#334155">Features</text><rect x="515" y="96" width="100" height="34" fill="#e2e8f0"/><text x="565.0" y="118" font-size="14" text-anchor="middle" fill="#334155">Settings</text><rect x="619" y="96" width="109" height="34" fill="#e2e8f0"/><text x="673.5" y="118" font-size="14" text-anchor="middle" fill="#334155">Directory</text><rect x="732" y="96" width="100" height="34" fill="#e2e8f0"/><text x="782.0" y="118" font-size="14" text-anchor="middle" fill="#334155">Security</text>
+<rect x="40" y="140" width="880" height="560" fill="#fff" stroke="#cbd5e1"/>
+<text x="60" y="172" font-size="15" fill="#64748b">Account</text><rect x="250" y="152" width="200" height="30" rx="4" fill="#fff" stroke="#cbd5e1"/><text x="262" y="173" font-size="15" fill="#0f172a">Account 1  ▾</text>
+<text x="60" y="218" font-size="15" fill="#1e293b">Register Status</text>
+<rect x="250" y="196" width="370" height="34" rx="4" fill="#fff" stroke="#cbd5e1" stroke-width="1"/>
+<text x="262" y="219" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">Registered</text>
+<text x="60" y="262" font-size="15" fill="#1e293b">Line Active</text>
+<rect x="250" y="240" width="370" height="34" rx="4" fill="#fff" stroke="#f59e0b" stroke-width="3"/>
+<text x="262" y="263" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">Enabled  ▾</text>
+<text x="60" y="306" font-size="15" fill="#1e293b">Label</text>
+<rect x="250" y="284" width="370" height="34" rx="4" fill="#fff" stroke="#cbd5e1" stroke-width="1"/>
+<text x="262" y="307" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">2001 Recepção</text>
+<text x="60" y="350" font-size="15" fill="#1e293b">Display Name</text>
+<rect x="250" y="328" width="370" height="34" rx="4" fill="#fff" stroke="#cbd5e1" stroke-width="1"/>
+<text x="262" y="351" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">Recepção</text>
+<text x="60" y="394" font-size="15" fill="#1e293b">Register Name</text>
+<rect x="250" y="372" width="370" height="34" rx="4" fill="#fff" stroke="#f59e0b" stroke-width="3"/>
+<text x="262" y="395" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">2001</text>
+<text x="60" y="438" font-size="15" fill="#1e293b">User Name</text>
+<rect x="250" y="416" width="370" height="34" rx="4" fill="#fff" stroke="#f59e0b" stroke-width="3"/>
+<text x="262" y="439" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">2001</text>
+<text x="60" y="482" font-size="15" fill="#1e293b">Password</text>
+<rect x="250" y="460" width="370" height="34" rx="4" fill="#fff" stroke="#f59e0b" stroke-width="3"/>
+<text x="262" y="483" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">••••••••••••••••</text>
+<text x="60" y="526" font-size="15" fill="#1e293b">SIP Server</text>
+<rect x="250" y="504" width="370" height="34" rx="4" fill="#fff" stroke="#f59e0b" stroke-width="3"/>
+<text x="262" y="527" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">voz.cliente.com.br</text>
+<text x="60" y="570" font-size="15" fill="#1e293b">Port</text>
+<rect x="250" y="548" width="370" height="34" rx="4" fill="#fff" stroke="#cbd5e1" stroke-width="1"/>
+<text x="262" y="571" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">5060</text>
+<text x="60" y="614" font-size="15" fill="#1e293b">Transport</text>
+<rect x="250" y="592" width="370" height="34" rx="4" fill="#fff" stroke="#cbd5e1" stroke-width="1"/>
+<text x="262" y="615" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">UDP  ▾</text>
+<rect x="250" y="650" width="110" height="34" rx="4" fill="#0b4f8a"/><text x="305" y="672" font-size="15" text-anchor="middle" fill="#fff">Confirm</text>
+<rect x="370" y="650" width="110" height="34" rx="4" fill="#e2e8f0"/><text x="425" y="672" font-size="15" text-anchor="middle" fill="#334155">Cancel</text>
+<text x="660" y="262" font-size="13" fill="#f59e0b">Enabled</text>
+<text x="660" y="395" font-size="13" fill="#f59e0b">número do ramal</text>
+<text x="660" y="439" font-size="13" fill="#f59e0b">número do ramal</text>
+<text x="660" y="483" font-size="13" fill="#f59e0b">senha SIP do Telium</text>
+<text x="660" y="527" font-size="13" fill="#f59e0b">endereço da central</text>
+<text x="40" y="730" font-size="13" fill="#64748b">Em laranja: o que muda para cada ramal. O resto pode ficar como veio de fábrica.</text>
+<text x="936" y="766" font-size="11" fill="#64748b" text-anchor="end">Ilustração — o layout real varia com a versão do sistema e do firmware</text>
+</svg>

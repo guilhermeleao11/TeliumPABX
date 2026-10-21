@@ -255,7 +255,7 @@ Use o botão de chave (**Credenciais SIP**) da linha do ramal:
 | Transporte | UDP, TCP, TLS ou WSS |
 | Servidor | O endereço da central (IP ou nome) |
 
-Para telefones Grandstream, Yealink e Fanvil, prefira o [Provisionamento](#8-provisionamento). Para o Linphone no Android, use o QR Code da mesma tela.
+Para telefones Grandstream, Yealink e Fanvil, prefira o [Provisionamento](#8-provisionamento). Para o Linphone no Android, use o QR Code da mesma tela. Passo a passo manual, com figuras, para o Yealink T20/T20P: [Telefone Yealink T20](22-Telefone-Yealink-T20.md).
 
 ---
 

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="420" viewBox="0 0 960 420" font-family="DejaVu Sans, Arial, sans-serif">
+<rect width="960" height="420" fill="#ffffff"/>
+<text x="24" y="34" font-size="20" font-weight="bold" fill="#0b4f8a">4. Conferir o registro</text>
+<rect x="40" y="70" width="400" height="250" rx="10" fill="#fff" stroke="#cbd5e1"/>
+<text x="60" y="104" font-size="15" fill="#64748b">No telefone (Account › Register)</text>
+<text x="60" y="150" font-size="15" fill="#1e293b">Register Status</text>
+<rect x="210" y="128" width="200" height="34" rx="4" fill="#ecfdf5" stroke="#16a34a" stroke-width="2"/>
+<text x="222" y="151" font-size="15" fill="#16a34a" font-weight="bold">Registered</text>
+<text x="60" y="200" font-size="13" fill="#64748b">No visor, a tecla da linha mostra o Label</text>
+<text x="60" y="220" font-size="13" fill="#64748b">(ex.: 2001 Recepção) sem o aviso de falha.</text>
+<text x="60" y="262" font-size="13" fill="#64748b">Sem registrar: senha, usuário ou servidor</text>
+<text x="60" y="282" font-size="13" fill="#64748b">errado, ou a central fora do alcance.</text>
+<rect x="480" y="70" width="440" height="250" rx="10" fill="#fff" stroke="#cbd5e1"/>
+<text x="500" y="104" font-size="15" fill="#64748b">No Telium</text>
+<text x="500" y="138" font-size="14" fill="#1e293b">Meu Painel › Meu Ramal (logado como o</text>
+<text x="500" y="158" font-size="14" fill="#1e293b">usuário do ramal):</text>
+<rect x="500" y="170" width="160" height="30" rx="15" fill="#ecfdf5" stroke="#16a34a"/>
+<circle cx="518" cy="185" r="5" fill="#16a34a"/><text x="530" y="190" font-size="14" fill="#16a34a">Registrado</text>
+<text x="500" y="232" font-size="14" fill="#1e293b">No servidor:</text>
+<rect x="500" y="242" width="400" height="34" rx="4" fill="#0f172a"/>
+<text x="512" y="264" font-size="13" fill="#e2e8f0" font-family="DejaVu Sans Mono, monospace">sudo asterisk -rx "pjsip show contacts"</text>
+<text x="500" y="300" font-size="12" fill="#64748b">o ramal aparece com o IP do telefone e "Avail".</text>
+<text x="40" y="370" font-size="15" fill="#1e293b">Teste: disque *43 (teste de eco) ou ligue para outro ramal. Áudio nos dois sentidos = pronto.</text>
+<text x="936" y="406" font-size="11" fill="#64748b" text-anchor="end">Ilustração — o layout real varia com a versão do sistema e do firmware</text>
+</svg>

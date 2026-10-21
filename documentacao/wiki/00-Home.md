@@ -60,6 +60,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | Configurações | Arquivos e aplicação, SIP, correio de voz, música de espera, PINs, fax, e-mail, tarifas, dados da empresa | [19](19-Configuracoes.md) |
 | Telium | Tarifação, integrações e API (click to call e webhooks), suporte, versões e novidades | [20](20-Telium-Tarifacao-Integracoes-Suporte.md) |
 | Meu Painel (PCU) | O painel do usuário: meu ramal, minhas chamadas, correio de voz, siga-me, contatos, perfil e segurança | [21](21-Meu-Painel-PCU.md) |
+| Telefones | Registrar um ramal no Yealink T20 / T20P, passo a passo e com figuras | [22](22-Telefone-Yealink-T20.md) |
 
 ---
 
@@ -94,6 +95,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | 19 | [Configurações](19-Configuracoes.md) |
 | 20 | [Telium: tarifação, integrações e suporte](20-Telium-Tarifacao-Integracoes-Suporte.md) |
 | 21 | [Meu Painel (PCU)](21-Meu-Painel-PCU.md) |
+| 22 | [Telefone Yealink T20 / T20P: registrar um ramal](22-Telefone-Yealink-T20.md) |
 
 ### Desenvolvimento
 

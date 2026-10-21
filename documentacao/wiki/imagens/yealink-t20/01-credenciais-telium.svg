@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="540" viewBox="0 0 900 540" font-family="DejaVu Sans, Arial, sans-serif">
+<rect width="900" height="540" fill="#ffffff"/>
+<text x="24" y="34" font-size="20" font-weight="bold" fill="#0b4f8a">1. Os dados do ramal no Telium</text>
+<rect x="24" y="56" width="852" height="460" rx="10" fill="#f4f7fb" stroke="#cbd5e1"/>
+<text x="48" y="92" font-size="16" fill="#64748b">Conectividade › Ramais</text>
+<rect x="48" y="108" width="430" height="44" rx="6" fill="#fff" stroke="#cbd5e1"/>
+<text x="64" y="136" font-size="16" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">2001</text>
+<text x="130" y="136" font-size="16" fill="#0f172a">Recepção</text>
+<circle cx="448" cy="130" r="16" fill="#fff" stroke="#f59e0b" stroke-width="3"/>
+<circle cx="443" cy="130" r="5" fill="none" stroke="#0b4f8a" stroke-width="2"/><path d="M448 130 L457 130 M454 130 L454 135" stroke="#0b4f8a" stroke-width="2" fill="none"/>
+<text x="300" y="190" font-size="13" fill="#f59e0b">① clique na chave do ramal</text>
+<path d="M448 150 L448 172 L420 180" fill="none" stroke="#f59e0b" stroke-width="2"/>
+<rect x="500" y="80" width="352" height="320" rx="10" fill="#fff" stroke="#0b4f8a" stroke-width="2"/>
+<text x="520" y="114" font-size="17" font-weight="bold" fill="#0b4f8a">Credenciais SIP do ramal 2001</text>
+<text x="520" y="138" font-size="12" fill="#64748b">Use estes dados para configurar o aparelho</text>
+<text x="520" y="190" font-size="15" font-weight="bold" fill="#1e293b">Usuário</text><text x="650" y="190" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">2001</text>
+<text x="520" y="240" font-size="15" font-weight="bold" fill="#1e293b">Senha</text><text x="650" y="240" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">Xr7…(20 car.)</text>
+<text x="520" y="290" font-size="15" font-weight="bold" fill="#1e293b">Transporte</text><text x="650" y="290" font-size="15" fill="#0f172a" font-family="DejaVu Sans Mono, monospace">udp</text>
+<text x="520" y="370" font-size="12" fill="#64748b">Esta consulta fica registrada na auditoria.</text>
+<text x="48" y="250" font-size="14" fill="#1e293b">② anote usuário, senha e transporte.</text>
+<text x="48" y="290" font-size="14" fill="#1e293b">③ o servidor é o endereço do console,</text>
+<text x="48" y="312" font-size="14" fill="#1e293b">sem o https:// — ex.: voz.cliente.com.br</text>
+<text x="48" y="350" font-size="14" fill="#1e293b">④ porta 5060 (UDP ou TCP) ou 5061 (TLS).</text>
+<text x="876" y="526" font-size="11" fill="#64748b" text-anchor="end">Ilustração — o layout real varia com a versão do sistema e do firmware</text>
+</svg>

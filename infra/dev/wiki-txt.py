@@ -7,7 +7,9 @@ A wiki da empresa recebe texto colado, sem Markdown. Os .md são a fonte; os
     python3 infra/dev/wiki-txt.py
 
 Títulos viram maiúsculas sublinhadas, tabelas viram listas "- Campo: texto",
-os prints ficam "[PRINT: …]" e os links entre páginas, "(ver página NN)".
+os prints ficam "[PRINT: …]", as figuras "[IMAGEM: arquivo.png — legenda]"
+(os arquivos estão em documentacao/wiki/imagens/, para anexar na wiki) e os
+links entre páginas, "(ver página NN)".
 """
 import os
 import re
@@ -27,6 +29,9 @@ def inline(t: str) -> str:
         if alvo.endswith('.md') or alvo.startswith('../'):
             return f'{texto} ({alvo.lstrip("./")})'
         return f'{texto} ({alvo})'
+    # Figura: na wiki de texto vai como anexo, pelo nome do arquivo.
+    t = re.sub(r'!\[([^\]]*)\]\(([^)]+)\)',
+               lambda m: f'[IMAGEM: {m.group(2).rsplit("/", 1)[-1]} — {m.group(1)}]', t)
     t = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', link, t)
     t = re.sub(r'\*\*(.+?)\*\*', r'\1', t)
     t = re.sub(r'(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])', r'\1', t)
