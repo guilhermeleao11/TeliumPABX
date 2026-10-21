@@ -2,8 +2,21 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.2.8 — 2026-10-21
+## 1.3.0 — 2026-10-21
 Commits:
+Migração do SNEP 3: troncos, ramais, filas e as regras de entrada e de saída, a partir do dump do banco do SNEP.
+
+### Novidades
+- **Telium › Migração do SNEP**: envie o dump do banco `snep` (`.sql`, `.sql.gz` ou `.sql.bz2`) e confira a prévia item por item antes de importar. Cada item passa pelo mesmo cadastro das telas, com as mesmas validações e auditoria; a prévia roda tudo e desfaz.
+- Troncos SIP, ramais (com a senha SIP do SNEP, quando ela é forte), filas com os membros, regras de saída (padrões, prefixos e tronco) e regras de entrada, com as URAs, anúncios e contextos que elas usam.
+- Os áudios que o SNEP usava são ligados quando já estão em Áudios com o mesmo nome; os que faltam aparecem numa lista. Os contextos do dialplan do SNEP viram destinos personalizados, com o aviso de copiá-los.
+- O que já existe no Telium é aproveitado e não muda: rodar de novo só cria o que falta.
+### Mudanças
+- **PHP**: a extensão `bz2` passa a ser instalada (o dump do SNEP costuma vir em `.bz2`).
+- **API**: as transações aninhadas viram SAVEPOINT (`Bd::transacao`), para a prévia da migração poder rodar o cadastro das telas e desfazer tudo.
+
+## 1.2.8 — 2026-10-21
+Commits: d88c645
 A senha padrão do admin sai do repositório.
 
 ### Segurança

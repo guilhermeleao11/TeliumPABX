@@ -15,6 +15,8 @@ api/composer.lock
 *.swp
 .DS_Store
 api/var/cache/*
+# dump do SNEP enviado para a migração (tem as senhas SIP): nunca versionar
+api/var/migracao-snep/
 
 # ---- harness de teste local ----
 __auto.html

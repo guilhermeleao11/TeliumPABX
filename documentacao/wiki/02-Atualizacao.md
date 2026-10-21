@@ -213,6 +213,9 @@ O que muda na operação, e não só por dentro. A mais recente primeiro.
 
 A tela **Telium › Versões e Novidades** mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo `api/CHANGELOG.md`). As notas abaixo resumem o que muda para quem opera.
 
+### 1.3.0 — migração do SNEP
+- Nova tela **Telium › Migração do SNEP**: traz troncos, ramais, filas e as regras de entrada e de saída de uma central SNEP 3, a partir do dump do banco, com prévia antes de importar. Só o Administrador tem a tela de fábrica.
+
 ### 1.2.8 — senha do admin fora do repositório
 - A instalação nova pergunta a senha inicial do admin (use a padrão da Telium). Centrais já instaladas: nada muda, a atualização não pergunta.
 

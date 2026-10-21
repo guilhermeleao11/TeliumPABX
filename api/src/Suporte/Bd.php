@@ -41,6 +41,53 @@ final class Bd
         self::$pdo = null;
     }
 
+    /**
+     * Roda $trabalho numa transação e devolve o que ele devolver.
+     *
+     * Dentro de outra transação, vira um SAVEPOINT: o erro desfaz só o
+     * pedaço, e quem abriu a de fora decide o resto. É o que deixa a
+     * prévia de uma importação rodar o mesmo cadastro das telas — que
+     * abre a sua própria transação — e desfazer tudo no fim.
+     *
+     * @template T
+     * @param callable(): T $trabalho
+     * @return T
+     */
+    public static function transacao(callable $trabalho): mixed
+    {
+        static $nivel = 0;
+        $pdo = self::conexao();
+
+        if (!$pdo->inTransaction()) {
+            $pdo->beginTransaction();
+            try {
+                $resultado = $trabalho();
+                $pdo->commit();
+            } catch (\Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $e;
+            }
+
+            return $resultado;
+        }
+
+        $ponto = 'telium_sp' . (++$nivel);
+        $pdo->exec("SAVEPOINT {$ponto}");
+        try {
+            $resultado = $trabalho();
+            $pdo->exec("RELEASE SAVEPOINT {$ponto}");
+        } catch (\Throwable $e) {
+            $pdo->exec("ROLLBACK TO SAVEPOINT {$ponto}");
+            throw $e;
+        } finally {
+            $nivel--;
+        }
+
+        return $resultado;
+    }
+
     /** @return array<int,array<string,mixed>> */
     public static function todos(string $sql, array $params = []): array
     {

@@ -34,6 +34,8 @@
       - php8.4-bcmath
       - php8.4-gd
       - php8.4-zip
+      # O dump do SNEP (Telium › Migração do SNEP) costuma vir em .bz2.
+      - php8.4-bz2
       - php8.4-opcache
       - php8.4-readline
       - composer

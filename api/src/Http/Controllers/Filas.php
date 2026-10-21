@@ -140,47 +140,46 @@ final class Filas
         $corpo = (array) $req->getParsedBody();
         $lista = (array) ($corpo['agentes'] ?? []);
 
-        $pdo = Bd::conexao();
-        $pdo->beginTransaction();
         try {
-            // Os que vieram do call center não são mexidos aqui.
-            Bd::executar("DELETE FROM fila_agentes WHERE fila_id = ? AND origem = 'manual'",
-                         [$fila['id']]);
+            $gravados = Bd::transacao(static function () use ($fila, $lista): int {
+                // Os que vieram do call center não são mexidos aqui.
+                Bd::executar("DELETE FROM fila_agentes WHERE fila_id = ? AND origem = 'manual'",
+                             [$fila['id']]);
 
-            $gravados = 0;
-            foreach ($lista as $a) {
-                // Aceita o id do ramal ou o número dele: quem chama pela
-                // API costuma ter o número na mão, e antes a entrada sem
-                // ramal_id era descartada calada — a fila ficava sem
-                // agente e a resposta dizia que tinha salvo.
-                $ramalId = (int) ($a['ramal_id'] ?? 0);
-                if ($ramalId === 0 && ($a['ramal'] ?? '') !== '') {
-                    $ramalId = (int) (Bd::um('SELECT id FROM ramais WHERE numero = ?',
-                                             [$a['ramal']])['id'] ?? 0);
-                }
-                if ($ramalId === 0) {
-                    throw new \RuntimeException(
-                        'Agente sem ramal reconhecido: ' . json_encode($a, JSON_UNESCAPED_UNICODE)
+                $gravados = 0;
+                foreach ($lista as $a) {
+                    // Aceita o id do ramal ou o número dele: quem chama pela
+                    // API costuma ter o número na mão, e antes a entrada sem
+                    // ramal_id era descartada calada — a fila ficava sem
+                    // agente e a resposta dizia que tinha salvo.
+                    $ramalId = (int) ($a['ramal_id'] ?? 0);
+                    if ($ramalId === 0 && ($a['ramal'] ?? '') !== '') {
+                        $ramalId = (int) (Bd::um('SELECT id FROM ramais WHERE numero = ?',
+                                                 [$a['ramal']])['id'] ?? 0);
+                    }
+                    if ($ramalId === 0) {
+                        throw new \RuntimeException(
+                            'Agente sem ramal reconhecido: ' . json_encode($a, JSON_UNESCAPED_UNICODE)
+                        );
+                    }
+                    $gravados++;
+
+                    Bd::executar(
+                        'INSERT INTO fila_agentes (fila_id, ramal_id, penalidade, tipo, origem)
+                         VALUES (?, ?, ?, ?, ?)
+                         ON DUPLICATE KEY UPDATE penalidade = VALUES(penalidade), tipo = VALUES(tipo)',
+                        [
+                            $fila['id'], $ramalId,
+                            max(0, min(255, (int) ($a['penalidade'] ?? 0))),
+                            in_array($a['tipo'] ?? '', ['estatico', 'dinamico'], true) ? $a['tipo'] : 'estatico',
+                            'manual',
+                        ]
                     );
                 }
-                $gravados++;
 
-                Bd::executar(
-                    'INSERT INTO fila_agentes (fila_id, ramal_id, penalidade, tipo, origem)
-                     VALUES (?, ?, ?, ?, ?)
-                     ON DUPLICATE KEY UPDATE penalidade = VALUES(penalidade), tipo = VALUES(tipo)',
-                    [
-                        $fila['id'], $ramalId,
-                        max(0, min(255, (int) ($a['penalidade'] ?? 0))),
-                        in_array($a['tipo'] ?? '', ['estatico', 'dinamico'], true) ? $a['tipo'] : 'estatico',
-                        'manual',
-                    ]
-                );
-            }
-            $pdo->commit();
+                return $gravados;
+            });
         } catch (\Throwable $e) {
-            $pdo->rollBack();
-
             return Resposta::erro($res, 'Não foi possível salvar os agentes: ' . $e->getMessage(), 400);
         }
 

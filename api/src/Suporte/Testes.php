@@ -75,6 +75,7 @@ final class Testes
             $this->grupo('Firewall: nunca bloquear', $this->confiaveis(...));
             $this->grupo('Telefone do navegador: permissão', $this->permissaoTelefone(...));
             $this->grupo('Ramais em planilha', $this->ramaisCsv(...));
+            $this->grupo('Migração do SNEP', $this->migracaoSnep(...));
             $this->grupo('Padrões das rotas', $this->padroesDeRota(...));
             $this->grupo('Código das condições horárias', $this->codigoDasCondicoes(...));
             $this->grupo('Pesquisa de satisfação', $this->pesquisaSatisfacao(...));
@@ -2867,6 +2868,56 @@ final class Testes
                   'sim e não viram 1 e 0');
         $this->ok($valor->invoke(null, 'nome', "'=SOMA(A1)") === '=SOMA(A1)',
                   'o apóstrofo que a exportação põe contra fórmula sai na volta');
+    }
+
+    private function migracaoSnep(): void
+    {
+        $t = \Telium\Dominio\SnepDump::tuplas(
+            "INSERT INTO `x` VALUES (1,'a\\'b','c,d)',NULL,''),(2,'x''y','linha\\nnova');"
+        );
+        $this->ok(count($t) === 2 && $t[0] === ['1', "a'b", 'c,d)', null, ''],
+                  'dump: aspas escapadas, vírgula e parêntese dentro do texto, NULL e vazio');
+        $this->ok(($t[1][1] ?? '') === "x'y" && ($t[1][2] ?? '') === "linha\nnova", "dump: '' e \\n viram aspa e quebra");
+
+        // Um dump mínimo do SNEP 3, como o mariadb-dump escreve.
+        $sql = "CREATE TABLE `peers` (\n  `id` int(11) NOT NULL,\n  `name` varchar(80) NOT NULL,\n"
+             . "  `callerid` varchar(80) DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB;\n"
+             . "INSERT INTO `cdr` VALUES\n(1,'ignorado;'),\n(2,'x');\n"
+             . "CREATE TABLE `regras_negocio` (\n  `id` int(11) NOT NULL,\n  `desc` varchar(255) DEFAULT NULL\n);\n"
+             . "INSERT INTO `peers` VALUES\n(4,'5555','SAC<5555>'),\n(5,'1111',NULL);\n"
+             . "INSERT INTO `regras_negocio` VALUES (1,'Entrada');\n";
+        $arquivo = tempnam(sys_get_temp_dir(), 'snep-');
+        file_put_contents($arquivo, gzencode($sql));
+        try {
+            $d = \Telium\Dominio\SnepDump::ler($arquivo);
+            $this->ok(count($d['peers']) === 2 && $d['peers'][0]['callerid'] === 'SAC<5555>' && $d['peers'][1]['callerid'] === null,
+                      'dump .gz lido com as colunas do CREATE TABLE, e o CDR pulado');
+            $this->ok(($d['regras_negocio'][0]['desc'] ?? '') === 'Entrada', 'dump: INSERT numa linha só também');
+
+            file_put_contents($arquivo, "CREATE TABLE `outra` (\n  `id` int\n);\n");
+            $recusado = false;
+            try {
+                \Telium\Dominio\SnepDump::ler($arquivo);
+            } catch (\RuntimeException) {
+                $recusado = true;
+            }
+            $this->ok($recusado, 'arquivo que não é dump do SNEP é recusado');
+        } finally {
+            @unlink($arquivo);
+        }
+
+        $m = static fn (string $f, ...$a) => (new \ReflectionMethod(\Telium\Dominio\MigracaoSnep::class, $f))->invoke(null, ...$a);
+        $this->ok($m('nomeDoCallerid', 'SAC - FAQ<4444><4444>') === 'SAC - FAQ' && $m('nomeDoCallerid', 'MBilling(112643379)') === 'MBilling',
+                  'nome do ramal e do tronco sem o número do callerid');
+        $this->ok($m('classe', 'Celular LDN') === 'ddd' && $m('classe', 'Celular Local') === 'celular'
+                  && $m('classe', 'Servicos') === 'especial' && $m('classe', 'Fixo Local') === 'local',
+                  'classe da rota de saída pelo nome da regra');
+        $this->ok($m('teclas', '0,1,2,3') === ['0', '1', '2', '3'] && $m('teclas', '12#') === ['1', '2', '#'],
+                  'teclas da URA do SNEP');
+        $this->ok($m('codecs', 'alaw;ulaw;gsm;h264') === 'alaw,ulaw,gsm' && $m('codecs', 'h264') === null,
+                  'codecs do SNEP: só os de áudio que o Telium conhece');
+        $this->ok($m('vazia', 'yes') === 'sim' && $m('vazia', 'strict') === 'estrito' && $m('vazia', '0') === 'nao',
+                  'fila vazia do SNEP no formato do Telium');
     }
 
         private function grupo(string $nome, callable $casos): void

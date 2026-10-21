@@ -134,6 +134,7 @@ ENV
     "$IMG_PHP" sh -c \
     'docker-php-ext-install pdo_mysql >/dev/null 2>&1;
      php -m | grep -q "^zip$" || { apt-get update >/dev/null 2>&1; apt-get install -y libzip-dev >/dev/null 2>&1; docker-php-ext-install zip >/dev/null 2>&1; };
+     php -m | grep -q "^bz2$" || { apt-get update >/dev/null 2>&1; apt-get install -y libbz2-dev >/dev/null 2>&1; docker-php-ext-install bz2 >/dev/null 2>&1; };
      echo "date.timezone=America/Sao_Paulo" > /usr/local/etc/php/conf.d/fuso.ini;
      php -S 0.0.0.0:80 -t /w /w/infra/dev/router-dev.php' \
     >/dev/null

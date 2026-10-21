@@ -1220,6 +1220,13 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     $g->get('/ramais/{id}/credenciais', [Cadastros::class, 'credenciaisRamal'])
       ->add(new Permissao('conn.ramais', 'editar'));
 
+    // ---- migração do SNEP 3 ----
+    // O cadastro de cada item passa pelo Recurso dele, que confere a
+    // permissão do módulo: quem migra precisa poder criar o que migra.
+    $migracaoSnep = new \Telium\Http\Controllers\MigracaoSnep(array_map(static fn ($r) => $r['recurso'], $recursos));
+    $g->post('/migracao-snep', [$migracaoSnep, 'enviar'])->add(new Permissao('telium.migracao', 'criar'));
+    $g->post('/migracao-snep/{id}', [$migracaoSnep, 'migrar'])->add(new Permissao('telium.migracao', 'criar'));
+
     // ---- backup e restauração ----
     $g->get('/backup', [Backup::class, 'estado'])->add(new Permissao('admin.backup'));
     $g->post('/backup/executar', [Backup::class, 'executar'])

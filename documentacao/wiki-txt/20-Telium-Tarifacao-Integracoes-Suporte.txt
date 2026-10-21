@@ -2,7 +2,7 @@
 TELIUM: TARIFAÇÃO, INTEGRAÇÕES E SUPORTE — TELIUM PABX
 ==============================================================================
 
-Manual das telas do menu Telium: o custo das chamadas, o click to call e os webhooks para outros sistemas (com exemplos para o desenvolvedor do outro lado), a tela de suporte e o histórico de versões.
+Manual das telas do menu Telium: o custo das chamadas, o click to call e os webhooks para outros sistemas (com exemplos para o desenvolvedor do outro lado), a migração do SNEP, a tela de suporte e o histórico de versões.
 
 NOTA: Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
 
@@ -18,7 +18,8 @@ SUMÁRIO
 6. Webhooks
 7. Suporte
 8. Versões e Novidades
-9. Problemas comuns
+9. Migração do SNEP
+10. Problemas comuns
 
 
 1. TARIFAÇÃO
@@ -543,8 +544,66 @@ Permissão: módulo Versões e Novidades (telium.versoes). A atualização para 
 Até a 1.1.0, o número no console ficou parado em 1.0.1 por várias entregas; as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central de antes da 1.1.0, quem diz o que está rodando é o commit (git log --oneline -1 em /opt/TeliumPABX). Como atualizar está em 02-Atualizacao.md (ver página 02).
 
 
-9. PROBLEMAS COMUNS
+9. MIGRAÇÃO DO SNEP
 -------------------
+
+Telium › Migração do SNEP
+
+Traz de uma central SNEP 3 os troncos, ramais, filas e as regras de entrada e de saída, a partir do dump do banco do SNEP. Cada item passa pelo mesmo cadastro das telas do Telium (as mesmas validações e a mesma auditoria), e a importação só acontece depois de uma prévia que mostra item por item o que vai ser criado.
+
+[PRINT: tela Migração do SNEP com a prévia de um dump]
+
+Permissão: módulo Migração do SNEP (telium.migracao). Só o Administrador tem de fábrica. Quem migra precisa também poder criar ramais, troncos, filas, rotas, URAs e anúncios.
+
+
+Passo a passo
+~~~~~~~~~~~~~
+
+1. Áudios primeiro. O dump não traz áudio. Copie do servidor do SNEP os arquivos que as URAs, os anúncios e as filas usam (/var/lib/asterisk/sounds/pt_BR e /var/lib/asterisk/moh) e envie-os em Gravações do Sistema com o mesmo nome do arquivo. A migração liga cada áudio a quem o usa. O que ainda faltar aparece numa lista no resultado; dá para enviar e escolher depois.
+2. Gere o dump no servidor do SNEP. O dump completo do banco snep serve (.sql, .sql.gz ou .sql.bz2, até 64 MB). Se ele passar disso (o CDR pesa), gere só as tabelas da migração:
+    mysqldump -u root -p --single-transaction snep peers trunks queues queue_members regras_negocio regras_negocio_actions regras_negocio_actions_config expr_alias expr_alias_expression sounds | gzip > snep-migracao.sql.gz
+3. Envie o dump na tela. Ela mostra quantos ramais, troncos, filas e regras achou e já roda a prévia.
+4. Confira a prévia, grupo por grupo. Cada item diz se vai ser criado, se já existe, se não migra (e por quê) ou se tem aviso.
+5. Importar. Depois, aplique as configurações para o Asterisk assumir.
+6. Senhas novas: se algum ramal tinha senha curta no SNEP, ele ganha uma nova. Baixe a lista pelo botão do resultado e reconfigure esses telefones. Os demais mantêm a senha do SNEP e registram sem mexer no aparelho.
+
+
+O que vira o quê
+~~~~~~~~~~~~~~~~
+
+- Tronco SIP: Tronco PJSIP, com o mesmo host, usuário e senha. Com usuário e senha, fica com registro; confira com a operadora
+- Ramal: Ramal com o mesmo número, nome (o do callerid), senha SIP, e-mail, grupos de captura, DTMF e codecs
+- Fila: Fila com a estratégia, tempos, limite e os membros fixos. Como a fila do SNEP não tem número, ganha o próximo livre a partir do Primeiro número para as filas (8000 de fábrica)
+- Regra de saída (DiscarTronco): Rota de saída com os padrões da expressão ou do alias, o tronco e a classe tirada do nome (celular, DDD, DDI, especial, emergência ou local). O 0| do SNEP vira "prefixo a tirar", e o Reescrever com prefixo vira "prefixo a pôr"
+- Regra de entrada: Rota de entrada para o número chamado, com o destino das ações dela
+- Ação URA (IVR): URA com a saudação, o tempo, as tentativas e uma entrada para cada tecla. As regras <prefixo>-<tecla> do SNEP viram as entradas dela
+- Playback seguido de outra ação: Anúncio com o áudio, que segue para o destino da ação seguinte
+- GoContext: Destino personalizado para o mesmo contexto
+- DiscarRamal, Fila: Ramal, Fila
+
+
+O que não migra (e aparece como aviso)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Contextos do dialplan do SNEP (ações GoContext): o destino personalizado é criado, mas o contexto em si estava nos arquivos do SNEP. Copie-o para o extensions_custom.conf desta central; sem isso, a chamada para nele.
+- Horário da regra (validade e dias da semana): a rota do Telium vale sempre. Se a regra do SNEP tinha horário, use uma condição horária.
+- Origem da regra de saída restrita a um grupo ou ramal: no Telium, quem pode discar é definido nas permissões de discagem do ramal.
+- Padrões que tiravam curinga (como 0XX|..., o 0 mais o código da operadora): o prefixo a tirar do Telium é só de dígitos. Cadastre esses à mão.
+- Reescrita com corte, troca ou sufixo, anúncios da fila e música de espera que ainda não está em Áudios.
+- Agentes do SNEP (login por código): monte-os no Call Center.
+- Ligação entre ramais (a regra interna do SNEP) não precisa de regra no Telium.
+
+
+Rodar de novo
+~~~~~~~~~~~~~
+
+O que já existe no Telium (ramal com o mesmo número; tronco, fila, URA ou rota de saída com o mesmo nome; rota de entrada para o mesmo número) é aproveitado e não é alterado. Rodar a migração de novo só cria o que falta, por exemplo depois de corrigir um item com erro.
+
+O dump enviado fica no servidor só até a importação (ou por um dia), em /opt/telium/api/var/migracao-snep, legível só pelo usuário da API: ele tem as senhas SIP do SNEP.
+
+
+10. PROBLEMAS COMUNS
+--------------------
 
 O custo do mês está em R$ 0,00.
 Veja o aviso no topo de Tarifação: preços zerados, chamadas pendentes ou chamadas sem classificação. Digite os preços na Tabela de Tarifas e use Recalcular o mês.

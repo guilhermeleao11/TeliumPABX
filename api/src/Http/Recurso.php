@@ -558,16 +558,9 @@ final class Recurso
             return;
         }
 
-        $pdo = Bd::conexao();
-        $pdo->beginTransaction();
-        try {
-            $id = $linha();
-            ($this->lista['gravar'])($id, $lista['lista']);
-            $pdo->commit();
-        } catch (\Throwable $e) {
-            $pdo->rollBack();
-            throw $e;
-        }
+        Bd::transacao(function () use ($linha, $lista): void {
+            ($this->lista['gravar'])($linha(), $lista['lista']);
+        });
     }
 
     /** O que vai para a auditoria: os campos e, se veio, a lista. */

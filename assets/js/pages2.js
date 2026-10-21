@@ -7604,6 +7604,171 @@ PAGES['telium.versoes'] = {
   }
 };
 
+/* ------------------------- Telium · Migração do SNEP ------------------------- */
+// Traz do SNEP 3 os troncos, ramais, filas e as regras de entrada e de
+// saída. O servidor faz a migração pelo mesmo cadastro das telas; a
+// prévia roda tudo e desfaz, e só depois a pessoa confirma.
+PAGES['telium.migracao'] = {
+  _dump: null,
+  _ultimo: null,
+
+  render() {
+    const passo = (n, titulo, corpo) => `<div class="card" style="margin-bottom:16px">
+      <div class="card-head"><div class="card-title">${n}. ${titulo}</div></div>
+      <div class="card-body">${corpo}</div></div>`;
+    const tabelas = 'peers trunks queues queue_members regras_negocio regras_negocio_actions '
+                  + 'regras_negocio_actions_config expr_alias expr_alias_expression sounds';
+
+    return pageHead('Migração do SNEP',
+        'Traz do SNEP 3 os troncos, ramais, filas e as regras de entrada e de saída.')
+      + passo(1, 'Copie os áudios antes', `
+        <p class="small" style="margin:0 0 8px">Os áudios não vêm no dump. Copie do servidor do SNEP os que as URAs,
+          anúncios e filas usam (<span class="mono">/var/lib/asterisk/sounds/pt_BR</span> e
+          <span class="mono">/var/lib/asterisk/moh</span>) e envie em <a href="#/admin.gravacoes">Áudios</a>
+          com o <b>mesmo nome do arquivo</b>. A migração liga cada um ao que o usa; o que faltar aparece na lista
+          do resultado, e dá para escolher depois.</p>`)
+      + passo(2, 'Envie o dump do banco do SNEP', `
+        <p class="small" style="margin:0 0 8px">O dump completo do banco <span class="mono">snep</span> serve
+          (<span class="mono">.sql</span>, <span class="mono">.sql.gz</span> ou <span class="mono">.sql.bz2</span>, até 64 MB).
+          Se ele for grande, gere só as tabelas da migração, no servidor do SNEP:</p>
+        <pre class="mono tiny" style="white-space:pre-wrap;word-break:break-all;background:var(--surface-3);padding:10px;border-radius:8px;margin:0 0 12px">mysqldump -u root -p --single-transaction snep ${tabelas} | gzip > snep-migracao.sql.gz</pre>
+        <div class="row gap-8 wrap" style="align-items:center">
+          <input type="file" class="input" id="snepArquivo" accept=".sql,.gz,.bz2" style="max-width:420px">
+          <span class="small muted" id="snepEnviado"></span>
+        </div>`)
+      + passo(3, 'Confira a prévia e importe', `
+        <div class="row gap-8 wrap" style="align-items:flex-end;margin-bottom:12px">
+          <div class="field" style="margin:0"><label class="label">Primeiro número para as filas</label>
+            <input class="input mono" id="snepFilaInicio" value="8000" style="width:140px"></div>
+          <button class="btn btn-ghost" id="snepPrevia" disabled>${icon('search','ico ico-sm')} Ver prévia</button>
+          <button class="btn btn-primary" id="snepImportar" disabled>${icon('upload','ico ico-sm')} Importar</button>
+        </div>
+        <p class="small muted" style="margin:0 0 12px">No SNEP a fila não tem número; aqui cada uma ganha o próximo
+          livre a partir deste. O que já existe no Telium (mesmo número de ramal, mesmo nome de tronco, fila ou rota)
+          é aproveitado e não muda: dá para rodar de novo.</p>
+        <div id="snepResultado"></div>`);
+  },
+
+  mount() {
+    const arquivo = document.getElementById('snepArquivo');
+    const previa = document.getElementById('snepPrevia');
+    const importar = document.getElementById('snepImportar');
+    const enviado = document.getElementById('snepEnviado');
+    const alvo = document.getElementById('snepResultado');
+
+    arquivo.onchange = async () => {
+      const f = arquivo.files?.[0];
+      this._dump = null;
+      previa.disabled = importar.disabled = true;
+      alvo.innerHTML = '';
+      if (!f) return;
+      enviado.innerHTML = '<span class="spin"></span> Lendo o dump…';
+      try {
+        const fd = new FormData();
+        fd.append('arquivo', f);
+        const r = await Api.upload('/migracao-snep', fd);
+        this._dump = r.id;
+        const c = r.contagem;
+        enviado.textContent = `${num(c.ramais)} ramais, ${num(c.troncos)} tronco(s), ${num(c.filas)} fila(s), `
+                            + `${num(c.regras)} regra(s).`;
+        previa.disabled = false;
+        this.enviar(true);
+      } catch (e) {
+        enviado.textContent = '';
+        alvo.innerHTML = `<p class="small" style="color:var(--danger)">${esc(e.message)}</p>`;
+      }
+    };
+    previa.onclick = () => this.enviar(true);
+    importar.onclick = async () => {
+      const ok = await Modal.confirm({
+        titulo: 'Importar do SNEP?',
+        texto: 'Os itens da prévia serão criados nesta central. Depois, aplique as configurações para o Asterisk assumir.',
+        ok: 'Importar', tone: 'brand', ico: 'upload'
+      });
+      if (ok) this.enviar(false);
+    };
+    document.getElementById('snepFilaInicio').oninput = () => { importar.disabled = true; };
+  },
+
+  async enviar(simular) {
+    const previa = document.getElementById('snepPrevia');
+    const importar = document.getElementById('snepImportar');
+    const alvo = document.getElementById('snepResultado');
+    const botao = simular ? previa : importar;
+    const texto = botao.innerHTML;
+    botao.disabled = true;
+    botao.innerHTML = `<span class="spin"></span> ${simular ? 'Conferindo…' : 'Importando…'}`;
+    try {
+      const r = await Api.post(`/migracao-snep/${this._dump}`, {
+        simular, fila_inicio: document.getElementById('snepFilaInicio').value.trim()
+      });
+      this._ultimo = r;
+      alvo.innerHTML = this.pintar(r);
+      this.ligarSenhas(r);
+      importar.disabled = !simular || !((r.resumo.criar || 0) + (r.resumo.aviso || 0));
+      if (!simular) {
+        this._dump = null;
+        previa.disabled = true;
+        toast('Migração feita. Aplique as configurações para o Asterisk assumir.', 'ok');
+      }
+    } catch (e) {
+      alvo.innerHTML = `<p class="small" style="color:var(--danger)">${esc(e.message)}</p>`;
+      importar.disabled = true;
+    }
+    botao.innerHTML = texto;
+    if (simular) previa.disabled = !this._dump;
+  },
+
+  pintar(r) {
+    const s = r.resumo;
+    const tom = { criar: 'badge-ok', aviso: 'badge-warn', erro: 'badge-danger', existe: '', ignorado: '' };
+    const rotulo = r.simulado
+      ? { criar: 'a criar', aviso: 'a criar, com aviso', erro: 'erro', existe: 'já existe', ignorado: 'não migra' }
+      : { criar: 'criado', aviso: 'criado, com aviso', erro: 'erro', existe: 'já existia', ignorado: 'não migrado' };
+    const faltam = r.audios.filter(a => !a.achado);
+    const grupos = [...new Set(r.linhas.map(l => l.grupo))];
+
+    return `
+      <div class="row gap-8 wrap" style="margin-bottom:10px">
+        <b>${r.simulado ? 'Prévia' : 'Importado'}:</b>
+        ${Object.keys(rotulo).filter(k => s[k]).map(k =>
+          `<span class="badge ${tom[k]}">${num(s[k])} ${rotulo[k]}</span>`).join('')}
+      </div>
+      ${r.senhas.length ? `<div class="aviso-form atencao" style="margin:0 0 10px">${icon('key','ico')}
+        <div class="small"><b>Senhas SIP novas</b> para os ramais que tinham senha curta no SNEP. Guarde agora e
+          reconfigure esses telefones. <div style="margin-top:6px"><button class="btn btn-ghost btn-sm" data-snep-senhas>
+          ${icon('download','ico ico-sm')} Baixar ramais e senhas</button></div></div></div>` : ''}
+      ${faltam.length ? `<div class="aviso-form atencao" style="margin:0 0 10px">${icon('alert','ico')}
+        <div class="small"><b>Áudios que ainda não estão em Áudios</b> — envie com o nome da coluna Telium e escolha no item:
+          <ul class="lista-ajuda" style="margin:6px 0 0">${faltam.map(a => `<li><span class="mono">${esc(a.snep)}</span>
+            → <span class="mono">${esc(a.telium)}</span> (${esc(a.usado_em.join(', '))})</li>`).join('')}</ul></div></div>` : ''}
+      ${r.contextos.length ? `<div class="aviso-form atencao" style="margin:0 0 10px">${icon('terminal','ico')}
+        <div class="small"><b>Contextos do dialplan do SNEP</b> usados pelas regras viraram destinos personalizados.
+          Copie cada um para o <span class="mono">extensions_custom.conf</span> desta central:
+          <span class="mono">${r.contextos.map(c => esc(c.split(',')[0])).join(', ')}</span>.</div></div>` : ''}
+      ${grupos.map(g => `<div class="card" style="margin:0 0 12px"><div class="card-head"><div class="card-title">${esc(g)}</div></div>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Item</th><th>Resultado</th><th>Detalhe</th></tr></thead>
+          <tbody>${r.linhas.filter(l => l.grupo === g).map(l => `<tr>
+            <td>${esc(l.item)}</td>
+            <td><span class="badge ${tom[l.acao] || ''}">${rotulo[l.acao] || esc(l.acao)}</span></td>
+            <td class="small">${esc(l.mensagem)}</td></tr>`).join('')}</tbody>
+        </table></div></div>`).join('')}`;
+  },
+
+  ligarSenhas(r) {
+    document.querySelector('[data-snep-senhas]')?.addEventListener('click', () => {
+      // Montado no navegador: a senha não passa pelo servidor outra vez.
+      const linhas = [['ramal', 'senha_sip'], ...r.senhas.map(x => [x.ramal, x.senha])];
+      const csv = '﻿' + linhas.map(c => c.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';')).join('\r\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const a = Object.assign(document.createElement('a'), { href: url, download: 'senhas-ramais-snep.csv' });
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  }
+};
+
 /** "2026-10-13" → "13/10/2026" */
 function dataCurta(iso) {
   const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);

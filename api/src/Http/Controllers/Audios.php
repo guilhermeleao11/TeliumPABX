@@ -84,7 +84,7 @@ final class Audios
 
         $nome = trim((string) ($corpo['nome'] ?? '')) ?: pathinfo($original, PATHINFO_FILENAME);
         // Campo separado do upload: 'arquivo' é o binário, 'nome_arquivo' é o nome base.
-        $base = $this->nomeBase((string) ($corpo['nome_arquivo'] ?? '') ?: $nome);
+        $base = self::nomeBase((string) ($corpo['nome_arquivo'] ?? '') ?: $nome);
 
         if ($base === '') {
             return Resposta::erro($res, 'Informe um nome de arquivo válido', 422);
@@ -355,7 +355,8 @@ final class Audios
         };
     }
 
-    private function nomeBase(string $texto): string
+    /** O nome do arquivo no disco: sem acento, minúsculo, com hífen. */
+    public static function nomeBase(string $texto): string
     {
         $sem = iconv('UTF-8', 'ASCII//TRANSLIT', $texto) ?: $texto;
         $base = strtolower(preg_replace('/[^A-Za-z0-9]+/', '-', $sem) ?? '');

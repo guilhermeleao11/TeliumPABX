@@ -78,6 +78,7 @@ São duas coisas diferentes:
 | `/opt/telium/api/CHANGELOG.md` | Histórico de versões, mostrado em **Telium › Versões e Novidades** |
 | `/opt/telium/api/.env` | Configuração da API, **com senhas** (banco, AMI, ARI, segredo do TURN). `0640`, `teliumpbx` |
 | `/opt/telium/api/var/cache` | Cache da API |
+| `/opt/telium/api/var/migracao-snep` | O dump do SNEP enviado em Telium › Migração do SNEP, até a importação (ou por um dia). Tem as senhas SIP do SNEP: só o usuário da API lê |
 | `/opt/telium/sql` | Scripts do banco usados por `telium migrar` |
 
 > Não edite nada em `/opt/telium`: a próxima atualização sobrescreve. O `.env` é regerado pelo playbook a partir das variáveis.
