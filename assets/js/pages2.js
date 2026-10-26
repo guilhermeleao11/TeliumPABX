@@ -4619,6 +4619,8 @@ PAGES['apps.condicoes'] = {
       const agora = !e ? '<span class="badge">estado desconhecido</span>'
         : e.forcado
           ? `<span class="badge badge-warn">forçado ${esc(e.forcado)}</span>`
+          : e.feriado
+            ? `<span class="badge badge-info">Feriado: ${esc(e.feriado)}</span>`
           : e.dentro
             ? '<span class="badge badge-ok"><i class="dot"></i>Dentro do horário</span>'
             : '<span class="badge badge-info">Fora do horário</span>';
@@ -4636,6 +4638,8 @@ PAGES['apps.condicoes'] = {
             <span>Dentro → <b>${esc(descreveDestino(c.destino_dentro_tipo, c.destino_dentro_valor, this._destinos))}</b></span></div>
           <div class="row gap-6 small">${icon('phoneOff','ico ico-sm')}
             <span>Fora → <b>${esc(descreveDestino(c.destino_fora_tipo, c.destino_fora_valor, this._destinos))}</b></span></div>
+          ${Number(c.feriados ?? 1) ? `<div class="row gap-6 small">${icon('calendar','ico ico-sm')}
+            <span>Feriados → <b>o áudio de cada feriado</b></span></div>` : ''}
           ${e?.codigo ? `<div class="row gap-6 small" data-tip="Disque para forçar; disque de novo para voltar ao horário. Num telefone, ponha o código numa tecla BLF: ela acende enquanto a condição está forçada.">${icon('phone','ico ico-sm')}
             <span>No telefone: <b class="mono">${esc(e.codigo)}</b> ${{ fechar: 'fecha a entrada', abrir: 'abre a entrada', inverter: 'inverte o horário' }[c.codigo_acao || 'fechar']}${c.codigo_pin ? ' · pede PIN' : ''}</span></div>` : ''}
         </div>
@@ -4672,6 +4676,8 @@ PAGES['apps.condicoes'] = {
                    ...pagina._grupos.map(g => ({ valor: g.id, rotulo: g.nome }))],
           ajuda: 'As faixas deste grupo é que dizem se estamos dentro ou fora.' },
         { campo: 'ativo', label: 'Condição ativa', tipo: 'switch', padrao: 1 },
+        { campo: 'feriados', label: 'Nos feriados, tocar o áudio do feriado', tipo: 'switch', padrao: 1,
+          ajuda: 'Antes do horário, a condição consulta Aplicações › Feriados: no Natal, o áudio do Natal.' },
         { campo: 'codigo_acao', label: 'O código no telefone', tipo: 'select', padrao: 'fechar', largura: 'full',
           opcoes: [{ valor: 'fechar', rotulo: 'Fecha a entrada: vai para "Fora do horário" mesmo dentro dele' },
                    { valor: 'abrir', rotulo: 'Abre a entrada: vai para "Dentro do horário" mesmo fora dele' },
@@ -4769,6 +4775,273 @@ PAGES['apps.condicoes'] = {
           App.route();
         } catch (e) { toast(e.message, 'err'); }
       });
+    });
+  }
+};
+
+/* ------------------------- Feriados ------------------------- */
+const MOVEIS_FERIADO = [
+  { valor: 'carnaval', rotulo: 'Carnaval (segunda e terça)' },
+  { valor: 'cinzas', rotulo: 'Quarta-feira de Cinzas' },
+  { valor: 'sexta_santa', rotulo: 'Sexta-feira Santa' },
+  { valor: 'pascoa', rotulo: 'Páscoa' },
+  { valor: 'corpus_christi', rotulo: 'Corpus Christi' }
+];
+
+/** "24/12 a 25/12", "Páscoa", "20/02/2026" — a data do feriado como foi cadastrada. */
+function descreveFeriado(f) {
+  const dm = (d, m) => `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`;
+  const br = d => String(d || '').slice(0, 10).split('-').reverse().join('/');
+  if (f.tipo === 'movel') return (MOVEIS_FERIADO.find(m => m.valor === f.movel) || {}).rotulo || f.movel;
+  if (f.tipo === 'data') {
+    return br(f.data_inicio) + (f.data_fim && f.data_fim !== f.data_inicio ? ` a ${br(f.data_fim)}` : '');
+  }
+  const fim = f.dia_fim && (String(f.dia_fim) !== String(f.dia_inicio) || String(f.mes_fim) !== String(f.mes_inicio));
+  return dm(f.dia_inicio, f.mes_inicio) + (fim ? ` a ${dm(f.dia_fim, f.mes_fim)}` : '') + ' · todo ano';
+}
+
+PAGES['apps.feriados'] = {
+  async render(ctx) {
+    let r, audios, destinos, datas;
+    try {
+      [r, audios, destinos, datas] = await Promise.all([
+        Api.get('/feriados', { limite: 300 }),
+        Api.get('/audios').catch(() => ({ dados: [] })),
+        opcoesDestino(),
+        Api.get('/feriados/datas').catch(() => ({ datas: {}, hoje: null }))
+      ]);
+    } catch (e) { return pageHead('Feriados', '') + blocoErro(e); }
+
+    this._itens = r.dados || [];
+    this._audios = audios.dados || [];
+    this._destinos = destinos;
+    this._datas = datas;
+
+    const botoes = ctx.can('criar')
+      ? `<button class="btn btn-outline btn-sm" data-nacionais>${icon('download','ico ico-sm')} Carregar feriados nacionais</button>
+         <button class="btn btn-primary btn-sm" data-novo-feriado>${icon('plus','ico ico-sm')} Novo feriado</button>`
+      : readOnlyNote(ctx);
+    const cabecalho = pageHead('Feriados',
+      `Cada feriado com o seu áudio. As condições horárias consultam esta lista antes do
+       horário: no Natal, quem liga ouve o áudio do Natal; no Ano Novo, o do Ano Novo.`, botoes);
+
+    if (!this._itens.length) {
+      return cabecalho + `<div class="card">${vazio('calendar', 'Nenhum feriado cadastrado',
+        `Carregue os feriados nacionais (Natal, Ano Novo, Páscoa, Carnaval…) e escolha o áudio
+         de cada um, ou cadastre um a um. Os feriados móveis, como a Páscoa, são calculados
+         sozinhos a cada ano.`,
+        ctx.can('criar') ? `<div class="row gap-6" style="justify-content:center">
+          <button class="btn btn-primary btn-sm" data-nacionais>Carregar feriados nacionais</button>
+          <button class="btn btn-outline btn-sm" data-novo-feriado>Cadastrar um feriado</button></div>` : '')}
+      </div>`;
+    }
+
+    const ano = datas.ano || new Date().getFullYear();
+    const hoje = this._itens.find(f => String(f.id) === String(datas.hoje));
+    const br = d => d.slice(8, 10) + '/' + d.slice(5, 7);
+    const linhas = this._itens.map(f => {
+      const audio = this._audios.find(x => String(x.id) === String(f.audio_id));
+      const dias = (datas.datas || {})[f.id] || [];
+      const destino = f.destino_tipo ? descreveDestino(f.destino_tipo, f.destino_valor, this._destinos) : null;
+      const efeito = audio
+        ? `${icon('speaker','ico ico-sm')} ${esc(audio.nome)}<div class="tiny muted">depois: ${esc(destino || 'desliga')}</div>`
+        : destino ? esc(destino)
+        : '<span class="badge badge-warn" data-tip="Sem áudio e sem destino: a chamada segue o “fora do horário” da condição.">sem áudio</span>';
+      return `<tr data-id="${f.id}" data-busca="${esc(String(f.nome).toLowerCase())}">
+        <td><b>${esc(f.nome)}</b></td>
+        <td>${esc(descreveFeriado(f))}
+          ${f.tipo !== 'fixo' || dias.length > 1 ? `<div class="tiny muted">${dias.length ? `em ${ano}: ${dias.map(br).join(', ')}` : `não cai em ${ano}`}</div>` : ''}</td>
+        <td class="small">${f.hora_inicio ? `${esc(String(f.hora_inicio).slice(0, 5))} às ${esc(String(f.hora_fim).slice(0, 5))}` : 'o dia inteiro'}</td>
+        <td class="small">${efeito}</td>
+        <td>${Number(f.ativo)
+          ? '<span class="badge badge-ok"><i class="dot"></i>Ativo</span>'
+          : '<span class="badge">Inativo</span>'}</td>
+        <td class="col-actions">
+          ${ctx.can('editar') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Editar"
+            data-editar-feriado="${f.id}">${icon('edit','ico ico-sm')}</button>` : ''}
+          ${ctx.can('excluir') ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Excluir"
+            data-excluir-feriado="${f.id}">${icon('trash','ico ico-sm')}</button>` : ''}
+        </td>
+      </tr>`;
+    }).join('');
+
+    return cabecalho + (hoje ? `<div class="aviso-form" style="margin-bottom:14px">
+        ${icon('calendar','ico')} <span>Hoje é <b>${esc(hoje.nome)}</b>: as condições horárias que
+        respeitam feriados estão mandando as chamadas para o áudio dele.</span></div>` : '') + `
+      <div class="card">
+        <div class="toolbar">
+          <div class="input-icon search-mini">${icon('search','ico ico-sm')}
+            <input class="input" data-filtro placeholder="Buscar por nome…">
+          </div>
+          <span class="grow"></span>
+          <span class="small muted" data-contador></span>
+        </div>
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Feriado</th><th>Quando</th><th>Horário</th><th>Áudio</th><th>Estado</th><th></th></tr></thead>
+          <tbody>${linhas}</tbody>
+        </table></div>
+      </div>
+      <p class="tiny muted" style="margin-top:8px">Valem nas condições horárias com “Nos feriados, tocar o
+        áudio do feriado” ligado. Forçar a condição (*27 ou o console) vence o feriado.</p>`;
+  },
+
+  mount(ctx) {
+    const pagina = this;
+    const itens = this._itens || [];
+
+    const filtro = document.querySelector('[data-filtro]');
+    const contador = document.querySelector('[data-contador]');
+    const linhas = [...document.querySelectorAll('tr[data-id]')];
+    const aplicar = () => {
+      const t = (filtro?.value || '').trim().toLowerCase();
+      let n = 0;
+      linhas.forEach(l => { const ok = !t || l.dataset.busca.includes(t); l.hidden = !ok; if (ok) n++; });
+      if (contador) contador.textContent = `${n} de ${linhas.length} feriados`;
+    };
+    filtro?.addEventListener('input', aplicar);
+    aplicar();
+
+    const sel = (nome, opcoes, v) => `<select class="select" name="${nome}">
+      ${opcoes.map(o => `<option value="${esc(o.valor)}"
+        ${String(o.valor) === String(v ?? '') ? 'selected' : ''}>${esc(o.rotulo)}</option>`).join('')}
+    </select>`;
+
+    const formulario = item => {
+      const novo = !item;
+      const f = item || { ativo: 1, tipo: 'fixo' };
+      const campos = [
+        { campo: 'nome', label: 'Nome', obrigatorio: true, largura: 'full', placeholder: 'Natal' },
+        { campo: 'tipo', label: 'A data', tipo: 'select', largura: 'full',
+          opcoes: [{ valor: 'fixo', rotulo: 'Todo ano no mesmo dia (Natal, Tiradentes, aniversário da cidade)' },
+                   { valor: 'movel', rotulo: 'Móvel, calculada pela Páscoa (Carnaval, Sexta-feira Santa, Corpus Christi)' },
+                   { valor: 'data', rotulo: 'Só num ano (uma ponte, um dia de folga marcado)' }] }
+      ];
+      const fim = f.dia_fim && (String(f.dia_fim) !== String(f.dia_inicio) || String(f.mes_fim) !== String(f.mes_inicio));
+
+      Drawer.open({
+        titulo: novo ? 'Novo feriado' : `Editar ${f.nome}`,
+        sub: 'A data, o áudio que toca nela e, se quiser, para onde a chamada vai depois.',
+        wide: true,
+        corpo: `<div class="form-grid">${campos.map(c => campoHtml(c, f)).join('')}</div>
+          <div class="form-grid" data-quando="fixo">
+            <div class="field" data-campo="dia_inicio"><label class="label">Dia *</label>
+              <div class="row gap-6">${sel('dia_inicio', DIAS_MES, f.dia_inicio)}${sel('mes_inicio', MESES, f.mes_inicio)}</div></div>
+            <div class="field" data-campo="dia_fim"><label class="label">Até (opcional)</label>
+              <div class="row gap-6">${sel('dia_fim', DIAS_MES, fim ? f.dia_fim : '')}${sel('mes_fim', MESES, fim ? f.mes_fim : '')}</div>
+              <span class="hint">Para mais de um dia: 24/12 a 25/12, ou 31/12 a 01/01.</span></div>
+          </div>
+          <div class="form-grid" data-quando="movel">
+            <div class="field full" data-campo="movel"><label class="label">Qual *</label>
+              ${sel('movel', [{ valor: '', rotulo: '— escolha —' }, ...MOVEIS_FERIADO], f.movel)}
+              <span class="hint">A data é calculada sozinha a cada ano.</span></div>
+          </div>
+          <div class="form-grid" data-quando="data">
+            ${campoHtml({ campo: 'data_inicio', label: 'Dia', tipo: 'date', obrigatorio: true },
+                        { data_inicio: String(f.data_inicio || '').slice(0, 10) })}
+            ${campoHtml({ campo: 'data_fim', label: 'Até (opcional)', tipo: 'date' },
+                        { data_fim: f.data_fim && f.data_fim !== f.data_inicio ? String(f.data_fim).slice(0, 10) : '' })}
+          </div>
+          <div class="form-grid">
+            ${campoHtml({ campo: 'hora_inicio', label: 'Das', tipo: 'time',
+                          ajuda: 'Em branco: o dia inteiro. Ex.: véspera de Natal só a partir das 12:00.' },
+                        { hora_inicio: String(f.hora_inicio || '').slice(0, 5) })}
+            ${campoHtml({ campo: 'hora_fim', label: 'Às', tipo: 'time' },
+                        { hora_fim: String(f.hora_fim || '').slice(0, 5) })}
+          </div>
+          <div class="secao-form">
+            <b>O que quem liga ouve</b>
+            <div class="form-grid" style="margin-top:10px">
+              ${campoHtml({ campo: 'audio_id', label: 'Áudio do feriado', tipo: 'select', largura: 'full',
+                  opcoes: [{ valor: '', rotulo: '— sem áudio —' },
+                           ...(pagina._audios || []).map(x => ({ valor: x.id, rotulo: `${x.nome} (${x.arquivo})` }))],
+                  ajuda: 'Os áudios vêm de Administrador › Gravações do Sistema. Sem áudio e sem destino, '
+                       + 'a chamada segue o “fora do horário” da condição.' }, f)}
+              ${destinoSelect('destino', f, pagina._destinos,
+                  { label: 'Depois do áudio (opcional)', largura: 'full',
+                    rotuloVazio: '— nenhum: desligar depois do áudio —',
+                    ajuda: 'Uma fila de plantão, uma caixa postal, um celular de sobreaviso… Em branco, desliga.' })}
+              ${campoHtml({ campo: 'ativo', label: 'Feriado ativo', tipo: 'switch', padrao: 1 }, f)}
+            </div>
+          </div>`,
+        rodape: `<button class="btn btn-outline" data-drawer-close>Cancelar</button>
+                 <button class="btn btn-primary" data-ok>${novo ? 'Criar feriado' : 'Salvar'}</button>`,
+        aoAbrir: dw => {
+          const tipo = dw.querySelector('[name="tipo"]');
+          const mostrar = () => dw.querySelectorAll('[data-quando]').forEach(el =>
+            el.hidden = el.dataset.quando !== tipo.value);
+          tipo.onchange = mostrar;
+          mostrar();
+
+          dw.querySelector('[data-ok]').onclick = async ev => {
+            if (!validarCampos(dw, campos)) return;
+            const v = n => dw.querySelector(`[name="${n}"]`)?.value.trim() ?? '';
+            const dados = {
+              nome: v('nome'), tipo: tipo.value,
+              dia_inicio: v('dia_inicio'), mes_inicio: v('mes_inicio'),
+              dia_fim: v('dia_fim'), mes_fim: v('mes_fim'),
+              data_inicio: v('data_inicio'), data_fim: v('data_fim'), movel: v('movel'),
+              hora_inicio: v('hora_inicio'), hora_fim: v('hora_fim'),
+              audio_id: v('audio_id'),
+              ativo: dw.querySelector('[name="ativo"]').checked ? 1 : 0
+            };
+            const { tipo: dt, valor: dv } = lerDestino(dw.querySelector('[name="destino"]'));
+            dados.destino_tipo = dt;
+            dados.destino_valor = dv;
+
+            const botao = ev.currentTarget;
+            botao.disabled = true;
+            botao.innerHTML = '<span class="spin"></span> Salvando…';
+            try {
+              if (novo) await Api.post('/feriados', dados);
+              else await Api.put(`/feriados/${f.id}`, dados);
+              Drawer.close();
+              toast('Feriado salvo. Aplique as configurações para valer no Asterisk.', 'ok');
+              App.route();
+            } catch (e) {
+              botao.disabled = false;
+              botao.textContent = novo ? 'Criar feriado' : 'Salvar';
+              if (e.detalhe?.campo) marcarErro(dw, e.detalhe.campo, e.message);
+              else toast(e.message, 'err');
+            }
+          };
+        }
+      });
+    };
+
+    document.querySelectorAll('[data-novo-feriado]').forEach(b => b.onclick = () => formulario(null));
+    document.querySelectorAll('[data-editar-feriado]').forEach(b => b.onclick = () =>
+      formulario(itens.find(x => String(x.id) === b.dataset.editarFeriado)));
+
+    document.querySelectorAll('[data-nacionais]').forEach(b => b.onclick = async () => {
+      const ok = await Modal.confirm({
+        titulo: 'Carregar os feriados nacionais?',
+        texto: `Entram os que ainda não estão na lista: Ano Novo, Sexta-feira Santa, Páscoa, Tiradentes,
+                Dia do Trabalho, Independência, Aparecida, Finados, Proclamação da República, Consciência
+                Negra e Natal; Carnaval e Corpus Christi (ponto facultativo) entram desativados. Eles vêm
+                sem áudio: escolha o de cada um depois. Para fechar também na véspera, edite o Natal
+                (24/12 a 25/12) ou o Ano Novo (31/12 a 01/01).`,
+        ok: 'Carregar'
+      });
+      if (!ok) return;
+      try {
+        const r = await Api.post('/feriados/nacionais', {});
+        toast(r.criados.length
+          ? `${r.criados.length} feriado(s) cadastrado(s). Escolha o áudio de cada um e aplique.`
+          : 'Todos os feriados nacionais já estavam na lista.', 'ok');
+        App.route();
+      } catch (e) { toast(e.message, 'err'); }
+    });
+
+    document.querySelectorAll('[data-excluir-feriado]').forEach(b => b.onclick = async () => {
+      const f = itens.find(x => String(x.id) === b.dataset.excluirFeriado);
+      const ok = await Modal.confirm({
+        titulo: `Excluir o feriado ${f.nome}?`,
+        texto: 'Nesse dia, as condições horárias voltam a seguir só o horário. O áudio continua em Gravações do Sistema.',
+        ok: 'Excluir'
+      });
+      if (!ok) return;
+      try { await Api.delete(`/feriados/${f.id}`); toast('Feriado excluído.', 'ok'); App.route(); }
+      catch (e) { toast(e.message, 'err'); }
     });
   }
 };

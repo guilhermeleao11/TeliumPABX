@@ -421,6 +421,8 @@ Aplicações (além do CRUD)
 - PUT — Caminho: /grupos-horario/{id}/faixas; Permissão: apps.grupohorario + editar; O que faz: Grava as faixas
 - GET — Caminho: /condicoes-horarias/{id}/agora; Permissão: apps.condicoes; O que faz: Situação da condição agora
 - POST — Caminho: /condicoes-horarias/{id}/forcar; Permissão: apps.condicoes + editar; O que faz: Força aberta, fechada ou automática (modo: aberto, fechado, auto)
+- GET — Caminho: /feriados/datas?ano=; Permissão: apps.feriados; O que faz: Os dias de cada feriado no ano e o feriado de agora (hoje)
+- POST — Caminho: /feriados/nacionais; Permissão: apps.feriados + criar; O que faz: Cadastra os feriados nacionais que faltam (sem áudio)
 - GET — Caminho: /destinos/contextos; Permissão: admin.destinos; O que faz: Contextos disponíveis para destino personalizado
 
 
@@ -480,6 +482,7 @@ Exceção: POST /api/usuarios é a rota própria de Cadastros::criarUsuario (com
 - despertadores — Tabela: despertadores; Módulo: apps.despertar; Leitura também: —; Aplica no Asterisk: não
 - grupos-horario — Tabela: grupos_horario; Módulo: apps.grupohorario; Leitura também: destino; Aplica no Asterisk: sim
 - condicoes-horarias — Tabela: condicoes_horarias; Módulo: apps.condicoes; Leitura também: destino; Aplica no Asterisk: sim
+- feriados — Tabela: feriados; Módulo: apps.feriados; Leitura também: —; Aplica no Asterisk: sim
 - anuncios — Tabela: anuncios; Módulo: apps.anuncios; Leitura também: destino; Aplica no Asterisk: sim
 - caixas-postais — Tabela: caixas_postais; Módulo: apps.caixaspostais; Leitura também: destino; Aplica no Asterisk: sim
 - conferencias — Tabela: conferencias; Módulo: apps.conferencias; Leitura também: destino; Aplica no Asterisk: sim

@@ -85,6 +85,16 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
  same => n,Set(TELIUM_TOQUE=${ARG2})
  same => n,Set(TELIUM_VM=${ARG3})
  same => n,Set(TELIUM_OPC=${IF($["${ARG4}" != ""]?${ARG4}:tT)})
+ ; Transferir (T) é de quem liga de um ramal. Com o T, quem ligou de fora
+ ; e caía numa caixa postal atravessando uma ponte (siga-me, desvio do
+ ; próprio aparelho) apertava # para encerrar o recado e a central
+ ; entendia o ## da transferência cega.
+ same => n,ExecIf($["${TELIUM_RAMAL}" = ""]?Set(TELIUM_OPC=${STRREPLACE(TELIUM_OPC,T,)}))
+ ; A perna do siga-me (Local/...@telium-desvio) não deixa recado: a caixa
+ ; postal atendia dentro da ponte (o # virava transferência) e, no modo
+ ; "junto", atendia na hora e roubava a chamada do ramal que ainda tocava.
+ ; Quem não atende devolve a chamada, e o recado fica na caixa do dono.
+ same => n,Set(TELIUM_PERNA=${REGEX("^Local/[^@]*@telium-desvio-" ${CHANNEL})})
  ; guarda quem ligou: é o que *69, *39 e *32 usam depois
  same => n,ExecIf($["${CALLERID(num)}" != ""]?Set(DB(ultimochamador/${ARG1})=${CALLERID(num)}))
 
@@ -122,7 +132,7 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
  same => n,GotoIf($["${DIALSTATUS}" = "BUSY" & "${TELIUM_CFB}" != ""]?desviar_ocupado)
  same => n,GotoIf($["${DIALSTATUS}" != "ANSWER" & "${TELIUM_CFU}" != ""]?desviar_naoatende)
  same => n,GoSub(sub-perdida,s,1(${ARG1}))
- same => n,GotoIf($["${TELIUM_VM}" = ""]?sem_vm)
+ same => n,GotoIf($["${TELIUM_VM}" = "" | "${TELIUM_PERNA}" = "1"]?sem_vm)
  same => n,ExecIf($["${DIALSTATUS}" = "BUSY"]?VoiceMail(${TELIUM_VM},b))
  same => n,ExecIf($["${DIALSTATUS}" = "NOANSWER"]?VoiceMail(${TELIUM_VM},u))
  same => n,ExecIf($["${DIALSTATUS}" = "CHANUNAVAIL"]?VoiceMail(${TELIUM_VM},u))
@@ -136,7 +146,7 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
  same => n,Set(TELIUM_TSIG=${IF($[${DB_EXISTS(sigame-toque/${TELIUM_R})}]?${DB(sigame-toque/${TELIUM_R})}:${TELIUM_TOQUE})})
  same => n,Dial(Local/${TELIUM_FMF}@telium-desvio,${TELIUM_TSIG},${TELIUM_OPC})
  same => n,GotoIf($["${DIALSTATUS}" = "ANSWER"]?sem_vm)
- same => n,GotoIf($["${TELIUM_VM}" = ""]?sem_vm)
+ same => n,GotoIf($["${TELIUM_VM}" = "" | "${TELIUM_PERNA}" = "1"]?sem_vm)
  same => n,VoiceMail(${TELIUM_VM},u)
  same => n,Return()
 
@@ -151,7 +161,7 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
  same => n,GoSub(sub-perdida,s,1(${ARG1}))
  same => n,Set(TELIUM_CFB=${DB(cfb/${ARG1})})
  same => n,GotoIf($["${TELIUM_CFB}" != ""]?desviar_ocupado)
- same => n,GotoIf($["${TELIUM_VM}" = ""]?so_ocupado)
+ same => n,GotoIf($["${TELIUM_VM}" = "" | "${TELIUM_PERNA}" = "1"]?so_ocupado)
  same => n,VoiceMail(${TELIUM_VM},b)
  same => n,Return()
  same => n(so_ocupado),Busy(5)

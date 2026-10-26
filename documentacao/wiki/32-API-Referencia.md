@@ -429,6 +429,8 @@ O cadastro é o recurso `integracoes` (seção 8). Além dele:
 | PUT | `/grupos-horario/{id}/faixas` | `apps.grupohorario` + editar | Grava as faixas |
 | GET | `/condicoes-horarias/{id}/agora` | `apps.condicoes` | Situação da condição agora |
 | POST | `/condicoes-horarias/{id}/forcar` | `apps.condicoes` + editar | Força aberta, fechada ou automática (`modo`: `aberto`, `fechado`, `auto`) |
+| GET | `/feriados/datas?ano=` | `apps.feriados` | Os dias de cada feriado no ano e o feriado de agora (`hoje`) |
+| POST | `/feriados/nacionais` | `apps.feriados` + criar | Cadastra os feriados nacionais que faltam (sem áudio) |
 | GET | `/destinos/contextos` | `admin.destinos` | Contextos disponíveis para destino personalizado |
 
 ### Agenda de contatos
@@ -492,6 +494,7 @@ Exceção: `POST /api/usuarios` é a rota própria de `Cadastros::criarUsuario` 
 | `despertadores` | `despertadores` | `apps.despertar` | — | não |
 | `grupos-horario` | `grupos_horario` | `apps.grupohorario` | destino | sim |
 | `condicoes-horarias` | `condicoes_horarias` | `apps.condicoes` | destino | sim |
+| `feriados` | `feriados` | `apps.feriados` | — | sim |
 | `anuncios` | `anuncios` | `apps.anuncios` | destino | sim |
 | `caixas-postais` | `caixas_postais` | `apps.caixaspostais` | destino | sim |
 | `conferencias` | `conferencias` | `apps.conferencias` | destino | sim |

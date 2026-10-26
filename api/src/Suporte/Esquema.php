@@ -21,7 +21,7 @@ final class Esquema
         'codigos_recurso', 'lista_negra', 'lista_permitida',
         'pesquisas', 'pesquisa_respostas',
         'conferencias', 'anuncios',
-        'grupos_horario', 'grupo_horario_faixas', 'condicoes_horarias',
+        'grupos_horario', 'grupo_horario_faixas', 'condicoes_horarias', 'feriados',
         'rota_saida_padroes',
         'estacionamentos', 'despertadores',
         'provisionamento_convite',
@@ -37,7 +37,8 @@ final class Esquema
                      'tabulacao_obrigatoria', 'retorno_tecla', 'ampliar_segundos'],
         'ura'    => ['anuncio_id'],
         'pesquisas' => ['sentido', 'numero', 'anuncio_saudacao_id', 'anuncio_invalida_id'],
-        'condicoes_horarias' => ['codigo_acao', 'codigo_pin'],
+        // 1.6.0 (49): a condição que consulta os feriados.
+        'condicoes_horarias' => ['codigo_acao', 'codigo_pin', 'feriados'],
         'pesquisa_respostas' => ['status', 'ramal', 'satisfacao', 'sentido'],
         'contatos' => ['empresa', 'discagem_rapida'],
         'codigos_recurso' => ['tipo', 'argumento'],

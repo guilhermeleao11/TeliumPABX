@@ -76,6 +76,8 @@ final class Conferencia
             ['SELECT numero AS quem, nome AS descricao, destino_falha_tipo AS t,
                      destino_falha_valor AS v FROM grupos_toque WHERE ativo = 1',
              'destino de falha do grupo %s'],
+            ['SELECT nome AS quem, nome AS descricao, destino_tipo AS t, destino_valor AS v
+                FROM feriados WHERE ativo = 1', 'feriado %s'],
         ];
 
         foreach ($alvos as [$sql, $onde]) {

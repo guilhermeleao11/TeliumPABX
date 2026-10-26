@@ -51,7 +51,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | Painel de Indicadores | Visão geral, wallboard em tempo real com Modo TV, estatísticas do servidor e do Asterisk | [10](10-Painel-de-Indicadores.md) |
 | Telefone | Softphone no navegador (WebRTC) | [11](11-Telefone-WebRTC.md) |
 | Administrador | Usuários, perfis e permissões, backup, certificados, lista negra, allowlist, CLI do Asterisk, contatos, destinos personalizados, códigos de recurso, gravações do sistema, auditoria | [12](12-Administrador.md) |
-| Aplicações: atendimento | Filas, pesquisa de satisfação, grupos de toque, URA, conferências, gravação de chamadas, anúncios, condições e grupos de horário | [13](13-Aplicacoes-Filas-URA-e-Atendimento.md) |
+| Aplicações: atendimento | Filas, pesquisa de satisfação, grupos de toque, URA, conferências, gravação de chamadas, anúncios, condições e grupos de horário, feriados | [13](13-Aplicacoes-Filas-URA-e-Atendimento.md) |
 | Aplicações: recursos do ramal | Siga-me, correio de voz, caixas postais, DISA, estacionamento, megafonia e interfonia, despertador | [14](14-Aplicacoes-Recursos-do-Ramal.md) |
 | Códigos de recurso | Todos os códigos discados no telefone (`*xx`) | [15](15-Codigos-de-Recurso.md) |
 | Call Center | Agentes, pausas, tabulação, retorno, monitor ao vivo com escuta, relatórios | [16](16-Call-Center.md) |

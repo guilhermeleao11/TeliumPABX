@@ -124,6 +124,11 @@ final class Horarios
             ? $this->dentroDeAlguma($faixas, new \DateTimeImmutable())
             : $forcado === 'aberto';
 
+        // Feriado vem antes do relógio, como no dialplan; forçar vence os dois.
+        $feriado = $forcado === null && (int) ($c['feriados'] ?? 0) === 1
+            ? \Telium\Dominio\Feriados::deAgora(new \DateTimeImmutable())
+            : null;
+
         // O código desta condição no telefone (*27 + o número dela), ou nulo
         // quando o prefixo está desligado em Códigos de recurso.
         $prefixo = preg_replace('/[^0-9*#]/', '', (string) Bd::valor(
@@ -133,6 +138,7 @@ final class Horarios
         return Resposta::json($res, [
             'dentro' => $dentro,
             'forcado' => $forcado,
+            'feriado' => $feriado['nome'] ?? null,
             'faixas' => count($faixas),
             'agora' => date('Y-m-d H:i:s'),
             'codigo' => $prefixo !== '' ? $prefixo . (int) $args['id'] : null,

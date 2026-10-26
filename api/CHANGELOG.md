@@ -2,6 +2,22 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
+## 1.6.0 — 2026-10-26
+Commits:
+Feriados: cada um com o seu áudio.
+
+### Novidades
+- **Aplicações › Feriados**: cada feriado com o seu áudio e, se quiser, um destino depois dele (fila de plantão, caixa postal). No Natal toca o áudio do Natal, no Ano Novo o do Ano Novo, na Páscoa o da Páscoa — sem um grupo de horário e uma condição por feriado. A data é fixa (todo ano, com intervalo que pode virar o ano: 31/12 a 01/01), móvel (Carnaval, Quarta de Cinzas, Sexta-feira Santa, Páscoa, Corpus Christi, calculados pela Páscoa de cada ano) ou de um ano só (uma ponte), com horário opcional (véspera a partir das 12:00).
+- **Carregar feriados nacionais**: cadastra de uma vez os que faltam, sem áudio, para escolher o de cada um. Só o dia do feriado (a véspera fica para cada empresa estender); Carnaval e Corpus Christi, ponto facultativo, entram desativados.
+- Quem já ouviu o áudio do feriado e volta a uma condição (pela URA ou pela fila do destino dele) segue o horário: o áudio não toca em laço.
+- **Condições horárias**: novo campo "Nos feriados, tocar o áudio do feriado" (ligado). A condição consulta os feriados depois do forçar e antes do horário; feriado sem áudio nem destino segue o "Fora do horário". O cartão mostra "Feriado: <nome>" no dia.
+- Sem feriado cadastrado, nada muda nas condições que já existem. Quem já tem perfil com Condições Horárias ganha a tela de Feriados.
+
+### Correções
+- **Caixa postal: # ia para a transferência** em vez de encerrar o recado. Quem ligava de fora recebia a opção de transferir (`T` do Dial) e, quando a caixa postal atendia atravessando uma ponte (siga-me, desvio feito no próprio aparelho), o `##` da transferência cega era capturado. Agora só quem liga de um ramal pode transferir, e o ramal que atende continua podendo.
+- **Siga-me**: a caixa postal do ramal de destino não atende mais dentro da perna do siga-me. No modo "junto", com o outro ramal desligado ou ocupado, ela atendia na hora e tirava a chamada do ramal que ainda tocava. O recado agora fica sempre na caixa do ramal dono do siga-me.
+- **Testes**: o teste "o PIN não fica em claro no banco" falhava 1 vez em mil, quando o hash aleatório continha os dígitos do PIN.
+
 ## 1.5.3 — 2026-10-21
 Commits:
 Ramais: exportar a planilha com as senhas.

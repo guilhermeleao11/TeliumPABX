@@ -1,6 +1,6 @@
 # Aplicações: Filas, URA e Atendimento — Telium PABX
 
-Manual das aplicações que decidem o caminho de uma chamada dentro da central: filas, pesquisa de satisfação, grupos de toque, URA, conferências, gravações, anúncios, condições horárias e grupos de horário.
+Manual das aplicações que decidem o caminho de uma chamada dentro da central: filas, pesquisa de satisfação, grupos de toque, URA, conferências, gravações, anúncios, condições horárias, grupos de horário e feriados.
 
 > Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
 
@@ -21,7 +21,8 @@ A parte de **call center** das filas (agentes como pessoas, pausas, tabulação,
 9. [Anúncios](#9-anúncios)
 10. [Condições Horárias](#10-condições-horárias)
 11. [Grupos de Horário](#11-grupos-de-horário)
-12. [Problemas comuns](#12-problemas-comuns)
+12. [Feriados](#12-feriados)
+13. [Problemas comuns](#13-problemas-comuns)
 
 ---
 
@@ -673,9 +674,10 @@ Precisa de ao menos um grupo de horário criado antes ([seção 11](#11-grupos-d
 
 | Item | O que mostra |
 |---|---|
-| Estado | **Dentro do horário**, **Fora do horário**, **forçado aberto / forçado fechado**, ou **estado desconhecido**. Calculado pelo **relógio do servidor** |
+| Estado | **Dentro do horário**, **Fora do horário**, **Feriado: <nome>**, **forçado aberto / forçado fechado**, ou **estado desconhecido**. Calculado pelo **relógio do servidor** |
 | Grupo | O grupo de horário e quantas faixas tem |
 | Dentro → / Fora → | Os dois destinos |
+| Feriados → | Aparece quando a condição respeita feriados: no feriado, toca o áudio dele |
 | No telefone | O código da condição (ex.: `*271`), o que ele faz e se pede PIN |
 | Pelo relógio / Forçar aberto / Forçar fechado | Força pelo console (para quem pode editar) |
 
@@ -689,6 +691,7 @@ Precisa de ao menos um grupo de horário criado antes ([seção 11](#11-grupos-d
 | Observação | |
 | Grupo de horário * | As faixas deste grupo dizem se estamos dentro ou fora |
 | Condição ativa | |
+| Nos feriados, tocar o áudio do feriado | Ligado (padrão): antes do horário, a condição consulta **Aplicações › Feriados** ([seção 12](#12-feriados)). Desligue numa condição que deve ignorar feriados (um plantão 24 horas, por exemplo) |
 | O código no telefone | **Fecha a entrada** (padrão): vai para "Fora do horário" mesmo dentro dele. **Abre a entrada**: vai para "Dentro do horário" mesmo fora dele. **Inverte**: faz o contrário do que o horário diz agora |
 | PIN para usar o código | Só dígitos, 4 a 10. Em branco: sem PIN |
 | Dentro do horário * | Destino quando alguma faixa do grupo cobre o momento da chamada |
@@ -709,14 +712,19 @@ Precisa de ao menos um grupo de horário criado antes ([seção 11](#11-grupos-d
 ### Como a condição decide
 
 1. Forçada aberta → destino **Dentro**. Forçada fechada → destino **Fora**.
-2. Sem força, confere as faixas do grupo. Basta **uma** faixa casar para estar dentro.
-3. Grupo sem faixas: **nunca** está dentro.
+2. Sem força e com feriados ligado: se hoje é feriado, toca o **áudio do feriado** (e segue para o destino dele, se tiver). Feriado sem áudio nem destino vai para o destino **Fora**.
+3. Não sendo feriado, confere as faixas do grupo. Basta **uma** faixa casar para estar dentro.
+4. Grupo sem faixas: **nunca** está dentro.
+
+Forçar vence o feriado: para atender num feriado, **Forçar aberto** (ou o código no telefone).
+
+Quem já ouviu o áudio do feriado e volta a uma condição (por exemplo, a URA do destino do feriado aponta para a condição) segue o horário normal: o áudio do feriado não toca duas vezes.
 
 ### Exemplos práticos
 
 - **Expediente:** grupo "Horário comercial", Dentro → URA, Fora → anúncio de fora do horário.
 - **Recepção fecha para reunião geral:** a recepcionista aperta a tecla BLF `*271`; a entrada vai para o anúncio de fora. Ao voltar, aperta de novo.
-- **Feriados:** veja a [seção 11](#feriados).
+- **Feriados:** cadastre em **Aplicações › Feriados**, cada um com o seu áudio ([seção 12](#12-feriados)). A condição não precisa de nada além de "Nos feriados" ligado.
 - **Plantão de sábado:** condição "Sábado" com grupo "Sábado 8h–12h", Dentro → fila de plantão, Fora → condição "Expediente". Uma condição pode apontar para outra.
 
 **Excluir:** as rotas que apontavam para ela ficam sem destino.
@@ -760,24 +768,77 @@ Botão **Adicionar horário**. Em cada faixa, deixe em branco o que não importa
 | Comercial | 08:00 às 18:00 | Segunda a sexta | — | — |
 | Almoço fechado (duas faixas) | 08:00 às 12:00 e 13:00 às 18:00 | Segunda a sexta | — | — |
 | Sábado de manhã | 08:00 às 12:00 | Dias escolhidos: sáb | — | — |
-| Natal | em branco | Todos os dias | 25 | dezembro |
 | Recesso de fim de ano | em branco | Todos os dias | 24 a 31 | dezembro |
 
-### Feriados
-
-Não há um campo próprio de feriado: o feriado é **uma faixa com dia do mês e mês**. Como as faixas de um grupo só **somam** horários, o feriado não pode ficar no mesmo grupo do expediente. Monte assim:
-
-1. Grupo **"Feriados"** com uma faixa por feriado (dia do mês + mês, hora em branco).
-2. Condição **"Feriado?"**: grupo "Feriados", Dentro → anúncio "Hoje é feriado", Fora → condição **"Expediente"**.
-3. A rota de entrada aponta para **"Feriado?"**.
-
-Feriados de data móvel (Carnaval, Sexta-feira Santa, Corpus Christi) precisam ser atualizados todo ano. Para um feriado imprevisto, use o código da condição ou **Forçar fechado**.
+Feriados não se montam mais aqui: cada um tem o seu cadastro, com o seu áudio, em **Aplicações › Feriados** ([seção 12](#12-feriados)).
 
 **Excluir:** as faixas somem junto, e as condições que usam o grupo ficam sem referência (e passam a nunca estar dentro).
 
 ---
 
-## 12. Problemas comuns
+## 12. Feriados
+
+**Aplicações › Feriados**
+
+Cada feriado com o **seu áudio**. As condições horárias consultam esta lista **antes do horário**: no Natal, quem liga ouve o áudio do Natal; no Ano Novo, o do Ano Novo; na Páscoa, o da Páscoa. Cadastra-se uma vez: os feriados de todo ano voltam sozinhos, e os de data móvel são calculados a cada ano.
+
+```
+Tronco → Rota de entrada → Condição "Expediente"
+                             ├─ é feriado? → áudio do feriado (Natal, Ano Novo, Páscoa…)
+                             ├─ dentro do horário → URA
+                             └─ fora do horário → anúncio "Fora do horário"
+```
+
+> 📷 **Print:** lista de feriados com o áudio de cada um.
+
+### A lista
+
+| Coluna | O que mostra |
+|---|---|
+| Feriado | O nome |
+| Quando | A data como foi cadastrada e, para os móveis e os de vários dias, os dias deste ano (ex.: "Páscoa · em 2026: 05/04") |
+| Horário | **o dia inteiro** ou a faixa de horas |
+| Áudio | O áudio e o que vem depois dele (**desliga** ou o destino). **sem áudio**: o feriado segue o "Fora do horário" da condição |
+| Estado | Ativo / Inativo |
+
+Quando hoje é feriado, uma faixa no alto diz qual.
+
+**Carregar feriados nacionais:** cadastra os que ainda não estão na lista (pelo nome): Ano Novo (01/01), Sexta-feira Santa, Páscoa, Tiradentes, Dia do Trabalho, Independência, Nossa Senhora Aparecida, Finados, Proclamação da República, Consciência Negra e Natal (25/12). **Carnaval** e **Corpus Christi**, que são ponto facultativo, entram **desativados**: ative se a empresa folga. Eles entram **sem áudio**: escolha o áudio de cada um. Para fechar também na véspera, edite o Natal para 24/12 a 25/12 e o Ano Novo para 31/12 a 01/01. Apague o que a empresa não folga.
+
+### Campos
+
+| Campo | O que faz |
+|---|---|
+| Nome * | Como aparece na lista |
+| A data | **Todo ano no mesmo dia**: dia e mês, e "até" para mais de um dia (24/12 a 25/12; 31/12 a 01/01 vira o ano). **Móvel**: Carnaval, Quarta-feira de Cinzas, Sexta-feira Santa, Páscoa ou Corpus Christi, calculados pela Páscoa de cada ano. **Só num ano**: uma data marcada (uma ponte, uma folga), com "até" opcional; no ano seguinte não volta |
+| Das / Às | Em branco: o dia inteiro. Preenchido: só nessa faixa do dia (ex.: véspera de Natal a partir das 12:00). As duas horas no mesmo dia |
+| Áudio do feriado | Um áudio de **Administrador › Gravações do Sistema** |
+| Depois do áudio | Opcional: uma fila de plantão, uma caixa postal, um celular de sobreaviso. Em branco, **desliga** depois do áudio. Não pode ser uma condição horária (ela consultaria o feriado de novo) |
+| Feriado ativo | Desativado, a data volta a seguir só o horário |
+
+Até 31 dias por feriado.
+
+### Qual feriado vale
+
+Quando dois feriados caem no mesmo dia, vale primeiro o de **data marcada (só num ano)**, depois o que tem **horário**, depois o mais antigo da lista. Assim, com "Natal" (24/12 a 25/12, o dia inteiro, áudio do Natal) e "Véspera" (24/12, das 12:00 às 23:59, áudio "fechamos mais cedo"), no dia 24 de manhã toca o do Natal e à tarde o da véspera.
+
+### Exemplos práticos
+
+- **O caso comum:** carregue os nacionais; Natal → áudio "Feliz Natal", Ano Novo → áudio "Feliz Ano Novo", Páscoa → áudio "Feliz Páscoa"; os outros com o áudio "Hoje é feriado". Aplique.
+- **Feriado municipal:** "Aniversário da cidade", todo ano, o dia e o mês.
+- **Ponte:** "Ponte de novembro", só num ano, 16/11/2026, áudio "Não há expediente hoje".
+- **Plantão no feriado:** áudio do feriado e, depois dele, a fila de plantão.
+
+**Lembre de Aplicar configurações** depois de mudar um feriado. A lista de dias dos feriados móveis vai calculada para os próximos 20 anos e é refeita a cada aplicação.
+
+---
+
+## 13. Problemas comuns
+
+**No feriado, a chamada foi para o horário normal.**
+- Faltou **Aplicar configurações** depois de cadastrar o feriado.
+- A condição horária está com "Nos feriados, tocar o áudio do feriado" desligado, ou a rota de entrada não passa por uma condição.
+- A condição está forçada (aberta ou fechada): forçar vence o feriado.
 
 **Mudei a configuração e nada mudou no telefone.**
 - Faltou **Aplicar configurações**. Só forçar condição pelo console e agentes de fila de call center valem na hora.

@@ -54,6 +54,7 @@ const MENU = [
       { id: 'apps.anuncios',     label: 'Anúncios',               icon: 'speaker' },
       { id: 'apps.condicoes',    label: 'Condições Horárias',     icon: 'clock' },
       { id: 'apps.grupohorario', label: 'Grupos de Horário',      icon: 'calendar' },
+      { id: 'apps.feriados',     label: 'Feriados',               icon: 'star' },
       { id: 'apps.sigame',       label: 'Siga-me',                icon: 'shuffle' },
       { id: 'apps.correiovoz',   label: 'Correio de Voz',         icon: 'voicemail' },
       { id: 'apps.caixaspostais', label: 'Caixas Postais',        icon: 'voicemail' },

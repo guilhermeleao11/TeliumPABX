@@ -5,6 +5,7 @@ namespace Telium\Suporte;
 
 use Telium\Dominio\BackupRemoto;
 use Telium\Dominio\Certificado;
+use Telium\Dominio\Feriados;
 use Telium\Dominio\Permissoes;
 use Telium\Dominio\Provisionamento;
 use Telium\Dominio\Rede;
@@ -55,6 +56,7 @@ final class Testes
         $this->grupo('Destinos de chamada', $this->destinos(...));
         $this->grupo('Codecs', $this->codecs(...));
         $this->grupo('Áudios que o dialplan toca', $this->sons(...));
+        $this->grupo('Datas dos feriados', $this->datasDosFeriados(...));
         $this->grupo('Diretórios de gravação e recado', $this->spool(...));
         $this->grupo('Softphone do navegador', $this->webrtc(...));
 
@@ -78,6 +80,7 @@ final class Testes
             $this->grupo('Migração do SNEP', $this->migracaoSnep(...));
             $this->grupo('Padrões das rotas', $this->padroesDeRota(...));
             $this->grupo('Código das condições horárias', $this->codigoDasCondicoes(...));
+            $this->grupo('Feriados na condição horária', $this->feriadosNaCondicao(...));
             $this->grupo('Pesquisa de satisfação', $this->pesquisaSatisfacao(...));
             $this->grupo('Envio de e-mail', $this->email(...));
             $this->grupo('Saída do backup', $this->backup(...));
@@ -1554,7 +1557,10 @@ final class Testes
             $this->ok(\Telium\Dominio\CallCenter::agenteDoCodigo('98761*1111') === null, 'PIN errado não entra');
             $this->ok((int) (\Telium\Dominio\CallCenter::agenteDoCodigo('98761*4321')['id'] ?? 0) === $semPin,
                       'matrícula*PIN entra');
-            $this->ok(!str_contains((string) Bd::valor('SELECT pin_hash FROM cc_agentes WHERE id = ?', [$semPin]), '4321'),
+            // O hash é hexadecimal aleatório: "4321" pode aparecer nele por
+            // acaso (1 vez em mil), e o teste falhava sem defeito nenhum.
+            $gravado = (string) Bd::valor('SELECT pin_hash FROM cc_agentes WHERE id = ?', [$semPin]);
+            $this->ok($gravado !== '4321' && strlen($gravado) >= 32 && $gravado === $pin['hash'],
                       'o PIN não fica em claro no banco');
 
             // Quem só atende pelo telefone não tem conta no console.
@@ -2713,6 +2719,97 @@ final class Testes
             }
             $recursos = (new \Telium\Gerador\GeradorRecursos())->gerar()['extensions.recursos.conf'] ?? '';
             $this->ok(!str_contains($recursos, "exten => _{$prefixo}X"), 'sem o padrão genérico antigo (*27X), que não tinha tecla BLF');
+        } finally {
+            $pdo->rollBack();
+        }
+    }
+
+    /**
+     * A Páscoa e o que depende dela, e o feriado fixo que vira o ano. O
+     * GotoIfTime não conhece o ano: é esta conta que leva a Páscoa certa
+     * para o dialplan.
+     */
+    private function datasDosFeriados(): void
+    {
+        $pascoas = ['2024-03-31', '2025-04-20', '2026-04-05', '2027-03-28', '2038-04-25', '2049-04-18'];
+        $this->ok(array_map(static fn (string $d): string => Feriados::pascoa((int) $d)->format('Y-m-d'), $pascoas) === $pascoas,
+                  'Páscoa calculada (2024 a 2049)');
+        $this->ok(Feriados::datas(['tipo' => 'movel', 'movel' => 'carnaval'], 2028) === ['2028-02-28', '2028-02-29']
+                  && Feriados::datas(['tipo' => 'movel', 'movel' => 'corpus_christi'], 2026) === ['2026-06-04']
+                  && Feriados::datas(['tipo' => 'movel', 'movel' => 'sexta_santa'], 2027) === ['2027-03-26'],
+                  'Carnaval, Corpus Christi e Sexta-feira Santa a partir da Páscoa');
+        $anoNovo = ['tipo' => 'fixo', 'dia_inicio' => 31, 'mes_inicio' => 12, 'dia_fim' => 1, 'mes_fim' => 1];
+        $this->ok(Feriados::datas($anoNovo, 2027) === ['2027-01-01', '2027-12-31']
+                  && Feriados::expressao($anoNovo, 2026) === '^[0-9]{4}-(12-31|01-01)$',
+                  'feriado fixo de 31/12 a 01/01 vira o ano, sem depender do ano');
+        $bissexto = ['tipo' => 'fixo', 'dia_inicio' => 29, 'mes_inicio' => 2];
+        $this->ok(Feriados::datas($bissexto, 2027) === [] && Feriados::datas($bissexto, 2028) === ['2028-02-29'],
+                  '29/02 só nos anos bissextos');
+        $ponte = ['tipo' => 'data', 'data_inicio' => '2026-11-16', 'data_fim' => null];
+        $this->ok(Feriados::expressao($ponte, 2026) === '^(2026-11-16)$' && Feriados::expressao($ponte, 2028) === null,
+                  'data de um ano só não volta no ano seguinte');
+        $pascoa = (string) Feriados::expressao(['tipo' => 'movel', 'movel' => 'pascoa'], 2026);
+        $this->ok(str_contains($pascoa, '2026-04-05') && str_contains($pascoa, '2046-03-25')
+                  && !str_contains($pascoa, '2024-'),
+                  'a Páscoa vai calculada para os próximos ' . Feriados::ANOS . ' anos');
+        $this->ok(Feriados::conferir('criar', ['tipo' => 'fixo', 'dia_inicio' => 31, 'mes_inicio' => 2], []) !== null
+                  && Feriados::conferir('criar', ['tipo' => 'fixo', 'dia_inicio' => 1, 'mes_inicio' => 1,
+                         'hora_inicio' => '18:00', 'hora_fim' => '08:00'], []) !== null
+                  && Feriados::conferir('criar', ['tipo' => 'fixo', 'dia_inicio' => 1, 'mes_inicio' => 1,
+                         'destino_tipo' => 'condicao', 'destino_valor' => '1'], []) !== null
+                  && Feriados::conferir('criar', ['tipo' => 'movel', 'movel' => 'pascoa'], []) === null,
+                  'o cadastro recusa 31/02, hora que vira a noite e voltar para uma condição');
+    }
+
+    /**
+     * A condição consulta os feriados antes do relógio, e forçar vence o
+     * feriado. A que desligou "feriados" não consulta.
+     */
+    private function feriadosNaCondicao(): void
+    {
+        $pdo = Bd::conexao();
+        $pdo->beginTransaction();
+        try {
+            $grupo = (int) Bd::valor('SELECT id FROM grupos_horario ORDER BY id LIMIT 1');
+            if ($grupo === 0) {
+                Bd::executar("INSERT INTO grupos_horario (nome) VALUES ('Teste de feriado')");
+                $grupo = (int) Bd::conexao()->lastInsertId();
+            }
+            Bd::executar("INSERT INTO condicoes_horarias (nome, grupo_horario_id, destino_dentro_tipo, destino_dentro_valor,
+                                 destino_fora_tipo, destino_fora_valor, feriados, ativo)
+                          VALUES ('Teste com feriado', ?, 'desligar', '', 'ocupado', '', 1, 1),
+                                 ('Teste sem feriado', ?, 'desligar', '', 'ocupado', '', 0, 1)", [$grupo, $grupo]);
+            $com = (int) Bd::valor("SELECT id FROM condicoes_horarias WHERE nome = 'Teste com feriado' ORDER BY id DESC LIMIT 1");
+            $sem = (int) Bd::valor("SELECT id FROM condicoes_horarias WHERE nome = 'Teste sem feriado' ORDER BY id DESC LIMIT 1");
+            Bd::executar("INSERT INTO feriados (nome, tipo, dia_inicio, mes_inicio, dia_fim, mes_fim, destino_tipo)
+                          VALUES ('Teste Natal', 'fixo', 24, 12, 25, 12, 'congestionado'),
+                                 ('Teste sem nada', 'fixo', 2, 11, NULL, NULL, NULL)");
+            $natal = (int) Bd::valor("SELECT id FROM feriados WHERE nome = 'Teste Natal' ORDER BY id DESC LIMIT 1");
+            $texto = (new GeradorDialplan())->gerar()['extensions.condicoes.conf'] ?? '';
+
+            $bloco = static function (string $t, int $id): string {
+                $ini = strpos($t, "exten => {$id},1,NoOp(Condição");
+                return $ini === false ? '' : substr($t, $ini, (int) strpos($t, "\n\n", $ini) - $ini);
+            };
+            $c = $bloco($texto, $com);
+            $this->ok(str_contains($c, 'Gosub(telium-feriados,s,1)')
+                      && strpos($c, '"fechado"]?fora') < strpos($c, 'Gosub(telium-feriados')
+                      && strpos($c, 'Gosub(telium-feriados') < (strpos($c, 'GotoIfTime') ?: PHP_INT_MAX),
+                      'a condição consulta o feriado depois do forçar e antes do relógio');
+            $this->ok(!str_contains($bloco($texto, $sem), 'telium-feriados'), 'a condição sem "feriados" não consulta');
+            $this->ok(str_contains($texto, '^[0-9]{4}-(12-24|12-25)$') && str_contains($texto, "Set(TELIUM_FERIADO={$natal})")
+                      && str_contains($texto, "exten => {$natal},1,NoOp(Feriado: Teste Natal)"),
+                      'cada feriado com destino tem a sua extensão');
+            $this->ok(str_contains($texto, '^[0-9]{4}-(11-02)$" ${hoje})}]?Set(TELIUM_FERIADO=fora)'),
+                      'feriado sem áudio nem destino segue o fora do horário');
+            $this->ok(!str_contains($texto, '$[${REGEX("^[0-9]{4}-(12-24|12-25)$" ${hoje})} &'),
+                      'feriado de dia inteiro não compara hora');
+            $this->ok(str_contains($texto, 'Set(__TELIUM_FERIADO_OUVIU=1)')
+                      && str_contains($texto, 'GotoIf($["${TELIUM_FERIADO_OUVIU}" = "1"]?fim)'),
+                      'quem já ouviu o feriado e volta à condição segue o relógio (sem laço)');
+            $this->ok(Feriados::conferir('criar', ['tipo' => 'fixo', 'dia_inicio' => 20, 'mes_inicio' => 12,
+                                                   'dia_fim' => 23, 'mes_fim' => null], []) === null,
+                      '"até" sem mês é o mesmo mês');
         } finally {
             $pdo->rollBack();
         }

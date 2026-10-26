@@ -85,6 +85,7 @@ Ligado pelo `*21` (ou `*23`), o siga-me toca do jeito escolhido em **Como tocar*
 
 - A chamada para o destino sai com a **permissão de discagem do ramal dono**. Ramal sem permissão de celular não consegue siga-me para celular.
 - No modo "depois", se o destino também não atende, a chamada cai no correio de voz do ramal (se ele tiver caixa).
+- O recado fica sempre na caixa do **ramal dono** do siga-me. Siga-me para outro ramal não deixa recado na caixa do outro: até a 1.5.3 deixava, e no modo "junto" a caixa do outro ramal (desligado ou ocupado) atendia na hora e tirava a chamada do ramal que ainda tocava.
 - **Desvio de todas as chamadas** (`*72`) vence o siga-me; **Não perturbe** também: o ramal responde ocupado antes de o siga-me ser tentado.
 
 ---
@@ -409,6 +410,9 @@ Clique em **Nova chamada**.
 - O ramal não tem permissão de celular ou DDD: a chamada sai com a permissão do dono.
 - O ramal está com **Não perturbe** ou **desvio de todas** ligado.
 - Confira o número com DDD e sem espaços.
+
+**Quem liga aperta # para encerrar o recado e cai na transferência.**
+- Corrigido na 1.6.0: quem liga de fora não transfere mais (a opção `T` do Dial vale só para quem liga de um ramal), e o recado do siga-me é gravado direto no canal de quem ligou. Atualize a central.
 
 **O recado não chega por e-mail.**
 - O ramal (ou a caixa) está sem e-mail, ou o envio de e-mail da central não está configurado. Teste em **Configurações**.

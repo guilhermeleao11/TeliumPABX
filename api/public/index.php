@@ -18,6 +18,7 @@ use Telium\Http\Controllers\Diagnostico;
 use Telium\Http\Controllers\Email;
 use Telium\Http\Controllers\Filas;
 use Telium\Http\Controllers\Gravacoes;
+use Telium\Http\Controllers\Feriados as CtrlFeriados;
 use Telium\Http\Controllers\Horarios;
 use Telium\Http\Controllers\Ura;
 use Telium\Http\Controllers\Audios;
@@ -90,7 +91,7 @@ $erros->setDefaultErrorHandler(
  * o cadastro e excluir seguem exigindo o dono.
  */
 const ESCOLHEM_DESTINO = [
-    'apps.ura', 'apps.filas', 'apps.anuncios', 'apps.condicoes', 'apps.grupohorario',
+    'apps.ura', 'apps.filas', 'apps.anuncios', 'apps.condicoes', 'apps.grupohorario', 'apps.feriados',
     'apps.estacionamento', 'apps.paging', 'apps.despertar', 'apps.conferencias',
     'apps.grupostoque', 'apps.disa', 'apps.sigame', 'apps.correiovoz', 'apps.caixaspostais',
     'conn.rotasentrada', 'conn.rotassaida', 'conn.provisionamento',
@@ -384,7 +385,7 @@ $recursos = [
         'recurso' => new Recurso(
             tabela: 'condicoes_horarias',
             colunas: ['nome','descricao','grupo_horario_id','destino_dentro_tipo','destino_dentro_valor',
-                      'destino_fora_tipo','destino_fora_valor','codigo_acao','codigo_pin','ativo'],
+                      'destino_fora_tipo','destino_fora_valor','feriados','codigo_acao','codigo_pin','ativo'],
             ordem: 'nome',
             busca: ['nome', 'descricao'],
             filtros: ['ativo', 'grupo_horario_id'],
@@ -398,6 +399,28 @@ $recursos = [
                 'codigo_pin' => ['rotulo' => 'PIN do código', 'padrao' => '/^[0-9]{4,10}$/',
                                  'mensagem' => 'O PIN do código é só de dígitos, de 4 a 10.'],
             ],
+        ),
+    ],
+    // Cada feriado com o seu áudio; a condição horária consulta a lista.
+    'feriados' => [
+        'modulo' => 'apps.feriados',
+        'recurso' => new Recurso(
+            tabela: 'feriados',
+            colunas: ['nome','tipo','dia_inicio','mes_inicio','dia_fim','mes_fim','data_inicio','data_fim',
+                      'movel','hora_inicio','hora_fim','audio_id','destino_tipo','destino_valor','ativo'],
+            ordem: 'nome',
+            busca: ['nome'],
+            filtros: ['ativo', 'tipo'],
+            afetaAsterisk: true,
+            modulo: 'apps.feriados',
+            regras: [
+                'nome' => ['rotulo' => 'nome', 'obrigatorio' => true, 'padrao' => '/^.{2,80}$/u',
+                           'mensagem' => 'O nome tem de 2 a 80 caracteres.'],
+                'tipo' => ['rotulo' => 'tipo de data', 'em' => ['fixo', 'data', 'movel']],
+            ],
+            normalizar: static fn (array $dados): array => \Telium\Dominio\Feriados::normalizar($dados),
+            conferir: static fn (string $acao, array $dados, array $atual): ?array
+                => \Telium\Dominio\Feriados::conferir($acao, $dados, $atual),
         ),
     ],
     'anuncios' => [
@@ -1407,6 +1430,11 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('apps.condicoes'));
     $g->post('/condicoes-horarias/{id}/forcar', [Horarios::class, 'forcar'])
       ->add(new Permissao('apps.condicoes', 'editar'));
+
+    // ---- feriados ----
+    $g->get('/feriados/datas', [CtrlFeriados::class, 'datas'])->add(new Permissao('apps.feriados'));
+    $g->post('/feriados/nacionais', [CtrlFeriados::class, 'nacionais'])
+      ->add(new Permissao('apps.feriados', 'criar'));
 
     // ---- console do Asterisk ----
     $g->get('/cli/sugestoes', [Cli::class, 'sugestoes'])->add(new Permissao('admin.cli'));

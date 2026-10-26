@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Telium\Gerador;
 
+use Telium\Dominio\Feriados;
 use Telium\Dominio\RotasSaida;
 use Telium\Suporte\Bd;
 
@@ -441,6 +442,12 @@ final class GeradorDialplan
                 ->texto();
         }
 
+        // Pelo consulta(): sem a migração 49, sem feriados — e não sem dialplan.
+        $feriados = $this->consulta(
+            'SELECT f.*, s.arquivo FROM feriados f LEFT JOIN audios s ON s.id = f.audio_id
+              WHERE f.ativo = 1 ORDER BY f.id'
+        );
+
         foreach ($condicoes as $c) {
             $id = (int) $c['id'];
             $faixas = Bd::todos(
@@ -454,6 +461,15 @@ final class GeradorDialplan
               ->same('Set(TELIUM_FORCA=${DB(condicao/' . $id . ')})')
               ->same('GotoIf($["${TELIUM_FORCA}" = "aberto"]?dentro)')
               ->same('GotoIf($["${TELIUM_FORCA}" = "fechado"]?fora)');
+
+            // Feriado vem antes do relógio: no Natal a chamada ouve o áudio
+            // do Natal, caia ele num dia útil ou não. Forçar (*27 ou o
+            // console) vence o feriado, para abrir a empresa num dia desses.
+            if ($feriados !== [] && (int) ($c['feriados'] ?? 1) === 1) {
+                $b->same('Gosub(telium-feriados,s,1)')
+                  ->same('GotoIf($["${TELIUM_FERIADO}" = "fora"]?fora)')
+                  ->same('GotoIf($["${TELIUM_FERIADO}" != ""]?telium-feriados,${TELIUM_FERIADO},1)');
+            }
 
             if ($faixas === []) {
                 $b->comentario('  grupo sem faixas: nunca está dentro');
@@ -473,9 +489,99 @@ final class GeradorDialplan
             $b->same(array_shift($dentro), 'dentro')->apps($dentro);
         }
 
+        $this->feriados($b, $feriados);
         $this->codigosDasCondicoes($b, $condicoes);
 
         return $b->texto();
+    }
+
+    /**
+     * Os feriados, consultados pelas condições horárias.
+     *
+     * A sub-rotina "s" responde qual feriado é hoje em TELIUM_FERIADO: o
+     * número dele, "fora" (o feriado sem áudio nem destino segue o fora
+     * do horário da condição) ou vazio. Cada feriado com áudio ou destino
+     * é uma extensão do contexto, para onde a condição salta.
+     *
+     * A data é comparada por expressão regular com o dia de hoje, e não
+     * pelo GotoIfTime, que não conhece o ano: a Páscoa muda de dia todo
+     * ano, e a data única não pode voltar no ano seguinte.
+     *
+     * @param list<array<string,mixed>> $feriados
+     */
+    private function feriados(Bloco $b, array $feriados): void
+    {
+        if ($feriados === []) {
+            return;
+        }
+
+        $b->branco()
+          ->comentario(str_repeat('=', 62))
+          ->comentario('Feriados (consultados pelas condições horárias)')
+          ->comentario(str_repeat('=', 62))
+          ->contexto('telium-feriados')
+          ->exten('s', 'NoOp(Hoje é feriado?)')
+          ->same('Set(TELIUM_FERIADO=)')
+          // Quem já ouviu o feriado e voltou a uma condição (pela URA ou
+          // pelo estouro da fila do destino dele) segue o relógio: sem
+          // isto, o áudio tocava de novo, em laço.
+          ->same('GotoIf($["${TELIUM_FERIADO_OUVIU}" = "1"]?fim)')
+          ->same('Set(LOCAL(hoje)=${STRFTIME(${EPOCH},,%Y-%m-%d)})')
+          ->same('Set(LOCAL(hora)=${STRFTIME(${EPOCH},,%H%M)})');
+
+        // A data de um ano só vem primeiro, depois a que tem hora: são as
+        // mais específicas. No empate, a ordem do cadastro.
+        usort($feriados, static fn (array $x, array $y): int =>
+            [$x['tipo'] !== 'data', $x['hora_inicio'] === null, (int) $x['id']]
+            <=> [$y['tipo'] !== 'data', $y['hora_inicio'] === null, (int) $y['id']]);
+
+        $ano = (int) date('Y');
+        $usados = [];
+        foreach ($feriados as $f) {
+            $regex = Feriados::expressao($f, $ano);
+            if ($regex === null) {
+                $b->comentario("{$f['nome']}: a data já passou");
+                continue;
+            }
+
+            $teste = '${REGEX("' . $regex . '" ${hoje})}';
+            $horas = '';
+            if ($f['hora_inicio'] !== null && $f['hora_fim'] !== null) {
+                $ini = Feriados::minutos((string) $f['hora_inicio']) ?? 0;
+                $fim = Feriados::minutos((string) $f['hora_fim']) ?? 1440;
+                // HHMM como número, sem zero à esquerda: 08:30 é 830.
+                $horas = ' & ${hora} >= ' . (intdiv($ini, 60) * 100 + $ini % 60)
+                       . ' & ${hora} < ' . (intdiv($fim, 60) * 100 + $fim % 60);
+            }
+
+            $proprio = $f['arquivo'] !== null || ($f['destino_tipo'] ?? '') !== '';
+            $valor = $proprio ? (string) (int) $f['id'] : 'fora';
+            if ($proprio) {
+                $usados[] = $f;
+            }
+
+            $b->comentario(Feriados::descricao($f) . " — {$f['nome']}"
+                    . ($horas !== '' ? ', ' . substr((string) $f['hora_inicio'], 0, 5) . ' às '
+                        . substr((string) $f['hora_fim'], 0, 5) : '')
+                    . ($proprio ? '' : ' (segue o fora do horário)'))
+              ->same("ExecIf(\$[{$teste}{$horas}]?Set(TELIUM_FERIADO={$valor}))")
+              ->same('GotoIf($["${TELIUM_FERIADO}" != ""]?fim)');
+        }
+        $b->same('Return()', 'fim');
+
+        foreach ($usados as $f) {
+            $b->branco()->exten((string) (int) $f['id'], "NoOp(Feriado: {$f['nome']})")
+              ->same('Set(__TELIUM_FERIADO_OUVIU=1)');
+            if ($f['arquivo'] !== null) {
+                $b->same('Answer()')
+                  ->same('Wait(1)')
+                  ->same('Playback(' . Som::prompt((string) $f['arquivo']) . ')');
+            }
+            // Sem destino, o áudio toca e a chamada desliga.
+            $b->apps(($f['destino_tipo'] ?? '') !== ''
+                ? $this->destino->linhas($f['destino_tipo'], $f['destino_valor'])
+                : ['Hangup()']);
+        }
     }
 
     /**
