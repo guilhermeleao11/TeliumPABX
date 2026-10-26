@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+#
+# Pedido SIP para um ramal que não existe, do log comum do Asterisk:
+#
+#   [2026-10-26 12:00:36] NOTICE[84123]: res_pjsip/pjsip_distributor.c:722
+#   log_failed_request: Request 'OPTIONS' from '<sip:1@1>' failed for
+#   '195.246.41.197:57953' (callid: 1) - No matching endpoint found
+#
+# O "from" e o "callid" vêm de quem mandou o pedido. Os dois padrões
+# recusam aspa simples neles: senão o robô escrevia no From um
+# "' failed for '<IP da operadora>'" e fazia a central banir quem ele
+# quisesse.
+[Definition]
+failregex = NOTICE\[\d+\](?:\[C-[0-9a-f]+\])?: res_pjsip/pjsip_distributor\.c:\d+ log_failed_request: Request '[A-Z]+' from '[^']*' failed for '\[?<HOST>\]?(?::\d+)?' \(callid: [^)']*\) - No matching endpoint found\s*$
+ignoreregex =

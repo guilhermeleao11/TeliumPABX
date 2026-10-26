@@ -23,6 +23,34 @@ logpath  = /var/log/asterisk/security
 maxretry = 5
 bantime  = 24h
 
+# Varredura: quem pede um ramal que não existe (os robôs que mandam
+# OPTIONS de "sip:1@1" e INVITE para números aleatórios). O Asterisk só
+# põe isso no log comum, e não no security, por isso as cadeias acima não
+# o viam. Três pedidos numa hora e o IP fica 24 horas sem a porta SIP.
+# Não bane tronco nem IP com ramal registrado (telium-fail2ban poupar),
+# nem a lista "nunca bloquear" do console.
+[asterisk-varredura]
+enabled  = true
+port     = {{ sip_porta }},{{ sip_tls_porta }}
+protocol = udp
+filter   = telium-sip-varredura
+logpath  = /var/log/asterisk/messages
+findtime = 1h
+maxretry = 3
+bantime  = 24h
+ignorecommand = /usr/local/sbin/telium-fail2ban poupar <ip>
+
+[asterisk-varredura-tcp]
+enabled  = true
+port     = {{ sip_porta }},{{ sip_tls_porta }}
+protocol = tcp
+filter   = telium-sip-varredura
+logpath  = /var/log/asterisk/messages
+findtime = 1h
+maxretry = 3
+bantime  = 24h
+ignorecommand = /usr/local/sbin/telium-fail2ban poupar <ip>
+
 # O nginx-http-auth só pega autenticação básica do próprio nginx, que
 # este sistema não usa: o login do console é uma chamada JSON. Fica
 # desligado para não dar falsa sensação de cobertura.

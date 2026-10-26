@@ -2,6 +2,14 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
+## 1.6.1 — 2026-10-26
+Commits:
+Firewall: bane os robôs que varrem a porta SIP.
+
+### Novidades
+- **fail2ban — varredura SIP** (cadeias `asterisk-varredura` e `asterisk-varredura-tcp`): o IP que pede 3 vezes em 1 hora um ramal que não existe ("No matching endpoint found", os `OPTIONS` de `sip:1@1` e os `INVITE` para números aleatórios) fica 24 horas sem a porta SIP. O Asterisk só registra isso no log comum, e as cadeias de antes, que leem o log de segurança, não viam esses pedidos.
+- Não bane o IP de um tronco nem um IP com ramal registrado (um telefone de ramal apagado, no escritório, derrubaria os outros), nem a lista "Nunca bloquear". O filtro recusa aspa no From e no Call-ID, para ninguém fazer a central banir o IP da operadora escrevendo-o no pedido.
+
 ## 1.6.0 — 2026-10-26
 Commits:
 Feriados: cada um com o seu áudio.

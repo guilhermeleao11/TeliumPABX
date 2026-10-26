@@ -535,6 +535,7 @@ Quem está tentando entrar na central. Uma varredura de senha aparece aqui dias 
 ### Regras do bloqueio
 
 - SIP (UDP e TCP, portas SIP e SIP-TLS): **5 erros de senha em 10 minutos** bane por **24 horas**.
+- Varredura SIP: **3 pedidos para ramal que não existe em 1 hora** bane por **24 horas** (cadeias `asterisk-varredura`). Não vale para o IP de tronco nem para IP com ramal registrado.
 - Console: 15 falhas em 10 minutos bane por 1 hora.
 - O bloqueio vale **inclusive para um ramal mal configurado aqui dentro**, e pode derrubar o IP do próprio escritório.
 

@@ -81,6 +81,27 @@
     mode: "0644"
   notify: reiniciar fail2ban
 
+# O fail2ban não sobe — com todas as cadeias, não só esta — se o log de
+# uma delas não existe. Numa central recém-instalada o Asterisk ainda pode
+# não ter escrito nada no messages.
+#
+# Só cria o que falta: o dono e as permissões do que já existe ficam como
+# estão (o syslog também lê esses arquivos).
+- name: Garantir os logs do Asterisk que o fail2ban lê
+  ansible.builtin.command:
+    cmd: "install -o asterisk -g asterisk -m 0644 /dev/null /var/log/asterisk/{{ item }}"
+    creates: "/var/log/asterisk/{{ item }}"
+  loop:
+    - messages
+    - security
+
+- name: Instalar o filtro de varredura SIP
+  ansible.builtin.template:
+    src: filter-telium-sip-varredura.conf.j2
+    dest: /etc/fail2ban/filter.d/telium-sip-varredura.conf
+    mode: "0644"
+  notify: reiniciar fail2ban
+
 - name: Configurar jail do Asterisk no fail2ban
   ansible.builtin.template:
     src: jail-telium.conf.j2

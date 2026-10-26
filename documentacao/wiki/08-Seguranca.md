@@ -83,8 +83,11 @@ As cadeias ficam em `/etc/fail2ban/jail.d/telium.conf`:
 |---|---|---|---|
 | `asterisk` | Falhas SIP em UDP (`/var/log/asterisk/security`) | 5 em 10 min | 24 horas |
 | `asterisk-tcp` | Falhas SIP em TCP/TLS (mesmo log) | 5 em 10 min | 24 horas |
+| `asterisk-varredura` / `asterisk-varredura-tcp` | Pedido SIP para ramal que não existe ("No matching endpoint found" em `/var/log/asterisk/messages`): os robôs que mandam `OPTIONS` de `sip:1@1` e `INVITE` para números aleatórios | 3 em 1 hora | 24 horas (só as portas SIP) |
 | `telium-console` | Respostas 401 e 429 do login do console (`/var/log/nginx/access.log`) | 15 em 10 min | 1 hora |
 | `sshd` | SSH | 5 em 10 min | 1 hora |
+
+A varredura **não bane** o IP de um tronco (o host cadastrado, ou o que o nome dele resolve) nem um IP que tenha algum ramal registrado naquele momento: um telefone de ramal apagado, ainda tentando, faria o mesmo pedido de dentro do escritório e derrubaria os outros telefones. Quem decide é `telium-fail2ban poupar <ip>`, o `ignorecommand` das duas cadeias. A lista **Nunca bloquear** também vale para elas.
 
 A cadeia `nginx-http-auth` fica desligada de propósito: o login do console é uma chamada JSON, e ela não o enxergaria.
 
@@ -95,7 +98,7 @@ sudo fail2ban-client status asterisk
 sudo fail2ban-client set asterisk unbanip 200.170.201.2
 ```
 
-**Ver e desbloquear pelo console:** [seção 4](#4-a-tela-firewall-e-segurança). O console fala com o fail2ban por uma ponte, `/usr/local/sbin/telium-fail2ban`, que aceita só três comandos (`listar`, `desbanir <cadeia> <ip>`, `confiaveis`) e valida a cadeia e o IP antes de passar adiante. A regra de sudo da API aponta só para esse programa.
+**Ver e desbloquear pelo console:** [seção 4](#4-a-tela-firewall-e-segurança). O console fala com o fail2ban por uma ponte, `/usr/local/sbin/telium-fail2ban`, que aceita só quatro comandos (`listar`, `desbanir <cadeia> <ip>`, `confiaveis` e `poupar <ip>`, usado pelo próprio fail2ban) e valida a cadeia e o IP antes de passar adiante. A regra de sudo da API aponta só para esse programa.
 
 ---
 

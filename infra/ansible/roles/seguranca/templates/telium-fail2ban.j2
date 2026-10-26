@@ -8,11 +8,14 @@
 # softphone errado — ficava fora do ar por 24 horas, e desbanir exigia
 # SSH. Agora o console lista e desbane.
 #
-# Aceita três comandos e mais nada:
+# Aceita quatro comandos e mais nada:
 #   listar                    quem está banido, em JSON
 #   desbanir <jail> <ip>      tira UM ip de UMA cadeia
 #   confiaveis                aplica a lista "nunca bloquear" do console
 #                             (tabela firewall_confiaveis) como ignoreip
+#   poupar <ip>               sai 0 se o IP é de um tronco ou tem ramal
+#                             registrado agora (o ignorecommand da cadeia
+#                             asterisk-varredura); 1 se pode ser banido
 #
 # O jail e o IP são validados aqui, e não no sudoers: é o que permite a
 # regra de sudo apontar para um único programa, sem curinga.
@@ -143,8 +146,41 @@ case "${1:-}" in
     echo "${total} endereço(s) que nunca são bloqueados"
     ;;
 
+  poupar)
+    # A cadeia asterisk-varredura bane quem pede ramal que não existe — o
+    # robô que varre a internet. Mas um telefone de ramal apagado, ainda
+    # tentando, faz o mesmo de dentro do escritório, e banir o IP do
+    # escritório derrubava todos os telefones dele. Fica de fora quem é
+    # tronco (a operadora) ou já tem algum ramal registrado.
+    ip="${2:-}"
+    if ! printf '%s' "$ip" | grep -Eq '^[0-9a-fA-F.:]{3,45}$'; then
+      exit 1
+    fi
+
+    # Ramal registrado agora a partir deste endereço. A saída vai para
+    # uma variável antes do grep: com pipefail, o grep -q que acha cedo
+    # fecha o cano, o asterisk morre de SIGPIPE e o "achou" virava falha.
+    contatos=$(asterisk -rx "pjsip show contacts" 2>/dev/null)
+    if printf '%s\n' "$contatos" | grep -Fq -e "@${ip}:" -e "@${ip};" -e "@[${ip}]"; then
+      exit 0
+    fi
+
+    # Tronco: o host cadastrado, ou o que o nome dele resolve.
+    hosts=$(mariadb --protocol=socket -uroot -N -B {{ db_nome }} \
+              -e "SELECT host FROM troncos WHERE host IS NOT NULL AND host <> ''" 2>/dev/null) || exit 1
+    for h in $hosts; do
+      h="${h%%:*}"
+      [ "$h" = "$ip" ] && exit 0
+      enderecos=$(getent ahosts "$h" 2>/dev/null | awk '{print $1}')
+      if printf '%s\n' "$enderecos" | grep -Fxq "$ip"; then
+        exit 0
+      fi
+    done
+    exit 1
+    ;;
+
   *)
-    echo "uso: $(basename "$0") listar | desbanir <jaula> <ip> | confiaveis" >&2
+    echo "uso: $(basename "$0") listar | desbanir <jaula> <ip> | confiaveis | poupar <ip>" >&2
     exit 64
     ;;
 esac
