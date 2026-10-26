@@ -18,7 +18,7 @@
 
 - name: Gerar o segredo do TURN
   ansible.builtin.set_fact:
-    turn_segredo_efetivo: "{{ turn_segredo | default(lookup('password', credenciais_dir ~ '/turn_segredo chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho), true) }}"
+    turn_segredo_efetivo: "{{ turn_segredo | default(credencial.turn_segredo, true) }}"
 
 # O coturn do Debian não sobe enquanto este arquivo disser que não.
 - name: Liberar a partida do coturn
@@ -33,7 +33,7 @@
   notify: reiniciar coturn
 
 # Atrás de NAT o coturn precisa do endereço público. Vale o do
-# servidor.yml; sem ele, o que foi gravado no console (Conectividade ›
+# ajustes do servidor; sem ele, o que foi gravado no console (Conectividade ›
 # Configurações de Rede). Antes só a variável do Ansible chegava aqui, e o
 # endereço posto no console ficava no Asterisk e faltava no TURN.
 - name: Ler o endereço público gravado no console

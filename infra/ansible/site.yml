@@ -1,6 +1,10 @@
 ---
+# Instalar ou atualizar. De dentro da central:
+#   sudo ansible-playbook site.yml
+# De outra máquina, pela rede (o mesmo playbook, com outro nome):
+#   ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml
 - name: Provisionar o Telium PABX
-  hosts: pabx
+  hosts: all
   become: true
   gather_facts: true
 
@@ -12,16 +16,63 @@
          | regex_findall("NUMERO = '([^']+)'") | first | default('?') }}
 
   pre_tasks:
+    # ---------- os ajustes desta central ----------
+    - name: Ler os ajustes desta central
+      ansible.builtin.include_tasks: tarefas/ajustes-do-servidor.yml
+
+    # ---------- as senhas de serviço, do servidor ----------
+    - name: Ler as senhas de serviço desta central
+      ansible.builtin.include_tasks: tarefas/credenciais.yml
+
+    # ---------- nunca voltar a versão ----------
+    # Rodando de fora, o código vem do clone de quem roda. Um clone sem
+    # git pull publicava o código antigo sobre o novo, com o banco já
+    # migrado para o novo.
+    - name: Ver a versão que está na central
+      ansible.builtin.slurp:
+        src: "{{ telium_api }}/src/Suporte/Versao.php"
+      register: versao_instalada
+      failed_when: false
+
+    - name: Versão que está na central
+      ansible.builtin.set_fact:
+        versao_na_central: >-
+          {{ (versao_instalada.content | default('') | b64decode)
+             | regex_findall("NUMERO = '([^']+)'") | first | default('') }}
+
+    - name: Não publicar versão mais antiga que a instalada
+      ansible.builtin.assert:
+        that: >-
+          (permitir_versao_antiga | default(false) | bool)
+          or telium_versao == '?' or versao_na_central == ''
+          or telium_versao is version(versao_na_central, '>=')
+        fail_msg: >-
+          A central está na versão {{ versao_na_central }} e este clone tem a {{ telium_versao }}.
+          Atualize o clone (git pull) e rode de novo. Voltar de versão de propósito:
+          -e permitir_versao_antiga=true.
+        quiet: true
+
     # ---------- o nome desta central ----------
     # Cada cliente tem o seu, e ele vai para o console, o certificado, o
     # domínio SIP e o TURN. O de fábrica (pabx.telium.local) não serve
     # para nada de verdade — um ".local" nem o navegador resolve —, então
     # enquanto ele estiver valendo a instalação pergunta. A resposta fica
-    # guardada no servidor.yml (fora do Git) e as próximas execuções não
+    # guardada nos ajustes do servidor (servidor_ajustes) e as próximas execuções não
     # perguntam mais. Sem terminal: -e pabx_hostname=voz.cliente.com.br
     - name: O nome desta central já foi escolhido?
       ansible.builtin.set_fact:
         pabx_nome_pendente: "{{ (pabx_hostname | default('') | string | trim | lower) in ['', 'pabx.telium.local'] }}"
+
+    # O pause pergunta uma vez para todos os servidores da execução.
+    - name: Um nome por central
+      ansible.builtin.assert:
+        that: ansible_play_hosts_all | length == 1
+        fail_msg: >-
+          {{ inventory_hostname }} ainda não tem nome, e esta execução tem
+          {{ ansible_play_hosts_all | length }} servidores: a pergunta valeria para todos.
+          Instale uma central nova por vez (-i "IP,").
+        quiet: true
+      when: pabx_nome_pendente
 
     - name: Perguntar o nome desta central
       ansible.builtin.pause:
@@ -46,7 +97,7 @@
         pabx_hostname: "{{ resposta_nome.user_input | default('') | trim | lower }}"
       when: pabx_nome_pendente
 
-    # O nome que vem por -e ou do servidor.yml também vira minúsculo.
+    # O nome que vem por -e ou dos ajustes do servidor também vira minúsculo.
     - name: Nome em minúsculas
       ansible.builtin.set_fact:
         pabx_hostname: "{{ pabx_hostname | string | trim | lower }}"
@@ -72,26 +123,15 @@
           parte começando por letra) ou um IP.{% endif %}
         quiet: true
 
-    # O servidor.yml vive no clone, na máquina de onde o playbook roda.
-    # Uma central por clone: para várias, use host_vars/<servidor>.yml.
-    - name: Criar o servidor.yml a partir do modelo
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/group_vars/all/servidor.yml.exemplo"
-        dest: "{{ playbook_dir }}/group_vars/all/servidor.yml"
-        force: false
-        mode: "0644"
-      delegate_to: localhost
-      run_once: true
-      become: false
-
-    - name: Guardar o nome da central no servidor.yml
+    - name: Guardar o nome da central nos ajustes do servidor
       ansible.builtin.lineinfile:
-        path: "{{ playbook_dir }}/group_vars/all/servidor.yml"
+        path: "{{ servidor_ajustes }}"
         regexp: '^#?\s*pabx_hostname:'
         line: 'pabx_hostname: "{{ pabx_hostname }}"'
-      delegate_to: localhost
-      run_once: true
-      become: false
+
+    # ---------- o resto do que é de cada cliente ----------
+    - name: Perguntar o que é deste cliente
+      ansible.builtin.include_tasks: tarefas/perguntas-da-instalacao.yml
 
     # ---------- a senha inicial do admin ----------
     # Fora do Git (veja senha_admin_arquivo em main.yml). Só é pedida
@@ -204,6 +244,7 @@
           - "Asterisk .. {{ asterisk_versao }} (compilado do fonte)"
           - "Janus ..... {{ janus_versao }} (compilado do fonte)"
           - "TURN ...... coturn (mídia do softphone onde o caminho direto não passa)"
+          - "SIP ....... {{ 'só redes conhecidas (Brasil, Telium, troncos, Nunca bloquear' ~ ((' + ' ~ (sip_redes_extras | join(', '))) if sip_redes_extras else '') ~ ')' if sip_restringir_redes | default(false) | bool else 'aberto para a internet (fail2ban ligado)' }}"
           - "MariaDB ... {{ mariadb_versao }} (repositório oficial)"
           - "nginx ..... canal {{ nginx_canal }} (repositório oficial)"
           - "PHP ....... 8.4 + Slim"
@@ -295,4 +336,5 @@
           - "Senhas de serviço em {{ credenciais_dir }} (0600, só root)"
           - "Resumo salvo em {{ telium_etc }}/instalacao.txt"
           - ""
-          - "Verificação ... sudo ansible-playbook verificar.yml"
+          - "Verificação ... sudo ansible-playbook verificar.yml  (de fora: ansible-playbook -i \"{{ inventory_hostname }},\" verificar.yml)"
+          - "Ajustes desta central: {{ servidor_ajustes }}"

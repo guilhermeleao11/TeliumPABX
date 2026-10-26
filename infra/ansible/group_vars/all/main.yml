@@ -5,8 +5,9 @@
 #
 # As senhas de serviço (banco, AMI, ARI) NÃO ficam aqui: são geradas
 # automaticamente na primeira instalação e guardadas em
-# {{ credenciais_dir }}, uma por arquivo, com permissão 0600.
-# Reexecutar o playbook reaproveita as mesmas — o lookup lê o arquivo.
+# {{ credenciais_dir }} NO SERVIDOR, uma por arquivo, com permissão 0600
+# (tarefas/credenciais.yml). Reexecutar o playbook, de dentro ou de fora,
+# reaproveita as mesmas.
 #
 # Para escolher as senhas você mesmo, defina vault_db_senha,
 # vault_db_cdr_senha, vault_ami_senha e vault_ari_senha
@@ -22,12 +23,22 @@ nginx_canal: "mainline"          # mainline = 1.31.x
 
 # ---------- senha inicial do admin do console ----------
 # NÃO fica no Git. A instalação usa, nesta ordem: senha_padrao_console
-# passada por -e, posta no servidor.yml ou no vault.yml; a guardada no
+# passada por -e, posta nos ajustes do servidor (servidor_ajustes) ou no vault.yml; a guardada no
 # próprio servidor em senha_admin_arquivo; e, sem nenhuma, pergunta no
 # terminal e guarda no arquivo (0600, só root). Ela define a senha do
 # admin do console e a do admin do Asternic, uma vez por servidor — nas
 # atualizações, quando as duas já foram definidas, ninguém pergunta.
 senha_admin_arquivo: "{{ credenciais_dir }}/senha_admin_console"
+
+# ---------- os ajustes de cada central ----------
+# Nome, Asternic, syslog, TURN… de cada central ficam no próprio servidor,
+# neste arquivo (só root). A instalação o cria a partir do
+# servidor.yml.exemplo e grava nele o que pergunta. Fora de /etc/telium,
+# que é do usuário da API.
+servidor_ajustes: /etc/telium-servidor.yml
+# Onde as centrais instaladas de dentro têm o clone (e, até a 1.6.1, o
+# servidor.yml). Rodando de fora, é de lá que os ajustes antigos vêm.
+clone_no_servidor: /opt/TeliumPABX
 
 # ---------- identidade da central ----------
 pabx_hostname: "pabx.telium.local"
@@ -61,7 +72,7 @@ backup_dir: /var/Backup/pabx-telium   # dentro do /var/Backup, que o backup da e
 # O arquivo da ferramenta de backup da empresa (linhas "I /caminho"). O
 # playbook mantém lá um bloco com o que é essencial da central (papel
 # backup). Se o arquivo não existir no servidor, não mexe em nada; para
-# desligar, deixe vazio no servidor.yml.
+# desligar, deixe vazio nos ajustes do servidor (servidor_ajustes).
 backup_empresa_lista: /root/.backup_telium
 # Liga a rotina diária de backup de fábrica quando nenhuma rotina
 # automática estiver ligada: é ela que gera o dump do banco que o backup
@@ -81,13 +92,23 @@ telium_group: teliumpbx
 credenciais_dir: /etc/telium/credenciais
 senha_tamanho: 28
 senha_alfabeto: "ascii_letters,digits"
+# Geradas e lidas NO SERVIDOR (tarefas/credenciais.yml), no começo do
+# playbook: rodando de fora, nada disso vem da estação.
+credenciais_nomes:
+  - db_senha
+  - db_cdr_senha
+  - ami_senha
+  - ari_senha
+  - asternic_db_senha
+  - asternic_ami_senha
+  - turn_segredo
 
 # ---------- banco ----------
 db_nome: telium_pabx
 db_usuario: telium
-db_senha: "{{ vault_db_senha | default(lookup('password', credenciais_dir ~ '/db_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho), true) }}"
+db_senha: "{{ vault_db_senha | default(credencial.db_senha, true) }}"
 db_cdr_usuario: asteriskcdr
-db_cdr_senha: "{{ vault_db_cdr_senha | default(lookup('password', credenciais_dir ~ '/db_cdr_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho), true) }}"
+db_cdr_senha: "{{ vault_db_cdr_senha | default(credencial.db_cdr_senha, true) }}"
 db_root_socket: true                         # root via unix_socket (padrão MariaDB)
 
 # ---------- rede / portas ----------
@@ -105,23 +126,23 @@ udptl_fim: 4999
 ast_http_porta: 8090                         # ARI/HTTP do Asterisk (8088 é do Janus)
 ami_porta: 5038
 ami_usuario: telium
-ami_senha: "{{ vault_ami_senha | default(lookup('password', credenciais_dir ~ '/ami_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho), true) }}"
+ami_senha: "{{ vault_ami_senha | default(credencial.ami_senha, true) }}"
 ari_usuario: telium
-ari_senha: "{{ vault_ari_senha | default(lookup('password', credenciais_dir ~ '/ari_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho), true) }}"
+ari_senha: "{{ vault_ari_senha | default(credencial.ari_senha, true) }}"
 
 # ---------- Asternic Call Center Stats PRO (opcional) ----------
 # Relatórios de filas da House Internet, em Call Center › Stats. É software
 # comercial: cada central precisa de uma licença comprada, presa ao MAC do
 # servidor. Os arquivos não vão para o Git (a licença proíbe redistribuir):
 # o playbook baixa o pacote oficial na instalação. Ligue só nas centrais
-# com licença, no servidor.yml: instalar_asternic: true
+# com licença, nos ajustes do servidor: instalar_asternic: true
 instalar_asternic: false
 asternic_versao: "2.3.19"
 asternic_url: "https://download.fop2.com/asternic-stats-pro-{{ asternic_versao }}.tgz"
 asternic_dir: /opt/asternic            # a tela fica em {{ asternic_dir }}/stats, servida em /stats/
 ioncube_url: "https://downloads.ioncube.com/loader_downloads/ioncube_loaders_lin_x86-64.tar.gz"
-asternic_db_senha: "{{ lookup('password', credenciais_dir ~ '/asternic_db_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho) }}"
-asternic_ami_senha: "{{ lookup('password', credenciais_dir ~ '/asternic_ami_senha chars=' ~ senha_alfabeto ~ ' length=' ~ senha_tamanho) }}"
+asternic_db_senha: "{{ credencial.asternic_db_senha }}"
+asternic_ami_senha: "{{ credencial.asternic_ami_senha }}"
 
 janus_http_porta: 8088
 janus_ws_porta: 8188
@@ -161,6 +182,73 @@ compilar_asterisk: true                      # false pula a compilação (VM já
 instalar_janus: false
 compilar_janus: true
 instalar_firewall: true
+
+# ---------- SIP só para redes conhecidas ----------
+# Ligado, o SIP, o áudio (RTP e fax), o TURN e o Janus só respondem a
+# quem está nas redes abaixo, na lista "Nunca bloquear" do console, aos
+# troncos e aos telefones que já registraram. O resto da internet nem
+# chega ao Asterisk: some a varredura de robôs do log.
+#
+# A instalação PERGUNTA na primeira vez e grava a resposta nos ajustes do
+# servidor (sip_restringir_redes e sip_redes_extras). Sem resposta,
+# desligado. Para mudar depois: edite servidor_ajustes e rode o playbook.
+#
+# Só IPv4 é restrito, enquanto a lista não tiver nenhuma faixa IPv6.
+sip_redes_liberadas:
+  # Telium
+  - 200.155.155.250/32
+  - 200.201.133.10/32
+  - 200.201.131.24/32
+  - 200.170.201.2/32
+  # Brasil (a mesma lista dos servidores da Telium; peneira grossa:
+  # alguns blocos /8 têm também endereços de fora)
+  - 45.0.0.0/8
+  - 72.44.0.0/16
+  - 128.201.0.0/16
+  - 131.0.0.0/8
+  - 132.255.0.0/16
+  - 138.0.0.0/8
+  - 139.82.0.0/16
+  - 143.0.0.0/8
+  - 146.134.0.0/16
+  - 146.164.0.0/16
+  - 147.65.0.0/16
+  - 150.161.0.0/16
+  - 150.162.0.0/16
+  - 150.163.0.0/16
+  - 150.164.0.0/16
+  - 150.165.0.0/16
+  - 152.0.0.0/8
+  - 155.211.0.0/16
+  - 157.86.0.0/16
+  - 160.0.0.0/8
+  - 161.0.0.0/8
+  - 164.0.0.0/8
+  - 167.0.0.0/8
+  - 168.0.0.0/8
+  - 170.0.0.0/8
+  - 177.0.0.0/8
+  - 179.0.0.0/8
+  - 181.0.0.0/8
+  - 186.0.0.0/8
+  - 187.0.0.0/8
+  - 189.0.0.0/8
+  - 190.0.0.0/8
+  - 191.0.0.0/8
+  - 192.0.0.0/8
+  - 198.0.0.0/8
+  - 200.0.0.0/8
+  - 201.0.0.0/8
+  - 204.225.0.0/16
+  - 207.248.0.0/16
+  - 216.98.0.0/16
+  # Redes internas: telefones do escritório chegando por VPN ou pela LAN
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+# As de cada central (a operadora fora do Brasil, um escritório no
+# exterior), somadas às de cima. Perguntadas na instalação.
+sip_redes_extras: []
 # ---------- áudios da central ----------
 #
 # O conjunto base (inglês, na raiz de sounds/) é instalado SEMPRE: é o

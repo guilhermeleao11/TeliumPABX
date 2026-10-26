@@ -32,6 +32,14 @@ curl -sk https://127.0.0.1/api/health
 
 ### 4. O diagnóstico completo
 
+Da sua máquina, na pasta `infra/ansible` do clone:
+
+```bash
+ansible-playbook -i "200.170.198.176," verificar.yml -u root -k
+```
+
+De dentro do servidor:
+
 ```bash
 cd /opt/TeliumPABX/infra/ansible
 sudo ansible-playbook verificar.yml
@@ -75,9 +83,10 @@ Quase sempre é o **áudio (RTP)** não chegando.
 
 É o navegador mostrando a versão antiga. Aperte **Ctrl + Shift + R** (no
 Mac, Cmd + Shift + R). Se continuar, confira que o servidor foi mesmo
-atualizado: `cd /opt/TeliumPABX && git log --oneline -1`, e que o playbook
-rodou depois do `git pull`. Também vale conferir se o seu perfil tem a
-permissão daquela tela.
+atualizado: a versão no rodapé do menu tem de ser a do clone de onde o
+playbook rodou (`git log --oneline -1` nele), e o playbook tem de ter rodado
+depois do `git pull`. Também vale conferir se o seu perfil tem a permissão
+daquela tela.
 
 ### Entra pelo IP, mas não pelo nome (ou o contrário)
 
@@ -86,8 +95,8 @@ permissão daquela tela.
 2. O certificado é desse nome? Em **Administrador › Certificados**, o
    certificado em uso tem de cobrir o nome digitado. Com o certificado de
    fábrica, o navegador avisa e às vezes bloqueia.
-3. O nome está no `servidor.yml` como `pabx_hostname`? Depois de mudar,
-   rode o playbook de novo.
+3. O nome está no `/etc/telium-servidor.yml` do servidor como
+   `pabx_hostname`? Depois de mudar, rode o playbook de novo.
 4. Não sendo nada disso: teste do próprio servidor com
    `curl -k --resolve voz.cliente.com.br:443:127.0.0.1 https://voz.cliente.com.br/api/health`.
    Se responder, o problema está entre o navegador e o servidor (DNS,
@@ -113,6 +122,10 @@ permissão daquela tela.
   erradas: **Conectividade › Firewall** mostra quem está bloqueado e
   desbloqueia. Um endereço de confiança (o escritório, o monitoramento)
   pode ir para **Nunca bloquear**.
+- Com o **SIP só para redes conhecidas** ligado (`sip_restringir_redes`),
+  um aparelho fora do Brasil, sem IP na lista, nem chega ao Asterisk (não
+  aparece nem no log). Ponha o IP dele em **Nunca bloquear**: vale em segundos.
+  `sudo telium-firewall-sip mostrar` mostra a lista em vigor.
 
 ### A chamada de fora não chega
 
@@ -149,5 +162,20 @@ A faixa mostra a etapa que falhou.
 - Na **bateria de testes**: a saída diz qual teste falhou e por quê.
 - No **git pull**, por mudança local no `main.yml`: veja
   [02 — Atualização](02-ATUALIZACAO.md#se-o-git-pull-recusar).
-- Em qualquer outro ponto: rode `sudo ansible-playbook verificar.yml` e
-  guarde a saída junto com a do playbook.
+- **"A central está na versão X e este clone tem a Y"**: o clone de onde
+  o playbook rodou está atrasado. `git pull` nele e rode de novo.
+- **"Este clone tem servidor.yml ... em group_vars/all/"**: rodando de
+  fora, o seu clone tem os ajustes de uma central só, do jeito de antes.
+  Renomeie o arquivo para `.antigo` e rode de novo (os ajustes de cada
+  central ficam nela, em `/etc/telium-servidor.yml`).
+- **"... ainda não tem o Telium PABX"**: várias centrais no `-i`, e uma
+  ainda é nova. Instale a nova sozinha.
+- **"Esta central tem mais de um clone com servidor.yml"**: diga qual vale
+  com `-e servidor_yml_antigo=<caminho>`.
+- **"... usa {{ ... }} ou {% ..."**: o `/etc/telium-servidor.yml` tem um
+  valor com modelo do Ansible. Escreva o valor por extenso.
+- **"UNREACHABLE"**: o Ansible não entrou por SSH. Teste `ssh
+  root@200.170.198.176` da sua máquina (rede da Telium ou VPN; o `root`
+  do Debian não entra por senha de fábrica; com `-k`, falta o `sshpass`?).
+- Em qualquer outro ponto: rode o `verificar.yml` (acima) e guarde a saída
+  junto com a do playbook.

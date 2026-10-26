@@ -4,7 +4,7 @@ Como levar uma central que já está no ar para a versão nova do Git, sem perde
 
 O playbook é o mesmo da instalação e só mexe no que mudou: publica o código novo em `/opt/telium`, aplica as mudanças de banco, reescreve a configuração do Asterisk, recarrega o que precisa e roda a bateria de testes. **Chamadas em andamento não caem**: o Asterisk é recarregado, não reiniciado. Quando uma mudança exige reinício, ele é agendado para quando a central estiver sem chamada nenhuma.
 
-> Nos comandos abaixo o clone está em `/opt/TeliumPABX`, como na instalação padrão. Se o seu estiver em outra pasta, troque o caminho.
+O jeito recomendado é atualizar **da sua máquina**, pela rede, com o clone dela em dia. Atualizar **de dentro do servidor** continua funcionando (seção 6).
 
 ---
 
@@ -13,20 +13,34 @@ O playbook é o mesmo da instalação e só mexe no que mudou: publica o código
 1. [Resumo](#1-resumo)
 2. [O que nunca fazer numa central com cliente](#2-o-que-nunca-fazer-numa-central-com-cliente)
 3. [Antes](#3-antes)
-4. [Baixar a versão nova](#4-baixar-a-versão-nova)
-5. [Aplicar](#5-aplicar)
-6. [Conferir](#6-conferir)
-7. [Voltar atrás](#7-voltar-atrás)
-8. [Trocar o remoto do GitHub para o GitLab](#8-trocar-o-remoto-do-github-para-o-gitlab)
-9. [Problemas comuns](#9-problemas-comuns)
-10. [Notas das versões](#10-notas-das-versões)
+4. [Atualizar de fora, pela sua máquina](#4-atualizar-de-fora-pela-sua-máquina)
+5. [O menu da atualização](#5-o-menu-da-atualização)
+6. [Atualizar de dentro do servidor (alternativa)](#6-atualizar-de-dentro-do-servidor-alternativa)
+7. [O que a atualização mantém e como mudar um ajuste](#7-o-que-a-atualização-mantém-e-como-mudar-um-ajuste)
+8. [Conferir](#8-conferir)
+9. [Voltar atrás](#9-voltar-atrás)
+10. [Trocar o remoto do GitHub para o GitLab](#10-trocar-o-remoto-do-github-para-o-gitlab)
+11. [Problemas comuns](#11-problemas-comuns)
+12. [Notas das versões](#12-notas-das-versões)
 
 ---
 
 ## 1. Resumo
 
+Da sua máquina, na pasta do clone:
+
 ```bash
-cd /opt/TeliumPABX && sudo git pull && cd infra/ansible && sudo ansible-playbook site.yml -e compilar_asterisk=false -e compilar_janus=false
+git pull
+cd infra/ansible
+ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml -u root -k
+```
+
+O playbook mostra a versão instalada e a do clone e pergunta o que fazer: **Enter** atualiza mantendo tudo.
+
+De dentro do servidor, o de sempre:
+
+```bash
+cd /opt/TeliumPABX && sudo git pull && cd infra/ansible && sudo ansible-playbook site.yml
 ```
 
 O passo a passo, com o que conferir, vem a seguir.
@@ -35,13 +49,13 @@ O passo a passo, com o que conferir, vem a seguir.
 
 ## 2. O que nunca fazer numa central com cliente
 
-> **Nunca rode a atualização com `-e limpar_banco=true`.** Ele apaga ramais, troncos, filas, URAs, rotas, CDR, call center, caixas postais, chaves de API, contatos, auditoria e todos os usuários menos o `admin`. Não tem volta.
+> **Nunca escolha a opção 2 (LIMPAR O BANCO) do menu numa central com cliente, nem rode com `-e limpar_banco=true`.** Ele apaga ramais, troncos, filas, URAs, rotas, CDR, call center, caixas postais, chaves de API, contatos, auditoria e todos os usuários menos o `admin`. Não tem volta. O `-e` não pergunta nada e vale mesmo que no menu se escolha "Atualizar".
 
-> **Nunca rode com `-e cenario_teste=true`.** Ele cria ramais de teste (1001 a 1004) com uma senha SIP fixa que está no repositório, além de fila, grupo, conferência, URA e rotas de teste, na base do cliente.
+> **Nunca rode com `-e cenario_teste=true`** nem aceite o cenário de teste depois de limpar. Ele cria ramais de teste (1001 a 1004) com uma senha SIP fixa que está no repositório, além de fila, grupo, conferência, URA e rotas de teste, na base do cliente.
 
-O comando de atualização é sempre o da seção 1: só `-e compilar_asterisk=false -e compilar_janus=false`. A lista de todas as opções está em [Instalação](01-Instalacao.md#6-opções-da-linha-de-comando).
+O comando de atualização é o da seção 1, sem `-e` nenhum. A lista de todas as opções está em [Instalação](01-Instalacao.md#8-opções-da-linha-de-comando).
 
-Também não edite o `main.yml` no servidor: os ajustes do servidor ficam no `servidor.yml` (seção 9).
+Também não edite o `main.yml`: os ajustes de cada central ficam no servidor dela, em `/etc/telium-servidor.yml` (seção 7).
 
 ---
 
@@ -49,53 +63,149 @@ Também não edite o `main.yml` no servidor: os ajustes do servidor ficam no `se
 
 **Faça um backup.** Pelo console, em **Administrador › Backup & Restauração › Fazer backup agora**, ou pelo terminal, como está em [Backup e restauração](04-Backup-e-Restauracao.md).
 
-**Anote a versão atual**, para saber para onde voltar:
+**Anote a versão atual**, para saber para onde voltar. O console mostra a versão e o commit no rodapé do menu, em **Telium › Suporte** e em **Telium › Versões e Novidades** (por exemplo, `1.6.1 (fb357b8)`). O menu da atualização também mostra a versão instalada antes de mexer em qualquer coisa. Numa central anterior à 1.1.0 o console dizia sempre `1.0.1`; nela, só o commit diz qual versão está rodando (`git log --oneline -1` em `/opt/TeliumPABX`).
 
-```bash
-cd /opt/TeliumPABX && git log --oneline -1
-```
-
-A partir da 1.1.0, o console também mostra a versão e o commit: no rodapé do menu, em **Telium › Suporte** e em **Telium › Versões e Novidades** (por exemplo, `1.1.0 (ae4f854)`). Numa central anterior à 1.1.0 o console dizia sempre `1.0.1`; nela, só o commit diz qual versão está rodando.
-
-**Leia as notas da versão** (seção 10, ou a tela **Telium › Versões e Novidades**, que lista todas as versões com o que mudou em cada uma): algumas mudanças pedem aviso à equipe do cliente (por exemplo, códigos do telefone que mudaram).
+**Leia as notas da versão** (seção 12, ou a tela **Telium › Versões e Novidades**, que lista todas as versões com o que mudou em cada uma): algumas mudanças pedem aviso à equipe do cliente (por exemplo, códigos do telefone que mudaram).
 
 **Escolha a hora.** A atualização não derruba chamada, mas recarrega a central inteira. Num horário de pouco movimento, qualquer surpresa afeta menos gente.
 
 ---
 
-## 4. Baixar a versão nova
+## 4. Atualizar de fora, pela sua máquina
+
+O que a sua máquina precisa (Ansible, `sshpass`, o clone e o acesso SSH ao servidor) está em [Instalação](01-Instalacao.md#1-o-que-você-precisa).
+
+**1. Ponha o clone em dia.** O código que vai para a central é o do seu clone:
+
+```bash
+cd ~/TeliumPABX
+git pull
+git log --oneline -1
+```
+
+A última linha mostra a versão que vai ser publicada. Se o clone ainda aponta para o GitHub, troque o remoto antes (seção 10).
+
+**2. Rode o playbook**, de dentro de `infra/ansible`:
+
+```bash
+cd ~/TeliumPABX/infra/ansible
+ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml -u root -k
+```
+
+- A vírgula depois do IP é obrigatória: diz ao Ansible que aquilo é a lista de servidores. Com chave SSH, tire o `-k`; com um usuário que tem `sudo`, use `-u usuario -K` (veja [Instalação](01-Instalacao.md#4-instalar-de-fora-pela-sua-máquina)).
+- O playbook mostra o **menu** (seção 5). Enter atualiza.
+- **Não precisa mais** de `-e compilar_asterisk=false -e compilar_janus=false`: o Asterisk e o Janus só são compilados quando a versão instalada é diferente da fixada no `main.yml`. Os dois `-e` continuam valendo, para pular a compilação mesmo quando a versão fixada mudou.
+- Se a central ainda estiver com o nome de fábrica (`pabx.telium.local`), o playbook **pergunta o nome**. Responda com o nome do DNS; nas próximas vezes ele não pergunta mais.
+- A senha do `admin` não é alterada pela atualização.
+- Tem de terminar com `failed=0`. Se parar com erro, **não siga**: copie a saída e veja [Solução de problemas](07-Solucao-de-Problemas.md).
+
+**Central instalada até a 1.6.1.** Na primeira atualização com a versão nova, os ajustes que estavam no clone do servidor (`infra/ansible/group_vars/all/servidor.yml`, em `/opt/TeliumPABX` ou, nas instaladas até setembro de 2026, em `/opt/telium-src`) vão sozinhos para `/etc/telium-servidor.yml`, e o arquivo antigo vira `servidor.yml.migrado`. Ele procura em todo clone do servidor (`/opt`, `/root`, `/home`, `/srv`) e, ao levar, avisa:
+
+```
+Os ajustes desta central saíram de /opt/TeliumPABX/infra/ansible/group_vars/all/servidor.yml
+e foram para /etc/telium-servidor.yml. Edite lá daqui em diante.
+```
+
+- Rodando de dentro, vale o `servidor.yml` do clone que está rodando.
+- Com mais de um clone com `servidor.yml` no servidor (e nenhum sendo o que roda), o playbook para sem mudar nada e pede qual vale: rode de novo com `-e servidor_yml_antigo=<caminho>`, por exemplo `-e servidor_yml_antigo=/opt/telium-src/infra/ansible/group_vars/all/servidor.yml`.
+- Uma central de antes da marca de instalação (`/etc/telium/.senha-admin-inicial`) é reconhecida pelo código publicado em `/opt/telium/api`: ela recebe o menu da atualização, nunca as perguntas de central nova.
+
+Sem ajustes nenhum, o nome da central e o IP público são lidos do `.env` da API, para a atualização não perguntar nada. Uma central que usava `vault.yml` no clone dela (senhas de serviço escolhidas à mão, raro) não tem esse arquivo migrado: continue atualizando essa de dentro (seção 6).
+
+**Várias centrais de uma vez.** Ponha os IPs no `-i`, separados por vírgula:
+
+```bash
+ansible-playbook -i "200.170.198.176,200.170.198.177," TeliumPBX_instalacao.yml -u root -k
+```
+
+- **Todas precisam já ter o Telium PABX.** Se uma delas ainda não tem, a execução inteira para, sem mexer em nenhuma: "... ainda não tem o Telium PABX". Central nova é instalada sozinha (`-i "IP,"`).
+- O menu é perguntado uma vez só, e a resposta vale para todas: **1** atualiza todas, **3** cancela todas, **2** (limpar o banco) é recusado com mais de uma.
+- Cada central usa os ajustes dela, guardados nela.
+
+> 📷 **Print:** fim do playbook de atualização com `failed=0`.
+
+Se só o banco estiver atrasado (alguém publicou o código sem rodar o playbook inteiro), `sudo -u teliumpbx php /opt/telium/api/bin/telium migrar` no servidor aplica os scripts que faltam. Eles são idempotentes: reaplicar é seguro. Mesmo assim, o caminho normal é o playbook.
+
+---
+
+## 5. O menu da atualização
+
+Numa central que já está instalada, antes de mexer em qualquer coisa:
+
+```
+ voz.cliente.com.br (200.170.198.176) já tem o Telium PABX.
+ Versão instalada: 1.6.1    Versão deste clone: 1.7.0
+
+ 1  Atualizar, mantendo tudo (ramais, troncos, gravações, ajustes)
+ 2  LIMPAR O BANCO: apaga ramais, troncos, filas, URAs, rotas, CDR,
+    call center, caixas postais e usuários (menos o admin). Ficam os
+    ajustes da central, a conta admin e as gravações em disco.
+ 3  Cancelar, sem mexer em nada
+Opção [1]:
+```
+
+> 📷 **Print:** o menu da atualização com as versões.
+
+| Opção | O que faz |
+|---|---|
+| **1** (ou só Enter) | Atualiza mantendo tudo. É a resposta de toda atualização de central com cliente |
+| **2** | **Limpa o banco.** Só para central de teste ou de laboratório. Pede que você **digite o nome da central** para confirmar (um nome diferente cancela tudo, sem apagar nem atualizar nada) e depois pergunta se carrega o **cenário de teste** (`s/N`). Vale para **uma central por vez** |
+| **3** | Cancela: nada é feito |
+
+- A limpeza e o cenário de teste valem **só naquela execução**: nunca são guardados no `/etc/telium-servidor.yml`. A próxima atualização não apaga nada.
+- Com várias centrais no `-i`, o menu mostra quantas são e a versão do clone, e a resposta vale para todas; a opção 2 é recusada.
+- **Sem terminal** (automação) ou com `-e perguntar=false`, o menu não aparece e a central é atualizada (opção 1).
+
+---
+
+## 6. Atualizar de dentro do servidor (alternativa)
+
+Numa central que tem o clone em `/opt/TeliumPABX` (instalada de dentro), o caminho de antes continua valendo:
 
 ```bash
 cd /opt/TeliumPABX
 sudo git pull
 git log --oneline -1
+cd infra/ansible
+sudo ansible-playbook site.yml
 ```
 
-A última linha mostra a versão que chegou.
-
-Se o clone ainda aponta para o GitHub, troque o remoto antes (seção 8).
+- O menu, os ajustes e o resultado são os mesmos da atualização de fora.
+- Uma central atualizada de fora fica com o clone dela (`/opt/TeliumPABX`) parado na versão antiga: o código publicado vem do clone de quem roda. Para voltar a atualizar de dentro, faça o `git pull` nele antes; sem isso, o playbook para em vez de voltar a central para a versão do clone velho.
+- Se o clone ainda aponta para o GitHub, troque o remoto antes (seção 10).
 
 ---
 
-## 5. Aplicar
+## 7. O que a atualização mantém e como mudar um ajuste
+
+A atualização **mantém**:
+
+- tudo o que está no banco: ramais, troncos, filas, URAs, rotas, CDR, usuários, configurações do console;
+- gravações, recados, fax e backups em disco;
+- a senha do `admin` (o playbook só a define na primeira instalação);
+- as senhas de serviço em `/etc/telium/credenciais`;
+- os ajustes da central em `/etc/telium-servidor.yml` (nome, cliente, NAT, TURN, Janus, Asternic, SIP, syslog);
+- os arquivos `_custom.conf` do Asterisk.
+
+**Para mudar um ajuste depois** (ligar o Asternic, restringir o SIP, trocar o syslog, tirar o `turn_dominio` quando o DNS sair), edite o arquivo **no servidor** e rode a atualização:
 
 ```bash
-cd /opt/TeliumPABX/infra/ansible
-sudo ansible-playbook site.yml -e compilar_asterisk=false -e compilar_janus=false
+sudo nano /etc/telium-servidor.yml
 ```
 
-- Os dois `-e` pulam as compilações, que são a parte demorada. **Só rode sem eles** quando a nota da versão disser que a versão do Asterisk ou do Janus mudou. Sem eles, o playbook só compila se a versão fixada no `main.yml` for diferente da instalada.
-- Se a central ainda estiver com o nome de fábrica (`pabx.telium.local`), o playbook **pergunta o nome**. Responda com o nome do DNS; nas próximas vezes ele não pergunta mais.
-- Tem de terminar com `failed=0`. Se parar com erro, **não siga**: copie a saída e veja [Solução de problemas](07-Solucao-de-Problemas.md).
-- A senha do `admin` não é alterada pela atualização.
+```yaml
+instalar_asternic: true
+sip_restringir_redes: true
+sip_redes_extras: ["203.0.113.10"]
+```
 
-Se só o banco estiver atrasado (alguém fez `git pull` sem rodar o playbook), `sudo -u teliumpbx php /opt/telium/api/bin/telium migrar` aplica os scripts que faltam. Eles são idempotentes: reaplicar é seguro. Mesmo assim, o caminho normal é o playbook.
-
-> 📷 **Print:** fim do playbook de atualização com `failed=0`.
+Não há mais `servidor.yml` no clone: o `group_vars/all/servidor.yml` de antes foi para `/etc/telium-servidor.yml` na primeira atualização com a versão nova. A lista de variáveis está em [Instalação](01-Instalacao.md#7-ajustes-do-servidor-etctelium-servidoryml).
 
 ---
 
-## 6. Conferir
+## 8. Conferir
+
+No servidor:
 
 ```bash
 sudo -u teliumpbx php /opt/telium/api/bin/telium testar | tail -3
@@ -107,10 +217,12 @@ systemctl is-active telium-cc
 - `telium-cc` (o serviço do call center) responde `active`.
 - Se `asterisk.conf` ou a lista de módulos mudaram, o playbook avisa no fim que deixou um **reinício do Asterisk agendado** para quando não houver chamada. O `core show uptime` mostra se ele já aconteceu. Para forçar na hora (**derruba as chamadas em curso**): `sudo systemctl restart asterisk`.
 
+O diagnóstico completo também roda da sua máquina: `ansible-playbook -i "200.170.198.176," verificar.yml -u root -k` (em `infra/ansible`).
+
 No navegador:
 
 1. Recarregue o console. Na primeira atualização depois da versão `53b3c9f`, use **Ctrl + Shift + R** (no Mac, Cmd + Shift + R). A partir dela, basta recarregar.
-2. Confira a versão nova no rodapé do menu ou em **Telium › Versões e Novidades**: o número e o commit devem ser os que chegaram no `git pull`. Um `+` depois do commit indica que o clone tem alteração local fora do Git.
+2. Confira a versão nova no rodapé do menu ou em **Telium › Versões e Novidades**: o número e o commit devem ser os do clone de onde o playbook rodou. Um `+` depois do commit indica que esse clone tinha alteração local fora do Git.
 3. Se aparecer a faixa amarela **"Alterações ainda não aplicadas"**, clique em **Aplicar configurações** e confira que todas as etapas ficam ✓.
 4. Faça uma chamada de teste: de um ramal para outro, uma de fora para dentro e uma para fora.
 
@@ -118,51 +230,98 @@ No navegador:
 
 ---
 
-## 7. Voltar atrás
+## 9. Voltar atrás
 
-Volte o código para a versão anotada no passo 3 e rode o playbook de novo:
+Volte o clone para a versão anotada no passo 3 e rode o playbook de novo. Como a versão é mais antiga que a instalada, o playbook só aceita com `-e permitir_versao_antiga=true` (sem ele, para com "A central está na versão X e este clone tem a Y").
+
+Da sua máquina:
+
+```bash
+cd ~/TeliumPABX
+git checkout <versão anotada>
+cd infra/ansible
+ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml -u root -k -e permitir_versao_antiga=true
+```
+
+De dentro do servidor:
 
 ```bash
 cd /opt/TeliumPABX
 sudo git checkout <versão anotada>
 cd infra/ansible
-sudo ansible-playbook site.yml -e compilar_asterisk=false -e compilar_janus=false
+sudo ansible-playbook site.yml -e permitir_versao_antiga=true
 ```
 
 As mudanças de banco deste projeto só **acrescentam** tabelas e colunas, então o código anterior costuma funcionar com o banco já atualizado. Se não funcionar, restaure o backup do passo 3 ([Backup e restauração](04-Backup-e-Restauracao.md)).
 
-Para voltar a acompanhar o Git depois:
+Para voltar a acompanhar o Git depois (no clone que você usou):
 
 ```bash
-cd /opt/TeliumPABX && sudo git checkout main && sudo git pull
+git checkout main && git pull
 ```
+
+> Uma versão anterior à 1.7.0 não conhece o `/etc/telium-servidor.yml`: ela lê os ajustes do `group_vars/all/servidor.yml` do clone de quem roda. Voltar para ela é coisa de dentro do servidor, com o `servidor.yml.migrado` renomeado de volta para `servidor.yml`.
 
 ---
 
-## 8. Trocar o remoto do GitHub para o GitLab
+## 10. Trocar o remoto do GitHub para o GitLab
 
-O repositório oficial agora é o GitLab da Telium: `gitlab.telium.com.br/Voip/teliumpabx`. Numa central instalada a partir do GitHub, aponte o clone para o endereço novo **uma vez**, antes do `git pull`.
+O repositório oficial agora é o GitLab da Telium: `gitlab.telium.com.br/Voip/teliumpabx`. Num clone feito a partir do GitHub (o da sua máquina ou o `/opt/TeliumPABX` de uma central), aponte para o endereço novo **uma vez**, antes do `git pull`.
 
 Veja para onde o clone aponta:
 
 ```bash
-cd /opt/TeliumPABX
 git remote -v
 ```
 
 Se `origin` aponta para `github.com`, troque:
 
 ```bash
-sudo git remote set-url origin https://gitlab.telium.com.br/Voip/teliumpabx.git
-sudo git pull
+git remote set-url origin https://gitlab.telium.com.br/Voip/teliumpabx.git
+git pull
 ```
 
+- No clone do servidor (`/opt/TeliumPABX`), use `sudo` nos dois comandos.
 - O GitLab pede usuário e token (ou use uma chave de implantação). Com chave SSH, o endereço é `git@gitlab.telium.com.br:Voip/teliumpabx.git`.
-- O `servidor.yml` e o `vault.yml` ficam fora do Git e não são afetados pela troca.
 
 ---
 
-## 9. Problemas comuns
+## 11. Problemas comuns
+
+### "A central está na versão X e este clone tem a Y"
+O clone de onde o playbook rodou está atrás da central (faltou o `git pull`). O playbook para em vez de publicar código antigo sobre um banco já migrado para o novo. Faça o `git pull` no clone e rode de novo. Voltar de versão de propósito: seção 9.
+
+### "Este clone tem servidor.yml (ou vault.yml) em group_vars/all/"
+O seu clone tem os ajustes de **uma** central, do jeito de antes, e o playbook está indo pela rede para outra: eles valeriam para ela também (o nome errado no certificado, as senhas de outra central). Renomeie e rode de novo:
+
+```bash
+cd ~/TeliumPABX/infra/ansible/group_vars/all
+mv servidor.yml servidor.yml.antigo      # e/ou vault.yml vault.yml.antigo
+```
+
+Esse `servidor.yml` era de uma central instalada da sua máquina, do jeito de antes (com `inventory/vm.ini`)? Então os ajustes dela só existem nele: leve o conteúdo para o servidor **antes** de atualizar, senão ela fica só com o nome e o IP público (lidos do `.env` da API) e o resto volta ao de fábrica:
+
+```bash
+scp servidor.yml.antigo root@200.170.198.176:/etc/telium-servidor.yml
+ssh root@200.170.198.176 'chown root:root /etc/telium-servidor.yml && chmod 600 /etc/telium-servidor.yml'
+```
+
+Central instalada de dentro não precisa disso: ela leva sozinha os ajustes do clone que está nela.
+
+### "... ainda não tem o Telium PABX"
+Um dos servidores do `-i` ainda não tem a central, e há mais de um. Nada foi feito em nenhum. Instale o novo sozinho (`-i "IP,"`) e atualize os outros juntos.
+
+### "Esta central tem mais de um clone com servidor.yml"
+Na primeira atualização com a 1.7.0, o servidor tem mais de um clone com os ajustes de antes (ex.: `/opt/TeliumPABX` e `/opt/telium-src`) e o playbook não adivinha qual vale. Nada foi mudado. Veja qual é o certo (o mais recente, o que tem o nome da central) e rode de novo com `-e servidor_yml_antigo=<caminho do arquivo>`.
+
+### "... usa {{ ... }} ou {% ..." no /etc/telium-servidor.yml
+O arquivo de ajustes tem um valor com modelo do Ansible (era aceito quando o `servidor.yml` ficava no clone). Escreva o valor por extenso, por exemplo `turn_dominio: "200.170.198.176"` no lugar de `turn_dominio: "{{ nat_ip_publico }}"`, e rode de novo.
+
+### "Limpar o banco é de uma central por vez"
+A opção 2 do menu foi escolhida com mais de um servidor no `-i`. Nada foi feito. Rode com um só (`-i "IP,"`).
+
+### "O nome digitado não é ..."
+Na opção 2, o nome digitado para confirmar não confere com o da central. Nada foi apagado nem atualizado.
 
 ### O git pull recusa por causa do main.yml
 
@@ -171,47 +330,62 @@ error: Your local changes to the following files would be overwritten by merge:
         infra/ansible/group_vars/all/main.yml
 ```
 
-Alguém editou o `main.yml` direto no servidor. Os ajustes deste servidor devem ficar no `servidor.yml`, fora do Git.
+Alguém editou o `main.yml` no clone. Os ajustes de cada central devem ficar no `/etc/telium-servidor.yml` dela.
 
-1. Veja o que foi mudado:
+1. Veja o que foi mudado (na pasta do clone):
 
 ```bash
-cd /opt/TeliumPABX
 git diff infra/ansible/group_vars/all/main.yml
 ```
 
-2. Passe cada valor mudado para o `servidor.yml` (a mesma linha, com o valor do servidor). Se ele ainda não existe, crie a partir do modelo:
+2. Passe cada valor que é de uma central para o `/etc/telium-servidor.yml` **daquela central** (a mesma linha, com o valor dela):
 
 ```bash
-cd /opt/TeliumPABX/infra/ansible/group_vars/all
-sudo cp -n servidor.yml.exemplo servidor.yml
-sudo nano servidor.yml
+sudo nano /etc/telium-servidor.yml
 ```
 
 3. Desfaça a edição no `main.yml` e baixe de novo:
 
 ```bash
-cd /opt/TeliumPABX
-sudo git checkout -- infra/ansible/group_vars/all/main.yml
-sudo git pull
+git checkout -- infra/ansible/group_vars/all/main.yml
+git pull
 ```
+
+No clone do servidor (`/opt/TeliumPABX`), use `sudo` nos comandos do Git.
 
 ### O git pull pede usuário e senha
 É o GitLab. Use o usuário e um token de acesso (não a senha), ou configure uma chave de implantação.
 
 ### O playbook parou com erro
-Não siga. Rode `sudo ansible-playbook verificar.yml` (em `infra/ansible`) e veja [Solução de problemas](07-Solucao-de-Problemas.md). Se a central ficou ruim, volte atrás (seção 7).
+Não siga. Rode o `verificar.yml` (seção 8) e veja [Solução de problemas](07-Solucao-de-Problemas.md). Se a central ficou ruim, volte atrás (seção 9).
 
 ### Uma tela ou botão novo não aparece
-É o navegador mostrando a versão antiga: **Ctrl + Shift + R**. Se continuar, confira se o playbook rodou depois do `git pull` (`git log --oneline -1`) e se o perfil do usuário tem a permissão da tela.
+É o navegador mostrando a versão antiga: **Ctrl + Shift + R**. Se continuar, confira a versão no rodapé do console (ela é a do clone de onde o playbook rodou) e se o perfil do usuário tem a permissão da tela.
 
 ---
 
-## 10. Notas das versões
+## 12. Notas das versões
 
 O que muda na operação, e não só por dentro. A mais recente primeiro.
 
 A tela **Telium › Versões e Novidades** mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo `api/CHANGELOG.md`). As notas abaixo resumem o que muda para quem opera.
+
+### 1.7.0 — instalar e atualizar de fora; SIP só para redes conhecidas
+- **Instalar e atualizar da sua máquina**, pela rede: `ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml -u root -k` (em `infra/ansible`, com o clone em dia). De dentro do servidor continua igual. Várias centrais já instaladas de uma vez: `-i "IP1,IP2,"`.
+- **A instalação pergunta** o que é do cliente (nome, cliente, NAT, IP do áudio sem DNS, Janus, Asternic, SIP só para redes conhecidas, syslog, cliente ou laboratório) e confirma antes de instalar. **A atualização mostra um menu**: 1 atualizar (Enter), 2 limpar o banco (pede o nome da central), 3 cancelar.
+- **Os ajustes de cada central saem do clone** e vão para `/etc/telium-servidor.yml`, no servidor. A primeira atualização leva o `servidor.yml` antigo sozinha (vira `servidor.yml.migrado`). Daqui em diante, edite lá. Valores com `{{ }}` não valem mais nesse arquivo: escreva por extenso.
+- **SIP só para redes conhecidas** (opcional, desligado de fábrica): veja [Segurança](08-Seguranca.md#sip-só-para-redes-conhecidas). Ligando, confira os IPs da operadora (SBC, nuvem) e dos ramais de fora do Brasil.
+- Não precisa mais de `-e compilar_asterisk=false -e compilar_janus=false`.
+- O playbook não publica uma versão mais antiga que a instalada (`-e permitir_versao_antiga=true` para voltar de propósito).
+- As senhas de serviço são geradas e lidas no próprio servidor; nada secreto vem da máquina de quem roda.
+
+### 1.6.1 — fail2ban contra varredura SIP
+- Novas cadeias `asterisk-varredura` e `asterisk-varredura-tcp`: quem pede 3 vezes em 1 hora um ramal que não existe fica 24 horas sem a porta SIP. Não vale para o IP de tronco, IP com ramal registrado nem o **Nunca bloquear**.
+
+### 1.6.0 — feriados com áudio próprio
+- Nova tela **Aplicações › Feriados**: cada feriado com o seu áudio e, se quiser, um destino depois dele. **Carregar feriados nacionais** cadastra os que faltam. As condições horárias ganham "Nos feriados, tocar o áudio do feriado" (ligado); sem feriado cadastrado, nada muda.
+- Caixa postal: o `#` não leva mais para a transferência; só quem liga de um ramal pode transferir.
+- Siga-me: a caixa postal do ramal de destino não atende mais dentro da perna do siga-me; o recado fica na caixa do dono.
 
 ### 1.5.3 — exportar ramais com senhas
 - Em Ramais, o botão **Exportar com senhas** traz a planilha com a senha SIP e a do correio de voz. Só para quem pode editar ramais, e registrado na auditoria.
@@ -266,7 +440,7 @@ A tela **Telium › Versões e Novidades** mostra a versão e o commit da centra
 - A instalação com `instalar_asternic: true` parava em "Ligar o asterniclog". Corrigido: basta rodar a atualização de novo.
 
 ### 1.2.0 — Asternic em Call Center › Stats
-- Novo menu **Call Center › Stats**, com o Asternic Call Center Stats PRO. **Só para centrais com licença comprada**: acrescente `instalar_asternic: true` no `servidor.yml` daquela central e rode a atualização. Detalhes na página 16 (Call Center).
+- Novo menu **Call Center › Stats**, com o Asternic Call Center Stats PRO. **Só para centrais com licença comprada**: acrescente `instalar_asternic: true` nos ajustes daquela central (hoje, `/etc/telium-servidor.yml` no servidor) e rode a atualização. Detalhes na página 16 (Call Center).
 - Nas outras centrais, nada muda: a tela Stats explica como ligar.
 
 ### 1.1.4 — backup da empresa sem linha repetida
@@ -330,7 +504,7 @@ Primeira versão numerada na entrega. **Depois do playbook, clique em Aplicar co
 - Textos corrigidos: Meu Siga-me ensinava `*72`/`*73` (o certo é `*21`/`*22`) e a megafonia citava `*81` (o certo é `*80`).
 
 ### O projeto mudou para o GitLab da Telium
-O repositório agora é `gitlab.telium.com.br/Voip/teliumpabx`. Numa central instalada a partir do GitHub, troque o remoto uma vez (seção 8).
+O repositório agora é `gitlab.telium.com.br/Voip/teliumpabx`. Numa central instalada a partir do GitHub, troque o remoto uma vez (seção 10).
 
 ### Click to call para outros sistemas
 - Em **Telium › Integrações / API**, crie uma **chave** para cada sistema (CRM, ERP, site). Ele chama `POST https://<central>/api/click2call` com `ramal` e `numero` (e, se quiser, `nome`), mandando a chave no cabeçalho `X-Api-Key`. A central toca o ramal e, quando ele atende, disca o número.
@@ -375,7 +549,7 @@ O repositório agora é `gitlab.telium.com.br/Voip/teliumpabx`. Numa central ins
 - O padrão aceita o jeito que se escreve: `x.` pega tudo, `0xx xxxx xxxx` vira `_0XXXXXXXXXX`. As telas têm modelos prontos e um teste "para onde vai este número".
 
 ### O nome do servidor
-- A instalação **pergunta o nome** quando ele ainda é o de fábrica (`pabx.telium.local`) e o guarda no `servidor.yml`. Numa central que já estava no ar com o nome de fábrica, **a próxima atualização vai perguntar**: responda com o nome do DNS (ex.: `voz.telium.com.br`). Nas seguintes, não pergunta mais.
+- A instalação **pergunta o nome** quando ele ainda é o de fábrica (`pabx.telium.local`) e o guarda nos ajustes da central (hoje, `/etc/telium-servidor.yml`). Numa central que já estava no ar com o nome de fábrica, **a próxima atualização vai perguntar**: responda com o nome do DNS (ex.: `voz.telium.com.br`). Nas seguintes, não pergunta mais.
 - Com o nome novo, o certificado de fábrica é refeito. Se a central usa um certificado enviado pelo console, ele continua o mesmo.
 
 ### Pesquisa de satisfação (`5f390c2`)

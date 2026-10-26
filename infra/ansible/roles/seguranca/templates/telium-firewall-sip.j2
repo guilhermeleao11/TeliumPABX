@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# =========================================================
+# {{ ansible_managed }}
+# Telium PABX — SIP, áudio e TURN só para redes conhecidas
+#
+# Tabela própria do nftables (inet telium_sip), à parte do ufw, do
+# fail2ban e de qualquer iptables antigo do servidor: descarta, nas portas
+# de voz, quem não está na lista. Quem está segue adiante, para as regras
+# de sempre. Ninguém mais mexe nesta tabela, e ela não mexe em ninguém.
+#
+# A lista é a soma de:
+#   {{ sip_lista_fixa }}   as redes do playbook (sip_redes_liberadas
+#                          e sip_redes_extras). Sem ele: desligado.
+#   firewall_confiaveis    o "Nunca bloquear" do console
+#   troncos                o host de cada tronco (o nome é resolvido)
+#   telefones              quem tem ramal registrado agora
+# Troncos e telefones vistos uma vez ficam em {{ sip_lista_auto }}: um
+# telefone que reiniciou, ou um tronco cujo nome não resolveu agora, não
+# perde o acesso que já tinha.
+#
+#   aplicar    monta a tabela (o timer chama a cada 5 minutos)
+#   desligar   apaga a tabela: as portas voltam a ser só do ufw
+#   mostrar    a tabela como está
+#
+# Só IPv4 é restrito, a não ser que a lista fixa tenha alguma faixa IPv6.
+# =========================================================
+set -uo pipefail
+
+FIXA={{ sip_lista_fixa }}
+AUTO={{ sip_lista_auto }}
+UDP='{{ sip_portas_udp | join(", ") }}'
+TCP='{{ sip_portas_tcp | join(", ") }}'
+
+registrar() { logger -t telium-firewall-sip -- "$*"; echo "$*"; }
+
+# IPv4 com máscara de /8 a /32; IPv6 com máscara de /16 a /128. Uma faixa
+# /0 aqui seria a porta aberta para todos.
+valido() {
+  local e="$1" ip mascara=""
+  ip="${e%%/*}"
+  case "$e" in */*) mascara="${e#*/}" ;; esac
+  if printf '%s' "$ip" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+    printf '%s' "$ip" | awk -F. '{ for (i = 1; i <= 4; i++) if ($i > 255) exit 1 }' || return 1
+    [ -z "$mascara" ] && return 0
+    printf '%s' "$mascara" | grep -Eq '^[0-9]{1,2}$' && [ "$mascara" -ge 8 ] && [ "$mascara" -le 32 ]
+    return
+  fi
+  if printf '%s' "$ip" | grep -Eq '^[0-9a-fA-F:]{2,39}$' && printf '%s' "$ip" | grep -q ':'; then
+    [ -z "$mascara" ] && return 0
+    printf '%s' "$mascara" | grep -Eq '^[0-9]{1,3}$' && [ "$mascara" -ge 16 ] && [ "$mascara" -le 128 ]
+    return
+  fi
+  return 1
+}
+
+# As linhas de um arquivo de lista, sem comentário nem linha vazia.
+ler() { [ -r "$1" ] && sed -e 's/#.*//' -e 's/[[:space:]]//g' -e '/^$/d' "$1"; }
+
+desligar() {
+  nft delete table inet telium_sip 2>/dev/null
+  return 0
+}
+
+aplicar() {
+  if [ ! -r "$FIXA" ]; then
+    desligar
+    echo "desligado (sem $FIXA)"
+    return 0
+  fi
+
+  # Sem o banco não há como saber os troncos nem o "Nunca bloquear":
+  # fica a tabela que já estava, em vez de uma que cortaria a operadora.
+  local confiaveis hosts
+  confiaveis=$(mariadb --protocol=socket -uroot -N -B {{ db_nome }} \
+                 -e "SELECT endereco FROM firewall_confiaveis" 2>/dev/null) \
+    || { registrar "banco indisponível: nada mudou"; return 1; }
+  hosts=$(mariadb --protocol=socket -uroot -N -B {{ db_nome }} \
+            -e "SELECT host FROM troncos WHERE host IS NOT NULL AND host <> ''" 2>/dev/null) \
+    || { registrar "banco indisponível: nada mudou"; return 1; }
+
+  # Troncos e telefones de agora entram na lista guardada.
+  local novos="" h e contatos
+  for h in $hosts; do
+    h="${h%%:*}"
+    if valido "$h"; then
+      novos="$novos $h"
+    else
+      novos="$novos $(getent ahosts "$h" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ')"
+    fi
+  done
+  contatos=$(asterisk -rx "pjsip show contacts" 2>/dev/null)
+  novos="$novos $(printf '%s\n' "$contatos" \
+                  | grep -oE '@[0-9]{1,3}(\.[0-9]{1,3}){3}[:;]' | tr -d '@:;' | sort -u | tr '\n' ' ')"
+  novos="$novos $(printf '%s\n' "$contatos" \
+                  | grep -oE '@\[[0-9a-fA-F:]+\]' | tr -d '@[]' | sort -u | tr '\n' ' ')"
+
+  mkdir -p "$(dirname "$AUTO")"
+  touch "$AUTO"
+  for e in $novos; do
+    valido "$e" || continue
+    printf '%s' "$e" | grep -q ':' || [ "${e%%/*}" = "$e" ] || continue
+    grep -qxF "$e" "$AUTO" || echo "$e" >> "$AUTO"
+  done
+
+  # A lista final, separada por família.
+  local v4="" v6="" fixa_v6=0
+  for e in $(ler "$FIXA"); do
+    valido "$e" || { registrar "ignorado na lista fixa: $e"; continue; }
+    case "$e" in *:*) v6="$v6, $e"; fixa_v6=1 ;; *) v4="$v4, $e" ;; esac
+  done
+  for e in $confiaveis $(ler "$AUTO"); do
+    valido "$e" || continue
+    case "$e" in *:*) v6="$v6, $e" ;; *) v4="$v4, $e" ;; esac
+  done
+  v4="${v4#, }"; v6="${v6#, }"
+
+  if [ -z "$v4" ]; then
+    registrar "lista IPv4 vazia: nada mudou"
+    return 1
+  fi
+
+  local regras
+  regras=$(
+    echo "table inet telium_sip"
+    echo "delete table inet telium_sip"
+    echo "table inet telium_sip {"
+    echo "  set liberados4 { type ipv4_addr; flags interval; auto-merge; elements = { $v4 } }"
+    if [ "$fixa_v6" = 1 ]; then
+      echo "  set liberados6 { type ipv6_addr; flags interval; auto-merge; elements = { $v6 } }"
+    fi
+    echo "  chain entrada {"
+    echo "    type filter hook input priority filter - 5; policy accept;"
+    echo "    iif \"lo\" accept"
+    echo "    fib saddr type local accept"
+    echo "    ct state established,related accept"
+    echo "    meta nfproto ipv4 udp dport { $UDP } ip saddr != @liberados4 counter drop"
+    echo "    meta nfproto ipv4 tcp dport { $TCP } ip saddr != @liberados4 counter drop"
+    if [ "$fixa_v6" = 1 ]; then
+      echo "    meta nfproto ipv6 udp dport { $UDP } ip6 saddr != @liberados6 counter drop"
+      echo "    meta nfproto ipv6 tcp dport { $TCP } ip6 saddr != @liberados6 counter drop"
+    fi
+    echo "  }"
+    echo "}"
+  )
+
+  # Conferida antes, aplicada de uma vez: ou a tabela nova inteira, ou a
+  # antiga como estava.
+  local erro
+  if ! erro=$(printf '%s\n' "$regras" | nft -c -f - 2>&1); then
+    registrar "regras recusadas pelo nftables, nada mudou: $erro"
+    return 1
+  fi
+  printf '%s\n' "$regras" | nft -f - || { registrar "o nftables não aplicou"; return 1; }
+  echo "ligado: $(printf '%s' "$v4" | tr ',' '\n' | wc -l) rede(s) IPv4$([ "$fixa_v6" = 1 ] && echo ", IPv6 restrito")"
+}
+
+exec 9>/run/telium-firewall-sip.lock
+flock -w 30 9 || { echo "outra execução em andamento" >&2; exit 1; }
+
+case "${1:-}" in
+  aplicar)  aplicar ;;
+  desligar) desligar; echo "desligado" ;;
+  mostrar)  nft list table inet telium_sip 2>/dev/null || echo "desligado" ;;
+  *) echo "uso: $(basename "$0") aplicar | desligar | mostrar" >&2; exit 64 ;;
+esac

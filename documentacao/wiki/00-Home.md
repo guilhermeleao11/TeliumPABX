@@ -25,7 +25,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 
 - **Uma central completa num servidor só.** Uma VM Debian 13 roda o Asterisk 22 (PJSIP), o banco MariaDB, o nginx com HTTPS, a API em PHP 8.4, o TURN para o softphone e o backup.
 - **Tudo pelo console.** Nada de editar arquivo `.conf` à mão: a configuração do Asterisk é **gerada a partir do banco** quando se clica em **Aplicar configurações**.
-- **Instalação e atualização por Ansible.** Um comando instala a central inteira; o mesmo comando atualiza sem perder dados.
+- **Instalação e atualização por Ansible.** Um comando, rodado da sua máquina pela rede (ou de dentro do servidor), instala a central inteira; o mesmo comando atualiza sem perder dados.
 - **Sem dado fictício.** A central nasce vazia, só com a empresa, os perfis e a conta `admin`. Tudo o mais é cadastrado.
 - **Em português.** Console, mensagens e os áudios da central (correio de voz, fila, conferência, call center) são em português do Brasil.
 
@@ -70,8 +70,8 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 
 | # | Página | Conteúdo |
 |---|---|---|
-| 01 | [Instalação](01-Instalacao.md) | Servidor novo, do zero ao primeiro atendimento |
-| 02 | [Atualização](02-Atualizacao.md) | Atualizar sem perder dados, voltar atrás, notas das versões (a 1.1.0 é a mais recente) |
+| 01 | [Instalação](01-Instalacao.md) | Servidor novo, do zero ao primeiro atendimento: o comando, as perguntas e os ajustes de cada central |
+| 02 | [Atualização](02-Atualizacao.md) | Atualizar sem perder dados (uma ou várias centrais), o menu da atualização, voltar atrás, notas das versões |
 | 03 | [Requisitos de rede e portas](03-Requisitos-Rede-e-Portas.md) | Portas, NAT, firewall do cliente e da operadora |
 | 04 | [Backup e restauração](04-Backup-e-Restauracao.md) | Backup do console, destino remoto, restauração, o que levar no backup da empresa |
 | 05 | [Comandos e serviços do servidor](05-Servidor-Comandos-e-Servicos.md) | CLI `telium`, serviços e timers, comandos do Asterisk e do banco |
@@ -116,8 +116,10 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | Primeiro acesso | Usuário `admin`, com a senha inicial informada na [Instalação](01-Instalacao.md). **Troque no primeiro acesso** |
 | Perdeu a senha do admin | `sudo -u teliumpbx php /opt/telium/api/bin/telium senha admin` |
 | Perdeu o celular do 2FA (admin) | `sudo -u teliumpbx php /opt/telium/api/bin/telium desligar-2fa admin` |
-| Atualizar a central | `cd /opt/TeliumPABX && sudo git pull && cd infra/ansible && sudo ansible-playbook site.yml -e compilar_asterisk=false -e compilar_janus=false` |
-| Qual versão está rodando, e o que mudou em cada uma | Console: **Telium › [Versões e Novidades](20-Telium-Tarifacao-Integracoes-Suporte.md)**; o histórico também está em `api/CHANGELOG.md` e nas [notas das versões](02-Atualizacao.md#10-notas-das-versões) |
+| Instalar ou atualizar, da sua máquina | `git pull` no clone e, em `infra/ansible`: `ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml -u root -k` (Enter no menu atualiza mantendo tudo) |
+| Atualizar, de dentro do servidor | `cd /opt/TeliumPABX && sudo git pull && cd infra/ansible && sudo ansible-playbook site.yml` |
+| Ajustes desta central (nome, NAT, SIP, Asternic…) | `/etc/telium-servidor.yml` no servidor (só root). Edite e rode o playbook |
+| Qual versão está rodando, e o que mudou em cada uma | Console: **Telium › [Versões e Novidades](20-Telium-Tarifacao-Integracoes-Suporte.md)**; o histórico também está em `api/CHANGELOG.md` e nas [notas das versões](02-Atualizacao.md#12-notas-das-versões) |
 | Conferir se está tudo de pé | `sudo -u teliumpbx php /opt/telium/api/bin/telium testar` |
 | Saúde da API | `https://<central>/api/health` |
 | Backups do console | `/var/Backup/pabx-telium` |
@@ -125,7 +127,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | Senhas de serviço | `/etc/telium/credenciais` (só root) |
 | Banco de dados | MariaDB, base `telium_pabx` |
 
-> **Nunca rode `-e limpar_banco=true` nem `-e cenario_teste=true` numa central de cliente.** O primeiro apaga a operação inteira (ramais, filas, rotas, histórico); o segundo cria cadastros de teste.
+> **Numa central de cliente, nunca escolha LIMPAR O BANCO no menu da atualização, nem rode com `-e limpar_banco=true` ou `-e cenario_teste=true`.** Limpar apaga a operação inteira (ramais, filas, rotas, histórico); o cenário cria cadastros de teste com senha conhecida.
 
 ---
 

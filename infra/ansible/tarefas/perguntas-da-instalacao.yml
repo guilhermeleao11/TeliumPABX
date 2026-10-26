@@ -1,0 +1,487 @@
+---
+# As perguntas da instalação e da atualização.
+#
+# Central NOVA: pergunta o que muda de um cliente para outro (o nome da
+# central já foi perguntado antes, no site.yml, e a senha do admin vem
+# depois). As respostas vão para os ajustes do servidor
+# (servidor_ajustes), e as atualizações não perguntam de novo.
+#
+# Central JÁ INSTALADA: mostra a versão de agora e a nova e pergunta o que
+# fazer: atualizar mantendo tudo, limpar o banco, ou cancelar.
+#
+# Limpar o banco e o cenário de teste valem só para esta execução: nunca
+# vão para os ajustes do servidor — a próxima atualização não apaga nada.
+#
+# O que já está nos ajustes do servidor não é perguntado, e o que vem por
+# -e ganha da resposta. Sem terminal (ou com -e perguntar=false), nada é
+# perguntado: a central nova fica com o main.yml e a já instalada é
+# atualizada.
+
+- name: Ver se a central já foi instalada
+  ansible.builtin.stat:
+    path: "{{ telium_etc }}/.senha-admin-inicial"
+  register: marca_instalada
+
+- name: Decidir o que perguntar
+  ansible.builtin.set_fact:
+    perguntas_fazer: "{{ perguntar | default(true) | bool }}"
+    # A marca só existe desde outubro de 2026; uma central de antes dela é reconhecida
+    # pela versão publicada (versao_na_central, lida no site.yml).
+    central_instalada: "{{ marca_instalada.stat.exists or (versao_na_central | default('')) != '' }}"
+    perguntas_respostas: {}
+    ip_do_servidor: >-
+      {{ ansible_facts.default_ipv4.address
+         | default(ansible_facts.all_ipv4_addresses | default([]) | first | default(''), true) }}
+    # Rodando de fora com -i "200.170.198.176,", o endereço usado para
+    # chegar ao servidor é o público: a melhor sugestão para o NAT.
+    ip_de_acesso: >-
+      {{ inventory_hostname
+         if (inventory_hostname is match('^[0-9]{1,3}(\.[0-9]{1,3}){3}$')
+             and inventory_hostname is not match(ip_interno_re)) else '' }}
+  vars:
+    ip_interno_re: '^(10\.|127\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.)'
+
+# ==================================================================
+# Central já instalada: atualizar, limpar o banco ou cancelar
+# ==================================================================
+# O pause pergunta no primeiro servidor e só ele guarda a resposta. Com
+# várias centrais de uma vez, todas precisam já estar instaladas, e a
+# resposta é copiada para todas logo abaixo.
+- name: Várias centrais de uma vez, só para atualizar
+  ansible.builtin.assert:
+    that: novas | length == 0
+    fail_msg: >-
+      {{ novas | join(', ') }} ainda não tem o Telium PABX. Central nova é instalada
+      sozinha (-i "IP,"); várias de uma vez, só para atualizar. Nada foi feito.
+    quiet: true
+  vars:
+    novas: >-
+      {{ ansible_play_hosts_all | zip(ansible_play_hosts_all | map('extract', hostvars, 'central_instalada') | map('bool'))
+         | rejectattr(1) | map(attribute=0) | list }}
+  # Em todos os servidores, e não só num (run_once): a recusa tem de parar
+  # a execução inteira.
+  when: ansible_play_hosts_all | length > 1
+
+- name: Perguntar o que fazer com a central já instalada
+  ansible.builtin.pause:
+    prompt: |-
+
+      ════════════════════════════════════════════════════════════════
+      {% if ansible_play_hosts_all | length == 1 %}
+       {{ pabx_hostname }} ({{ inventory_hostname }}) já tem o Telium PABX.
+       Versão instalada: {{ versao_na_central | default('?', true) }}    Versão deste clone: {{ telium_versao }}
+      {% else %}
+       {{ ansible_play_hosts_all | length }} centrais já instaladas: {{ ansible_play_hosts_all | join(', ') }}
+       Versão deste clone: {{ telium_versao }}
+      {% endif %}
+
+       1  Atualizar, mantendo tudo (ramais, troncos, gravações, ajustes)
+       2  LIMPAR O BANCO: apaga ramais, troncos, filas, URAs, rotas, CDR,
+          call center, caixas postais e usuários (menos o admin). Ficam os
+          ajustes da central, a conta admin e as gravações em disco.
+       3  Cancelar, sem mexer em nada
+      ════════════════════════════════════════════════════════════════
+      Opção [1]
+  register: resposta_existente
+  when: central_instalada | bool and perguntas_fazer | bool
+
+- name: Entender a opção escolhida (vale para todas as centrais da execução)
+  ansible.builtin.set_fact:
+    opcao_existente: "{{ respondida[0].user_input | default('') | trim | default('1', true) }}"
+  vars:
+    respondida: >-
+      {{ ansible_play_hosts_all | map('extract', hostvars) | selectattr('resposta_existente', 'defined')
+         | map(attribute='resposta_existente') | selectattr('user_input', 'defined') | list }}
+  when: respondida | length > 0
+
+- name: Opção inválida
+  ansible.builtin.fail:
+    msg: "Opção \"{{ opcao_existente }}\" não existe: responda 1, 2 ou 3. Nada foi feito."
+  when: opcao_existente is defined and opcao_existente not in ['1', '2', '3']
+
+- name: Cancelado
+  ansible.builtin.fail:
+    msg: "Cancelado: nada foi feito."
+  when: opcao_existente | default('') == '3'
+
+- name: Limpar o banco
+  when: opcao_existente | default('') == '2'
+  block:
+    - name: Limpar o banco é de uma central por vez
+      ansible.builtin.assert:
+        that: ansible_play_hosts_all | length == 1
+        fail_msg: "Limpar o banco é de uma central por vez (-i \"IP,\"). Nada foi feito."
+        quiet: true
+
+    - name: Confirmar a limpeza com o nome da central
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           ATENÇÃO: os dados de {{ pabx_hostname }} vão ser APAGADOS.
+           Não há volta: confira se o backup da noite está em dia.
+
+           Para confirmar, digite o nome da central: {{ pabx_hostname }}
+          ════════════════════════════════════════════════════════════════
+          Nome da central
+      register: resposta_limpar
+
+    - name: O nome não confere
+      ansible.builtin.fail:
+        msg: "O nome digitado não é {{ pabx_hostname }}. Nada foi apagado nem atualizado."
+      when: (resposta_limpar.user_input | default('') | trim | lower) != pabx_hostname
+
+    - name: Perguntar o cenário de teste depois da limpeza
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           Carregar o cenário de teste (central de LABORATÓRIO)?
+           Ramais 1001 a 1004, grupo 2000, fila 3000, conferência 4000,
+           URA, horário comercial e rotas, prontos para testar.
+           NUNCA em central de cliente.
+          ════════════════════════════════════════════════════════════════
+          Carregar? [s/N]
+      register: resposta_lab_limpar
+
+    - name: Usar a limpeza (só nesta execução)
+      ansible.builtin.set_fact:
+        limpar_banco: true
+        cenario_teste: "{{ (resposta_lab_limpar.user_input | default('') | trim | lower) in ['s', 'sim', 'y', 'yes'] }}"
+
+# ==================================================================
+# Central nova
+# ==================================================================
+# O pause pergunta uma vez para todos os servidores da execução: duas
+# centrais novas de uma vez ganhariam o mesmo nome de cliente.
+- name: Uma central nova por vez
+  ansible.builtin.assert:
+    that: ansible_play_hosts_all | length == 1
+    fail_msg: >-
+      As perguntas da instalação valem para um servidor só, e esta execução tem
+      {{ ansible_play_hosts_all | length }}. Instale uma central nova por vez
+      (-i "IP,"), ou responda tudo por -e e use -e perguntar=false.
+    quiet: true
+  when: not (central_instalada | bool) and perguntas_fazer | bool
+
+- name: Perguntas da central nova
+  when: not (central_instalada | bool) and perguntas_fazer | bool
+  block:
+    # ---------- nome do cliente ----------
+    - name: Perguntar o nome do cliente
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           Nome do cliente (a empresa dona desta central)
+           Aparece na identificação da central. Enter: {{ pabx_empresa }}
+          ════════════════════════════════════════════════════════════════
+          Cliente
+      register: resposta_empresa
+      when: "'pabx_empresa' not in ajustes_do_servidor"
+
+    - name: Usar o nome do cliente
+      ansible.builtin.set_fact:
+        perguntas_respostas: "{{ perguntas_respostas | combine({'pabx_empresa': resposta_empresa.user_input | trim}) }}"
+      when: (resposta_empresa.user_input | default('') | trim) != ''
+
+    # ---------- NAT ----------
+    # Só quando o servidor tem IP interno: com IP público na placa, não há
+    # NAT a contar ao Asterisk.
+    - name: Perguntar o IP público (servidor atrás de NAT)
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           Este servidor tem IP interno ({{ ip_do_servidor }}): está atrás de NAT.
+           Qual é o IP PÚBLICO dele? É o que os telefones de fora e a
+           operadora usam, e o que vai no SIP e no áudio.
+           Enter: {{ ip_de_acesso or 'nenhum (central só para a rede interna)' }}
+          {% if ip_de_acesso %}
+           Sem IP público: digite "nenhum".
+          {% endif %}
+          ════════════════════════════════════════════════════════════════
+          IP público
+      register: resposta_nat
+      when:
+        - "'nat_ip_publico' not in ajustes_do_servidor"
+        - (nat_ip_publico | default('') | string) == ''
+        - ip_do_servidor is match('^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.)')
+
+    - name: Entender o IP público
+      ansible.builtin.set_fact:
+        nat_digitado: >-
+          {{ '' if (resposta_nat.user_input | trim | lower) in ['nenhum', 'n', 'nao', 'não']
+             else ((resposta_nat.user_input | trim) or ip_de_acesso) }}
+      when: resposta_nat.user_input is defined
+
+    - name: Conferir o IP público
+      ansible.builtin.assert:
+        that: nat_digitado is match('^((25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])$')
+        fail_msg: "\"{{ nat_digitado }}\" não é um IPv4. Rode de novo."
+        quiet: true
+      when: nat_digitado | default('') != ''
+
+    - name: Usar o IP público
+      ansible.builtin.set_fact:
+        perguntas_respostas: "{{ perguntas_respostas | combine({'nat_ip_publico': nat_digitado}) }}"
+      when: nat_digitado | default('') != ''
+
+    # ---------- o nome ainda não está no DNS ----------
+    # O áudio do softphone do navegador passa pelo TURN, que é chamado
+    # pelo nome da central. Sem o nome no DNS o softphone fica mudo; com
+    # o IP no lugar, funciona até o DNS sair.
+    - name: Ver se o nome da central já resolve
+      ansible.builtin.command:
+        cmd: "getent ahostsv4 {{ pabx_hostname }}"
+      register: nome_no_dns
+      changed_when: false
+      failed_when: false
+      when:
+        - "'turn_dominio' not in ajustes_do_servidor"
+        - instalar_turn | default(true) | bool
+        - pabx_hostname is not match('^[0-9.]+$')
+
+    - name: Perguntar o IP do áudio do softphone enquanto não há DNS
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           "{{ pabx_hostname }}" ainda não existe no DNS.
+           O áudio do softphone do navegador usa esse nome e ficaria mudo.
+           Até o DNS sair, ele pode usar o IP público.
+           Enter: {{ ip_sugerido or 'esperar o DNS (o softphone fica mudo até lá)' }}
+           (Quando o DNS sair: tire turn_dominio de {{ servidor_ajustes }}.)
+          ════════════════════════════════════════════════════════════════
+          IP para o áudio
+      register: resposta_turn
+      vars:
+        ip_sugerido: "{{ perguntas_respostas.nat_ip_publico | default(nat_ip_publico, true) | default(ip_de_acesso, true) }}"
+      when: nome_no_dns.rc is defined and nome_no_dns.rc != 0
+
+    - name: Entender o IP do áudio
+      ansible.builtin.set_fact:
+        turn_digitado: >-
+          {{ (resposta_turn.user_input | trim)
+             or perguntas_respostas.nat_ip_publico | default(nat_ip_publico, true) | default(ip_de_acesso, true) }}
+      when: resposta_turn.user_input is defined
+
+    - name: Conferir o IP do áudio
+      ansible.builtin.assert:
+        that: turn_digitado is match('^((25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])$')
+        fail_msg: "\"{{ turn_digitado }}\" não é um IPv4. Rode de novo."
+        quiet: true
+      when: turn_digitado | default('') != ''
+
+    - name: Usar o IP no áudio do softphone
+      ansible.builtin.set_fact:
+        perguntas_respostas: "{{ perguntas_respostas | combine({'turn_dominio': turn_digitado}) }}"
+      when: turn_digitado | default('') != ''
+
+    # ---------- Janus ----------
+    - name: Perguntar se instala o Janus
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           Instalar o Janus?
+           Ele não está no caminho de nenhuma chamada: o softphone do
+           navegador fala direto com o Asterisk. Fica para a sala de
+           vídeo, um módulo futuro. Compilar leva alguns minutos.
+           Na dúvida, não.
+          ════════════════════════════════════════════════════════════════
+          Instalar o Janus? [s/N]
+      register: resposta_janus
+      when: "'instalar_janus' not in ajustes_do_servidor"
+
+    - name: Usar a resposta do Janus
+      ansible.builtin.set_fact:
+        perguntas_respostas: >-
+          {{ perguntas_respostas | combine({'instalar_janus': (resposta_janus.user_input | trim | lower) in ['s', 'sim', 'y', 'yes']}) }}
+      when: resposta_janus.user_input is defined
+
+    # ---------- Asternic ----------
+    - name: Perguntar se instala o Asternic
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           Instalar o Asternic Call Center Stats PRO (Call Center › Stats)?
+           Só com licença comprada para ESTE servidor: ela fica presa ao
+           MAC da placa de rede. Sem licença, diga não; dá para instalar
+           depois (instalar_asternic: true em {{ servidor_ajustes }}).
+          ════════════════════════════════════════════════════════════════
+          Instalar o Asternic? [s/N]
+      register: resposta_asternic
+      when: "'instalar_asternic' not in ajustes_do_servidor"
+
+    - name: Usar a resposta do Asternic
+      ansible.builtin.set_fact:
+        perguntas_respostas: >-
+          {{ perguntas_respostas | combine({'instalar_asternic': (resposta_asternic.user_input | trim | lower) in ['s', 'sim', 'y', 'yes']}) }}
+      when: resposta_asternic.user_input is defined
+
+    # ---------- SIP só para redes conhecidas ----------
+    - name: Perguntar se o SIP fica só para redes conhecidas
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           O SIP e o áudio desta central respondem só a redes conhecidas?
+
+           Sim: só o Brasil, a Telium, as redes internas, os troncos, a
+           lista "Nunca bloquear" e os telefones já registrados chegam ao
+           Asterisk. Robôs de fora do Brasil nem aparecem no log.
+           Não: a porta SIP fica aberta para a internet toda (o fail2ban
+           continua banindo quem erra senha ou varre ramais).
+
+           Atenção à operadora: se ela manda as chamadas de um IP diferente
+           do cadastrado no tronco (SBC, ou servidores na nuvem — AWS,
+           Google — mesmo no Brasil), esse IP precisa entrar nas redes
+           extras, ou as chamadas de entrada não chegam.
+           Diga NÃO se tiver ramal ou operadora fora do Brasil e não
+           souber o IP deles.
+          ════════════════════════════════════════════════════════════════
+          Restringir o SIP? [s/N]
+      register: resposta_sip
+      when: "'sip_restringir_redes' not in ajustes_do_servidor"
+
+    - name: Usar a resposta sobre o SIP
+      ansible.builtin.set_fact:
+        perguntas_respostas: >-
+          {{ perguntas_respostas | combine({'sip_restringir_redes': (resposta_sip.user_input | trim | lower) in ['s', 'sim', 'y', 'yes']}) }}
+      when: resposta_sip.user_input is defined
+
+    - name: Perguntar as redes a liberar além das de sempre
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           Algum IP ou rede de FORA do Brasil precisa chegar à central?
+           A operadora, um escritório ou ramal no exterior…
+
+           Separados por espaço, com ou sem /máscara.
+           Ex.: 203.0.113.10 198.51.100.0/24
+           Nenhum: só Enter. Dá para incluir depois pelo console, em
+           Conectividade › Firewall › Nunca bloquear.
+          ════════════════════════════════════════════════════════════════
+          Redes extras
+      register: resposta_sip_extras
+      when: perguntas_respostas.sip_restringir_redes | default(false) | bool
+
+    # IPv4 com máscara de /8 a /32, ou IPv6 com máscara de /16 a /128: uma
+    # faixa /0 seria a porta aberta para todos sem ninguém perceber.
+    - name: Conferir as redes extras
+      ansible.builtin.assert:
+        that: extras_digitadas | reject('match', redes_ok) | list | length == 0
+        fail_msg: >-
+          Estas redes não são IP nem faixa aceitável: {{ extras_digitadas | reject('match', redes_ok) | join(', ') }}.
+          Use IPv4 (203.0.113.10 ou 198.51.100.0/24, máscara de /8 a /32) ou IPv6
+          (máscara de /16 a /128). Rode de novo.
+        quiet: true
+      vars:
+        extras_digitadas: "{{ resposta_sip_extras.user_input | default('') | replace(',', ' ') | split }}"
+        redes_ok: '^(((25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(/([89]|[12][0-9]|3[0-2]))?|(?!.*:::)(?=.*[0-9a-fA-F])[0-9a-fA-F]*:[0-9a-fA-F:]*(/(1[6-9]|[2-9][0-9]|1[01][0-9]|12[0-8]))?)$'
+      when: resposta_sip_extras.user_input is defined
+
+    - name: Usar as redes extras
+      ansible.builtin.set_fact:
+        perguntas_respostas: >-
+          {{ perguntas_respostas | combine({'sip_redes_extras': resposta_sip_extras.user_input | replace(',', ' ') | split}) }}
+      when: resposta_sip_extras.user_input is defined
+
+    # ---------- syslog central ----------
+    - name: Perguntar se manda os logs para o syslog da Telium
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           Mandar os logs desta central para o syslog central da Telium
+           ({{ syslog_central_asterisk }} e {{ syslog_central_sistema }})?
+           Diga não em central de cliente que não fala com a rede da Telium.
+          ════════════════════════════════════════════════════════════════
+          Mandar os logs? [S/n]
+      register: resposta_syslog
+      when: "'syslog_central' not in ajustes_do_servidor"
+
+    - name: Usar a resposta do syslog
+      ansible.builtin.set_fact:
+        perguntas_respostas: >-
+          {{ perguntas_respostas | combine({'syslog_central': (resposta_syslog.user_input | trim | lower) not in ['n', 'nao', 'não', 'no']}) }}
+      when: resposta_syslog.user_input is defined
+
+    # ---------- produção ou laboratório ----------
+    # O cenário de teste vale só para esta execução: não vai para os
+    # ajustes, e nenhuma atualização o carrega de novo.
+    - name: Perguntar se é central de cliente ou de laboratório
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           Esta central é de:
+
+             1  CLIENTE (produção): o banco nasce vazio
+             2  LABORATÓRIO: já vem com o cenário de teste — ramais 1001
+                a 1004, grupo 2000, fila 3000, conferência 4000, URA,
+                horário comercial e rotas, prontos para testar
+          ════════════════════════════════════════════════════════════════
+          Ambiente [1]
+      register: resposta_ambiente
+
+    - name: Ambiente inválido
+      ansible.builtin.fail:
+        msg: "Ambiente \"{{ resposta_ambiente.user_input | trim }}\" não existe: responda 1 ou 2. Nada foi instalado."
+      when: (resposta_ambiente.user_input | default('') | trim) not in ['', '1', '2']
+
+    - name: Usar o ambiente (só nesta execução)
+      ansible.builtin.set_fact:
+        cenario_teste: "{{ (resposta_ambiente.user_input | default('') | trim) == '2' }}"
+
+    # ---------- confirmar ----------
+    - name: Confirmar antes de instalar
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           Vai instalar em {{ inventory_hostname }}:
+
+             Nome da central ... {{ pabx_hostname }}
+             Cliente ........... {{ r.pabx_empresa | default(pabx_empresa) }}
+             IP público (NAT) .. {{ r.nat_ip_publico | default(nat_ip_publico, true) | default('nenhum', true) }}
+          {% if r.turn_dominio is defined %}
+             Áudio softphone ... pelo IP {{ r.turn_dominio }} até o DNS sair
+          {% endif %}
+             Janus ............. {{ 'sim' if r.instalar_janus | default(instalar_janus) | bool else 'não' }}
+             Asternic .......... {{ 'sim' if r.instalar_asternic | default(instalar_asternic) | bool else 'não' }}
+             SIP ............... {{ ('só redes conhecidas' ~ ((' + ' ~ (r.sip_redes_extras | join(' '))) if r.sip_redes_extras | default([]) else '')) if r.sip_restringir_redes | default(sip_restringir_redes | default(false)) | bool else 'aberto para a internet (com fail2ban)' }}
+             Syslog da Telium .. {{ 'sim' if r.syslog_central | default(syslog_central) | bool else 'não' }}
+             Ambiente .......... {{ 'LABORATÓRIO (com o cenário de teste)' if cenario_teste | default(false) | bool else 'cliente (banco vazio)' }}
+
+           Para mudar algo depois: {{ servidor_ajustes }} no servidor.
+          ════════════════════════════════════════════════════════════════
+          Instalar? [S/n]
+      register: resposta_confirma
+      vars:
+        r: "{{ perguntas_respostas }}"
+
+    - name: Instalação cancelada
+      ansible.builtin.fail:
+        msg: "Cancelado: nada foi instalado. Rode de novo para responder outra vez."
+      when: (resposta_confirma.user_input | default('') | trim | lower) in ['n', 'nao', 'não', 'no']
+
+# ---------- guardar e usar ----------
+- name: Guardar as respostas nos ajustes do servidor
+  ansible.builtin.lineinfile:
+    path: "{{ servidor_ajustes }}"
+    regexp: '^#?\s*{{ item.key }}:'
+    line: "{{ item.key }}: {{ item.value | to_json(ensure_ascii=False) }}"
+  loop: "{{ perguntas_respostas | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Usar as respostas
+  ansible.builtin.set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ perguntas_respostas | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"

@@ -12,6 +12,7 @@ SUMÁRIO
 
 1. Visão geral
 2. Firewall (ufw)
+   - SIP só para redes conhecidas
 3. Bloqueio automático (fail2ban)
 4. A tela Firewall e Segurança
 5. Login do console
@@ -37,6 +38,7 @@ SUMÁRIO
 --------------
 
 - ufw: Fecha tudo que entra, menos as portas da central
+- SIP só para redes conhecidas (opcional): As portas de voz só respondem ao Brasil, à Telium, às redes internas, aos troncos, ao "Nunca bloquear" e aos telefones já registrados
 - fail2ban: Bane por IP quem erra senha no SIP, no console ou no SSH
 - Console: Bloqueio por conta e por origem, sessão curta, senha forte, 2FA opcional
 - Perfis: Cada usuário vê só os módulos do seu perfil; o servidor confere tudo
@@ -67,7 +69,47 @@ Ficam fechadas, porque escutam só em 127.0.0.1: AMI (5038), HTTP/WebSocket do A
 Conferir no servidor:
     sudo ufw status verbose
 
-instalar_firewall: false no servidor.yml desliga essa parte do playbook. Portas e faixas completas em 03 — Requisitos de Rede e Portas (ver página 03).
+instalar_firewall: false no /etc/telium-servidor.yml desliga essa parte do playbook. Portas e faixas completas em 03 — Requisitos de Rede e Portas (ver página 03).
+
+
+SIP só para redes conhecidas
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A porta SIP aberta para a internet inteira recebe varredura de robôs o dia todo, quase sempre de fora do Brasil. O fail2ban bane depois das tentativas; esta opção corta antes: quem não está numa rede conhecida nem chega ao Asterisk, e some do log.
+
+Desligada de fábrica. A instalação pergunta ("Restringir o SIP? [s/N]") e, com sim, pede as redes extras. Para ligar ou desligar depois, edite no servidor e rode o playbook:
+
+    sudo nano /etc/telium-servidor.yml
+
+    sip_restringir_redes: true
+    sip_redes_extras: ["203.0.113.10", "198.51.100.0/24"]
+
+O que fica restrito: as portas de voz — SIP 5060 UDP/TCP e 5061 TCP, RTP 10000–20000, fax T.38 4000–4999, TURN 3478/5349 e o relay 49152–49500, e a faixa do Janus, se instalado. O console (443), o 80 e o SSH não mudam.
+
+Quem passa (a lista é a soma de tudo isto):
+
+- IPs da Telium, as faixas do Brasil e as redes internas (10/8, 172.16/12, 192.168/16): sip_redes_liberadas, no main.yml (a mesma lista dos servidores da Telium)
+- Redes extras desta central: sip_redes_extras, no /etc/telium-servidor.yml (perguntadas na instalação)
+- A lista Nunca bloquear do console: Tabela firewall_confiaveis. Salvar a lista no console reaplica em segundos, em segundo plano (o console não espera)
+- O host de cada tronco: Cadastro do tronco; um nome é resolvido para os IPs dele. Tronco novo entra em até 5 minutos. Só o host: os outros IPs da operadora não entram sozinhos (veja abaixo)
+- Os telefones já registrados: Os IPs de onde algum ramal registrou, vistos a cada aplicação
+- Conexões já estabelecidas e o próprio servidor: Sempre
+
+- Troncos e telefones vistos uma vez ficam guardados em /var/lib/telium-firewall-sip/vistos.conf e nunca saem sozinhos: um telefone que reiniciou, ou um tronco cujo nome não resolveu naquela hora, não perde o acesso que já tinha.
+- Só o IPv4 é restrito, a não ser que a lista fixa tenha alguma faixa IPv6.
+- As faixas do Brasil são uma peneira grossa: alguns blocos /8 têm também endereços de fora. O fail2ban continua valendo para quem passa.
+- Ramal ou operadora fora do Brasil: ponha o IP em Nunca bloquear (vale em segundos) ou em sip_redes_extras (com o playbook). Na dúvida sobre o IP deles, deixe a restrição desligada.
+- Operadora que manda as chamadas de outro IP: se as chamadas de entrada vêm de um IP diferente do host cadastrado no tronco (um SBC, ou servidores na nuvem, como AWS e Google, mesmo no Brasil), esse IP precisa entrar em sip_redes_extras ou no Nunca bloquear, ou as chamadas de entrada não chegam. Pergunte à operadora os IPs de sinalização e de mídia antes de ligar a restrição.
+
+Como funciona: uma tabela própria do nftables, inet telium_sip, que só descarta quem não está na lista; quem está segue para o ufw como sempre. Por ser à parte, não depende do ufw, do fail2ban nem de um iptables antigo que o servidor tenha. Nos servidores com a imagem antiga de iptables da Telium (rules.v4 com a lista do Brasil), aquela lista só tinha regras de aceitar e não terminava em descarte: com o ufw atrás, quem estava fora dela chegava do mesmo jeito. Esta opção é o que de fato restringe.
+
+- /etc/telium-sip-redes.conf: A lista fixa (sip_redes_liberadas + sip_redes_extras), gerada pelo playbook. Sem ele, a restrição está desligada
+- sudo telium-firewall-sip aplicar: Monta a tabela com a lista de agora. Sem o banco (troncos e "Nunca bloquear" desconhecidos), deixa a tabela que já estava, em vez de uma que cortaria a operadora. No playbook, uma falha aqui não para a atualização: ele avisa ("não aplicou agora") e o timer tenta de novo em 5 minutos
+- sudo telium-firewall-sip mostrar: A tabela em vigor, com os contadores de descarte; "desligado" se não há
+- sudo telium-firewall-sip desligar: Apaga a tabela na hora (as portas voltam a ser só do ufw). O timer remonta em até 5 minutos enquanto o recurso estiver ligado: para desligar de vez, sip_restringir_redes: false e o playbook
+- telium-firewall-sip.timer: Reaplica a cada 5 minutos (e 30 segundos depois do boot)
+
+O que ele registra vai para o syslog, com a marca telium-firewall-sip: journalctl -t telium-firewall-sip.
 
 
 3. BLOQUEIO AUTOMÁTICO (FAIL2BAN)
@@ -105,7 +147,7 @@ Em Conectividade › Firewall:
 - O que a central bloqueou: Eventos recentes: tipo, conta tentada, IP
 - Restrição de rede dos ramais: Saída de acl show
 
-Nunca bloquear: aceita um IP (200.170.201.2) ou uma faixa (200.170.201.0/24). Faixas maiores que /8 (IPv4) são recusadas, para ninguém desligar o firewall sem perceber. Ao incluir, o endereço é solto em todas as cadeias e passa a ser ignorado; a lista é reaplicada a cada execução do playbook. Use para o escritório do cliente e o monitoramento, nunca para faixas de provedor.
+Nunca bloquear: aceita um IP (200.170.201.2) ou uma faixa (200.170.201.0/24). Faixas maiores que /8 (IPv4) são recusadas, para ninguém desligar o firewall sem perceber. Ao incluir, o endereço é solto em todas as cadeias e passa a ser ignorado; a lista é reaplicada a cada execução do playbook. Com o SIP só para redes conhecidas ligado, a mesma lista também libera o SIP e o áudio, em segundos (a ponte telium-fail2ban confiaveis dispara o telium-firewall-sip.service em segundo plano, para o console não esperar a resolução dos troncos). Use para o escritório do cliente e o monitoramento, nunca para faixas de provedor.
 
 Uma varredura de ramal aparece aqui dias antes de virar conta de telefone: um IP com dezenas de falhas é robô, não usuário errando a senha.
 
@@ -288,8 +330,10 @@ Gerados na instalação (28 caracteres aleatórios cada), em /etc/telium/credenc
 - ari_senha: ARI do Asterisk
 - turn_segredo: Segredo das credenciais temporárias do TURN
 
+- São geradas e lidas no próprio servidor, no começo do playbook (infra/ansible/tarefas/credenciais.yml). Rodando de fora, nada secreto vem da máquina de quem roda nem fica nela, e ela não precisa de root.
 - Reexecutar o playbook reaproveita as mesmas; elas não aparecem na tela nem entram no Git.
-- Para escolher as próprias, use group_vars/all/vault.yml (copiado de vault.yml.exemplo), que tem precedência, e cifre com ansible-vault encrypt.
+- Para escolher as próprias, use group_vars/all/vault.yml (copiado de vault.yml.exemplo), que tem precedência, e cifre com ansible-vault encrypt. Só vale rodando o playbook de dentro do servidor: de fora, ele para se o clone tiver um vault.yml, que valeria para toda central.
+- Os ajustes de cada central ficam em /etc/telium-servidor.yml, fora de /etc/telium de propósito: aquela pasta é do usuário da API, e o arquivo é lido pelo Ansible como root. É root, 0600.
 - O AMI escuta em 127.0.0.1:5038 e aceita só 127.0.0.1. O MariaDB também escuta só em 127.0.0.1.
 - A configuração de e-mail (msmtp) é escrita com permissão 0600, uma cópia para o Asterisk e outra para a API.
 - O diagnostico-ami.sh compara as senhas sem mostrá-las (só tamanho e quatro primeiros caracteres).
@@ -404,12 +448,13 @@ O /api/health sem sessão devolve só versão e "saudável": a versão do PHP, d
 6. Internacional desligado em todos os ramais que não precisam.
 7. Restringir a redes nos ramais que só existem no escritório.
 8. Não exponha AMI, banco nem porta 8090. Eles já escutam só em 127.0.0.1; não redirecione essas portas no roteador.
-9. Revise "Nunca bloquear": só IPs fixos de confiança, nunca faixas grandes.
+9. Revise "Nunca bloquear": só IPs fixos de confiança, nunca faixas grandes. Com o SIP só para redes conhecidas, a lista também abre o SIP.
 10. Certificado válido no console e no SIP TLS, com a validade acompanhada.
 11. Provisionamento só da rede local e click to call com filtro de IP.
 12. Acompanhe Conectividade › Firewall nas primeiras semanas: varredura aparece ali antes de virar prejuízo.
 13. Combine o prazo de guarda das gravações com o cliente (LGPD) e defina-o em Aplicações › Gravação de Chamadas.
 14. Preencha os alertas por e-mail (Configurações › Notificações e E-mail › Mandar os alertas do sistema para): backup com falha ou atrasado, certificado perto de vencer e disco quase cheio chegam a quem cuida da central.
 15. Guarde fora do servidor o vault.yml cifrado, se usado, e nunca o anexe a chamados.
+16. Ligue o SIP só para redes conhecidas (seção 2) nas centrais sem ramal nem operadora fora do Brasil, ou com os IPs deles conhecidos.
 
 [PRINT: Meu Perfil e Segurança com o cartão "Trocar minha senha"]

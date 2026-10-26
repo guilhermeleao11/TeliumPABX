@@ -27,7 +27,8 @@ Referência dos comandos úteis no servidor da central: o utilitário `telium`, 
 
 | O quê | Onde |
 |---|---|
-| Clone do Git (de onde o playbook roda) | `/opt/TeliumPABX` |
+| Clone do Git (de onde o playbook roda) | Na máquina do técnico; numa central instalada de dentro, também `/opt/TeliumPABX` |
+| Ajustes desta central | `/etc/telium-servidor.yml` (root, `0600`) |
 | Código publicado (o que está no ar) | `/opt/telium` |
 | Utilitário `telium` | `/opt/telium/api/bin/telium` |
 | Usuário de sistema da API | `teliumpbx` (sem login) |
@@ -182,7 +183,8 @@ Instalados pelo Ansible. Quase todos rodam como root e **não recebem argumentos
 | `telium-backup` | Executa a restauração pedida, apaga os backups marcados para excluir, roda as rotinas vencidas e os backups na fila; uma vez por dia, apaga as gravações que passaram do prazo de guarda; de hora em hora (no minuto 07) e logo depois de um backup que falha, roda `telium alertas` | Console + `telium-backup.timer` |
 | `telium-certificados` | Aplica certificados pendentes no nginx, Asterisk (SIP TLS), coturn e Janus; volta o anterior se o serviço recusar | Console + `telium-certificados.timer` |
 | `telium-smtp` | Gera a configuração do msmtp (envio de recado por e-mail) a partir da tabela `smtp` | Console (ao salvar o e-mail) e playbook |
-| `telium-fail2ban` | Ponte do console com o fail2ban: lista e desbane IPs, aplica a lista "Nunca bloquear" | Console (Conectividade › Firewall) e playbook |
+| `telium-fail2ban` | Ponte do console com o fail2ban: lista e desbane IPs, aplica a lista "Nunca bloquear" (e, com o SIP só para redes conhecidas, reaplica o `telium-firewall-sip`) | Console (Conectividade › Firewall) e playbook |
+| `telium-firewall-sip` | SIP só para redes conhecidas: monta (`aplicar`), apaga (`desligar`) ou mostra (`mostrar`) a tabela `inet telium_sip` do nftables, com as redes fixas, o "Nunca bloquear", os troncos e os telefones já registrados. Sem `/etc/telium-sip-redes.conf`, fica desligado. Veja [Segurança](08-Seguranca.md#sip-só-para-redes-conhecidas) | `telium-firewall-sip.timer`, `telium-fail2ban confiaveis` e playbook |
 | `telium-despertador` | Liga para os ramais com despertador marcado (pelo `*68` ou pelo console). Se ninguém atende, tenta de novo: o despertador do console, quantas vezes e com o intervalo do cadastro; o do `*68`, mais duas vezes, a cada dois minutos. As tentativas em curso ficam em `/var/lib/telium/despertador`, e o resultado (atendeu ou não atendeu) vai para o cadastro | `telium-despertador.timer` |
 | `telium-fax-email` | Manda o fax recebido por e-mail: converte o TIFF em PDF (com o `tiff2pdf`, do pacote `libtiff-tools`; sem ele, vai o TIFF) e envia pelo mesmo `sendmail` (msmtp) do recado do correio de voz. Só aceita arquivo em `/var/spool/asterisk/fax` e registra o resultado no syslog com a marca `telium-fax` | O Asterisk, ao fim de cada fax recebido, quando há e-mail em **Configurações › Fax** (roda como `asterisk`) |
 
@@ -196,6 +198,8 @@ sudo /usr/local/sbin/telium-smtp                     # republica a configuraçã
 sudo /usr/local/sbin/telium-fail2ban listar          # banidos, em JSON
 sudo /usr/local/sbin/telium-fail2ban desbanir asterisk 203.0.113.10
 sudo /usr/local/sbin/telium-fail2ban confiaveis      # reaplica a lista "Nunca bloquear"
+sudo /usr/local/sbin/telium-firewall-sip mostrar     # SIP por rede: a tabela em vigor, ou "desligado"
+sudo /usr/local/sbin/telium-firewall-sip aplicar     # remonta a lista agora (tronco novo, sem esperar o timer)
 ```
 
 > Os scripts são gerados pelo playbook ("Não edite à mão"). Mudança feita direto neles some na próxima atualização.
@@ -204,7 +208,7 @@ sudo /usr/local/sbin/telium-fail2ban confiaveis      # reaplica a lista "Nunca b
 
 ## 4. Scripts de diagnóstico
 
-Ficam no clone, não no código publicado.
+Ficam no clone, não no código publicado. Numa central instalada de fora não há clone no servidor: rode os scripts da sua máquina, na pasta do clone, com `ssh root@200.170.198.176 'bash -s' < infra/diagnostico.sh` (o mesmo para o `diagnostico-ami.sh`), e o `verificar.yml` com `ansible-playbook -i "200.170.198.176," verificar.yml -u root -k` (em `infra/ansible`).
 
 | Comando | Para quê |
 |---|---|
@@ -254,6 +258,7 @@ O Asterisk depende do MariaDB de forma fraca (`Wants`): reiniciar o MariaDB não
 | `telium-certificados.timer` | `telium-certificados.service` → `/usr/local/sbin/telium-certificados` | A cada minuto (`*:0/1`) |
 | `telium-despertador.timer` | `telium-despertador.service` → `/usr/local/sbin/telium-despertador` | A cada minuto (`*:0/1`) |
 | `telium-tarifar.timer` | `telium-tarifar.service` → `telium tarifar` (como `teliumpbx`) | De hora em hora (`hourly`) |
+| `telium-firewall-sip.timer` | `telium-firewall-sip.service` → `/usr/local/sbin/telium-firewall-sip aplicar` | 30 s depois do boot e a cada 5 minutos. Ligado só com `sip_restringir_redes` |
 
 Rodar a cada minuto não quer dizer trabalhar a cada minuto: cada um olha o banco e sai com "nada a fazer" quando não há pendência.
 
@@ -375,6 +380,19 @@ sudo ufw status numbered
 ```
 
 Portas liberadas pelo playbook: veja [Requisitos de rede e portas](03-Requisitos-Rede-e-Portas.md).
+
+### SIP só para redes conhecidas
+
+Opcional (`sip_restringir_redes`, perguntado na instalação). Uma tabela própria do nftables na frente do ufw, só para as portas de voz:
+
+```bash
+sudo telium-firewall-sip mostrar                  # a tabela, com os contadores de descarte
+sudo nft list table inet telium_sip               # o mesmo, direto no nftables
+systemctl status telium-firewall-sip.timer
+journalctl -t telium-firewall-sip                 # o que o aplicar registrou
+```
+
+Detalhes em [Segurança](08-Seguranca.md#sip-só-para-redes-conhecidas).
 
 ### fail2ban
 

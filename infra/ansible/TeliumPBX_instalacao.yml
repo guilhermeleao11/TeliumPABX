@@ -1,0 +1,11 @@
+---
+# Instalar ou atualizar uma central de outra máquina, pela rede:
+#
+#   cd infra/ansible
+#   ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml -u root -k
+#
+# A vírgula depois do IP diz ao Ansible que aquilo é a lista de
+# servidores, e não um arquivo. Várias de uma vez: -i "IP1,IP2,".
+# É o mesmo site.yml que roda de dentro da central (veja o README).
+- name: Instalar o Telium PABX
+  ansible.builtin.import_playbook: site.yml

@@ -1,9 +1,11 @@
 ---
 # Diagnóstico completo da instalação.
 #   sudo ansible-playbook verificar.yml
+# De outra máquina, pela rede:
+#   ansible-playbook -i "200.170.198.176," verificar.yml
 # Rode e cole a saída — é o suficiente para eu entender o que falhou.
 - name: Verificar a instalação do Telium PABX
-  hosts: pabx
+  hosts: all
   become: true
   gather_facts: true
 
@@ -15,6 +17,13 @@
     servicos: "{{ ['mariadb', 'php8.4-fpm', 'asterisk', 'nginx', 'fail2ban']
                   + (['janus'] if instalar_janus | default(false) else [])
                   + (['coturn'] if instalar_turn | default(true) else []) }}"
+
+  pre_tasks:
+    # Só lê: o diagnóstico não migra nem cria nada.
+    - name: Ler os ajustes desta central
+      ansible.builtin.include_tasks: tarefas/ajustes-do-servidor.yml
+      vars:
+        somente_ler: true
 
   tasks:
     # ---------------- a pilha chegou a ser instalada? ----------------
@@ -118,8 +127,7 @@
           UNION ALL SELECT 'troncos', COUNT(*) FROM troncos
           UNION ALL SELECT 'filas', COUNT(*) FROM filas
           UNION ALL SELECT 'rotas_saida', COUNT(*) FROM rotas_saida
-          UNION ALL SELECT 'cdr', COUNT(*) FROM cdr;" 2>&1
-        || echo '(banco indisponível)'
+          UNION ALL SELECT 'cdr', COUNT(*) FROM cdr;" 2>&1 || echo '(banco indisponível)'
       register: db_contagem
       changed_when: false
 

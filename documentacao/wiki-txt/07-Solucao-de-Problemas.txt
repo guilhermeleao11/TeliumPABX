@@ -33,6 +33,7 @@ SUMÁRIO
 21. Gravação não aparece
 22. Coletar informações para o suporte
 23. Webhook não chega ao CRM
+24. A instalação ou a atualização para logo no começo
 
 
 1. ANTES DE TUDO: A CENTRAL ESTÁ DE PÉ?
@@ -118,6 +119,7 @@ Causas prováveis:
 - Ramal inativo, ou criado e ainda não aplicado.
 - Transporte do aparelho diferente do configurado no ramal (UDP, TCP ou TLS).
 - A porta 5060 (ou 5061 em TLS) não chega ao servidor.
+- Com o SIP só para redes conhecidas ligado: o aparelho está fora do Brasil (ou numa rede que não está na lista) e o pacote é descartado antes de chegar ao Asterisk. Típico logo depois de ligar a restrição, para quem trabalha do exterior.
 
 Como verificar:
 
@@ -126,12 +128,14 @@ Como verificar:
        sudo asterisk -rx "pjsip show contacts" | grep 1001
        sudo grep 1001 /var/log/asterisk/security | tail
        sudo fail2ban-client status asterisk
+       sudo telium-firewall-sip mostrar     # a lista em vigor; "desligado" se a restrição não está ligada
 3. Confira se a faixa amarela Alterações ainda não aplicadas está no topo do console.
 
 Como resolver:
 - IP bloqueado: em Conectividade › Firewall, clique em Desbloquear ao lado do IP. Endereços de confiança (escritório, monitoramento) podem ir para Nunca bloquear. Detalhes em 08 — Segurança (ver página 08).
 - Corrija a senha no aparelho (a senha SIP aparece no cadastro do ramal).
 - Ajuste ou esvazie Restringir a redes e aplique.
+- Fora das redes conhecidas: ponha o IP do aparelho em Conectividade › Firewall › Nunca bloquear (vale em segundos) ou, se for uma rede fixa, em sip_redes_extras no /etc/telium-servidor.yml e rode o playbook. O que fica liberado sozinho é o IP de onde um telefone já registrou: se ele mudar de IP fora das redes conhecidas, volta a ser barrado. Detalhes em 08 — Segurança (ver página 08).
 - Clique em Aplicar configurações.
 
 [PRINT: Conectividade › Firewall com a tabela "Bloqueados agora pelo firewall" e o botão Desbloquear]
@@ -207,6 +211,8 @@ No servidor:
     sudo asterisk -rx "pjsip set logger on"
     sudo tail -f /var/log/asterisk/full
 
+Com o SIP só para redes conhecidas ligado, o host de um tronco novo entra na lista sozinho em até 5 minutos (o timer telium-firewall-sip.timer). Para não esperar: sudo telium-firewall-sip aplicar. Se a operadora manda as chamadas, a sinalização ou o áudio de um IP diferente do host cadastrado (um SBC, ou servidores na nuvem, como AWS e Google, mesmo no Brasil), esse IP precisa estar na lista: ponha-o em Conectividade › Firewall › Nunca bloquear ou em sip_redes_extras. O sintoma típico é o tronco registrado e as chamadas de entrada que não chegam.
+
 [PRINT: Conectividade › Troncos com a coluna de situação]
 
 
@@ -280,7 +286,7 @@ Não registra (fica em "registrando"):
 
 Registra, mas a chamada fica muda:
 - Transporte wss no loopback. Se o wss estiver preso em 127.0.0.1, o RTP nasce no loopback, o ICE não fecha e o log enche de Error sending STUN request: Invalid argument. A tela mostra onde o wss está amarrado. O WebSocket continua só no 127.0.0.1:8090 do http.conf, atrás do nginx.
-- TURN inalcançável. O nome do TURN (vem do pabx_hostname) precisa resolver e ser alcançável da máquina do usuário. A mensagem do navegador é "ICE failed, your TURN server appears to be broken". Sem DNS, aponte turn_dominio para o IP público no servidor.yml e rode o playbook.
+- TURN inalcançável. O nome do TURN (vem do pabx_hostname) precisa resolver e ser alcançável da máquina do usuário. A mensagem do navegador é "ICE failed, your TURN server appears to be broken". Sem DNS, aponte turn_dominio para o IP público no /etc/telium-servidor.yml do servidor e rode o playbook.
 - Portas do TURN fechadas: 3478 UDP/TCP, 5349 TCP e 49152–49500 UDP.
 - Ramal WebRTC usado por softphone comum. A tela marca como "aparelho incompatível": a chamada conecta e ninguém ouve.
 
@@ -298,7 +304,7 @@ Console não abre ou dá 502:
 - Entra pelo IP, mas não pelo nome: confira o DNS (nslookup), o certificado e o pabx_hostname. Teste do próprio servidor:
       curl -k --resolve voz.cliente.com.br:443:127.0.0.1 https://voz.cliente.com.br/api/health
   Se responder, o problema está entre o navegador e o servidor.
-- Tela ou botão novo não aparece depois de atualizar: Ctrl + Shift + R. Confira também a versão (git log --oneline -1 em /opt/TeliumPABX) e a permissão do perfil.
+- Tela ou botão novo não aparece depois de atualizar: Ctrl + Shift + R. Confira também a versão no rodapé do menu (tem de ser a do clone de onde o playbook rodou) e a permissão do perfil.
 
 Erro de banco depois de git pull (migração faltando):
 
@@ -560,12 +566,14 @@ Antes de abrir o chamado, junte:
        sudo -u teliumpbx php /opt/telium/api/bin/telium testar
 4. O relatório de diagnóstico (curto, para colar inteiro):
        sudo bash /opt/TeliumPABX/infra/diagnostico.sh
+   Numa central instalada de fora não há clone no servidor: rode da sua máquina, na pasta do clone, ssh root@200.170.198.176 'bash -s' < infra/diagnostico.sh.
    Traz serviços, versões, portas em escuta, contagens do banco, endpoints e ODBC do Asterisk, saúde da API, arquivos gerados e os últimos erros do Asterisk, nginx e API.
-5. O diagnóstico completo pelo Ansible:
-       cd /opt/TeliumPABX/infra/ansible
-       sudo ansible-playbook verificar.yml
+5. O diagnóstico completo pelo Ansible, da sua máquina (em infra/ansible do clone) ou de dentro do servidor:
+       ansible-playbook -i "200.170.198.176," verificar.yml -u root -k
+       # de dentro: cd /opt/TeliumPABX/infra/ansible && sudo ansible-playbook verificar.yml
 6. Problema de AMI (console diz que o Asterisk não responde, mas ele está no ar):
        sudo bash /opt/TeliumPABX/infra/diagnostico-ami.sh
+       # sem clone no servidor: ssh root@200.170.198.176 'bash -s' < infra/diagnostico-ami.sh
    A senha não aparece na saída: só o tamanho e os quatro primeiros caracteres.
 7. Os trechos de log do horário do problema: /var/log/asterisk/full, /var/log/telium/php-api.log e, se for o caso, /var/log/telium-smtp.log.
 
@@ -593,3 +601,23 @@ Causas prováveis:
 - O CRM recusa porque confere a assinatura X-Telium-Assinatura com um segredo diferente do cadastrado.
 - A linha está marcada sem efeito: é um cadastro de tipo antigo (chave de API, syslog), que não manda nada. Crie um webhook novo.
 - Um cadastro alterado leva até 15 segundos para o serviço perceber.
+
+
+24. A INSTALAÇÃO OU A ATUALIZAÇÃO PARA LOGO NO COMEÇO
+-----------------------------------------------------
+
+O playbook confere algumas coisas antes de mexer em qualquer coisa. Quando para numa delas, nada foi instalado nem apagado: corrija e rode de novo.
+
+- UNREACHABLE — O que é: O Ansible não entrou no servidor por SSH; O que fazer: Teste ssh root@200.170.198.176 da sua máquina. Os servidores da Telium costumam aceitar SSH só das redes da Telium (use a VPN); o root do Debian não entra por senha de fábrica (use chave, ou -u usuario -k -K); com -k, a sua máquina precisa do sshpass
+- "Este clone tem servidor.yml (ou vault.yml) em group_vars/all/ ..." — O que é: Rodando de fora, o seu clone tem os ajustes de uma central, do jeito de antes. Eles valeriam para a central de destino também; O que fazer: Renomeie o arquivo (mv servidor.yml servidor.yml.antigo, o mesmo com vault.yml) em infra/ansible/group_vars/all/ do clone. Se ele era de uma central instalada da sua máquina, leve o conteúdo para o /etc/telium-servidor.yml dela antes (02 — Atualização (ver página 02))
+- "A central está na versão X e este clone tem a Y" — O que é: O clone de onde o playbook rodou está atrás da central. Publicar o código antigo sobre um banco já migrado para o novo quebraria a central; O que fazer: git pull no clone e rode de novo. Voltar de versão de propósito: -e permitir_versao_antiga=true (02 — Atualização (ver página 02))
+- "Esta central tem mais de um clone com servidor.yml: ..." — O que é: Primeira execução da 1.7.0 num servidor com mais de um clone com os ajustes antigos (ex.: /opt/TeliumPABX e /opt/telium-src). O playbook não adivinha qual vale; O que fazer: Rode de novo com -e servidor_yml_antigo=<caminho do servidor.yml certo>. Nada foi mudado
+- "Em /etc/telium-servidor.yml, ... usa {{ ... }} ou {%" — O que é: Um valor do arquivo de ajustes usa modelo do Ansible, que não vale mais ali (o playbook diz qual linha); O que fazer: Escreva o valor por extenso, ex.: turn_dominio: "200.170.198.176"
+- "... não está no formato esperado" — O que é: O /etc/telium-servidor.yml tem uma linha que não é nome: valor; O que fazer: Corrija o arquivo no servidor (sudo nano /etc/telium-servidor.yml), comparando com o servidor.yml.exemplo
+- "... ainda não tem o Telium PABX. Central nova é instalada sozinha" — O que é: Há mais de um servidor no -i e algum ainda não tem a central. A execução inteira para, sem mexer em nenhum; O que fazer: Instale o novo sozinho (-i "IP,"); várias de uma vez é só para atualizar
+- "Limpar o banco é de uma central por vez" — O que é: A opção 2 do menu foi escolhida com vários servidores no -i; O que fazer: Rode com um só
+- "O nome digitado não é ..." — O que é: Na opção 2 do menu, o nome digitado para confirmar não confere; O que fazer: Nada foi apagado nem atualizado. Rode de novo, se era mesmo para limpar
+- "Nenhum nome foi informado" — O que é: Rodou sem terminal, e a central não tem nome; O que fazer: -e pabx_hostname=voz.cliente.com.br
+- "Falta a senha inicial do admin" — O que é: Rodou sem terminal numa central nova; O que fazer: -e senha_padrao_console=..., ou grave a senha antes em /etc/telium/credenciais/senha_admin_console
+
+Mais em 01 — Instalação (ver página 01).

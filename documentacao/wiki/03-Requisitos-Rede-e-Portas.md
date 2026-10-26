@@ -36,11 +36,13 @@ O que precisa **chegar** ao servidor, vindo de fora (redirecionar no NAT, libera
 | 3478 | UDP e TCP | TURN/STUN do softphone do navegador | Se usar softphone no navegador |
 | 5349 | TCP | TURN sobre TLS | Se usar softphone no navegador |
 | 49152–49500 | UDP | Áudio retransmitido pelo TURN | Se usar softphone no navegador |
-| 22 | TCP | SSH, para o suporte | De preferência só dos IPs do suporte |
+| 22 | TCP | SSH, para o suporte e para instalar e atualizar da máquina do técnico | De preferência só dos IPs do suporte (nos servidores da Telium, as redes da Telium) |
 
 > A faixa **UDP 10000–20000** é a que mais se esquece de liberar, e a falha não dá erro: **a chamada conecta e ninguém ouve.**
 
-Restrinja a origem sempre que possível: SIP só da operadora e das redes dos telefones; SSH só do suporte.
+Restrinja a origem sempre que possível: SIP só da operadora e das redes dos telefones; SSH só do suporte. O próprio servidor pode fazer parte disso: com o **SIP só para redes conhecidas** ligado (seção 5), o SIP e o áudio só respondem ao Brasil, à Telium, às redes internas, aos troncos e à lista **Nunca bloquear**.
+
+> **Instalar e atualizar da sua máquina** usa só o SSH (TCP 22) da sua máquina até o servidor. Os servidores da Telium costumam aceitar SSH só das redes da Telium: de fora delas, entre pela VPN. Veja [Instalação](01-Instalacao.md).
 
 ---
 
@@ -63,7 +65,7 @@ Confirmado nas configurações publicadas pelo playbook (`infra/ansible`).
 | 20001–20200 | UDP | Mídia do Janus | `janus_rtp_inicio`/`janus_rtp_fim`. O ufw só abre essa faixa com `instalar_janus=true`; a regra antiga `20000:20200`, aberta mesmo sem Janus, é apagada pelo playbook |
 
 - As portas de TURN só são abertas no ufw com `instalar_turn` ligado (padrão).
-- Trocar a porta SIP é tarefa do playbook (variável no `servidor.yml` e nova execução): o Asterisk não troca a porta de escuta num recarregamento.
+- Trocar a porta SIP é tarefa do playbook (`sip_porta` no `/etc/telium-servidor.yml` e nova execução): o Asterisk não troca a porta de escuta num recarregamento.
 
 ---
 
@@ -91,7 +93,7 @@ O ufw libera toda saída (`default allow outgoing`). Se o cliente filtrar a saí
 | Servidor DNS | 53 | Resolver nomes | Sempre |
 | Operadora | SIP (em geral 5060) e a faixa RTP dela | Tronco | Sempre |
 | Repositórios Debian, `mirror.mariadb.org`, `mariadb.org`, `nginx.org`, `downloads.asterisk.org` | 443/80 | Pacotes e código-fonte | Instalação e atualização |
-| `gitlab.telium.com.br` | 443 (HTTPS) ou 22 (SSH) | `git pull` | Atualização |
+| `gitlab.telium.com.br` | 443 (HTTPS) ou 22 (SSH) | `git pull` | Só em central atualizada de dentro. Atualizando da sua máquina, quem baixa do GitLab é ela, e o código vai para a central pelo SSH |
 | `github.com` | 443 | Código do Janus | Só com `instalar_janus=true` |
 | `stun.l.google.com:19302`, `stun.cloudflare.com:3478` | UDP | Botão **Descobrir** do IP público | Só quando alguém clica (`stun_descoberta`) |
 | Syslog central da Telium | UDP 514 | Encaminhamento de logs | Com `syslog_central: true` (padrão) |
@@ -99,7 +101,7 @@ O ufw libera toda saída (`default allow outgoing`). Se o cliente filtrar a saí
 | Destino de backup remoto | FTP, FTPS ou SFTP (padrão 21) | Cópia do backup para fora | Se configurado no console |
 | Servidor de hora | NTP | Hora certa (chrony) | Sempre |
 
-Os IPs do syslog central estão em `infra/ansible/group_vars/all/main.yml` (`syslog_central_*`). Num cliente com outro syslog, troque no `servidor.yml`; sem syslog, `syslog_central: false`.
+Os IPs do syslog central estão em `infra/ansible/group_vars/all/main.yml` (`syslog_central_*`). Num cliente com outro syslog, troque no `/etc/telium-servidor.yml` da central; sem syslog, `syslog_central: false`.
 
 ---
 
@@ -122,6 +124,12 @@ Pelo console, em **Conectividade › Firewall**, dá para ver as origens com fal
 
 > 📷 **Print:** Conectividade › Firewall, com a lista "Nunca bloquear".
 
+### SIP só para redes conhecidas (opcional)
+
+Perguntado na instalação (`sip_restringir_redes`, desligado de fábrica). Ligado, uma tabela própria do nftables descarta, nas portas de voz (SIP 5060/5061, RTP 10000–20000, fax 4000–4999, TURN 3478/5349 e 49152–49500, e a faixa do Janus se instalado), quem não está na lista: as faixas do Brasil, os IPs da Telium, as redes internas, as redes extras da central, o **Nunca bloquear**, os troncos e os telefones que já registraram. O resto da internet nem chega ao Asterisk. O console, o SSH e as outras portas não mudam.
+
+Telefone ou operadora **fora do Brasil**, ou operadora que manda as chamadas de um IP diferente do host do tronco (SBC, nuvem como AWS ou Google, mesmo no Brasil): ponha o IP em **Nunca bloquear** (vale em segundos) ou em `sip_redes_extras`. Detalhes em [Segurança](08-Seguranca.md).
+
 ---
 
 ## 6. DNS e nome do servidor
@@ -129,7 +137,7 @@ Pelo console, em **Conectividade › Firewall**, dá para ver as origens com fal
 - Crie um registro **A** com o nome da central (ex.: `voz.cliente.com.br`) apontando para o **IP público** do servidor.
 - O nome precisa resolver **na máquina de quem usa o console** (e do softphone), não só no servidor.
 - Sem `_`, a última parte começando por letra, e nada de `.local`. O softphone do navegador descarta em silêncio o que a central assina com um nome fora dessa regra.
-- Ainda sem DNS? Use o IP público como nome e aponte o TURN para ele (`turn_dominio` no `servidor.yml`).
+- Ainda sem DNS? Use o IP público como nome e aponte o TURN para ele (`turn_dominio` no `/etc/telium-servidor.yml`; a instalação pergunta isso quando o nome ainda não resolve).
 - O certificado de verdade precisa cobrir esse nome.
 
 Detalhes da instalação: [Instalação](01-Instalacao.md#2-o-nome-do-servidor-dns).
@@ -154,7 +162,7 @@ Depois de salvar, clique em **Aplicar configurações**. Não precisa reiniciar 
 - O endereço público vale para o SIP (UDP, TCP, TLS e WSS) e para os candidatos de áudio do softphone do navegador.
 - O `nat_ip_publico` e o `redes_locais` do Ansible são só o ponto de partida; depois da primeira gravação no console, vale o que está no banco.
 
-> **TURN atrás de NAT:** o `external-ip` do `/etc/turnserver.conf` vem do `nat_ip_publico` do `servidor.yml` e, sem ele, do **Endereço público** gravado no console. O coturn só é reescrito pelo playbook: depois de gravar ou trocar o endereço público no console, rode o playbook (ou a atualização) para ele chegar ao TURN.
+> **TURN atrás de NAT:** o `external-ip` do `/etc/turnserver.conf` vem do `nat_ip_publico` do `/etc/telium-servidor.yml` (perguntado na instalação, com o servidor atrás de NAT) e, sem ele, do **Endereço público** gravado no console. O coturn só é reescrito pelo playbook: depois de gravar ou trocar o endereço público no console, rode o playbook (ou a atualização) para ele chegar ao TURN.
 
 **No roteador ou firewall de NAT:** redirecione para o IP interno do servidor as portas da [seção 1](#1-resumo-para-o-firewall-do-cliente), com as **mesmas** portas de fora e de dentro (principalmente a faixa RTP inteira).
 
@@ -169,7 +177,7 @@ Depois de salvar, clique em **Aplicar configurações**. Não precisa reiniciar 
 O que passar à operadora e o que pedir a ela:
 
 - **IP público do servidor** e porta SIP (5060 UDP/TCP, ou 5061 TCP se o tronco for TLS), para ela liberar no lado dela.
-- **IP de sinalização e faixa de mídia dela**, para você liberar na entrada (seção 1) e, se quiser, restringir o SIP a esses IPs.
+- **IP de sinalização e faixa de mídia dela**, para você liberar na entrada (seção 1) e, se quiser, restringir o SIP a esses IPs. Com o **SIP só para redes conhecidas** ligado, o host do tronco cadastrado entra na lista sozinho, em até 5 minutos; se a operadora usa outros IPs além do host (um SBC, mídia, servidores na nuvem como AWS e Google, **mesmo no Brasil**), ponha-os em **Nunca bloquear**, senão as chamadas de entrada não chegam.
 - **Fax T.38**: com a recepção de fax ligada em **Configurações › Fax**, os troncos passam a aceitar T.38 (depois de **Aplicar configurações**). Peça à operadora para ativar o T.38 do lado dela, e a faixa UDP 4000–4999 precisa chegar ao servidor; sem ela a operadora negocia o T.38 e o fax não passa.
 - Se a operadora entrega o número em formato diferente do esperado, isso se ajusta no tronco, em **Conectividade › Troncos** (veja [Conectividade](17-Conectividade.md)).
 
@@ -214,8 +222,11 @@ Servidor atrás de NAT sem endereço público: o REGISTER sai com o IP interno. 
 ### Telefones param de registrar de repente
 O IP deles pode ter sido bloqueado pelo fail2ban (5 erros de senha SIP = 24 horas). Veja e desbloqueie em **Conectividade › Firewall**, e coloque o IP do escritório em **Nunca bloquear**.
 
+### Telefone ou operadora de fora do Brasil não registra
+Com o **SIP só para redes conhecidas** ligado, quem não está na lista nem chega ao Asterisk (não aparece no log). Ponha o IP em **Conectividade › Firewall › Nunca bloquear**: vale em segundos. Tronco registrado e chamada de entrada que não chega: a operadora manda de outro IP (SBC, nuvem); ponha esse IP também. `sudo telium-firewall-sip mostrar` mostra a lista em vigor.
+
 ### O softphone do navegador conecta e fica mudo
-Nome do servidor que o navegador não resolve, TURN inalcançável (portas 3478/5349/49152–49500), certificado não aceito ou servidor atrás de NAT com o TURN sem endereço público (o playbook não rodou depois de gravar o endereço público no console, e o `servidor.yml` não tem `nat_ip_publico`). Use **Testar agora** em **Conectividade › WebRTC / Softphone**.
+Nome do servidor que o navegador não resolve, TURN inalcançável (portas 3478/5349/49152–49500), certificado não aceito ou servidor atrás de NAT com o TURN sem endereço público (o playbook não rodou depois de gravar o endereço público no console, e o `/etc/telium-servidor.yml` não tem `nat_ip_publico`). Use **Testar agora** em **Conectividade › WebRTC / Softphone**.
 
 ### Fax não passa
 Libere UDP 4000–4999 até o servidor, confira se a recepção está ligada em **Configurações › Fax** (é ela que faz os troncos aceitarem T.38) e se a operadora ativou o T.38. Veja [Configurações](19-Configuracoes.md).

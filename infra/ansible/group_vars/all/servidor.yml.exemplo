@@ -1,17 +1,17 @@
-# Ajustes DESTE servidor.
+# Ajustes DESTA central — /etc/telium-servidor.yml, no próprio servidor.
 #
-# A instalação cria o servidor.yml sozinha, na primeira execução, quando
-# pergunta o nome da central. Para os outros ajustes, edite o arquivo
-# criado — ou, antes da primeira instalação, copie este e edite:
+# Este é o modelo. A instalação copia-o para /etc/telium-servidor.yml
+# (só root) e grava nele o que pergunta: o nome da central, o cliente, o
+# IP público, Janus, Asternic, SIP só para redes conhecidas, syslog.
+# Para mudar algo depois, edite /etc/telium-servidor.yml no servidor e
+# rode o playbook (de dentro ou de fora): o que estiver lá ganha do
+# main.yml, e só o que vem por -e ganha dele.
 #
-#   cp servidor.yml.exemplo servidor.yml
+# Mora no servidor, e não no clone, para qualquer técnico, de qualquer
+# máquina, atualizar a central sem perder o que é dela.
 #
-# O servidor.yml fica fora do Git: o git pull da atualização nunca
-# conflita com ele, e o que é do cliente não vai parar no repositório.
-# O Ansible lê os arquivos desta pasta em ordem alfabética, e o que vem
-# depois vale: o que estiver aqui ganha do main.yml.
-#
-# Deixe só o que muda neste servidor; o resto continua vindo do main.yml.
+# Escreva os valores por extenso: aqui não vale {{ variavel }}.
+# Deixe só o que muda nesta central; o resto continua vindo do main.yml.
 
 # Nome pelo qual o console, os telefones e o navegador chegam à central.
 # A instalação PERGUNTA este nome na primeira vez e o grava aqui — não é

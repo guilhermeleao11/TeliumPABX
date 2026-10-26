@@ -13,6 +13,7 @@
 #   desbanir <jail> <ip>      tira UM ip de UMA cadeia
 #   confiaveis                aplica a lista "nunca bloquear" do console
 #                             (tabela firewall_confiaveis) como ignoreip
+#                             e nas redes liberadas do SIP
 #   poupar <ip>               sai 0 se o IP é de um tronco ou tem ramal
 #                             registrado agora (o ignorecommand da cadeia
 #                             asterisk-varredura); 1 se pode ser banido
@@ -141,6 +142,11 @@ case "${1:-}" in
         [ -n "$jaula" ] && cliente set "$jaula" unbanip "$e" >/dev/null
       done <<< "$(jaulas)"
     done
+
+    # O "Nunca bloquear" também abre o SIP, quando ele está só para
+    # redes conhecidas: sem esperar o timer, mas sem segurar o console —
+    # resolver o nome dos troncos pode demorar.
+    systemctl start --no-block telium-firewall-sip.service >/dev/null 2>&1 || true
 
     total=$(printf '%s' "$validos" | wc -w)
     echo "${total} endereço(s) que nunca são bloqueados"

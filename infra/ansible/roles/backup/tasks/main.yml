@@ -65,7 +65,7 @@
 # O que a central precisa para voltar só copiando os arquivos de volta,
 # num bloco marcado dentro do arquivo da ferramenta da empresa — as
 # outras linhas ficam como estão.
-#   /etc /home /root /opt     sistema, contas, clone com o servidor.yml e o
+#   /etc /home /root /opt     sistema, contas, ajustes da central (/etc/telium-servidor.yml), clone e o
 #                             código publicado (api/.env)
 #   /Telium                   a pasta da empresa nos servidores
 #   /usr/local/sbin           os executores da central (backup, certificados…)

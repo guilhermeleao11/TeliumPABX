@@ -353,6 +353,8 @@ infra/
 - ansible/roles/asterisk/templates/: Configuração base do Asterisk (extensions.conf.j2, pjsip.conf.j2, manager.conf.j2, ODBC...)
 - ansible/roles/asterisk/files/sons/: Áudios publicados: pt_BR.tar.xz e telium-cc/
 - ansible/roles/api/: Publica front-end, API e scripts SQL, gera o .env, gera e aplica a configuração, instala telium-cc e telium-tarifar, roda bin/telium testar
+- ansible/TeliumPBX_instalacao.yml: O mesmo playbook, com o nome usado de fora (-i "IP,"): só importa o site.yml
+- ansible/tarefas/: ajustes-do-servidor.yml (lê e migra o /etc/telium-servidor.yml) e perguntas-da-instalacao.yml (as perguntas da central nova e o menu da atualização)
 - ansible/verificar.yml, gerar-vault.sh, vault.yml.exemplo: Verificação e segredos do playbook
 - dev/: Bancada de desenvolvimento em contêineres (ver 30-Desenvolvimento.md (ver página 30))
 - diagnostico.sh, diagnostico-ami.sh: Diagnóstico no servidor

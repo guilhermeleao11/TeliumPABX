@@ -688,7 +688,7 @@ Instalar numa central
 ~~~~~~~~~~~~~~~~~~~~~
 
 1. Compre a licença para o servidor.
-2. No servidor.yml da central, acrescente instalar_asternic: true.
+2. No servidor da central, acrescente instalar_asternic: true ao /etc/telium-servidor.yml (sudo nano /etc/telium-servidor.yml). Numa central nova, basta responder sim à pergunta do Asternic na instalação.
 3. Rode a atualização de sempre (o playbook). Ela:
    - instala o carregador ionCube no PHP-FPM e o Asternic da versão de asternic_versao, a partir dos arquivos do projeto;
    - publica a tela em /opt/asternic/stats, servida em /stats/ por um PHP-FPM próprio, com usuário próprio (asternic), que não enxerga a API;
@@ -732,7 +732,7 @@ O que saber
 Problemas comuns
 ~~~~~~~~~~~~~~~~
 
-A tela Stats diz que o Asternic não está instalado. Falta instalar_asternic: true no servidor.yml e rodar o playbook.
+A tela Stats diz que o Asternic não está instalado. Falta instalar_asternic: true no /etc/telium-servidor.yml do servidor e rodar o playbook.
 
 O /stats/ volta para o login do console. A sessão expirou, ou o perfil não tem Call Center › Stats.
 

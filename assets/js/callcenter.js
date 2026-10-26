@@ -1304,7 +1304,7 @@ PAGES['cc.stats'] = {
       return pageHead('Stats', 'Relatórios de filas do Asternic Call Center Stats.') + `
         <div class="card">${vazio('chart', 'O Asternic não está instalado nesta central',
           `É um produto comercial, com uma licença por servidor. Com a licença comprada, o suporte liga
-           <span class="mono">instalar_asternic: true</span> no <span class="mono">servidor.yml</span> e roda a
+           <span class="mono">instalar_asternic: true</span> em <span class="mono">/etc/telium-servidor.yml</span> e roda a
            atualização; na primeira vez, a tela pede o código de ativação.`)}</div>`;
     }
 

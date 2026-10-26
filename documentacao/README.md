@@ -4,7 +4,7 @@ Guias para quem instala, atualiza e mantém a central.
 
 | Documento | Para quê |
 |---|---|
-| [01 — Instalação](01-INSTALACAO.md) | Servidor novo, do zero até o primeiro login |
+| [01 — Instalação](01-INSTALACAO.md) | Servidor novo, do zero até o primeiro login, rodando o playbook da sua máquina |
 | [02 — Atualização](02-ATUALIZACAO.md) | Levar uma central que já está no ar para a versão nova do Git |
 | [03 — Backup e restauração](03-BACKUP-E-RESTAURACAO.md) | Antes de mexer, e para voltar atrás |
 | [04 — Verificação e problemas comuns](04-VERIFICACAO-E-PROBLEMAS.md) | Conferir se está tudo de pé e o que fazer quando não está |
@@ -15,12 +15,14 @@ Vale para todos os guias.
 
 | O quê | Onde |
 |---|---|
-| Clone do Git (de onde o playbook roda) | a pasta onde você clonou — na VPS de produção, `/opt/TeliumPABX` |
+| Clone do Git (de onde o playbook roda) | na **sua máquina**, a pasta onde você clonou (ex.: `~/TeliumPABX`); numa central instalada de dentro, também `/opt/TeliumPABX` no servidor |
+| Ajustes desta central (nome, NAT, SIP, Asternic, syslog…) | `/etc/telium-servidor.yml` (só root). As respostas da instalação; edite aqui e rode o playbook |
 | API instalada (o CLI `telium`) | `/opt/telium/api` |
 | Console (HTML, JS, CSS) | `/opt/telium/web` |
 | Usuário de sistema da API | `teliumpbx` |
 | Configuração do Asterisk | `/etc/asterisk` (gerada: `/etc/asterisk/telium`) |
 | Senhas de serviço (banco, AMI, TURN…) | `/etc/telium/credenciais` (só root) |
+| SIP só para redes conhecidas | `/etc/telium-sip-redes.conf` (lista fixa; sem ele, desligado), `/var/lib/telium-firewall-sip/vistos.conf` (troncos e telefones já vistos) e o comando `telium-firewall-sip` |
 | Backups | `/var/Backup/pabx-telium` |
 | Gravações | `/var/spool/asterisk/monitor` |
 | Áudios enviados pelo console | `/var/lib/asterisk/sounds/telium` |
@@ -29,8 +31,10 @@ Vale para todos os guias.
 | Banco de dados | MariaDB, base `telium_pabx` |
 
 > **Clone ≠ instalação.** O `git pull` atualiza só o clone. É o playbook
-> que copia o código novo para `/opt/telium`, aplica o banco e recarrega
-> o Asterisk. `git pull` sem playbook não muda nada na central.
+> que copia o código novo do clone para `/opt/telium`, aplica o banco e
+> recarrega o Asterisk. `git pull` sem playbook não muda nada na central.
+> O clone não guarda nada de cliente: o mesmo clone, na sua máquina,
+> instala e atualiza quantas centrais for preciso.
 
 ## Acesso ao console
 

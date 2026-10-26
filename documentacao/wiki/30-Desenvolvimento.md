@@ -98,7 +98,7 @@ O `node --check` só confere sintaxe. Os arquivos do console são scripts globai
 
 - Ficam em `infra/sql/NN-nome.sql`, numeradas (a última hoje é `47-versoes-e-webhooks.sql`). O próximo número é o seguinte.
 - **Todas rodam, sempre, em ordem**, a cada execução do playbook (role `mariadb`, tarefa "Aplicar schema") e no `php bin/telium migrar`. Não existe tabela de "migrações já aplicadas".
-- `infra/sql/opcional/` (`limpar.sql`, `cenario-teste.sql`) não roda sozinho: só com `-e limpar_banco=true` ou equivalentes no playbook.
+- `infra/sql/opcional/` (`limpar.sql`, `cenario-teste.sql`) não roda sozinho: só quando o playbook é mandado: a opção **2 — LIMPAR O BANCO** do menu da atualização (e o cenário que ela oferece depois), a resposta **2 — LABORATÓRIO** na pergunta do ambiente da instalação, ou `-e limpar_banco=true` / `-e cenario_teste=true`. Nenhum deles é guardado no `/etc/telium-servidor.yml`.
 
 Por isso **toda migração tem de ser idempotente**: rodar duas, dez vezes, dá o mesmo banco.
 
@@ -389,7 +389,8 @@ Alguns pares de fábrica são começo um do outro e funcionam, porque o Asterisk
 
 - Branch principal: `main`.
 - Mensagens de commit em português, no estilo do histórico: frase curta dizendo o efeito para quem usa ("Click to call para outros sistemas, com chave de API").
-- Segredos nunca entram: `api/.env`, `vault.yml`, inventário, `servidor.yml`, `*.pem` e `*.key` estão no `.gitignore`.
+- Segredos nunca entram: `api/.env`, `vault.yml`, inventário, `servidor.yml` (e o `servidor.yml.migrado` e os `*.antigo` de `group_vars/all/`), `*.pem` e `*.key` estão no `.gitignore`.
+- Os ajustes de cada central não ficam no clone: ficam no servidor, em `/etc/telium-servidor.yml`. O mesmo clone instala e atualiza qualquer central.
 
 ### Versão e histórico de mudanças
 

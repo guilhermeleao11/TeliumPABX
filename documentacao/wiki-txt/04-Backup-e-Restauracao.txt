@@ -92,7 +92,7 @@ O que NÃO entra em nenhuma opção:
 - Ditados: /var/spool/asterisk/dictate
 - Certificado do TURN: /etc/coturn
 - Fotos dos contatos da agenda: /opt/telium/web/uploads/contatos
-- servidor.yml e vault.yml do clone: /opt/TeliumPABX/infra/ansible/group_vars/all/
+- Ajustes da central (nome, NAT, SIP, Asternic, syslog…): /etc/telium-servidor.yml
 - Áudios do idioma (pt_BR) e do call center: /var/lib/asterisk/sounds (o playbook reinstala)
 
 Esses itens precisam estar no backup corporativo.
@@ -224,11 +224,11 @@ Backup rápido
     DATA=$(date +%F-%H%M)
     sudo mariadb-dump --single-transaction --routines --triggers telium_pabx | gzip > banco-$DATA.sql.gz
     sudo tar czf config-$DATA.tgz --ignore-failed-read \
-      /etc/telium /etc/asterisk /opt/TeliumPABX/infra/ansible/group_vars/all/servidor.yml
+      /etc/telium /etc/asterisk /etc/telium-servidor.yml
     ls -lh
 
 - banco-*.sql.gz: O banco inteiro: cadastros, usuários, CDR e resultados
-- config-*.tgz: Senhas de serviço (/etc/telium/credenciais), cofre de certificados, configuração do Asterisk e o servidor.yml
+- config-*.tgz: Senhas de serviço (/etc/telium/credenciais), cofre de certificados, configuração do Asterisk e os ajustes da central (/etc/telium-servidor.yml)
 
 Áudios e gravações ficam de fora (podem ser grandes). Se quiser:
 
@@ -271,7 +271,7 @@ Depois, confira como em Solução de problemas (ver página 07).
 
 As senhas de serviço (banco, AMI, ARI, TURN) são geradas na instalação e guardadas em /etc/telium/credenciais, uma por arquivo. O playbook reaproveita o arquivo que já existe. Por isso a ordem importa:
 
-1. No servidor novo, antes do playbook, copie /etc/telium/credenciais do antigo (permissão 0700 na pasta, só root) e o servidor.yml (e o vault.yml, se houver) para o clone.
+1. No servidor novo, antes do playbook, copie do antigo /etc/telium/credenciais (permissão 0700 na pasta, só root) e /etc/telium-servidor.yml (root, 0600). Com os ajustes no lugar, a instalação não pergunta de novo o que já foi respondido. (Se a central antiga ainda tinha os ajustes no infra/ansible/group_vars/all/servidor.yml de um clone, em /opt/TeliumPABX ou /opt/telium-src, copie esse arquivo para /etc/telium-servidor.yml no servidor novo.)
 2. Rode a Instalação (ver página 01) normalmente.
 3. Restaure o banco, os áudios e, se quiser, as gravações, recados e faxes.
 4. sudo -u teliumpbx php /opt/telium/api/bin/telium aplicar-config e a bateria testar.
@@ -293,7 +293,7 @@ A cada instalação e atualização, o playbook confere o arquivo da ferramenta 
 - Um diretório coberto por outro mais acima também não entra: com I /var/lib, o /var/lib/asterisk não é acrescentado.
 - Se o arquivo já tiver tudo, o bloco nem aparece.
 
-As linhas de vocês nunca são alteradas. Se o arquivo não existir no servidor, nada é feito. Para outro caminho, use backup_empresa_lista no servidor.yml; vazio desliga.
+As linhas de vocês nunca são alteradas. Se o arquivo não existir no servidor, nada é feito. Para outro caminho, use backup_empresa_lista no /etc/telium-servidor.yml; vazio desliga.
 
 A lista que a central precisa: /etc, /home, /root, /Telium, /opt, /usr/local/sbin, /var/Backup, /var/spool/asterisk e /var/lib/asterisk.
 
@@ -316,15 +316,15 @@ Exemplo, num servidor que vinha do SNEP:
 Depois da troca do SNEP pelo Telium, a linha /var/www pode sair: o Telium não usa.
 
 - /Telium: A pasta da empresa nos servidores
-- /etc: Sistema e serviços, /etc/telium (senhas de serviço, certificados enviados), /etc/asterisk (com os _custom.conf), /etc/ssl/telium, nginx, coturn, fail2ban
+- /etc: Sistema e serviços, /etc/telium-servidor.yml (os ajustes da central), /etc/telium (senhas de serviço, certificados enviados), /etc/asterisk (com os _custom.conf), /etc/ssl/telium, nginx, coturn, fail2ban
 - /home, /root: Contas dos administradores, a própria lista da ferramenta e backups manuais
-- /opt: O clone /opt/TeliumPABX (com o servidor.yml, fora do Git) e o código publicado /opt/telium (com o api/.env)
+- /opt: O código publicado /opt/telium (com o api/.env) e, numa central instalada de dentro, o clone /opt/TeliumPABX
 - /usr/local/sbin: Os executores da central (backup, certificados, despertador, fax)
 - /var/Backup: O banco em dump consistente (/var/Backup/pabx-telium)
 - /var/spool/asterisk: Gravações, recados (correio de voz e caixas postais) e fax
 - /var/lib/asterisk: Áudios enviados, música de espera, chaves e a base interna (siga-me, desvio, não perturbe)
 
-O banco: o /var/lib/mysql cru fica de fora de propósito. Copiado com o MariaDB rodando, ele não volta. Quem garante o banco é o dump em /var/Backup/pabx-telium, gerado pela rotina diária do console. O playbook liga a rotina de fábrica quando nenhuma rotina automática está ligada (backup_ligar_rotina: false no servidor.yml desliga isso). Ponha a rotina um pouco antes do horário da ferramenta da empresa.
+O banco: o /var/lib/mysql cru fica de fora de propósito. Copiado com o MariaDB rodando, ele não volta. Quem garante o banco é o dump em /var/Backup/pabx-telium, gerado pela rotina diária do console. O playbook liga a rotina de fábrica quando nenhuma rotina automática está ligada (backup_ligar_rotina: false no /etc/telium-servidor.yml desliga isso). Ponha a rotina um pouco antes do horário da ferramenta da empresa.
 
 
 Voltar a central a partir desses arquivos
@@ -340,22 +340,22 @@ Mesma VPS (arquivo apagado ou configuração estragada): devolva os diretórios 
     sudo -u teliumpbx php /opt/telium/api/bin/telium aplicar-config
 
 VPS nova (a antiga se perdeu):
-1. Instale o Debian 13 e devolva /opt e /etc/telium do backup (é o clone com o servidor.yml e as senhas de serviço).
+1. Instale o Debian 13 e devolva do backup /etc/telium (as senhas de serviço), /etc/telium-servidor.yml (os ajustes da central) e /opt (o código publicado e, se a central foi instalada de dentro, o clone).
 2. Rode o playbook de instalação (Instalação (ver página 01)): ele instala os pacotes e compila o Asterisk usando as mesmas senhas e o mesmo nome.
 3. Devolva /var/Backup, /var/spool/asterisk e /var/lib/asterisk.
 4. Restaure o banco pelo console (Administrador › Backup & Restauração › Restaurar, no backup mais recente) ou pelo terminal, como acima.
 5. Aplicar configurações e faça uma ligação de teste.
 
-Não devolva o /etc inteiro numa VPS nova: rede, discos e chaves do SSH são da máquina antiga. Dele, só o que a central usa (/etc/telium, /etc/asterisk/telium/*_custom.conf, /etc/asterisk/manager_custom.conf, /etc/asterisk/ari_custom.conf).
+Não devolva o /etc inteiro numa VPS nova: rede, discos e chaves do SSH são da máquina antiga. Dele, só o que a central usa (/etc/telium, /etc/telium-servidor.yml, /etc/asterisk/telium/*_custom.conf, /etc/asterisk/manager_custom.conf, /etc/asterisk/ari_custom.conf).
 
 
 Lista de diretórios
 ~~~~~~~~~~~~~~~~~~~
 
-- /etc: /etc/telium (credenciais, cofre de certificados, msmtprc), /etc/asterisk (com telium/ gerado e keys/), /etc/ssl/telium (certificado do console e par de fábrica), /etc/coturn e /etc/turnserver.conf, /etc/nginx, /etc/janus/certs (se houver Janus), /etc/odbc.ini, /etc/fail2ban/jail.d, /etc/sudoers.d/telium-, /etc/systemd/system/telium-, /etc/mysql/mariadb.conf.d/60-telium.cnf
+- /etc: /etc/telium-servidor.yml (ajustes da central), /etc/telium-sip-redes.conf (SIP só para redes conhecidas), /etc/telium (credenciais, cofre de certificados, msmtprc), /etc/asterisk (com telium/ gerado e keys/), /etc/ssl/telium (certificado do console e par de fábrica), /etc/coturn e /etc/turnserver.conf, /etc/nginx, /etc/janus/certs (se houver Janus), /etc/odbc.ini, /etc/fail2ban/jail.d, /etc/sudoers.d/telium-, /etc/systemd/system/telium-, /etc/mysql/mariadb.conf.d/60-telium.cnf
 - /home: Contas dos administradores
 - /root: Backups manuais (/root/backup-manual) e histórico de comandos
-- /opt: /opt/TeliumPABX (o clone, com infra/ansible/group_vars/all/servidor.yml e vault.yml), /opt/telium (o publicado: api/.env, web/uploads/contatos), /opt/janus (se instalado)
+- /opt: /opt/TeliumPABX (o clone, só numa central instalada de dentro; o vault.yml, se houver), /opt/telium (o publicado: api/.env, web/uploads/contatos), /opt/janus (se instalado)
 - /var/Backup: /var/Backup/pabx-telium, os arquivos do console (atenção ao B maiúsculo: o Linux diferencia). Pequeno quando as gravações estão desligadas
 - /var/spool/asterisk: monitor/ (gravações), voicemail/ (recados, incluindo as caixas postais), fax/, dictate/
 - /var/www: Incluído por padrão de política; o Telium não usa (o console fica em /opt/telium/web)
@@ -383,7 +383,7 @@ O que perco se faltar cada item
 - /etc/telium/certificados: Os certificados enviados pelo console (é preciso reenviar e reaplicar)
 - /etc/asterisk: Ajustes manuais em pjsip_custom.conf e extensions_custom.conf. O resto é refeito pelo playbook e pelo aplicar-config a partir do banco
 - /etc/ssl/telium, /etc/asterisk/keys, /etc/coturn: Os pares TLS ativos. O playbook gera um autoassinado novo; o certificado comprado precisa ser reaplicado
-- servidor.yml / vault.yml: O nome da central e as variáveis próprias deste servidor; o playbook volta a perguntar o nome
+- /etc/telium-servidor.yml: O nome da central e os ajustes próprios dela (NAT, SIP, Asternic, syslog). Na falta dele, o nome e o IP público são lidos do api/.env; o resto volta ao de fábrica, e uma instalação do zero pergunta tudo de novo
 - /var/lib/asterisk/sounds/telium: Anúncios, saudações de URA e músicas de espera enviados pelo console. A URA e as filas ficam mudas
 - /var/spool/asterisk/monitor: As gravações de chamadas
 - /var/spool/asterisk/voicemail: Recados e saudações do correio de voz e das caixas postais

@@ -1,4 +1,4 @@
-# Telium PABX 1.6.1
+# Telium PABX 1.7.0
 
 Central telefônica completa: Asterisk 22 com PJSIP, console web em HTML, CSS e
 JavaScript puro (sem build), API em PHP 8.4 e provisionamento por Ansible em
@@ -15,11 +15,28 @@ nada está em [docs/PENDENCIAS.md](docs/PENDENCIAS.md).
 ## Instalar
 
 Uma execução instala a central inteira numa VM Debian 13 — banco, PHP,
-nginx com TLS, Asterisk compilado, TURN, backup, firewall e o console:
+nginx com TLS, Asterisk compilado, TURN, backup, firewall e o console. Da
+sua máquina, pela rede (com o clone em dia: `git pull`):
+
+```bash
+sudo apt install -y ansible git sshpass
+git clone https://gitlab.telium.com.br/Voip/teliumpabx.git ~/TeliumPABX
+cd ~/TeliumPABX/infra/ansible
+ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml -u root -k
+```
+
+A vírgula depois do IP faz dele a lista de servidores; `-k` pede a senha
+do SSH (com chave SSH, tire-o). A instalação pergunta o nome da central, o
+cliente, o NAT, os opcionais e se é central de cliente ou de laboratório, e
+guarda as respostas no próprio servidor, em `/etc/telium-servidor.yml`.
+Numa central já instalada, o mesmo comando **atualiza** (mostra a versão
+instalada e a do clone; Enter atualiza mantendo tudo).
+
+De dentro do servidor também funciona:
 
 ```bash
 sudo apt update && sudo apt install -y ansible git
-git clone https://gitlab.telium.com.br/Voip/teliumpabx.git /opt/TeliumPABX
+sudo git clone https://gitlab.telium.com.br/Voip/teliumpabx.git /opt/TeliumPABX
 cd /opt/TeliumPABX/infra/ansible
 sudo ansible-playbook site.yml
 ```
@@ -136,7 +153,7 @@ A pilha de produção está em `infra/` e `api/`:
 | Componente | Versão |
 |---|---|
 | Debian | 13 (trixie) |
-| Telium PABX | 1.6.1 |
+| Telium PABX | 1.7.0 |
 | Asterisk | 22.11.0 — PJSIP, compilado do fonte |
 | coturn | TURN/STUN próprio, credencial com prazo |
 | Janus | 1.4.1 — opcional e **desligado**, fora do caminho da chamada |
@@ -159,21 +176,16 @@ Asterisk conforme as chamadas acontecem.
 
 Telas sem dado mostram estado vazio explicando o que fazer, nunca número inventado.
 
-Para zerar a base operacional de uma instalação já em uso:
-
-```bash
-sudo ansible-playbook site.yml -e limpar_banco=true
-```
-
-Preserva empresa, perfis, permissões e a conta `admin`.
+Para zerar a base operacional de uma central **de teste** já instalada,
+rode o playbook e escolha **2 — LIMPAR O BANCO** no menu: ele pede o nome
+da central para confirmar. Preserva empresa, perfis, permissões e a conta
+`admin`. (O `-e limpar_banco=true` faz o mesmo sem perguntar nada: nunca
+numa central de cliente.)
 
 Numa **máquina de teste**, vale o contrário: subir com um cenário pronto,
 para exercitar as funções sem vinte cadastros à mão antes da primeira
-ligação.
-
-```bash
-sudo ansible-playbook site.yml -e cenario_teste=true
-```
+ligação. Responda **2 — LABORATÓRIO** na pergunta do ambiente da
+instalação (ou aceite o cenário depois de limpar o banco pelo menu).
 
 Ramais 1001 a 1004, grupo de toque, fila com agentes, conferência, URA,
 horário comercial, DID e rotas. Nunca em instalação de cliente.

@@ -14,7 +14,7 @@ max-port={{ turn_rtp_fim }}
 {% if turn_ip_publico | default('') %}
 # Atrás de NAT o coturn precisa saber o endereço que o mundo vê, senão
 # anuncia o endereço interno e o navegador manda a mídia para lugar
-# nenhum. Vem do servidor.yml ou, sem ele, do console.
+# nenhum. Vem dos ajustes do servidor ou, sem eles, do console.
 external-ip={{ turn_ip_publico }}
 {% endif %}
 

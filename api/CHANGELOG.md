@@ -2,8 +2,36 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.6.1 — 2026-10-26
+## 1.7.0 — 2026-10-26
 Commits:
+Instalação e atualização de fora da central, com perguntas; SIP só para redes conhecidas.
+
+### Novidades
+- **Instalar e atualizar de outra máquina**: da estação com o clone e o Ansible, `cd infra/ansible && ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml -u root -k`. É o mesmo `site.yml` de sempre, que continua rodando de dentro da central (`sudo ansible-playbook site.yml`). Atualizar várias de uma vez: `-i "IP1,IP2,"`.
+- **A instalação pergunta tudo o que é do cliente**, uma vez: nome da central, nome do cliente, IP público (quando o servidor está atrás de NAT; sugere o IP usado no `-i`), o IP do áudio do softphone enquanto o nome não está no DNS, Janus, Asternic, SIP só para redes conhecidas (e as redes extras), syslog da Telium, ambiente de cliente ou de laboratório (com o cenário de teste) e a senha inicial do admin. Mostra o resumo e confirma antes de instalar.
+- **Central já instalada**: mostra a versão instalada e a do clone e pergunta: 1 atualizar mantendo tudo (Enter), 2 limpar o banco (só depois de digitar o nome da central; pergunta também o cenário de teste), 3 cancelar. Limpar o banco e o cenário de teste valem só para aquela execução e nunca ficam guardados. Sem terminal, ou com `-e perguntar=false`, só atualiza.
+- **Os ajustes de cada central ficam no próprio servidor**, em `/etc/telium-servidor.yml` (só root), e não mais no `servidor.yml` do clone: qualquer técnico, de qualquer máquina, atualiza sem perder nada. Na primeira execução da 1.7.0 o `servidor.yml` antigo, que fica no clone dentro da central, é levado para lá sozinho (o original vira `servidor.yml.migrado`); sem ele, o nome e o IP público vêm do `.env` da API. Atualizar não pergunta nada.
+- **SIP só para redes conhecidas** (desligado por padrão; perguntado na instalação): SIP, áudio, fax T.38, TURN e Janus só respondem ao Brasil e à Telium (a mesma lista dos servidores da Telium), às redes internas, às redes extras, ao "Nunca bloquear", aos troncos e aos telefones que já registraram. Os robôs de fora nem chegam ao Asterisk. Fica numa tabela própria do nftables, à parte do ufw e do fail2ban, e por isso vale também nos servidores com o iptables antigo da Telium, cuja lista de países só aceitava e nunca descartava (com o ufw atrás, ela não segurava ninguém). Reaplicado a cada 5 minutos (tronco novo entra sozinho) e na hora em que o "Nunca bloquear" é salvo; com o banco fora do ar, fica como estava. Comando: `telium-firewall-sip aplicar | desligar | mostrar`.
+
+### Segurança
+- Rodando de fora, o playbook para se o clone da estação tiver `servidor.yml` ou `vault.yml` em `group_vars/all/`: valeriam para todas as centrais.
+- O playbook não publica uma versão mais antiga que a instalada (clone da estação sem `git pull`). De propósito: `-e permitir_versao_antiga=true`.
+- Os ajustes ficam fora de `/etc/telium`, que é do usuário da API: quem a controlasse poderia trocá-los por algo que o Ansible executaria como root.
+- As senhas de serviço (banco, CDR, AMI, ARI, Asternic, TURN) são geradas e lidas no próprio servidor, no começo do playbook. Antes vinham de um `lookup` que roda na máquina de quem executa: de fora, ele trocaria as senhas da central no meio da atualização e daria a mesma senha a todas. Nada secreto sai da estação.
+- O `servidor.yml` antigo é procurado em todos os clones do servidor (`/opt/TeliumPABX`, `/opt/telium-src`…). Com mais de um, o playbook para e pede `-e servidor_yml_antigo=<caminho>`, em vez de escolher.
+- Uma central antiga, sem a marca da senha inicial, é reconhecida pela versão publicada: recebe o menu de atualização, nunca as perguntas de central nova (que poderiam carregar o cenário de teste num banco de produção).
+- Várias centrais de uma vez só para atualizar: todas precisam estar instaladas, a resposta do menu vale para todas, e cancelar cancela todas.
+- Valores com `{{ }}` em `/etc/telium-servidor.yml` param o playbook dizendo qual: lidos do servidor, eles iriam literais para a configuração.
+
+### Correções
+- **verificar.yml**: a contagem de registros do banco dava erro de sintaxe no shell (`||` no começo da linha). O diagnóstico agora só lê: não migra nem cria os ajustes.
+
+### Mudanças
+- Não precisa mais de `-e compilar_asterisk=false -e compilar_janus=false`: o Asterisk e o Janus só são compilados quando a versão instalada não é a fixada (os parâmetros continuam aceitos).
+- Para mudar um ajuste depois: edite `/etc/telium-servidor.yml` no servidor e rode o playbook.
+
+## 1.6.1 — 2026-10-26
+Commits: fb357b8
 Firewall: bane os robôs que varrem a porta SIP.
 
 ### Novidades
@@ -11,7 +39,7 @@ Firewall: bane os robôs que varrem a porta SIP.
 - Não bane o IP de um tronco nem um IP com ramal registrado (um telefone de ramal apagado, no escritório, derrubaria os outros), nem a lista "Nunca bloquear". O filtro recusa aspa no From e no Call-ID, para ninguém fazer a central banir o IP da operadora escrevendo-o no pedido.
 
 ## 1.6.0 — 2026-10-26
-Commits:
+Commits: 70baf14, 7a064c4
 Feriados: cada um com o seu áudio.
 
 ### Novidades

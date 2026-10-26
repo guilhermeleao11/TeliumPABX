@@ -36,3 +36,7 @@ api/.env.*
 
 # ---- dumps de centrais antigas (dados de cliente): nunca versionar ----
 DumpSnep/
+
+# ajustes antigos, já levados para /etc/telium-servidor.yml
+infra/ansible/group_vars/all/servidor.yml.migrado
+infra/ansible/group_vars/all/*.antigo

@@ -32,13 +32,15 @@ sudo mkdir -p /root/backup-manual && cd /root/backup-manual
 DATA=$(date +%F-%H%M)
 sudo mariadb-dump --single-transaction --routines --triggers telium_pabx | gzip > banco-$DATA.sql.gz
 sudo tar czf config-$DATA.tgz --ignore-failed-read \
-  /etc/telium /etc/asterisk /opt/TeliumPABX/infra/ansible/group_vars/all/servidor.yml
+  /etc/telium /etc/asterisk /etc/telium-servidor.yml
 ls -lh
 ```
 
 - `banco-*.sql.gz` é o banco inteiro: cadastros, usuários, CDR e resultados.
 - `config-*.tgz` guarda as senhas de serviço (`/etc/telium/credenciais`),
-  os certificados e a configuração do Asterisk.
+  os certificados, a configuração do Asterisk e os ajustes da central
+  (`/etc/telium-servidor.yml`: o nome, o NAT, o SIP e o resto do que foi
+  respondido na instalação).
 - Os áudios e as gravações ficam de fora (podem ser grandes). Se quiser:
   `sudo tar czf audios-$DATA.tgz /var/lib/asterisk/sounds/telium`.
 

@@ -1,0 +1,216 @@
+---
+# Os ajustes de cada central (nome, Asternic, syslog, TURN…) moram no
+# próprio servidor, em {{ servidor_ajustes }}, e não no clone de quem roda
+# o playbook. Assim a central é atualizada de qualquer máquina — de dentro
+# dela (inventory/local.ini) ou de fora (-i "200.170.198.176,") — sem
+# perder o que é dela.
+#
+# O arquivo fica fora de /etc/telium de propósito: aquela pasta é do
+# usuário da API, e quem a controla poderia trocar o arquivo por um que o
+# Ansible, como root, executaria na próxima atualização.
+#
+# Usado pelo site.yml e pelo verificar.yml, antes de tudo.
+
+# ---------- um clone com os ajustes de UMA central ----------
+# Antes, o servidor.yml e o vault.yml ficavam no clone: uma central por
+# clone. Rodando de fora, contra outro servidor, eles valeriam para ele
+# também — o nome errado no certificado, ou as senhas de banco de outra
+# central. Parar é melhor que adivinhar.
+- name: Procurar ajustes de uma central no clone
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/group_vars/all/{{ item }}"
+  loop:
+    - servidor.yml
+    - vault.yml
+  register: ajustes_no_clone
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Rodando de fora, o clone não pode ter ajustes de uma central
+  ansible.builtin.assert:
+    that: ajustes_no_clone.results | selectattr('stat.exists') | list | length == 0
+    fail_msg: >-
+      Este clone tem {{ ajustes_no_clone.results | selectattr('stat.exists') | map(attribute='item') | join(' e ') }}
+      em group_vars/all/, com os ajustes de uma central só, e o playbook está indo
+      para {{ inventory_hostname }} pela rede: eles valeriam para esta central também.
+      Os ajustes de cada central ficam no próprio servidor, em {{ servidor_ajustes }}.
+      Tire o(s) arquivo(s) de group_vars/all/ (renomeie para .antigo) e rode de novo.
+    quiet: true
+  when:
+    - (ansible_connection | default('ssh')) != 'local'
+    - not (somente_ler | default(false) | bool)
+
+- name: Ver se o servidor já tem os seus ajustes
+  ansible.builtin.stat:
+    path: "{{ servidor_ajustes }}"
+  register: ajustes_servidor
+
+# ---------- centrais de antes: o servidor.yml do clone vai para o servidor ----------
+# Até a 1.6.1 a central era instalada de dentro, e os ajustes ficavam no
+# servidor.yml do clone que está NELA — em /opt/TeliumPABX, ou em
+# /opt/telium-src nas instaladas até setembro de 2026. Rodando de dentro
+# ou de fora, é de lá que eles vêm, uma vez. O original vira
+# servidor.yml.migrado, para ninguém editar um arquivo que não vale mais.
+#
+# Com mais de um clone com servidor.yml no servidor, não dá para
+# adivinhar qual vale: o playbook para e pede -e servidor_yml_antigo=...
+- name: Procurar o servidor.yml antigo na central
+  ansible.builtin.shell:
+    cmd: >-
+      find /opt /root /home /srv -maxdepth 7 -type f
+      -path '*/infra/ansible/group_vars/all/servidor.yml' 2>/dev/null | sort
+  register: servidor_yml_achados
+  changed_when: false
+  failed_when: false
+  when:
+    - not ajustes_servidor.stat.exists
+    - servidor_yml_antigo is not defined
+
+- name: Escolher o servidor.yml antigo
+  ansible.builtin.set_fact:
+    servidor_yml_antigo: >-
+      {{ (achados | select('equalto', playbook_dir ~ '/group_vars/all/servidor.yml') | list
+          if (ansible_connection | default('ssh')) == 'local' else []) | first
+         | default(achados | first if achados | length == 1 else '', true) }}
+  vars:
+    achados: "{{ servidor_yml_achados.stdout_lines | default([]) }}"
+  when: servidor_yml_achados.stdout_lines is defined
+
+- name: Mais de um servidor.yml antigo na central
+  ansible.builtin.fail:
+    msg: >-
+      Esta central tem mais de um clone com servidor.yml:
+      {{ servidor_yml_achados.stdout_lines | join(', ') }}. Diga qual vale e rode de novo:
+      -e servidor_yml_antigo=<caminho>. Nada foi mudado.
+  when:
+    - servidor_yml_achados.stdout_lines | default([]) | length > 1
+    - servidor_yml_antigo | default('') == ''
+    - not (somente_ler | default(false) | bool)
+
+- name: Levar o servidor.yml antigo para os ajustes do servidor
+  when:
+    - not ajustes_servidor.stat.exists
+    - servidor_yml_antigo | default('') != ''
+    - not (somente_ler | default(false) | bool)
+  block:
+    - name: Copiar o servidor.yml antigo
+      ansible.builtin.copy:
+        src: "{{ servidor_yml_antigo }}"
+        dest: "{{ servidor_ajustes }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Aposentar o servidor.yml antigo
+      ansible.builtin.command:
+        cmd: "mv {{ servidor_yml_antigo | quote }} {{ (servidor_yml_antigo ~ '.migrado') | quote }}"
+        removes: "{{ servidor_yml_antigo }}"
+
+    - name: Avisar da mudança
+      ansible.builtin.debug:
+        msg:
+          - "Os ajustes desta central saíram de {{ servidor_yml_antigo }}"
+          - "e foram para {{ servidor_ajustes }}. Edite lá daqui em diante."
+
+- name: Criar o arquivo de ajustes a partir do modelo
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/group_vars/all/servidor.yml.exemplo"
+    dest: "{{ servidor_ajustes }}"
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+  when: not (somente_ler | default(false) | bool)
+
+# ---------- ler os ajustes ----------
+# O verificar.yml só lê (somente_ler): numa central sem o arquivo, segue
+# com o main.yml.
+- name: Ler os ajustes do servidor
+  ansible.builtin.slurp:
+    src: "{{ servidor_ajustes }}"
+  register: ajustes_lidos
+  failed_when: ajustes_lidos is failed and not (somente_ler | default(false) | bool)
+
+- name: Conferir o arquivo de ajustes
+  ansible.builtin.set_fact:
+    ajustes_do_servidor: "{{ ajustes_lidos.content | default('') | b64decode | from_yaml | default({}, true) }}"
+
+- name: O arquivo de ajustes tem o formato nome-valor
+  ansible.builtin.assert:
+    that:
+      - ajustes_do_servidor is mapping
+      - ajustes_do_servidor.keys() | reject('match', '^[a-z_][a-z0-9_]*$') | list | length == 0
+    fail_msg: >-
+      {{ servidor_ajustes }} não está no formato esperado (linhas "nome: valor", como no
+      servidor.yml.exemplo). Corrija o arquivo e rode de novo.
+    quiet: true
+
+# Valor lido do servidor não é mais montado pelo Ansible (era, quando o
+# arquivo morava no group_vars): "{{ nat_ip_publico }}" iria literal para
+# a configuração. Melhor parar dizendo qual.
+- name: O arquivo de ajustes não usa modelos do Ansible
+  ansible.builtin.assert:
+    that: com_modelo | length == 0
+    fail_msg: >-
+      Em {{ servidor_ajustes }}, {{ com_modelo | join(', ') }} usa {{ '{{' }} ... {{ '}}' }} ou {{ '{%' }}:
+      escreva o valor por extenso (ex.: turn_dominio: "200.170.198.176") e rode de novo.
+    quiet: true
+  vars:
+    com_modelo: >-
+      {{ dict(ajustes_do_servidor.keys() | zip(ajustes_do_servidor.values() | map('to_json')))
+         | dict2items | selectattr('value', 'search', '[{][{%]') | map(attribute='key') | list }}
+
+# O que vem por -e continua ganhando de tudo. Sem log: o arquivo pode ter
+# a senha inicial do admin (senha_padrao_console).
+- name: Usar os ajustes do servidor
+  ansible.builtin.set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ ajustes_do_servidor | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+
+# ---------- central já instalada, sem o nome guardado ----------
+# As instaladas antes de a instalação gravar o nome (ou com o nome só por
+# -e) não têm pabx_hostname nos ajustes. O nome está no .env da API, que
+# o playbook escreveu: é dele que vem, para a atualização não perguntar.
+# Conferido letra a letra: o .env é do usuário da API.
+- name: Ler o nome e o IP público que a central já usa
+  ansible.builtin.slurp:
+    src: "{{ telium_api }}/.env"
+  register: env_da_api
+  failed_when: false
+  when: "'pabx_hostname' not in ajustes_do_servidor or 'nat_ip_publico' not in ajustes_do_servidor"
+
+- name: Recuperar o que a central já usa
+  ansible.builtin.set_fact:
+    ajustes_recuperados: >-
+      {{ {}
+         | combine({'pabx_hostname': nome_env} if ('pabx_hostname' not in ajustes_do_servidor
+             and nome_env is match('^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$') and nome_env != 'pabx.telium.local') else {})
+         | combine({'nat_ip_publico': nat_env} if ('nat_ip_publico' not in ajustes_do_servidor
+             and nat_env is match('^[0-9]{1,3}(\.[0-9]{1,3}){3}$')) else {}) }}
+  vars:
+    env_texto: "{{ env_da_api.content | default('') | b64decode }}"
+    nome_env: "{{ env_texto | regex_search('(?m)^SIP_DOMINIO=(.*)$', '\\1') | default([''], true) | first | trim | lower }}"
+    nat_env: "{{ env_texto | regex_search('(?m)^NAT_IP_PUBLICO=(.*)$', '\\1') | default([''], true) | first | trim }}"
+  when: env_da_api.content is defined
+
+- name: Guardar nos ajustes o que a central já usa
+  when: not (somente_ler | default(false) | bool)
+  ansible.builtin.lineinfile:
+    path: "{{ servidor_ajustes }}"
+    regexp: '^#?\s*{{ item.key }}:'
+    line: '{{ item.key }}: "{{ item.value }}"'
+  loop: "{{ ajustes_recuperados | default({}) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}: {{ item.value }}"
+
+- name: Usar o que a central já usa
+  ansible.builtin.set_fact:
+    "{{ item.key }}": "{{ item.value }}"
+  loop: "{{ ajustes_recuperados | default({}) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"

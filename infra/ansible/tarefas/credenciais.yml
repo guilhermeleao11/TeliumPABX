@@ -1,0 +1,45 @@
+---
+# As senhas de serviço (banco, CDR, AMI, ARI, Asternic, TURN) são de cada
+# central e moram nela, em {{ credenciais_dir }}, uma por arquivo.
+#
+# Antes elas vinham de lookup('password'), que roda na máquina de quem
+# executa o playbook: de dentro da central dava no mesmo, mas rodando de
+# fora o Ansible lia (ou criava!) as senhas na estação — trocava as da
+# central no meio da atualização e dava a mesma senha a todas. Agora são
+# geradas e lidas no próprio servidor, antes dos papéis.
+#
+# Quem define vault_db_senha etc. continua mandando (main.yml).
+
+- name: Gerar no servidor as senhas de serviço que faltam
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      umask 077
+      mkdir -p "{{ credenciais_dir }}"
+      for n in {{ credenciais_nomes | join(' ') }}; do
+        f="{{ credenciais_dir }}/$n"
+        [ -s "$f" ] && continue
+        python3 -c 'import secrets, string, sys
+      print("".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(int(sys.argv[1]))))' \
+          {{ senha_tamanho }} > "$f.novo"
+        mv "$f.novo" "$f"
+        echo "$n"
+      done
+  register: credenciais_novas
+  changed_when: credenciais_novas.stdout | trim != ''
+
+- name: Ler as senhas de serviço do servidor
+  ansible.builtin.slurp:
+    src: "{{ credenciais_dir }}/{{ item }}"
+  loop: "{{ credenciais_nomes }}"
+  register: credenciais_lidas
+  no_log: true
+
+# O arquivo do lookup('password') antigo pode ter, depois da senha,
+# " salt=..." — só a primeira palavra é a senha.
+- name: Usar as senhas de serviço do servidor
+  ansible.builtin.set_fact:
+    credencial: >-
+      {{ dict(credenciais_nomes | zip(credenciais_lidas.results
+           | map(attribute='content') | map('b64decode') | map('trim') | map('split') | map('first'))) }}
+  no_log: true

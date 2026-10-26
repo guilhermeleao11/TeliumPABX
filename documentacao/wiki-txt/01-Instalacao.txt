@@ -4,6 +4,8 @@ INSTALAÇÃO
 
 Como subir uma central nova do zero, até a primeira chamada. Uma execução do playbook Ansible instala a central inteira: MariaDB, PHP 8.4, nginx com HTTPS, Asterisk 22 compilado do fonte, TURN, backup, firewall, o serviço do call center e o console.
 
+O jeito recomendado é rodar o playbook da sua máquina, pela rede: o servidor só precisa estar com o Debian instalado e o SSH aberto. Rodar de dentro do servidor continua funcionando igual (seção 6).
+
 NOTA: Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
 
 
@@ -12,16 +14,18 @@ SUMÁRIO
 
 1. O que você precisa
 2. O nome do servidor (DNS)
-3. Preparar o servidor e clonar o repositório
-4. Ajustes do servidor: servidor.yml
-5. Rodar o playbook
-6. Opções da linha de comando
-7. O que cada parte instala
-8. Primeiro acesso ao console
-9. Certificado
-10. Checklist pós-instalação
-11. Conferir a instalação
-12. Problemas comuns
+3. Preparar a sua máquina
+4. Instalar de fora, pela sua máquina
+5. As perguntas da instalação
+6. Instalar de dentro do servidor (alternativa)
+7. Ajustes do servidor: /etc/telium-servidor.yml
+8. Opções da linha de comando
+9. O que cada parte instala
+10. Primeiro acesso ao console
+11. Certificado
+12. Checklist pós-instalação
+13. Conferir a instalação
+14. Problemas comuns
 
 
 1. O QUE VOCÊ PRECISA
@@ -30,13 +34,22 @@ SUMÁRIO
 Servidor
 
 - Sistema operacional: Debian 13 (trixie), instalação limpa. É o alvo homologado. Ubuntu 24.04 também roda (para teste). Outra família que não seja Debian é recusada logo no início
-- Acesso: root ou usuário com sudo
+- Acesso: SSH como root, ou com um usuário que tenha sudo
 - Internet: Saída para a internet: o playbook baixa pacotes (Debian, MariaDB, nginx.org) e o código-fonte do Asterisk
 - Tamanho de partida: 2 vCPU, 4 GB de RAM e 40 GB de disco (recomendação da documentação do projeto, não um limite do playbook)
 - Disco: As gravações de chamada são o que mais ocupa. Calcule o espaço pela retenção que o cliente quer
 
 - O limite de carga do Asterisk (maxload) acompanha o número de vCPUs da máquina: 1,5 × vCPUs.
 - O limite de canais simultâneos (maxcalls) é 480 (cada chamada usa dois canais).
+
+A sua máquina (de onde o playbook roda)
+
+- Ansible: ansible-core (testado com a 2.21). O playbook usa só os módulos que vêm com ele (ansible.builtin): não precisa instalar coleção nenhuma
+- sshpass: Só para entrar com senha no SSH (-k). Com chave SSH, não precisa
+- git: Para o clone do repositório
+- Clone em dia: O código que vai para a central é o do seu clone. Antes de cada instalação ou atualização: git pull
+- Acesso SSH ao servidor: Os servidores da Telium costumam aceitar SSH só das redes da Telium. Fora delas, entre pela VPN
+- Usuário: O seu usuário comum: o playbook não precisa de root nem de sudo na sua máquina
 
 Rede
 
@@ -61,65 +74,212 @@ Regras (o playbook confere e recusa, explicando o motivo):
 - Precisa apontar para o servidor no DNS e ser alcançável de quem usa o console, não só de dentro do servidor.
 - Letras, números, hífen e pontos; sem _; a última parte começa por letra. Ex.: voz.cliente.com.br.
 - Não pode terminar em .local: o navegador não resolve e o softphone fica sem áudio.
-- Ainda sem DNS? Use o IP público (IPv4) do servidor.
+- Ainda sem DNS? Use o IP público (IPv4) do servidor, ou use o nome e deixe o áudio do softphone pelo IP até o DNS sair (seção 5).
 - O nome de fábrica pabx.telium.local não serve; enquanto ele estiver valendo, o playbook pergunta.
 
 O playbook também grava o nome em /etc/hosts como 127.0.1.1 <nome>.
 
 
-3. PREPARAR O SERVIDOR E CLONAR O REPOSITÓRIO
----------------------------------------------
+3. PREPARAR A SUA MÁQUINA
+-------------------------
 
-O repositório oficial é o GitLab da Telium: gitlab.telium.com.br/Voip/teliumpabx. O GitLab pede usuário e token (ou uma chave de implantação).
+Uma vez só, na sua máquina (Debian/Ubuntu):
+
+    sudo apt update && sudo apt install -y ansible git sshpass
+    git clone https://gitlab.telium.com.br/Voip/teliumpabx.git ~/TeliumPABX
+
+- O repositório oficial é o GitLab da Telium: gitlab.telium.com.br/Voip/teliumpabx. O GitLab pede usuário e token (ou uma chave de implantação).
+- O ansible do apt já traz o ansible-core. Para conferir a versão: ansible --version.
+- Sem sshpass, o -k (senha do SSH) não funciona. Com chave SSH, ele não faz falta.
+
+Antes de cada instalação ou atualização, ponha o clone em dia:
+
+    cd ~/TeliumPABX && git pull
+
+O código que vai para a central é o do seu clone. Um clone atrasado instalaria a versão velha; numa central que já está numa versão mais nova, o playbook para em vez de voltar a versão (seção 14).
+
+NOTA: O clone não guarda nada de cliente. Os ajustes de cada central ficam no próprio servidor, em /etc/telium-servidor.yml (seção 7), e as senhas de serviço também são geradas e lidas lá. Nada secreto vem da sua máquina nem fica nela. O mesmo clone instala e atualiza quantas centrais for preciso.
+
+
+4. INSTALAR DE FORA, PELA SUA MÁQUINA
+-------------------------------------
+
+Na pasta infra/ansible do clone (é lá que está o ansible.cfg do projeto, que o comando precisa):
+
+    cd ~/TeliumPABX/infra/ansible
+    ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml -u root -k
+
+- -i "200.170.198.176,": O servidor. A vírgula no fim diz ao Ansible que aquilo é a lista de servidores, e não um arquivo de inventário. Sem a vírgula, ele procura um arquivo com esse nome
+- TeliumPBX_instalacao.yml: O playbook de instalação. É o mesmo site.yml de sempre, com um nome mais fácil de achar
+- -u root: Entra no servidor como root
+- -k: Pede a senha do SSH (precisa do sshpass na sua máquina)
+
+Outros jeitos de entrar:
+
+- Com chave SSH: ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml -u root (sem o -k)
+- Com um usuário que tem sudo: ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml -u usuario -k -K (o -K pede a senha do sudo; com chave SSH, tire o -k)
+
+- O Debian, de fábrica, não deixa o root entrar por senha no SSH (PermitRootLogin prohibit-password). Nesse caso, use chave SSH ou um usuário com sudo.
+- A primeira conexão não pergunta "Are you sure you want to continue connecting": o ansible.cfg do projeto não confere a chave do servidor.
+- Rode o comando de dentro de infra/ansible. De outra pasta, o Ansible não lê o ansible.cfg e não acha as roles.
+
+Depois do comando, o playbook faz as perguntas da instalação (seção 5) e segue sozinho. A compilação do Asterisk leva de 5 a 15 minutos: é a parte demorada.
+
+O que acontece, na ordem:
+
+1. Lê os ajustes do servidor (/etc/telium-servidor.yml; numa central nova, ele nasce do modelo) e as senhas de serviço, que são geradas e guardadas no próprio servidor na primeira vez.
+2. As perguntas (seção 5), com um resumo e a confirmação Instalar?.
+3. A senha inicial do admin (digitada duas vezes, sem aparecer na tela).
+4. Resumo do que será instalado (nome, sistema, versões, SIP).
+5. As partes (roles), na ordem da seção 9.
+6. A bateria de testes (telium testar). Uma falha ali interrompe o playbook. É o que se quer: não entregue uma central que não passou.
+7. Resumo final com o endereço do console, salvo também em /etc/telium/instalacao.txt no servidor (só root).
+
+O resultado tem de terminar com failed=0:
+
+    PLAY RECAP ****************************************************************
+    200.170.198.176  : ok=412  changed=301  unreachable=0  failed=0  skipped=88  rescued=0  ignored=0
+
+(Os números variam; o que importa é unreachable=0 e failed=0.)
+
+[PRINT: fim da execução com o PLAY RECAP em failed=0]
+
+Se o AMI não autenticar durante a instalação, o playbook avisa no fim. Veja Solução de problemas (ver página 07).
+
+
+5. AS PERGUNTAS DA INSTALAÇÃO
+-----------------------------
+
+Numa central nova (servidor sem a marca /etc/telium/.senha-admin-inicial e sem código publicado em /opt/telium/api), o playbook pergunta o que muda de um cliente para outro. As respostas vão para /etc/telium-servidor.yml, no servidor, e as atualizações não perguntam de novo. Pergunta que já tem resposta nesse arquivo (ou que veio por -e) é pulada.
+
+As perguntas valem para um servidor só: uma central nova por vez (-i "IP,"). Se algum dos servidores do -i ainda não tem o Telium PABX e há mais de um, a execução inteira para ("... ainda não tem o Telium PABX") em vez de dar as mesmas respostas a todos.
+
+Um exemplo, com um servidor atrás de NAT e o nome ainda sem DNS (o texto das perguntas está resumido):
+
+     Qual é o nome deste servidor?
+     ...
+    Nome do servidor: voz.cliente.com.br
+    
+     Nome do cliente (a empresa dona desta central)
+     Aparece na identificação da central. Enter: Telium Networks
+    Cliente: Cliente S.A.
+    
+     Este servidor tem IP interno (10.20.0.15): está atrás de NAT.
+     Qual é o IP PÚBLICO dele? ...
+     Enter: 200.170.198.176
+     Sem IP público: digite "nenhum".
+    IP público:
+    
+     "voz.cliente.com.br" ainda não existe no DNS.
+     O áudio do softphone do navegador usa esse nome e ficaria mudo.
+     Até o DNS sair, ele pode usar o IP público.
+     Enter: 200.170.198.176
+    IP para o áudio:
+    
+    Instalar o Janus? [s/N]:
+    Instalar o Asternic? [s/N]:
+    Restringir o SIP? [s/N]: s
+    Redes extras: 203.0.113.10
+    Mandar os logs? [S/n]:
+    
+     Esta central é de:
+       1  CLIENTE (produção): o banco nasce vazio
+       2  LABORATÓRIO: já vem com o cenário de teste ...
+    Ambiente [1]:
+    
+     Vai instalar em 200.170.198.176:
+       Nome da central ... voz.cliente.com.br
+       Cliente ........... Cliente S.A.
+       IP público (NAT) .. 200.170.198.176
+       Áudio softphone ... pelo IP 200.170.198.176 até o DNS sair
+       Janus ............. não
+       Asternic .......... não
+       SIP ............... só redes conhecidas + 203.0.113.10
+       Syslog da Telium .. sim
+       Ambiente .......... cliente (banco vazio)
+     Para mudar algo depois: /etc/telium-servidor.yml no servidor.
+    Instalar? [S/n]:
+    
+     Senha inicial do admin do console (e do Asternic)
+    Senha:
+    Repita a senha:
+
+[PRINT: terminal com o resumo e a pergunta "Instalar? [S/n]"]
+
+O que cada pergunta quer dizer:
+
+- Nome do servidor — Quando aparece: Sempre numa central nova (enquanto valer o nome de fábrica); O que responder: O nome do DNS (seção 2), ou o IP público; Vai para: pabx_hostname
+- Nome do cliente — Quando aparece: Central nova; O que responder: A empresa dona da central. Enter fica com o de fábrica; Vai para: pabx_empresa
+- IP público — Quando aparece: Só quando o servidor tem IP interno (está atrás de NAT); O que responder: O IP público do servidor. O Enter sugere o IP usado no -i, se ele for público. Sem IP público (central só para a rede interna): nenhum; Vai para: nat_ip_publico
+- IP para o áudio — Quando aparece: Só quando o nome ainda não resolve no DNS (conferido no servidor); O que responder: O IP público. O softphone do navegador funciona por ele até o DNS sair. Quando o DNS sair, tire o turn_dominio do arquivo de ajustes e rode o playbook; Vai para: turn_dominio
+- Janus — Quando aparece: Central nova; O que responder: Na dúvida, não (N). Ele não está no caminho de nenhuma chamada; fica para a sala de vídeo, um módulo futuro; Vai para: instalar_janus
+- Asternic — Quando aparece: Central nova; O que responder: Sim só com licença comprada para este servidor: ela fica presa ao MAC da placa de rede. Dá para instalar depois; Vai para: instalar_asternic
+- Restringir o SIP — Quando aparece: Central nova; O que responder: Sim: o SIP e o áudio só respondem a redes conhecidas (o Brasil, a Telium, as redes internas, os troncos, o "Nunca bloquear" e os telefones já registrados). Diga não se tiver ramal ou operadora fora do Brasil e não souber o IP deles. Atenção à operadora: se ela manda as chamadas de um IP diferente do host cadastrado no tronco (um SBC, ou servidores na nuvem, como AWS e Google, mesmo no Brasil), esse IP precisa entrar nas redes extras (ou no Nunca bloquear), senão as chamadas de entrada não chegam. Detalhes em Segurança (ver página 08); Vai para: sip_restringir_redes
+- Redes extras — Quando aparece: Só se respondeu sim à anterior; O que responder: IPs ou redes de fora do Brasil que precisam chegar à central (a operadora, um escritório no exterior), e os IPs de onde a operadora manda as chamadas quando não são o host do tronco (SBC, nuvem), separados por espaço, com ou sem /máscara. Nenhum: só Enter; Vai para: sip_redes_extras
+- Mandar os logs — Quando aparece: Central nova; O que responder: Sim, se a central fala com a rede da Telium. Não em central de cliente isolada; Vai para: syslog_central
+- Ambiente — Quando aparece: Central nova; O que responder: 1 cliente (produção): o banco nasce vazio. 2 laboratório: já vem com o cenário de teste (ramais 1001 a 1004, grupo 2000, fila 3000, conferência 4000, URA, horário comercial e rotas). Nunca 2 em central de cliente; Vai para: Não é guardado: vale só nesta execução
+- Instalar? — Quando aparece: Central nova; O que responder: Enter instala. n cancela sem instalar nada (o nome já respondido fica guardado); Vai para: —
+- Senha inicial do admin — Quando aparece: Na primeira instalação (e quando o Asternic entra numa central que já existia); O que responder: A senha padrão da Telium, duas vezes. Ela não fica no Git: vai para /etc/telium/credenciais/senha_admin_console no servidor (só root); Vai para: —
+
+- Uma resposta que não serve (um IP mal digitado, uma rede /0, uma opção que não existe) faz o playbook parar antes de instalar, dizendo o que estava errado. Rode de novo.
+- O cenário de teste nunca vai para o arquivo de ajustes: nenhuma atualização o carrega de novo.
+- Sem terminal (automação) ou com -e perguntar=false, estas perguntas não são feitas: a central nova fica com os valores de fábrica do main.yml. O nome e a senha do admin, se faltarem, ainda são pedidos; sem terminal, passe-os por -e pabx_hostname=... e -e senha_padrao_console=... (ou grave a senha antes em /etc/telium/credenciais/senha_admin_console). Sem nome, a instalação para em vez de seguir com um nome errado.
+
+Numa central já instalada, o playbook não faz estas perguntas: mostra a versão instalada e a do clone e pergunta se é para atualizar. Veja Atualização (ver página 02).
+
+
+6. INSTALAR DE DENTRO DO SERVIDOR (ALTERNATIVA)
+-----------------------------------------------
+
+Quando não dá para chegar ao servidor por SSH da sua máquina, instale de dentro dele, como antes:
 
     sudo apt update && sudo apt install -y ansible git
     sudo git clone https://gitlab.telium.com.br/Voip/teliumpabx.git /opt/TeliumPABX
     cd /opt/TeliumPABX/infra/ansible
+    sudo ansible-playbook site.yml
 
+- As perguntas, o arquivo de ajustes e o resultado são os mesmos da instalação de fora.
 - O clone fica em /opt/TeliumPABX. O código publicado (o que roda de verdade) vai para /opt/telium.
 - O inventário padrão (inventory/local.ini) roda o playbook dentro da própria máquina (localhost, conexão local).
-
-Instalar a partir de outra máquina, por SSH (alternativa):
-
-    cd infra/ansible
-    cp inventory/vm.ini.exemplo inventory/vm.ini   # ajuste IP, usuário e senha do sudo
-    ansible-playbook -i inventory/vm.ini site.yml
-
-O inventory/vm.ini fica fora do Git.
+- Uma central instalada de dentro pode ser atualizada depois de fora, e vice-versa: os ajustes estão no servidor, não no clone.
 
 
-4. AJUSTES DO SERVIDOR: SERVIDOR.YML
-------------------------------------
+7. AJUSTES DO SERVIDOR: /ETC/TELIUM-SERVIDOR.YML
+------------------------------------------------
 
-Os ajustes de cada servidor ficam em infra/ansible/group_vars/all/servidor.yml, fora do Git:
+Os ajustes de cada central ficam no próprio servidor, em /etc/telium-servidor.yml (dono root, permissão 0600):
 
-- o git pull da atualização nunca conflita com ele;
-- o que estiver nele ganha do main.yml (o Ansible lê a pasta em ordem alfabética e o que vem depois vale).
+- a instalação cria o arquivo a partir de infra/ansible/group_vars/all/servidor.yml.exemplo e grava nele as respostas das perguntas;
+- as atualizações leem o arquivo e não perguntam de novo, de onde quer que rodem;
+- o que estiver nele ganha do main.yml; o que vier por -e ganha dele;
+- ele fica fora de /etc/telium de propósito: aquela pasta é do usuário da API, e o arquivo é lido pelo Ansible como root.
 
-A primeira execução cria o servidor.yml sozinha, a partir de servidor.yml.exemplo, e grava nele o nome que você responder. Para ajustar antes da primeira instalação:
+Para mudar um ajuste depois, edite no servidor e rode o playbook de novo:
 
-    cd /opt/TeliumPABX/infra/ansible/group_vars/all
-    sudo cp servidor.yml.exemplo servidor.yml
-    sudo nano servidor.yml
+    sudo nano /etc/telium-servidor.yml
 
-Ponha no servidor.yml só o que muda neste servidor, uma linha por variável, por exemplo:
+Uma linha por variável, no formato nome: valor, com o valor escrito por extenso: {{ ... }} e {% ... %} do Ansible não valem neste arquivo (o playbook para e diz qual linha usa). Por exemplo:
 
     pabx_hostname: "voz.cliente.com.br"
     pabx_empresa: "Cliente S.A."
     syslog_central: false
+    sip_restringir_redes: true
+    sip_redes_extras: ["203.0.113.10", "198.51.100.0/24"]
 
-NOTA: Nunca edite o main.yml. Ele vai para o Git: editado, faz o git pull da atualização recusar. Veja Atualização (ver página 02).
+NOTA: Nunca edite o main.yml. Ele vai para o Git e vale para todas as centrais. O que é de uma central vai no /etc/telium-servidor.yml dela.
+
+Centrais instaladas até a 1.6.1 guardavam os ajustes no clone que está nelas, em infra/ansible/group_vars/all/servidor.yml: em /opt/TeliumPABX ou, nas instaladas até setembro de 2026, em /opt/telium-src. Na primeira execução da versão nova (de dentro ou de fora), o playbook procura esse arquivo em todo clone do servidor (em /opt, /root, /home e /srv), copia para /etc/telium-servidor.yml e renomeia o antigo para servidor.yml.migrado, para ninguém editar um arquivo que não vale mais. Rodando de dentro, vale o do clone que está rodando. Se houver mais de um clone com servidor.yml e nenhum for o que roda, o playbook para e pede qual vale: -e servidor_yml_antigo=/opt/telium-src/infra/ansible/group_vars/all/servidor.yml (por exemplo). Sem ajustes nenhum, o nome da central e o IP público são lidos do .env da API (/opt/telium/api/.env), para a atualização não perguntar nada.
 
 
 Variáveis que o implantador pode querer mudar
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Todas vêm de infra/ansible/group_vars/all/main.yml, com o valor de fábrica abaixo.
+Todas vêm de infra/ansible/group_vars/all/main.yml, com o valor de fábrica abaixo. Para mudar numa central, ponha a linha no /etc/telium-servidor.yml dela.
 
 Identidade
 
 - pabx_hostname — Fábrica: pabx.telium.local; O que faz: Nome da central (seção 2). Perguntado na instalação
-- pabx_empresa — Fábrica: Telium Networks; O que faz: Nome da empresa: vai para o certificado de fábrica e para o dialplan
+- pabx_empresa — Fábrica: Telium Networks; O que faz: Nome da empresa: vai para o certificado de fábrica e para o dialplan. Perguntado na instalação
 - pabx_timezone — Fábrica: America/Sao_Paulo; O que faz: Fuso horário do servidor
 - pabx_locale — Fábrica: pt_BR.UTF-8; O que faz: Locale do sistema
 - pabx_idioma — Fábrica: pt_BR; O que faz: Idioma em que a central fala. Só mude junto com um pacote de áudios (sons_url ou sons_dir)
@@ -134,7 +294,7 @@ Se sons_url ou sons_dir for declarado e falhar, o playbook para.
 
 Rede e NAT (ponto de partida)
 
-- nat_ip_publico — Fábrica: vazio; O que faz: IP público. Só o valor inicial: depois quem manda é o console, em Conectividade › Configurações de Rede. Para o TURN, vale este valor e, vazio, o endereço gravado no console (lido a cada execução do playbook)
+- nat_ip_publico — Fábrica: vazio; O que faz: IP público. Perguntado na instalação quando o servidor tem IP interno. Só o valor inicial: depois quem manda é o console, em Conectividade › Configurações de Rede. Para o TURN, vale este valor e, vazio, o endereço gravado no console (lido a cada execução do playbook)
 - redes_locais — Fábrica: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16; O que faz: Faixas da rede interna. Mesmo caso do anterior
 - sip_porta — Fábrica: 5060; O que faz: Porta SIP (UDP e TCP)
 - sip_tls_porta — Fábrica: 5061; O que faz: Porta SIP sobre TLS
@@ -146,11 +306,17 @@ Rede e NAT (ponto de partida)
 
 Trocar porta SIP depois da instalação exige rodar o playbook de novo: o Asterisk não troca a porta de escuta num simples recarregamento.
 
+SIP só para redes conhecidas
+
+- sip_restringir_redes — Fábrica: false; O que faz: Ligado, o SIP, o áudio, o fax, o TURN e o Janus só respondem às redes conhecidas. Perguntado na instalação. Veja Segurança (ver página 08)
+- sip_redes_extras — Fábrica: vazio; O que faz: Redes a mais desta central (a operadora fora do Brasil, um escritório no exterior). Perguntadas na instalação
+- sip_redes_liberadas — Fábrica: IPs da Telium, faixas do Brasil e redes internas; O que faz: A lista fixa de sempre. Não mexa numa central: use sip_redes_extras ou o "Nunca bloquear" do console
+
 Softphone do navegador e TURN
 
 - webrtc_habilitado — Fábrica: false; O que faz: Ponto de partida do telefone pelo navegador. Depois, quem liga e desliga é o console, em Conectividade › WebRTC / Softphone
 - instalar_turn — Fábrica: true; O que faz: Instala o coturn (TURN próprio)
-- turn_dominio — Fábrica: o pabx_hostname; O que faz: Nome ou IP que o navegador usa para chegar ao TURN. Sem DNS ainda, ponha o IP público
+- turn_dominio — Fábrica: o pabx_hostname; O que faz: Nome ou IP que o navegador usa para chegar ao TURN. Sem DNS ainda, o IP público (perguntado na instalação)
 - turn_porta / turn_porta_tls — Fábrica: 3478 / 5349; O que faz: Portas do TURN
 - turn_rtp_inicio / turn_rtp_fim — Fábrica: 49152 / 49500; O que faz: Faixa de mídia retransmitida pelo TURN
 - turn_sessoes_max — Fábrica: 200; O que faz: Teto de sessões no TURN
@@ -164,16 +330,17 @@ Certificado
 
 Execução e componentes
 
-- compilar_asterisk — Fábrica: true; O que faz: Compila o Asterisk se a versão instalada for diferente de asterisk_versao
-- instalar_janus — Fábrica: false; O que faz: Instala o Janus. Opcional: o softphone do navegador não usa Janus
-- compilar_janus — Fábrica: true; O que faz: Compila o Janus se a versão for diferente (só vale com instalar_janus)
+- compilar_asterisk — Fábrica: true; O que faz: Compila o Asterisk só se a versão instalada for diferente de asterisk_versao. Com a versão certa já instalada, não compila de novo
+- instalar_janus — Fábrica: false; O que faz: Instala o Janus. Opcional: o softphone do navegador não usa Janus. Perguntado na instalação
+- compilar_janus — Fábrica: true; O que faz: Compila o Janus só se a versão for diferente (só vale com instalar_janus)
+- instalar_asternic — Fábrica: false; O que faz: Instala o Asternic (Call Center › Stats). Só com licença para este servidor. Perguntado na instalação
 - instalar_firewall — Fábrica: true; O que faz: Abre as portas no ufw e liga o firewall
 - asterisk_max_chamadas — Fábrica: 480; O que faz: maxcalls do Asterisk (canais simultâneos)
 - asterisk_max_carga — Fábrica: 1,5 × vCPUs; O que faz: maxload do Asterisk
 
 Syslog central
 
-- syslog_central — Fábrica: true; O que faz: Encaminha os logs ao syslog do grupo VoIP da Telium. false desliga
+- syslog_central — Fábrica: true; O que faz: Encaminha os logs ao syslog do grupo VoIP da Telium. false desliga. Perguntado na instalação
 - syslog_central_asterisk — Fábrica: (IP da Telium); O que faz: Destino dos logs do Asterisk
 - syslog_central_auth — Fábrica: (IP da Telium); O que faz: Destino dos logs de autenticação
 - syslog_central_sistema — Fábrica: (IP da Telium); O que faz: Destino do resto do sistema
@@ -181,72 +348,48 @@ Syslog central
 
 Num cliente com outro syslog, troque os IPs; sem syslog central, syslog_central: false.
 
-Não mexa (servem para o projeto, não para a implantação): versões fixadas (asterisk_versao, janus_versao, mariadb_versao, nginx_canal), caminhos (telium_base, backup_dir, gravacoes_dir etc.), usuários de sistema e portas internas (ast_http_porta, ami_porta, portas do Janus).
+Não mexa (servem para o projeto, não para a implantação): versões fixadas (asterisk_versao, janus_versao, mariadb_versao, nginx_canal), caminhos (telium_base, backup_dir, gravacoes_dir, servidor_ajustes etc.), usuários de sistema e portas internas (ast_http_porta, ami_porta, portas do Janus).
 
 
 Senhas de serviço
 ~~~~~~~~~~~~~~~~~
 
-Não é preciso gerar nada. As senhas do banco, do usuário ODBC do CDR, do AMI, da ARI e o segredo do TURN são criadas na primeira instalação (28 caracteres aleatórios cada) e guardadas em /etc/telium/credenciais/, um arquivo por senha, só para root. Rodar o playbook de novo reaproveita as mesmas.
+Não é preciso gerar nada. As senhas do banco, do usuário ODBC do CDR, do AMI, da ARI, do Asternic e o segredo do TURN são criadas na primeira instalação (28 caracteres aleatórios cada) no próprio servidor e guardadas em /etc/telium/credenciais/, um arquivo por senha, só para root. Rodar o playbook de novo, de dentro ou de fora, lê as mesmas do servidor: nenhuma senha sai da sua máquina nem fica nela.
 
-Para escolher essas senhas você mesmo: copie infra/ansible/vault.yml.exemplo para group_vars/all/vault.yml e preencha (ou rode ./gerar-vault.sh). Elas têm precedência sobre as geradas. Para cifrar: ansible-vault encrypt group_vars/all/vault.yml. O vault.yml fica fora do Git.
-
-
-5. RODAR O PLAYBOOK
--------------------
-
-    cd /opt/TeliumPABX/infra/ansible
-    sudo ansible-playbook site.yml
-
-O que acontece, na ordem:
-
-1. Pergunta do nome, se ainda valer o de fábrica. A resposta é conferida e gravada no servidor.yml; as execuções seguintes não perguntam mais.
-2. Pergunta da senha inicial do admin (digitada duas vezes, sem aparecer na tela). Use a senha padrão da Telium. Ela não fica no Git: vai para /etc/telium/credenciais/senha_admin_console (só root). As atualizações não perguntam de novo. Sem terminal, passe -e senha_padrao_console=... ou grave o arquivo antes.
-3. Resumo do que será instalado (nome, sistema, versões).
-4. As partes (roles), na ordem da seção 7. A compilação do Asterisk leva de 5 a 15 minutos: é a parte demorada.
-5. A bateria de testes (telium testar). Uma falha ali interrompe o playbook. É o que se quer: não entregue uma central que não passou.
-6. Resumo final com o endereço do console, salvo também em /etc/telium/instalacao.txt (só root).
-
-O resultado tem de terminar com failed=0.
-
-[PRINT: terminal com a pergunta "Qual é o nome deste servidor?"]
-
-[PRINT: fim da execução com o PLAY RECAP em failed=0]
-
-Rodando sem terminal (automação), passe o nome na linha de comando; sem nome, a instalação para em vez de seguir com um nome errado:
-
-    sudo ansible-playbook site.yml -e pabx_hostname=voz.cliente.com.br
-
-Se o AMI não autenticar durante a instalação, o playbook avisa no fim. Investigue com sudo bash infra/diagnostico-ami.sh (a partir da pasta do clone).
+Para escolher essas senhas você mesmo (raro): copie infra/ansible/vault.yml.exemplo para group_vars/all/vault.yml e preencha (ou rode ./gerar-vault.sh). Elas têm precedência sobre as geradas. Para cifrar: ansible-vault encrypt group_vars/all/vault.yml. O vault.yml fica fora do Git. Ele vale só rodando de dentro do servidor: rodando de fora, o playbook para se o clone tiver um vault.yml, porque ele valeria para toda central que esse clone instalar.
 
 
-6. OPÇÕES DA LINHA DE COMANDO
+8. OPÇÕES DA LINHA DE COMANDO
 -----------------------------
 
-Toda opção vai com -e. O playbook pode ser rodado quantas vezes for preciso: ele só mexe no que mudou.
+Toda opção vai com -e, de fora ou de dentro do servidor. O playbook pode ser rodado quantas vezes for preciso: ele só mexe no que mudou.
 
 - -e pabx_hostname=voz.cliente.com.br — O que faz: Informa o nome sem pergunta; Apaga dados?: Não
-- -e compilar_asterisk=false — O que faz: Não compila o Asterisk, mesmo que a versão tenha mudado; Apaga dados?: Não
+- -e perguntar=false — O que faz: Não faz as perguntas da central nova nem o menu da atualização: a central nova fica com os valores de fábrica, a instalada é atualizada; Apaga dados?: Não
+- -e compilar_asterisk=false — O que faz: Não compila o Asterisk, mesmo que a versão fixada tenha mudado; Apaga dados?: Não
 - -e compilar_janus=false — O que faz: Não compila o Janus; Apaga dados?: Não
 - -e instalar_janus=true — O que faz: Instala o Janus (opcional; fora do caminho das chamadas); Apaga dados?: Não
 - -e instalar_turn=false — O que faz: Não instala o TURN; o softphone fica sem TURN próprio; Apaga dados?: Não
 - -e instalar_firewall=false — O que faz: Não abre portas nem liga o ufw; Apaga dados?: Não
-- -e cenario_teste=true — O que faz: Carrega um cenário de teste (veja abaixo); Apaga dados?: Não apaga, mas cria cadastros com senha conhecida
+- -e permitir_versao_antiga=true — O que faz: Deixa publicar uma versão mais antiga que a instalada (voltar de versão de propósito); Apaga dados?: Não
+- -e cenario_teste=true — O que faz: Carrega o cenário de teste (veja abaixo); Apaga dados?: Não apaga, mas cria cadastros com senha conhecida
 - -e limpar_banco=true — O que faz: Zera a base operacional (veja abaixo); Apaga dados?: SIM. Destrutivo, sem volta
 
-Também existe --start-at-task do Ansible, para reprovisionar só a partir de uma etapa:
+O que vem por -e ganha do /etc/telium-servidor.yml e das respostas às perguntas, mas não é guardado: vale só naquela execução.
 
-    sudo ansible-playbook site.yml --start-at-task="Publicar o código da API"
+Não use --start-at-task a partir da 1.7.0. Ele pula as etapas iniciais, que leem os ajustes da central (/etc/telium-servidor.yml) e as senhas de serviço do servidor. Sem elas, o playbook para no meio, ou publica o console com o nome de fábrica (pabx.telium.local). Rode o playbook inteiro: o que já está certo não é refeito, e o Asterisk só é compilado quando muda de versão.
 
-A partir da 1.5.2, essa etapa também atualiza o banco logo depois de publicar o código. Antes, ela pulava a atualização do banco, e o código novo rodava sobre o banco velho ("Unknown column ..." ao gravar). Se isso acontecer numa central antiga, rode no servidor:
+Se o código novo rodar sobre o banco velho ("Unknown column ..." ao gravar), atualize o banco no servidor:
 
     sudo -u teliumpbx php /opt/telium/api/bin/telium migrar
 
 
--e limpar_banco=true — APAGA DADOS
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Limpar o banco — APAGA DADOS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 NOTA: Destrutivo e sem volta. Nunca numa central com cliente. O backup é seu.
+
+O jeito recomendado é o menu da atualização (opção 2, Atualização (ver página 02)): ele pede que você digite o nome da central para confirmar e vale para uma central por vez. O -e limpar_banco=true faz o mesmo sem perguntar nada, e vale mesmo que no menu se escolha "Atualizar".
 
 Roda o script infra/sql/opcional/limpar.sql e reaplica os dados essenciais. Apaga:
 
@@ -257,11 +400,13 @@ Roda o script infra/sql/opcional/limpar.sql e reaplica os dados essenciais. Apag
 - CDR, CEL, eventos, o registro das gravações, contatos, integrações, auditoria, chamadas do softphone e sessões;
 - todos os usuários, menos o admin.
 
-Preserva: empresa, perfis e permissões, a conta admin, os grupos de horário padrão, os códigos de recurso, os motivos de pausa, a pesquisa padrão, os estacionamentos, a biblioteca de áudios e os endereços confiáveis do firewall. Os arquivos em disco (gravações, recados, backups) não são apagados por ele.
+Preserva: empresa, perfis e permissões, a conta admin, os grupos de horário padrão, os códigos de recurso, os motivos de pausa, a pesquisa padrão, os estacionamentos, a biblioteca de áudios e os endereços confiáveis do firewall. Os arquivos em disco (gravações, recados, backups) não são apagados por ele. Os ajustes do /etc/telium-servidor.yml também ficam.
 
 
--e cenario_teste=true — só em servidor de teste
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Cenário de teste — só em servidor de teste
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+O jeito recomendado é responder 2 (laboratório) na pergunta do ambiente da instalação, ou aceitar o cenário depois de limpar o banco pelo menu. O -e cenario_teste=true faz o mesmo sem perguntar.
 
 Roda infra/sql/opcional/cenario-teste.sql: ramais 1001 a 1004 (o 1003 é WebRTC; o 1004 só tem permissão local), grupo de toque 2000, fila 3000 com dois agentes, conferência 4000, uma URA, horário comercial, DID e rotas.
 
@@ -269,38 +414,40 @@ Roda infra/sql/opcional/cenario-teste.sql: ramais 1001 a 1004 (o 1003 é WebRTC;
 - Número que já existir fica como está (não sobrescreve), mas os cadastros novos entram na base do cliente.
 - Não cria tronco; as rotas de saída do cenário só nascem se já houver um tronco.
 - Nunca em instalação de cliente: a base nasce vazia de propósito.
+- Vale só na execução em que foi pedido: nunca vai para o arquivo de ajustes.
 
 
-7. O QUE CADA PARTE INSTALA
+9. O QUE CADA PARTE INSTALA
 ---------------------------
 
-O playbook site.yml roda estas roles, nesta ordem:
+O playbook (TeliumPBX_instalacao.yml de fora, site.yml de dentro: são o mesmo) roda estas roles, nesta ordem:
 
 - common: Confere o sistema (família Debian), instala utilitários (curl, git, jq, chrony, tcpdump etc.), define fuso e locale pt_BR, cria a conta de serviço teliumpbx e os diretórios (/opt/telium, /etc/telium, /var/log/telium), grava o nome em /etc/hosts e gera o certificado de fábrica em /etc/ssl/telium/
-- mariadb: MariaDB 12.3 do repositório oficial, ouvindo só em 127.0.0.1; cria o banco telium_pabx e os usuários; aplica todos os scripts de infra/sql/ (idempotentes); ODBC para o Asterisk gravar CDR/CEL. Aqui rodam limpar_banco e cenario_teste
+- mariadb: MariaDB 12.3 do repositório oficial, ouvindo só em 127.0.0.1; cria o banco telium_pabx e os usuários; aplica todos os scripts de infra/sql/ (idempotentes); ODBC para o Asterisk gravar CDR/CEL. Aqui rodam a limpeza do banco e o cenário de teste, quando pedidos
 - nginx: nginx (canal mainline, repositório nginx.org) com HTTPS, o site do console, a API, o /ws do softphone e o provisionamento de telefones
 - php: PHP 8.4 com FPM e um pool dedicado à API
 - asterisk: Compila e instala o Asterisk 22 (só se a versão mudou), instala os áudios em português, a música de espera, os arquivos de configuração base, o logrotate, o despertador e a unidade systemd; testa o AMI
-- janus: Só com instalar_janus=true: compila e instala o Janus
+- janus: Só com instalar_janus=true: compila e instala o Janus (só se a versão mudou)
 - turn: Só com instalar_turn (padrão: sim): coturn com credencial temporária derivada de um segredo. O endereço público do TURN vem do nat_ip_publico ou, sem ele, do console
 - backup: Diretório /var/Backup/pabx-telium, o executor e o temporizador do backup
 - certificados: O cofre /etc/telium/certificados e o aplicador que copia o certificado enviado pelo console para os serviços
 - email: msmtp, para o envio de e-mail (recado do correio de voz, fax, alertas); o tiff2pdf (pacote libtiff-tools) e o script /usr/local/sbin/telium-fax-email, que manda o fax recebido em PDF. A configuração vem do console
-- api: Publica o console (/opt/telium/web) e a API (/opt/telium/api), escreve o .env, grava em api/COMMIT o commit do clone (o que o console mostra ao lado da versão), define a senha inicial do admin (só na primeira vez), gera e aplica a configuração do Asterisk, instala a tarifação (de hora em hora) e o serviço do call center telium-cc, e roda a bateria de testes
+- api: Publica o console (/opt/telium/web) e a API (/opt/telium/api) a partir do clone de quem roda o playbook, escreve o .env, grava em api/COMMIT o commit do clone (o que o console mostra ao lado da versão), define a senha inicial do admin (só na primeira vez), gera e aplica a configuração do Asterisk, instala a tarifação (de hora em hora) e o serviço do call center telium-cc, e roda a bateria de testes
+- asternic: Só com instalar_asternic: true: o Asternic Call Center Stats PRO
 - syslog: Regras do rsyslog para o syslog central (ou as retira, com syslog_central: false)
-- seguranca: fail2ban (SIP, console, SSH) e ufw com as portas da central (a faixa do Janus só com instalar_janus=true)
+- seguranca: fail2ban (SIP, console, SSH), ufw com as portas da central (a faixa do Janus só com instalar_janus=true) e, com sip_restringir_redes, o SIP só para redes conhecidas (telium-firewall-sip)
 
 Detalhes de cada serviço: Comandos e serviços (ver página 05). Onde fica cada arquivo: Diretórios, arquivos e logs (ver página 06).
 
 
-8. PRIMEIRO ACESSO AO CONSOLE
------------------------------
+10. PRIMEIRO ACESSO AO CONSOLE
+------------------------------
 
 - Endereço: https://<nome-do-servidor>/
 - Usuário: admin
 - Senha: a senha padrão da Telium, informada na instalação (guardada em /etc/telium/credenciais/senha_admin_console, só root)
 
-- Na primeira visita o navegador avisa que o certificado não é confiável. É esperado: é o certificado de fábrica (seção 9).
+- Na primeira visita o navegador avisa que o certificado não é confiável. É esperado: é o certificado de fábrica (seção 11).
 - Troque a senha no primeiro acesso, em PCU — Meu Painel › Meu Perfil e Segurança. A senha inicial é a mesma em toda central (a padrão da Telium).
 - O playbook define a senha do admin uma vez só por servidor; as atualizações não voltam a mexer nela.
 - Para uma senha inicial diferente, digite-a na pergunta da instalação (ou passe -e senha_padrao_console=...).
@@ -311,25 +458,25 @@ Detalhes de cada serviço: Comandos e serviços (ver página 05). Onde fica cada
 [PRINT: tela de login do console]
 
 
-9. CERTIFICADO
---------------
+11. CERTIFICADO
+---------------
 
 - A instalação gera um certificado de fábrica autoassinado (válido por 10 anos), com o nome do servidor, localhost e o IP da máquina. Ele é usado no console (nginx), no SIP TLS (5061) e no TURN (5349).
 - O navegador reclama dele, e o Linphone recusa. Para produção, envie o certificado de verdade pelo console em Administrador › Certificados, escolha onde ele vale e clique em Aplicar nos serviços.
 - O par de fábrica fica guardado à parte: é para onde a central volta se o certificado enviado for removido.
-- Trocou o pabx_hostname? Rode o playbook de novo: o certificado de fábrica é refeito com o nome novo. Um certificado enviado pelo console não é tocado.
+- Trocou o pabx_hostname no /etc/telium-servidor.yml? Rode o playbook de novo: o certificado de fábrica é refeito com o nome novo. Um certificado enviado pelo console não é tocado.
 
 [PRINT: Administrador › Certificados, com os cartões de cada serviço]
 
 Mais em Segurança (ver página 08) e Administrador (ver página 12).
 
 
-10. CHECKLIST PÓS-INSTALAÇÃO
+12. CHECKLIST PÓS-INSTALAÇÃO
 ----------------------------
 
 Pelo console, nesta ordem. Os detalhes de cada tela estão em Conectividade (ver página 17).
 
-1. Trocar a senha do admin (seção 8).
+1. Trocar a senha do admin (seção 10).
 2. Conectividade › Configurações de Rede: confira o Endereço público (o botão Descobrir pergunta a um servidor de fora) e as Faixas da rede interna. Em servidor com IP público direto, deixe o endereço público em branco. Salve.
 3. Administrador › Certificados: envie o certificado de verdade e clique em Aplicar nos serviços.
 4. Conectividade › Ramais: crie o primeiro ramal (ou vários com Importar CSV; o botão Modelo CSV baixa a planilha de exemplo).
@@ -338,23 +485,31 @@ Pelo console, nesta ordem. Os detalhes de cada tela estão em Conectividade (ver
 7. Conectividade › Rotas de Entrada: para onde vão as chamadas que chegam (DID e destino). Cadastre também uma rota com DID em branco, para tronco que não entrega número.
 8. Aplicar configurações: a faixa amarela no topo do console avisa quando há algo pendente. Sem isso, nada do que foi cadastrado vale no Asterisk.
 9. Administrador › Backup & Restauração: crie uma rotina de backup e, de preferência, um destino fora do servidor. Veja Backup e restauração (ver página 04).
-10. Teste de chamada:
+10. Com o SIP só para redes conhecidas ligado: algum telefone ou operadora fora do Brasil, ou operadora que manda as chamadas de um IP diferente do host do tronco (SBC, nuvem)? Ponha o IP em Conectividade › Firewall › Nunca bloquear antes de testar. O host do tronco cadastrado entra sozinho em até 5 minutos.
+11. Teste de chamada:
     - registre um telefone ou softphone no ramal novo (usuário e senha SIP estão na tela do ramal; servidor = nome da central, porta 5060);
     - ramal para ramal;
     - de fora para dentro (pelo número da operadora);
     - de dentro para fora;
     - confira que há áudio nos dois sentidos.
-11. Se o cliente vai usar o telefone pelo navegador: Conectividade › WebRTC / Softphone, Ligar o telefone pelo navegador e Testar agora. Veja Telefone WebRTC (ver página 11).
+12. Se o cliente vai usar o telefone pelo navegador: Conectividade › WebRTC / Softphone, Ligar o telefone pelo navegador e Testar agora. Veja Telefone WebRTC (ver página 11).
 
 [PRINT: faixa amarela "Alterações ainda não aplicadas" com o botão Aplicar configurações]
 
 Antes de entregar a um cliente, preencha o caderno de aceitação (docs/CADERNO-DE-TESTE.md no repositório).
 
 
-11. CONFERIR A INSTALAÇÃO
+13. CONFERIR A INSTALAÇÃO
 -------------------------
 
-A bateria de testes (tem de terminar sem falha):
+Diagnóstico completo (serviços, versões, portas em escuta, banco, Asterisk e últimos erros), da sua máquina:
+
+    cd ~/TeliumPABX/infra/ansible
+    ansible-playbook -i "200.170.198.176," verificar.yml -u root -k
+
+De dentro do servidor: cd /opt/TeliumPABX/infra/ansible && sudo ansible-playbook verificar.yml. O verificar.yml só lê: não cria nem migra o arquivo de ajustes e não mexe em nada.
+
+No servidor, a bateria de testes (tem de terminar sem falha):
 
     sudo -u teliumpbx php /opt/telium/api/bin/telium testar
 
@@ -366,16 +521,18 @@ Os comandos que respondem "a central subiu inteira?":
     sudo asterisk -rx "pjsip show registrations"
     curl -sk https://127.0.0.1/api/health | head -c 400   # traz a versão e o commit
     systemctl is-active telium-cc
+    sudo cat /etc/telium-servidor.yml           # as respostas da instalação
+    sudo telium-firewall-sip mostrar            # o SIP por rede ("desligado" se não foi pedido)
 
-Diagnóstico completo (serviços, versões, portas em escuta, banco, Asterisk e últimos erros):
+Há também o relatório compacto infra/diagnostico.sh. Numa central instalada de fora não há clone no servidor; rode-o da sua máquina:
 
-    cd /opt/TeliumPABX/infra/ansible
-    sudo ansible-playbook verificar.yml
+    cd ~/TeliumPABX
+    ssh root@200.170.198.176 'bash -s' < infra/diagnostico.sh
 
-Há também o relatório compacto sudo bash /opt/TeliumPABX/infra/diagnostico.sh. Mais em Solução de problemas (ver página 07).
+Mais em Solução de problemas (ver página 07).
 
 
-12. PROBLEMAS COMUNS
+14. PROBLEMAS COMUNS
 --------------------
 
 
@@ -386,12 +543,47 @@ O nome termina em .local, tem _, ou a última parte não começa por letra. Use 
 
 "Nenhum nome foi informado"
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
-O playbook rodou sem terminal e não havia nome no servidor.yml. Passe -e pabx_hostname=voz.cliente.com.br.
+O playbook rodou sem terminal e não havia nome no /etc/telium-servidor.yml. Passe -e pabx_hostname=voz.cliente.com.br.
+
+
+"UNREACHABLE" logo no começo
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+O Ansible não entrou no servidor por SSH. Confira, da sua máquina, ssh root@200.170.198.176: o SSH dos servidores da Telium costuma aceitar só as redes da Telium (entre pela VPN), e o Debian, de fábrica, não deixa o root entrar por senha. Com senha, falta o sshpass na sua máquina? A mensagem termina em "you must install the sshpass program".
+
+
+"Este clone tem servidor.yml (ou vault.yml) em group_vars/all/"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+O seu clone tem os ajustes de uma central, do jeito de antes, e o playbook está indo pela rede para outra: eles valeriam para ela também. Renomeie e rode de novo:
+
+    cd ~/TeliumPABX/infra/ansible/group_vars/all
+    mv servidor.yml servidor.yml.antigo      # e/ou vault.yml vault.yml.antigo
+
+Os ajustes de cada central ficam no servidor dela, em /etc/telium-servidor.yml.
+
+
+"A central está na versão X e este clone tem a Y"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+O seu clone está atrasado em relação à central. Rode git pull no clone e o playbook de novo. Voltar de versão de propósito: -e permitir_versao_antiga=true (veja Atualização (ver página 02)).
+
+
+"... ainda não tem o Telium PABX" (ou "As perguntas da instalação valem para um servidor só")
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Há mais de um servidor no -i e algum ainda não tem a central. Várias de uma vez é só para atualizar: instale uma central nova por vez (-i "IP,").
+
+
+"... usa {{ ... }} ou {% ..." no arquivo de ajustes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Uma linha do /etc/telium-servidor.yml usa modelo do Ansible. Escreva o valor por extenso (ex.: turn_dominio: "200.170.198.176") e rode de novo.
+
+
+"Esta central tem mais de um clone com servidor.yml"
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Na primeira execução da 1.7.0, o servidor tem mais de um clone com ajustes antigos (ex.: /opt/TeliumPABX e /opt/telium-src). Diga qual vale: -e servidor_yml_antigo=<caminho>. Nada foi mudado.
 
 
 O playbook parou na bateria de testes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Não entregue a central. Copie a saída, rode sudo ansible-playbook verificar.yml e veja Solução de problemas (ver página 07).
+Não entregue a central. Copie a saída, rode o verificar.yml (seção 13) e veja Solução de problemas (ver página 07).
 
 
 A chamada completa e ninguém ouve
@@ -402,6 +594,11 @@ Quase sempre é a faixa UDP 10000–20000 não chegando ao servidor (firewall da
 O tronco não registra
 ~~~~~~~~~~~~~~~~~~~~~
 Servidor atrás de NAT sem endereço público configurado: o convite SIP sai com o IP interno. Preencha o Endereço público em Conectividade › Configurações de Rede e Aplique configurações.
+
+
+Um telefone ou a operadora de fora do Brasil não registra
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Com o SIP só para redes conhecidas ligado, quem não está na lista nem chega ao Asterisk. Ponha o IP em Conectividade › Firewall › Nunca bloquear (vale em segundos). Se for a chamada de entrada que não chega, a operadora pode estar mandando de um IP diferente do host do tronco (SBC, nuvem como AWS ou Google, mesmo no Brasil): ponha esse IP também. Veja Segurança (ver página 08).
 
 
 Entra pelo IP, mas não pelo nome

@@ -1,0 +1,17 @@
+---
+# SIP só para redes conhecidas (sip_restringir_redes, no main.yml).
+# A lista fixa existe só com o recurso ligado: sem ela, o telium-firewall-sip
+# apaga a sua tabela.
+sip_lista_fixa: /etc/telium-sip-redes.conf
+sip_lista_auto: /var/lib/telium-firewall-sip/vistos.conf
+
+# As portas de voz: as mesmas que o ufw abre logo abaixo.
+sip_portas_udp: >-
+  {{ [sip_porta | string,
+      ast_rtp_inicio ~ '-' ~ ast_rtp_fim,
+      udptl_inicio | default(4000) ~ '-' ~ udptl_fim | default(4999)]
+     + ([turn_porta | string, turn_rtp_inicio ~ '-' ~ turn_rtp_fim] if instalar_turn | default(true) | bool else [])
+     + ([janus_rtp_inicio ~ '-' ~ janus_rtp_fim] if instalar_janus | default(false) | bool else []) }}
+sip_portas_tcp: >-
+  {{ [sip_porta | string, sip_tls_porta | string]
+     + ([turn_porta | string, turn_porta_tls | string] if instalar_turn | default(true) | bool else []) }}

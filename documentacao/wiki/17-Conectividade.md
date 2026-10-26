@@ -528,7 +528,7 @@ Quem está tentando entrar na central. Uma varredura de senha aparece aqui dias 
 | Origens com falha de autenticação SIP | IP, tentativas (acima de 20 em destaque) e a última |
 | Falhas de entrada no console (7 dias) | Tentativas de login no console por IP |
 | Bloqueados agora pelo firewall | IPs banidos e a cadeia, com **Desbloquear** e **Nunca bloquear** |
-| Nunca bloquear | Lista de endereços que o firewall não bane |
+| Nunca bloquear | Lista de endereços que o firewall não bane (e que passam pelo SIP só para redes conhecidas, se ligado) |
 | O que a central bloqueou | Eventos de segurança do Asterisk: quando, evento, conta tentada, origem |
 | Restrição de rede dos ramais | O que o Asterisk tem carregado |
 
@@ -551,6 +551,7 @@ Quem está tentando entrar na central. Uma varredura de senha aparece aqui dias 
 - Faixas maiores que `/8` (IPv4) são recusadas, assim como endereço repetido.
 - As ações valem **na hora**, sem aplicar configurações. Se o fail2ban não responder, a tela avisa que a lista vale a partir da próxima execução do instalador.
 - Use **Nunca bloquear** só para endereços seus (escritório, monitoramento, syslog): um endereço da lista pode tentar senha à vontade.
+- Com o **SIP só para redes conhecidas** ligado (perguntado na instalação), o SIP e o áudio só respondem ao Brasil, à Telium, às redes internas, aos troncos e aos telefones já registrados. A lista **Nunca bloquear** também **abre o SIP** para quem está nela, em segundos: é por ela que entra o ramal ou a operadora de fora do Brasil, e o IP de onde a operadora manda as chamadas quando não é o host do tronco (SBC, nuvem). Tirar da lista fecha de novo (a não ser que o IP seja de um tronco ou já tenha registrado um telefone). Veja [Segurança](08-Seguranca.md#sip-só-para-redes-conhecidas).
 - Se aparecer o aviso de que o console não consegue ler o arquivo de segurança, o registro de segurança do Asterisk precisa estar ligado no `logger.conf`.
 
 Mais sobre portas e endurecimento em [Requisitos de Rede e Portas](03-Requisitos-Rede-e-Portas.md) e [Segurança](08-Seguranca.md).
@@ -684,7 +685,7 @@ Onde a central escuta e por onde a voz trafega.
 
 - O STUN do botão **Descobrir** é um servidor **de fora** (por padrão, do Google e da Cloudflare), usado só quando alguém clica.
 - O STUN e o TURN do **softphone do navegador** são outros, definidos na instalação. Veja a [seção 10](#10-webrtc--softphone).
-- O **endereço público** desta tela também chega ao TURN da central (coturn, `external-ip`): vale o `nat_ip_publico` do `servidor.yml`; sem ele, o endereço gravado aqui. Isso é aplicado pelo playbook: depois de mudar o endereço, rode a atualização (ou o playbook) para o TURN passar a usá-lo.
+- O **endereço público** desta tela também chega ao TURN da central (coturn, `external-ip`): vale o `nat_ip_publico` do `/etc/telium-servidor.yml` (perguntado na instalação); sem ele, o endereço gravado aqui. Isso é aplicado pelo playbook: depois de mudar o endereço, rode a atualização (ou o playbook) para o TURN passar a usá-lo.
 
 > 📷 **Print:** cartão **Central atrás de NAT** preenchido.
 

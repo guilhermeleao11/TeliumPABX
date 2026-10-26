@@ -151,3 +151,102 @@
   register: f2b_confiaveis
   changed_when: false
   failed_when: false
+
+# ------------------------------------------------------------------
+# SIP, áudio e TURN só para redes conhecidas (sip_restringir_redes).
+#
+# Numa tabela própria do nftables, que só descarta: quem está na lista
+# segue para o ufw como sempre. Por ser à parte, vale também nos
+# servidores que têm um iptables antigo (rules.v4) na frente do ufw.
+# Desligado, a tabela some e as portas ficam como o ufw deixa.
+# ------------------------------------------------------------------
+- name: Instalar o nftables (só o comando; o serviço dele fica parado)
+  ansible.builtin.apt:
+    name: nftables
+    state: present
+
+- name: Instalar o telium-firewall-sip
+  ansible.builtin.template:
+    src: telium-firewall-sip.j2
+    dest: /usr/local/sbin/telium-firewall-sip
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Lista fixa das redes liberadas
+  ansible.builtin.copy:
+    dest: "{{ sip_lista_fixa }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Gerado pelo Ansible — Telium PABX. Não edite à mão: mude
+      # sip_redes_liberadas / sip_redes_extras e rode o playbook.
+      {% for rede in (sip_redes_liberadas + (sip_redes_extras.split() if sip_redes_extras is string else sip_redes_extras | default([]))) | unique %}
+      {{ rede }}
+      {% endfor %}
+  when: sip_restringir_redes | default(false) | bool
+
+- name: Tirar a lista fixa (recurso desligado)
+  ansible.builtin.file:
+    path: "{{ sip_lista_fixa }}"
+    state: absent
+  when: not (sip_restringir_redes | default(false) | bool)
+
+# A cada 5 minutos: tronco novo e "Nunca bloquear" entram sem ninguém
+# rodar nada. O "Nunca bloquear" também reaplica na hora, pelo console.
+- name: Serviço e timer do telium-firewall-sip
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/telium-firewall-sip.{{ item.tipo }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ item.conteudo }}"
+  loop:
+    - tipo: service
+      conteudo: |
+        # Gerado pelo Ansible — Telium PABX.
+        [Unit]
+        Description=Telium PABX: SIP, áudio e TURN só para redes conhecidas
+        After=network-online.target mariadb.service asterisk.service ufw.service
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/telium-firewall-sip aplicar
+    - tipo: timer
+      conteudo: |
+        # Gerado pelo Ansible — Telium PABX.
+        [Unit]
+        Description=Telium PABX: reaplicar as redes liberadas do SIP
+
+        [Timer]
+        OnBootSec=30s
+        OnUnitActiveSec=5min
+
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "telium-firewall-sip.{{ item.tipo }}"
+  register: firewall_sip_units
+
+- name: Ligar ou desligar o timer do telium-firewall-sip
+  ansible.builtin.systemd:
+    name: telium-firewall-sip.timer
+    state: "{{ 'started' if sip_restringir_redes | default(false) | bool else 'stopped' }}"
+    enabled: "{{ sip_restringir_redes | default(false) | bool }}"
+    daemon_reload: "{{ firewall_sip_units is changed }}"
+
+# Sem conseguir (banco fora do ar, rede recusada pelo nftables), a tabela
+# fica como estava e o timer tenta de novo: avisa, sem parar a atualização.
+- name: Aplicar as redes liberadas do SIP
+  ansible.builtin.command: /usr/local/sbin/telium-firewall-sip aplicar
+  register: firewall_sip
+  changed_when: false
+  failed_when: false
+
+- name: Estado do SIP por rede
+  ansible.builtin.debug:
+    msg: >-
+      SIP só para redes conhecidas: {{ firewall_sip.stdout | default('') | trim }}
+      {{ ('— ATENÇÃO, não aplicou agora (o timer tenta de novo em 5 minutos): ' ~ (firewall_sip.stderr | default('') | trim))
+         if firewall_sip.rc | default(0) != 0 else '' }}

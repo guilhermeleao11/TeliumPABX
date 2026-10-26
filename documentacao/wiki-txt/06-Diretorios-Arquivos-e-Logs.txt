@@ -27,7 +27,8 @@ SUMÁRIO
 1. RESUMO
 ---------
 
-- Clone do Git (de onde o playbook roda): /opt/TeliumPABX
+- Clone do Git (de onde o playbook roda): Na máquina do técnico (ex.: ~/TeliumPABX); numa central instalada de dentro, também /opt/TeliumPABX
+- Ajustes desta central (nome, NAT, SIP, Asternic, syslog…): /etc/telium-servidor.yml
 - Código publicado: API, console, scripts SQL: /opt/telium
 - Senhas de serviço, cofre de certificados: /etc/telium
 - Configuração do Asterisk: /etc/asterisk (gerada pelo console: /etc/asterisk/telium)
@@ -47,21 +48,27 @@ SUMÁRIO
 São duas coisas diferentes:
 
 - O que é — /opt/TeliumPABX: O clone do Git; /opt/telium: A instalação em uso
-- Quem atualiza — /opt/TeliumPABX: git pull; /opt/telium: O playbook do Ansible, copiando do clone
+- Onde existe — /opt/TeliumPABX: Só numa central instalada de dentro. Instalando de fora, o clone fica na máquina do técnico; /opt/telium: Em toda central
+- Quem atualiza — /opt/TeliumPABX: git pull; /opt/telium: O playbook do Ansible, copiando do clone de quem roda (o do servidor ou o da máquina do técnico)
 - Dono — /opt/TeliumPABX: root; /opt/telium: teliumpbx
 - Usado pela central em funcionamento? — /opt/TeliumPABX: Não; /opt/telium: Sim
 
 NOTA: Clone ≠ instalação. O git pull só atualiza o clone. É o playbook que copia o código novo para /opt/telium. Veja Atualização (ver página 02).
+
+NOTA: Numa central instalada de dentro e depois atualizada de fora, o /opt/TeliumPABX fica parado na versão antiga: quem manda é a versão em /opt/telium (a do console). Para voltar a atualizar de dentro, faça o git pull nele antes.
 
 
 O que importa no clone
 ~~~~~~~~~~~~~~~~~~~~~~
 
 - infra/ansible/site.yml: O playbook de instalação e atualização
+- infra/ansible/TeliumPBX_instalacao.yml: O mesmo playbook, com o nome usado de fora (-i "IP,"): só importa o site.yml
+- infra/ansible/tarefas/: As perguntas da instalação e a leitura dos ajustes do servidor
 - infra/ansible/verificar.yml: O playbook de verificação
 - infra/ansible/group_vars/all/main.yml: Variáveis de fábrica (não edite: o git pull recusa)
-- infra/ansible/group_vars/all/servidor.yml: Variáveis deste servidor (nome da central etc.). Fora do Git; criado pela instalação
-- infra/ansible/group_vars/all/vault.yml: Senhas fixas, só se alguém gerou com gerar-vault.sh. Fora do Git
+- infra/ansible/group_vars/all/servidor.yml.exemplo: Modelo do /etc/telium-servidor.yml, criado a partir dele na primeira execução
+- infra/ansible/group_vars/all/servidor.yml.migrado: Numa central de até a 1.6.1, no clone dela (/opt/TeliumPABX ou /opt/telium-src): os ajustes de antes, já levados para /etc/telium-servidor.yml. Não vale mais; não edite
+- infra/ansible/group_vars/all/vault.yml: Senhas fixas, só se alguém gerou com gerar-vault.sh. Fora do Git. Só vale rodando de dentro: de fora, o playbook para se o clone tiver um
 - infra/sql/: Scripts do banco (origem dos publicados)
 - infra/diagnostico.sh, infra/diagnostico-ami.sh: Scripts de diagnóstico
 
@@ -85,16 +92,26 @@ NOTA: Não edite nada em /opt/telium: a próxima atualização sobrescreve. O .e
 3. /ETC/TELIUM
 --------------
 
-- /etc/telium/credenciais/ — Conteúdo: Senhas de serviço geradas na instalação, uma por arquivo: db_senha, db_cdr_senha, ami_senha, ari_senha, turn_segredo; Dono / modo: root, pasta 0700
+- /etc/telium/credenciais/ — Conteúdo: Senhas de serviço geradas no próprio servidor pelo playbook, uma por arquivo: db_senha, db_cdr_senha, ami_senha, ari_senha, turn_segredo (e as do Asternic, se instalado); Dono / modo: root, pasta 0700
 - /etc/telium/certificados/ — Conteúdo: Cofre dos certificados enviados pelo console; Dono / modo: teliumpbx, 0700
 - /etc/telium/msmtprc — Conteúdo: Configuração de e-mail usada pela API (gerada pelo telium-smtp); Dono / modo: teliumpbx, 0600
 - /etc/telium/instalacao.txt — Conteúdo: Resumo da instalação; Dono / modo: root, 0600
 - /etc/telium/credenciais/senha_admin_console — Conteúdo: A senha inicial do admin do console e do Asternic, digitada na instalação (não fica no Git); Dono / modo: root, 0600
-- /etc/telium/.senha-admin-inicial — Conteúdo: Marca de que a senha inicial já foi definida (o playbook não volta a mexer nela)
+- /etc/telium/.senha-admin-inicial — Conteúdo: Marca de que a senha inicial já foi definida (o playbook não volta a mexer nela). Ela, ou o código publicado em /opt/telium/api, faz o playbook tratar o servidor como central já instalada (menu da atualização, sem as perguntas de central nova)
 
 - As senhas de serviço nunca aparecem na tela nem vão para o Git.
-- Se existir vault.yml no clone, as senhas dele têm precedência sobre as de credenciais/.
+- Se existir vault.yml no clone (rodando de dentro), as senhas dele têm precedência sobre as de credenciais/.
 - O playbook reaproveita os arquivos de credenciais/ que já existem. Apagá-los gera senhas novas na próxima execução.
+
+
+Os ajustes da central: /etc/telium-servidor.yml
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- /etc/telium-servidor.yml — Conteúdo: Os ajustes desta central: nome (pabx_hostname), cliente, IP público, TURN, Janus, Asternic, SIP só para redes conhecidas, syslog e o que mais for próprio dela. Criado pela instalação a partir do servidor.yml.exemplo, com as respostas das perguntas; Dono / modo: root, 0600
+
+- Pode editar (uma linha nome: valor por variável, com o valor por extenso: {{ }} e {% %} do Ansible não valem aqui) e rodar o playbook de novo para valer. O que está nele ganha do main.yml; o que vier por -e ganha dele.
+- Fica fora de /etc/telium de propósito: aquela pasta é do usuário da API, e o arquivo é lido pelo Ansible como root.
+- A limpeza do banco e o cenário de teste nunca são gravados nele.
 
 
 4. /ETC/ASTERISK
@@ -237,6 +254,7 @@ Detalhes em Backup e Restauração (ver página 04).
 - /var/log/mysql/error.log, slow.log — Conteúdo: Erros e consultas lentas (acima de 2 s) do MariaDB; Rotação: —
 - journal do systemd — Conteúdo: telium-cc (inclusive os erros de webhook), telium-backup (inclusive a limpeza das gravações e os alertas por e-mail), telium-certificados, telium-despertador, telium-tarifar, coturn; Rotação: journalctl -u <serviço>
 - syslog, marca telium-fax — Conteúdo: Envio do fax por e-mail: enviado, falha ou fax que não chegou; Rotação: journalctl -t telium-fax
+- syslog, marca telium-firewall-sip — Conteúdo: SIP só para redes conhecidas: banco indisponível (nada mudou), redes ignoradas na lista fixa, regra recusada pelo nftables; Rotação: journalctl -t telium-firewall-sip
 
 - A rotação dos logs do Asterisk e da Telium está em /etc/logrotate.d/asterisk. Os logs do Asterisk são recriados como asterisk e o Asterisk é avisado (logger reload); se não fossem, o log pararia e o fail2ban junto.
 - O queue_log das filas não é arquivo: vai para a tabela queue_log do banco.
@@ -254,6 +272,10 @@ Detalhes em Backup e Restauração (ver página 04).
 - /etc/turnserver.conf, /etc/default/coturn: coturn
 - /etc/fail2ban/jail.d/telium.conf, /etc/fail2ban/filter.d/telium-console.conf: Jails e filtro do console
 - /etc/fail2ban/jail.d/telium-confiaveis.local: Lista "Nunca bloquear" do console (gerado; não edite)
+- /etc/telium-sip-redes.conf: SIP só para redes conhecidas: a lista fixa (sip_redes_liberadas + sip_redes_extras). Gerado pelo playbook; não edite. Sem ele, o recurso está desligado
+- /var/lib/telium-firewall-sip/vistos.conf: Troncos e telefones já vistos pelo telium-firewall-sip. Continuam liberados mesmo desconectados; nunca saem sozinhos (para tirar um, apague a linha e rode sudo telium-firewall-sip aplicar)
+- /usr/local/sbin/telium-firewall-sip: Monta (aplicar), apaga (desligar) ou mostra (mostrar) a tabela inet telium_sip do nftables
+- /etc/systemd/system/telium-firewall-sip.service e .timer: Reaplicam a lista a cada 5 minutos (ligados só com sip_restringir_redes)
 - /etc/systemd/system/asterisk.service, telium-cc.service, telium-*.service e .timer: Serviços e temporizadores (Comandos e serviços (ver página 05))
 - /usr/local/sbin/telium-*: Scripts executores (backup, certificados, smtp, fail2ban, despertador) e o telium-fax-email, que o Asterisk chama para mandar o fax recebido por e-mail
 - /var/lib/telium/despertador/: Estado das novas tentativas do despertador: um arquivo por despertar em curso (ramal, anúncio, tentativas restantes, próxima tentativa). Some quando a pessoa atende ou as tentativas acabam. Dono root
