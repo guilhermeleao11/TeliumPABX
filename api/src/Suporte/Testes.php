@@ -1408,19 +1408,28 @@ final class Testes
         }
 
         // A trava de rede é o que impede a senha SIP de sair pela
-        // internet para quem adivinhar um MAC.
+        // internet para quem adivinhar um MAC. As faixas vão escritas aqui:
+        // as "redes locais" de cada central vêm do console, e numa central
+        // sem a 10.0.0.0/8 na lista o teste falhava sem defeito nenhum.
+        $faixas = ['192.168.0.0/16', '10.0.0.0/8'];
         foreach ([
             ['192.168.1.50', true],
             ['10.20.30.40',  true],
-            ['127.0.0.1',    true],
             ['8.8.8.8',      false],
             ['200.170.198.144', false],
-            ['',             false],
         ] as [$ip, $interno]) {
-            $this->ok(
-                Provisionamento::daRedeLocal($ip) === $interno,
-                sprintf('%s %s da rede interna', $ip === '' ? '(vazio)' : $ip, $interno ? 'é' : 'não é')
-            );
+            $dentro = array_filter($faixas, static fn (string $f): bool => Provisionamento::dentroDaFaixa($ip, $f)) !== [];
+            $this->ok($dentro === $interno, sprintf('%s %s da rede interna', $ip, $interno ? 'é' : 'não é'));
+        }
+        $this->ok(Provisionamento::daRedeLocal('127.0.0.1'), 'a própria máquina é sempre da rede interna');
+        $this->ok(!Provisionamento::daRedeLocal(''), '(vazio) não é da rede interna');
+        // O que a central tem configurado vale de verdade.
+        foreach (\Telium\Dominio\Rede::redesLocais() as $f) {
+            $base = explode('/', $f)[0];
+            if (filter_var($base, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                $this->ok(Provisionamento::daRedeLocal($base), "{$base} (das redes locais desta central) é da rede interna");
+                break;
+            }
         }
 
         // O arquivo precisa sair com a senha certa e sem quebra de linha

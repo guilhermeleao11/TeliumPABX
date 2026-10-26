@@ -17,6 +17,7 @@ Feriados: cada um com o seu áudio.
 - **Caixa postal: # ia para a transferência** em vez de encerrar o recado. Quem ligava de fora recebia a opção de transferir (`T` do Dial) e, quando a caixa postal atendia atravessando uma ponte (siga-me, desvio feito no próprio aparelho), o `##` da transferência cega era capturado. Agora só quem liga de um ramal pode transferir, e o ramal que atende continua podendo.
 - **Siga-me**: a caixa postal do ramal de destino não atende mais dentro da perna do siga-me. No modo "junto", com o outro ramal desligado ou ocupado, ela atendia na hora e tirava a chamada do ramal que ainda tocava. O recado agora fica sempre na caixa do ramal dono do siga-me.
 - **Testes**: o teste "o PIN não fica em claro no banco" falhava 1 vez em mil, quando o hash aleatório continha os dígitos do PIN.
+- **Testes**: o teste da rede interna do provisionamento supunha as redes locais de fábrica e parava a atualização numa central com outra lista em **Redes locais** ("10.20.30.40 é da rede interna").
 
 ## 1.5.3 — 2026-10-21
 Commits:
