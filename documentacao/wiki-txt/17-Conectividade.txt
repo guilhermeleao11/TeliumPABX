@@ -221,7 +221,7 @@ Regras e validações
 ~~~~~~~~~~~~~~~~~~~
 
 - Número do ramal único, só dígitos, de 2 a 10.
-- Senha SIP com pelo menos 12 caracteres. Ramal com senha muito curta (menos de 8) não é publicado na central: ele simplesmente não registra.
+- Senha SIP com pelo menos 12 caracteres. Ramal sem senha não é publicado na central: ele simplesmente não registra. Só a migração do SNEP traz senha mais curta que 12 (a mesma do SNEP, para o telefone não ser reconfigurado); troque-a por uma forte quando puder.
 - Senha do correio e PIN: só dígitos.
 - Ao excluir, o ramal perde o acesso assim que a configuração for aplicada. O histórico de chamadas é preservado.
 

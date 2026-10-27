@@ -2,8 +2,16 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.7.0 — 2026-10-26
+## 1.7.1 — 2026-10-27
 Commits:
+Migração do SNEP mantém a senha SIP curta.
+
+### Mudanças
+- **Migração do SNEP**: o ramal fica com a mesma senha SIP do SNEP mesmo com menos de 12 caracteres, e o telefone registra sem reconfigurar. A prévia mostra um aviso nesses ramais ("troque por uma forte quando puder"). Só o ramal sem senha no SNEP (ou com quebra de linha nela) ganha uma nova, que vem na lista de senhas novas.
+- O ramal com senha curta é publicado no `pjsip.conf`; antes, abaixo de 8 caracteres ficava de fora. Fica de fora só o ramal sem senha. O cadastro continua exigindo 12 caracteres para senha digitada.
+
+## 1.7.0 — 2026-10-26
+Commits: 1089437
 Instalação e atualização de fora da central, com perguntas; SIP só para redes conhecidas.
 
 ### Novidades

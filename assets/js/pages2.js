@@ -8140,7 +8140,7 @@ PAGES['telium.migracao'] = {
           `<span class="badge ${tom[k]}">${num(s[k])} ${rotulo[k]}</span>`).join('')}
       </div>
       ${r.senhas.length ? `<div class="aviso-form atencao" style="margin:0 0 10px">${icon('key','ico')}
-        <div class="small"><b>Senhas SIP novas</b> para os ramais que tinham senha curta no SNEP. Guarde agora e
+        <div class="small"><b>Senhas SIP novas</b> para os ramais que não tinham senha no SNEP. Guarde agora e
           reconfigure esses telefones. <div style="margin-top:6px"><button class="btn btn-ghost btn-sm" data-snep-senhas>
           ${icon('download','ico ico-sm')} Baixar ramais e senhas</button></div></div></div>` : ''}
       ${doPacote.length ? `<p class="small" style="margin:0 0 10px">${icon('mic','ico ico-sm')}

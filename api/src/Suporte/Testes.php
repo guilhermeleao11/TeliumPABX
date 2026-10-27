@@ -3098,6 +3098,9 @@ final class Testes
         $this->ok($m('pinDoSnep', '1234') === ['1234', null] && $m('pinDoSnep', '12')[0] === '0012'
                   && $m('pinDoSnep', '')[0] === null && $m('pinDoSnep', '123456789')[0] === null,
                   'senha do agente do SNEP vira PIN de 4 a 8 dígitos');
+        $this->ok($m('senhaDoSnep', '1234') === '1234' && $m('senhaDoSnep', 'Abc123') === 'Abc123'
+                  && $m('senhaDoSnep', '') === null && $m('senhaDoSnep', "12\n34") === null,
+                  'senha SIP do SNEP: a curta vem igual (sem reconfigurar o telefone); a vazia e a com quebra de linha não');
         $this->ok($m('origemExterna', 'T:1,T:3') && $m('origemExterna', 'X') && $m('origemExterna', 'G:all,T:1')
                   && !$m('origemExterna', 'G:all') && !$m('origemExterna', 'R:3602'),
                   'origem da regra: tronco ou qualquer um é de fora; grupo e ramal são internos');

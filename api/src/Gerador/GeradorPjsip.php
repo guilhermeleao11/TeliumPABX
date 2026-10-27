@@ -48,8 +48,10 @@ final class GeradorPjsip
         foreach (Bd::todos('SELECT * FROM ramais WHERE ativo = 1 ORDER BY numero') as $r) {
             // Ramal sem senha não vai para a central: "password =" em branco
             // deixaria qualquer um registrar com o número dele e ligar pela
-            // conta da empresa.
-            if (strlen((string) ($r['senha_sip'] ?? '')) < 8) {
+            // conta da empresa. A curta vai: o cadastro já exige 12, e só a
+            // migração do SNEP traz uma menor, para o telefone não precisar
+            // ser reconfigurado.
+            if ((string) ($r['senha_sip'] ?? '') === '') {
                 $b->comentario("Ramal {$r['numero']} fora: sem senha SIP (defina uma no cadastro)")->branco();
                 continue;
             }

@@ -573,7 +573,7 @@ Passo a passo
 3. Envie o pacote na tela (até 64 MB). Ela mostra quantos ramais, troncos, filas, agentes, regras e áudios achou e já roda a prévia.
 4. Confira a prévia, grupo por grupo. Cada item diz se vai ser criado, se já existe, se não migra (e por quê) ou se tem aviso.
 5. Importar. Depois, aplique as configurações para o Asterisk assumir.
-6. Senhas novas: ramal com senha curta no SNEP ganha uma nova. Baixe a lista pelo botão do resultado e reconfigure esses telefones. Os demais mantêm a senha do SNEP e registram sem mexer no aparelho.
+6. Senhas: todo ramal mantém a senha do SNEP e registra sem mexer no aparelho, mesmo com senha de menos de 12 caracteres (a prévia avisa quais são curtas: troque por uma forte quando puder). Só o ramal sem senha no SNEP ganha uma nova: baixe a lista pelo botão do resultado e reconfigure esses telefones.
 
 Também dá para enviar só o dump do banco (.sql, .sql.gz ou .sql.bz2), sem áudios. Aí envie antes, em Gravações do Sistema, os áudios com o mesmo nome do arquivo do SNEP; a migração liga os que achar, e lista os que faltam.
 

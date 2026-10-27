@@ -228,6 +228,10 @@ implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.7.1 — migração do SNEP mantém a senha curta
+- O ramal migrado do SNEP fica com a **mesma senha SIP**, mesmo com menos de 12 caracteres: o telefone registra sem reconfigurar. A prévia avisa quais são curtas, para trocar depois. Só o ramal **sem senha** no SNEP ganha uma nova (vem na lista de senhas novas).
+- Ramal com senha curta agora é publicado na central (antes, abaixo de 8 caracteres ficava de fora). O cadastro continua exigindo 12 para senha digitada.
+
 ### 1.7.0 — instalar e atualizar de fora; SIP só para redes conhecidas
 - **Instalar e atualizar da sua máquina**, pela rede: `ansible-playbook -i "200.170.198.176," TeliumPBX_instalacao.yml -u root -k` (em `infra/ansible`, com o clone em dia). De dentro do servidor continua igual. Várias centrais já instaladas de uma vez: `-i "IP1,IP2,"`.
 - **A instalação pergunta** o que é do cliente (nome, cliente, NAT, IP do áudio sem DNS, Janus, Asternic, SIP só para redes conhecidas, syslog, cliente ou laboratório) e confirma antes de instalar. **A atualização mostra um menu**: 1 atualizar (Enter), 2 limpar o banco (pede o nome da central), 3 cancelar.

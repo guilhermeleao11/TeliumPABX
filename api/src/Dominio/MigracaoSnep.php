@@ -267,14 +267,16 @@ final class MigracaoSnep
                 continue;
             }
 
-            // A senha do SNEP vem junto: o telefone volta a registrar sem
-            // ninguém mexer nele. Só a curta é trocada — é a porta da
-            // fraude de tarifação, e o cadastro não a aceita.
-            $senha = (string) ($p['secret'] ?? '');
-            $gerada = strlen($senha) < 12;
-            if ($gerada) {
-                $senha = self::senhaForte();
-            }
+            // A senha do SNEP vem junto, mesmo curta: o telefone volta a
+            // registrar sem ninguém mexer nele. Só a vazia (ou com quebra de
+            // linha, que iria crua para o pjsip.conf) ganha uma nova.
+            $senhaSnep = self::senhaDoSnep((string) ($p['secret'] ?? ''));
+            $gerada = $senhaSnep === null;
+            $senha = $senhaSnep ?? self::senhaForte();
+            // O cadastro só aceita 12 caracteres ou mais (é o que vale para
+            // senha digitada). A curta entra com uma provisória e é gravada
+            // logo depois, direto no banco.
+            $curta = !$gerada && strlen($senha) < 12;
 
             // Os grupos do SNEP: o primeiro (fora o "Default") vira o setor;
             // o que uma regra de saída usa vira o grupo de saída.
@@ -298,7 +300,7 @@ final class MigracaoSnep
                 'nome' => $nome,
                 'setor' => $setor,
                 'grupo_saida' => $grupoSaida ?: null,
-                'senha_sip' => $senha,
+                'senha_sip' => $curta ? self::senhaForte() : $senha,
                 'email' => filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : null,
                 'callgroup' => trim((string) ($p['callgroup'] ?? '')) ?: null,
                 'pickupgroup' => trim((string) ($p['pickupgroup'] ?? '')) ?: null,
@@ -313,11 +315,15 @@ final class MigracaoSnep
                 $this->linha('Ramais', $item, 'erro', $r['erro']);
                 continue;
             }
+            if ($curta) {
+                Bd::executar('UPDATE ramais SET senha_sip = ? WHERE id = ?', [$senha, $r['id']]);
+                $avisosRamal[] = 'a senha do SNEP tem só ' . strlen($senha) . ' caracteres: troque por uma forte quando puder';
+            }
             if ($gerada) {
                 $this->senhas[] = ['ramal' => $numero, 'senha' => $senha];
             }
             $this->linha('Ramais', $item, $avisosRamal === [] ? 'criar' : 'aviso', ($gerada
-                ? 'Senha SIP nova (a do SNEP tinha menos de 12 caracteres): reconfigure o telefone.'
+                ? 'Senha SIP nova (o ramal não tinha senha no SNEP): reconfigure o telefone.'
                 : 'Mesma senha SIP do SNEP: o telefone registra sem reconfigurar.')
                 . ($setor !== null ? " Setor {$setor}." : '')
                 . ($grupoSaida ? " Grupos de saída {$grupoSaida}." : '')
@@ -1819,6 +1825,20 @@ final class MigracaoSnep
             (bool) preg_match('/servi|0800|especia|[uú]teis/', $n) => 'especial',
             default => 'local',
         };
+    }
+
+    /**
+     * A senha SIP do SNEP que pode vir para o Telium, de qualquer tamanho;
+     * null quando o ramal precisa de uma nova: sem senha, ou com caractere
+     * de controle (uma quebra de linha abriria outra linha no pjsip.conf).
+     */
+    private static function senhaDoSnep(string $senha): ?string
+    {
+        if ($senha === '' || strlen($senha) > 120 || preg_match('/[\x00-\x1f\x7f]/', $senha) === 1) {
+            return null;
+        }
+
+        return $senha;
     }
 
     private static function senhaForte(): string
