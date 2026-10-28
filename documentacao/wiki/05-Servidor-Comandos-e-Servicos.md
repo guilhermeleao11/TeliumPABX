@@ -253,7 +253,7 @@ O Asterisk depende do MariaDB de forma fraca (`Wants`): reiniciar o MariaDB não
 
 Na **instalação nova** (pergunta "Monitorar? [S/n]", `instalar_zabbix`), o playbook instala o `zabbix-agent2` do Debian e configura o que está abaixo. **A atualização não mexe em nada disso.** Numa central já instalada, configure pedindo: `-e zabbix_configurar=true`.
 
-As senhas do AMI e do banco são as do Zabbix da Telium, as mesmas em todas as centrais. Elas ficam fora do Git, em `infra/ansible/zabbix-senhas.yml`, na máquina de onde se roda o playbook (copie de `zabbix-senhas.yml.exemplo`). Sem esse arquivo, a instalação para no começo e avisa (ou instale sem monitoria: `-e instalar_zabbix=false`).
+As senhas do AMI e do banco são as do Zabbix da Telium, as mesmas em todas as centrais. Elas ficam em `infra/ansible/zabbix-senhas.yml`, que vai no repositório (privado): quem clona já recebe e a instalação não pede nada. Para instalar sem monitoria: `-e instalar_zabbix=false`.
 
 
 | O quê | Onde |

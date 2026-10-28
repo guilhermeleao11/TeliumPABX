@@ -368,9 +368,8 @@ zabbix_servidores:
 zabbix_agente_porta: 10050
 zabbix_scripts_dir: /Telium/zabbix/scripts
 # As senhas (zabbix_ami_senha e zabbix_db_senha) são as do Zabbix da
-# Telium, as mesmas em todas as centrais, e ficam fora do Git: em
-# infra/ansible/zabbix-senhas.yml, na máquina de onde se roda o playbook
-# (modelo: zabbix-senhas.yml.exemplo).
+# Telium, as mesmas em todas as centrais, e vão no repositório (privado),
+# em infra/ansible/zabbix-senhas.yml (modelo: zabbix-senhas.yml.exemplo).
 zabbix_senhas_arquivo: "{{ playbook_dir }}/zabbix-senhas.yml"
 zabbix_ami_usuario: zabbix
 zabbix_db_usuario: zbx_monitor

@@ -396,7 +396,7 @@ O playbook instala o `zabbix-agent2` (pacote do Debian) com os itens do Asterisk
 | Variável | Fábrica | O que faz |
 |---|---|---|
 | `instalar_zabbix` | `true` | Instala e configura o agente **na instalação nova** (perguntado). A atualização não mexe em nada da monitoria; numa central já instalada, só com `-e zabbix_configurar=true` |
-| `zabbix_senhas_arquivo` | `infra/ansible/zabbix-senhas.yml` | As senhas do Zabbix (AMI e banco), fora do Git, na máquina que roda o playbook. Copie de `zabbix-senhas.yml.exemplo` e preencha |
+| `zabbix_senhas_arquivo` | `infra/ansible/zabbix-senhas.yml` | As senhas do Zabbix (AMI e banco). Vai no repositório (privado); a instalação não pede nada |
 | `zabbix_servidores` | 198.18.22.114, 10.16.140.114, 200.155.185.231 | Vão para o `Server=` e o `ServerActive=` do agente; só eles chegam à porta 10050 |
 | `zabbix_scripts_dir` | `/Telium/zabbix/scripts` | Onde fica o `zbx_asterisk_ami.py` |
 | `zabbix_ssh_usuario` | `zabbix_test` | Usuário do teste de SSH (a chave só responde `SSH_OK`) |

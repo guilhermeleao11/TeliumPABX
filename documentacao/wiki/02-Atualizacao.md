@@ -372,7 +372,7 @@ A tela **Telium › Versões e Novidades** mostra a versão e o commit da centra
 
 ### 1.8.0 — monitoria pelo Zabbix
 - O playbook instala o **zabbix-agent2**, com os scripts em `/Telium/zabbix/scripts` e os itens em `/etc/zabbix/zabbix_agent2.d/`: Asterisk, sistema Telium (nome, versão, saúde, certificado, backup), pacotes com atualização, MariaDB e nginx. A porta 10050 abre só para os servidores Zabbix. **Só na instalação nova** (perguntado: "Monitorar? [S/n]"). **A atualização não mexe em nada da monitoria**: central já instalada continua como está; para configurar numa delas, peça: `-e zabbix_configurar=true`. Detalhes em [Servidor](05-Servidor-Comandos-e-Servicos.md#monitoria-pelo-zabbix).
-- As senhas do Zabbix (AMI e banco) são as da Telium, as mesmas em todas as centrais, e ficam fora do Git: em `infra/ansible/zabbix-senhas.yml` na máquina que roda o playbook (modelo: `zabbix-senhas.yml.exemplo`). Sem ele, a instalação para no começo e avisa.
+- As senhas do Zabbix (AMI e banco) são as da Telium, as mesmas em todas as centrais, em `infra/ansible/zabbix-senhas.yml`, que vai no repositório (privado): quem clona já recebe e a instalação não pede nada.
 
 ### 1.7.1 — migração do SNEP mantém a senha curta
 - O ramal migrado do SNEP fica com a **mesma senha SIP**, mesmo com menos de 12 caracteres: o telefone registra sem reconfigurar. A prévia avisa quais são curtas, para trocar depois. Só o ramal **sem senha** no SNEP ganha uma nova (vem na lista de senhas novas).

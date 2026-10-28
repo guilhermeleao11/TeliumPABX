@@ -69,7 +69,7 @@ O papel `seguranca` do Ansible instala o ufw, nega toda entrada por padrão, lib
 
 **Ficam fechadas**, porque escutam só em `127.0.0.1`: AMI (5038), HTTP/WebSocket do Asterisk (8090), MariaDB (3306), o serviço de tempo real do call center (8095) e o status do nginx para o Zabbix (8080).
 
-**Zabbix:** as senhas do usuário `zabbix` do AMI e do `zbx_monitor` do banco são as do Zabbix da Telium e nunca ficam no Git (`infra/ansible/zabbix-senhas.yml`, na máquina que roda o playbook). Na central, o agente as lê de `/etc/zabbix/telium-ami.conf` e do `plugins.d/mysql.conf`, ambos `root:zabbix 0640`. O `zbx_monitor` só lê estatísticas e as colunas de estado do backup, e o banco continua escutando só em 127.0.0.1. O usuário `zabbix_test` entra por SSH só com a chave do servidor Zabbix, e ela só responde `SSH_OK`: sem terminal, sem encaminhar porta e sem rodar outro comando.
+**Zabbix:** as senhas do usuário `zabbix` do AMI e do `zbx_monitor` do banco são as do Zabbix da Telium e ficam no repositório, que é privado (`infra/ansible/zabbix-senhas.yml`). Na central, o agente as lê de `/etc/zabbix/telium-ami.conf` e do `plugins.d/mysql.conf`, ambos `root:zabbix 0640`. O `zbx_monitor` só lê estatísticas e as colunas de estado do backup, e o banco continua escutando só em 127.0.0.1. O usuário `zabbix_test` entra por SSH só com a chave do servidor Zabbix, e ela só responde `SSH_OK`: sem terminal, sem encaminhar porta e sem rodar outro comando.
 
 Conferir no servidor:
 ```bash

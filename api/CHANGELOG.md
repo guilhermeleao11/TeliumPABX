@@ -14,7 +14,7 @@ Monitoria pelo Zabbix instalada junto com a central.
 - **Teste de SSH**: usuário `zabbix_test` com a chave do servidor Zabbix, que só responde `SSH_OK` (e o link em `/etc/ssh/keys` quando o sshd usa essa pasta).
 
 ### Segurança
-- As senhas do usuário `zabbix` do AMI e do `zbx_monitor` do banco são as do Zabbix da Telium e ficam fora do Git: `infra/ansible/zabbix-senhas.yml` na máquina que roda o playbook (modelo `zabbix-senhas.yml.exemplo`); sem ele, a instalação para no começo. O script lê a do AMI de `/etc/zabbix/telium-ami.conf` (`root:zabbix 0640`).
+- As senhas do usuário `zabbix` do AMI e do `zbx_monitor` do banco são as do Zabbix da Telium e ficam em `infra/ansible/zabbix-senhas.yml`, que vai no repositório (privado): quem clona já recebe e a instalação não pede nada. O script lê a do AMI de `/etc/zabbix/telium-ami.conf` (`root:zabbix 0640`).
 - O usuário `zabbix` do AMI vai para o `manager_custom.conf`, que o playbook nunca reescreve; um `[zabbix]` já existente fica como está.
 - O `zbx_monitor` (localhost, 127.0.0.1 e 198.18.22.114) lê só estatísticas e as colunas de estado do backup; a senha do FTP do destino remoto fica de fora. O banco continua escutando só em 127.0.0.1.
 - A porta 10050 do agente é liberada no ufw só para os servidores Zabbix.

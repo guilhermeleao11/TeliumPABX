@@ -7,8 +7,8 @@
 # (stub_status), e o usuário de SSH do teste de acesso.
 #
 # As senhas do AMI e do banco são as do Zabbix da Telium, as mesmas em
-# todas as centrais, lidas de zabbix-senhas.yml (fora do Git), na máquina
-# de onde se roda o playbook.
+# todas as centrais, lidas de infra/ansible/zabbix-senhas.yml, que vai no
+# repositório (privado): a instalação não pede nada.
 # Roda depois do papel seguranca, que instala o ufw.
 
 - name: Procurar o arquivo de senhas do Zabbix
@@ -33,7 +33,7 @@
       - zabbix_db_senha | default('') | length > 0
     fail_msg: >-
       Faltam as senhas do Zabbix. Crie {{ zabbix_senhas_arquivo }} a partir de
-      zabbix-senhas.yml.exemplo (fica fora do Git) e rode de novo. Para instalar sem
+      zabbix-senhas.yml.exemplo e rode de novo. Para instalar sem
       a monitoria: -e instalar_zabbix=false.
     quiet: true
 

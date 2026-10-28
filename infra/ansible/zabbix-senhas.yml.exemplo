@@ -1,10 +1,9 @@
 ---
 # Senhas do Zabbix da Telium, as mesmas em todas as centrais.
 #
-# Copie para zabbix-senhas.yml (nesta mesma pasta) e preencha. Aquele
-# arquivo fica fora do Git (.gitignore): o repositório é público.
-# Precisa existir na máquina de onde se roda o playbook: a estação do
-# técnico, ou o clone dentro da central, para quem atualiza de lá.
+# O zabbix-senhas.yml (nesta mesma pasta) vai no repositório, que é
+# privado: quem clona já recebe as senhas e a instalação não pede nada.
+# Este modelo serve para recriá-lo, se um dia ele for apagado.
 #
 # Rodando sem ele, o playbook para e avisa (ou: -e instalar_zabbix=false).
 

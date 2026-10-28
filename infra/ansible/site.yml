@@ -141,7 +141,7 @@
           {{ (instalar_zabbix | default(false) | bool)
              and (not (central_instalada | bool) or (zabbix_configurar | default(false) | bool)) }}
 
-    # As senhas do Zabbix ficam fora do Git: sem elas o papel zabbix pararia
+    # As senhas do Zabbix vêm de zabbix-senhas.yml: sem elas o papel zabbix pararia
     # no fim, depois de tudo instalado. Melhor avisar agora.
     - name: Procurar o arquivo de senhas do Zabbix
       ansible.builtin.stat:
@@ -159,7 +159,7 @@
           or (zabbix_ami_senha is defined and zabbix_db_senha is defined)
         fail_msg: >-
           Faltam as senhas do Zabbix: crie {{ zabbix_senhas_arquivo }} a partir de
-          zabbix-senhas.yml.exemplo (fica fora do Git) e rode de novo. Nada foi instalado.
+          zabbix-senhas.yml.exemplo e rode de novo. Nada foi instalado.
           Para instalar sem a monitoria: -e instalar_zabbix=false.
         quiet: true
       when: zabbix_vai_configurar | bool
