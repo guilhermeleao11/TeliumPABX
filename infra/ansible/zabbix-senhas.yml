@@ -1,0 +1,14 @@
+---
+# Senhas do Zabbix da Telium, as mesmas em todas as centrais.
+#
+# O zabbix-senhas.yml (nesta mesma pasta) vai no repositório, que é
+# privado: quem clona já recebe as senhas e a instalação não pede nada.
+# Este modelo serve para recriá-lo, se um dia ele for apagado.
+#
+# Rodando sem ele, o playbook para e avisa (ou: -e instalar_zabbix=false).
+
+# Usuário "zabbix" do AMI (o script zbx_asterisk_ami.py)
+zabbix_ami_senha: "LLxQN2zu5AQMALqVMCHDm5EYZVb5uB"
+
+# Usuário "zbx_monitor" do MariaDB (plugin MySQL do zabbix-agent2)
+zabbix_db_senha: "w9LEyYUForYFQmbMt--fhXDXLPcxLjssXeEbeut3Wg_wj"
