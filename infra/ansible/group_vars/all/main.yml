@@ -352,3 +352,37 @@ syslog_central_asterisk: "200.155.185.232"
 syslog_central_auth: "200.155.185.232"
 syslog_central_sistema: "200.201.141.210"
 syslog_central_porta: 514
+
+# ---------- monitoria pelo Zabbix (zabbix-agent2) ----------
+# O agente do pacote do Debian, com os itens do Asterisk (pelo AMI), do
+# MariaDB e do nginx, e um usuário de SSH só para o teste de acesso.
+# Configurada só na instalação nova (perguntada): a atualização não mexe
+# em nada da monitoria. Numa central já instalada: -e zabbix_configurar=true.
+instalar_zabbix: true
+# Quem consulta o agente (Server=) e para onde vão os itens ativos
+# (ServerActive=). Só eles chegam à porta do agente.
+zabbix_servidores:
+  - 198.18.22.114
+  - 10.16.140.114
+  - 200.155.185.231
+zabbix_agente_porta: 10050
+zabbix_scripts_dir: /Telium/zabbix/scripts
+# As senhas (zabbix_ami_senha e zabbix_db_senha) são as do Zabbix da
+# Telium, as mesmas em todas as centrais, e ficam fora do Git: em
+# infra/ansible/zabbix-senhas.yml, na máquina de onde se roda o playbook
+# (modelo: zabbix-senhas.yml.exemplo).
+zabbix_senhas_arquivo: "{{ playbook_dir }}/zabbix-senhas.yml"
+zabbix_ami_usuario: zabbix
+zabbix_db_usuario: zbx_monitor
+# Além de localhost e 127.0.0.1, o usuário do banco existe também para
+# estes endereços (o servidor Zabbix). O banco continua escutando só em
+# 127.0.0.1.
+zabbix_db_hosts_extras:
+  - 198.18.22.114
+# stub_status do nginx, só para o próprio servidor.
+zabbix_nginx_status_porta: 8080
+# O Zabbix entra por SSH e só ouve "SSH_OK": a chave não abre terminal,
+# não encaminha porta nem roda outro comando.
+zabbix_ssh_usuario: zabbix_test
+zabbix_ssh_chave: >-
+  ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC0uhtnrJaCihgdaAYY5OT9LZuZkasFXdhUOj1V94I0cg4MTx0ZjWYaA1lhEzvXhpfVv7/9rtwYYo7Dhd9sq3wEYBkt2YLf292UDQHpYbuEge7UzM7d7b8T3MXoQGOxJcicKv6+0/voyJF9VAaCwA+WutZQKwxa4XBhG5E3taGn9UFgo+wcSWLoJ1p5RI8OM6fYdmk7cIvh3n9XDvVKsSHa+t/y0Ohype6rS2byB/KAkqf5ZR6TFOjH7PwM5i8/oGKr/rXVA1lJusHRoo6kW4s5j2Vnj5Oobnicq74qfGThjDSqYPwMBUeTe+3ILDWSHEqVZedCgBR09CdlHnXhEVLZ5Xa8586TaeGBqRbFICyN/3O/z7RN5AGxJ6VBiSYVrWZ0+op7GKrmgmUKu+XhUsmmIpm/tjawXbnKlijPaPejGAnswkyOcOhBqiJjMcumNyWNz6NE0q/hRAq7wdSTTzNzYSBDf4fHqphK5MTeoFHmws+hfGCX8cqHYU8j6vlgrhc= root@spo-mb-l-srv-zabbix-03.telium.net.br

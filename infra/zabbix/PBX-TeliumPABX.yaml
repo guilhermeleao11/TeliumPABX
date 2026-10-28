@@ -1,0 +1,431 @@
+zabbix_export:
+  version: '7.4'
+  template_groups:
+  - uuid: 2828131e0bd74c5ca592296fadcd841f
+    name: Templates/Telephony
+  templates:
+  - uuid: 0e3825f10f1d456280b2ecef79c05ca6
+    template: PBX - TeliumPABX
+    name: PBX - TeliumPABX
+    description: 'Sistema Telium PABX: nome da central, versão, saúde da API, certificado HTTPS, backup e serviços do Telium. Asterisk, nginx, MariaDB e pacotes ficam nos templates próprios. Itens do zabbix-agent2
+      configurado na instalação do Telium (infra/ansible, papel zabbix).'
+    vendor:
+      name: Telium
+      version: 7.4-1
+    groups:
+    - name: Templates/Telephony
+    items:
+    - uuid: e79cca05bf694e8bb1cb4fd5f7aa0594
+      name: 'Telium: nome da central'
+      key: telium.servername
+      delay: 1h
+      history: 31d
+      value_type: CHAR
+      trends: '0'
+      description: 'O server_name do console no nginx: o nome com que a central é acessada.'
+      tags:
+      - tag: component
+        value: telium
+    - uuid: d1d1aa0e210047f5b93b1c8115ca9039
+      name: 'Telium: versão'
+      key: telium.versao
+      delay: 1h
+      history: 31d
+      value_type: CHAR
+      trends: '0'
+      description: Versão do Telium PABX, lida do /api/health.
+      tags:
+      - tag: component
+        value: telium
+      triggers:
+      - uuid: 60d6a1a980524bc98436d3630aa7403d
+        expression: change(/PBX - TeliumPABX/telium.versao)=1
+        name: 'Telium PABX: atualizado para {ITEM.LASTVALUE1}'
+        priority: INFO
+        description: A central foi atualizada. Some sozinho na próxima coleta.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: 829079e3a60e4e2799d558620d1421c4
+      name: 'Telium: API saudável'
+      key: telium.saudavel
+      delay: 1m
+      history: 7d
+      description: 1 quando o /api/health responde e vê o banco, o esquema e o Asterisk em ordem.
+      valuemap:
+        name: Telium - sim/não
+      tags:
+      - tag: component
+        value: telium
+      triggers:
+      - uuid: 00cdfda53def47f7867e9c9ea3e6605c
+        expression: max(/PBX - TeliumPABX/telium.saudavel,5m)=0
+        name: 'Telium PABX: a API não está saudável'
+        priority: HIGH
+        description: 'O /api/health respondeu com problema (banco, esquema ou Asterisk), ou não respondeu, por 5 minutos. No servidor: sudo ansible-playbook verificar.yml.'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 55bcee9584294b298cb145566be278d7
+      name: 'Telium SSL: dias até vencer'
+      key: telium.ssl.dias
+      delay: 1h
+      history: 31d
+      value_type: FLOAT
+      units: d
+      description: 'Dias até o certificado que o nginx entrega na 443, para o nome da central, vencer. Negativo: já venceu.'
+      tags:
+      - tag: component
+        value: ssl
+      triggers:
+      - uuid: 9df2db6011254978b7fcdda39d1da1b8
+        expression: last(/PBX - TeliumPABX/telium.ssl.dias)<0
+        name: 'Telium PABX: o certificado HTTPS venceu'
+        priority: DISASTER
+        description: O console, o softphone e o provisionamento dos telefones recusam o certificado. Renove em Telium › Certificados.
+        tags:
+        - tag: scope
+          value: notice
+      - uuid: f3798bcecbd64a8b886e0196e1f7295a
+        expression: last(/PBX - TeliumPABX/telium.ssl.dias)<{$TELIUM.SSL.DIAS.CRITICO}
+        name: 'Telium PABX: o certificado HTTPS vence em menos de {$TELIUM.SSL.DIAS.CRITICO} dias'
+        priority: HIGH
+        description: Renove em Telium › Certificados.
+        tags:
+        - tag: scope
+          value: notice
+        dependencies:
+        - name: 'Telium PABX: o certificado HTTPS venceu'
+          expression: last(/PBX - TeliumPABX/telium.ssl.dias)<0
+      - uuid: 068f201d53aa44acb88b83725586e1ea
+        expression: last(/PBX - TeliumPABX/telium.ssl.dias)<{$TELIUM.SSL.DIAS.AVISO}
+        name: 'Telium PABX: o certificado HTTPS vence em menos de {$TELIUM.SSL.DIAS.AVISO} dias'
+        priority: WARNING
+        description: 'Com o Let''s Encrypt a renovação é automática a partir de 30 dias: se este alerta apareceu, ela não aconteceu.'
+        tags:
+        - tag: scope
+          value: notice
+        dependencies:
+        - name: 'Telium PABX: o certificado HTTPS vence em menos de {$TELIUM.SSL.DIAS.CRITICO} dias'
+          expression: last(/PBX - TeliumPABX/telium.ssl.dias)<{$TELIUM.SSL.DIAS.CRITICO}
+    - uuid: eb3a3bd052b34a19827b9e3ce6b60b6d
+      name: 'Telium SSL: vencimento'
+      key: telium.ssl.expira
+      delay: 1h
+      history: 31d
+      units: unixtime
+      description: Data em que o certificado vence.
+      tags:
+      - tag: component
+        value: ssl
+    - uuid: 36832fef76914aec95013de91283b422
+      name: 'Telium SSL: emissor'
+      key: telium.ssl.emissor
+      delay: 1h
+      history: 31d
+      value_type: CHAR
+      trends: '0'
+      description: Quem emitiu o certificado.
+      tags:
+      - tag: component
+        value: ssl
+    - uuid: 90e733b12f3c46efad3b449564538803
+      name: 'Telium SSL: certificado vale para o nome'
+      key: telium.ssl.nome_confere
+      delay: 1h
+      history: 31d
+      description: 1 se o certificado entregue vale para o nome da central.
+      valuemap:
+        name: Telium - sim/não
+      tags:
+      - tag: component
+        value: ssl
+      triggers:
+      - uuid: 2896451c95cd47ff949888fc1f3b2094
+        expression: last(/PBX - TeliumPABX/telium.ssl.nome_confere)=0
+        name: 'Telium PABX: o certificado HTTPS não vale para o nome da central'
+        priority: AVERAGE
+        description: O navegador e os telefones vão acusar certificado inválido. Envie um certificado para o nome da central em Telium › Certificados.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: 8f7102cb59d44096a716db1235f62cc9
+      name: 'Telium backup: horas desde o último'
+      key: telium.backup.horas
+      delay: 10m
+      history: 31d
+      value_type: FLOAT
+      units: h
+      description: 'Horas desde o último backup concluído (manual ou agendado). -1: nenhum ainda.'
+      tags:
+      - tag: component
+        value: backup
+    - uuid: 399a3910c6a24ffa8778cb9b6d47dab4
+      name: 'Telium backup: última execução deu certo'
+      key: telium.backup.ok
+      delay: 10m
+      history: 31d
+      value_type: FLOAT
+      description: 1 se a última execução terminou bem, 0 se falhou, -1 se nenhuma terminou ainda.
+      valuemap:
+        name: Telium - backup
+      tags:
+      - tag: component
+        value: backup
+      triggers:
+      - uuid: 2cc18a26ce75485cbdd334390f6f4cbb
+        expression: last(/PBX - TeliumPABX/telium.backup.ok)=0
+        name: 'Telium PABX: o último backup falhou'
+        priority: HIGH
+        description: Veja a saída em Administrador › Backup (botão do backup com falha). Costuma ser disco cheio.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: a428d616243d40f9b5e886fcc9377852
+      name: 'Telium backup: tamanho do último'
+      key: telium.backup.tamanho
+      delay: 10m
+      history: 31d
+      units: B
+      description: Tamanho do último backup concluído.
+      tags:
+      - tag: component
+        value: backup
+    - uuid: 9d2fb77745e6404191ff1731e7ee6a20
+      name: 'Telium backup: rotinas agendadas'
+      key: telium.backup.rotinas
+      delay: 1h
+      history: 31d
+      description: Rotinas de backup ativas e agendadas (diária, semanal ou mensal).
+      tags:
+      - tag: component
+        value: backup
+      triggers:
+      - uuid: a59c087e72a941b5b07a1feee00c48c8
+        expression: last(/PBX - TeliumPABX/telium.backup.rotinas)=0
+        name: 'Telium PABX: nenhuma rotina de backup agendada'
+        priority: WARNING
+        description: Sem rotina, só há backup quando alguém clica. Crie uma em Administrador › Backup.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: a6305154331949f99f5e9f27a2a66bf1
+      name: 'Telium backup: envio ao destino remoto'
+      key: telium.backup.remoto.estado
+      delay: 10m
+      history: 31d
+      value_type: CHAR
+      trends: '0'
+      description: 'Resultado do último envio ao FTP/SFTP: desligado, nunca, ok ou falha.'
+      tags:
+      - tag: component
+        value: backup
+      triggers:
+      - uuid: 830ed68723ab400da329c6509f8ba982
+        expression: last(/PBX - TeliumPABX/telium.backup.remoto.estado)="falha"
+        name: 'Telium PABX: o envio do backup ao destino remoto falhou'
+        priority: AVERAGE
+        description: O backup ficou só na central. Veja a mensagem em Administrador › Backup › Destino remoto.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: 51f4f8bd80074982b880234547e879a7
+      name: 'Telium backup: horas desde o último envio'
+      key: telium.backup.remoto.horas
+      delay: 10m
+      history: 31d
+      value_type: FLOAT
+      units: h
+      description: 'Horas desde o último envio ao destino remoto. -1: nunca.'
+      tags:
+      - tag: component
+        value: backup
+    - uuid: 377f986255bd42218166000c8ffa3726
+      name: 'Telium serviço: serviço telium-cc'
+      key: systemd.unit.info["telium-cc.service"]
+      delay: 1m
+      history: 7d
+      value_type: CHAR
+      trends: '0'
+      description: 'Estado (telium-cc.service): active quando está rodando. Tempo real do call center: painéis, login de agente pelo telefone e webhooks. No servidor: sudo systemctl restart telium-cc.'
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 70df2010485343da98f3b93276da202b
+        expression: count(/PBX - TeliumPABX/systemd.unit.info["telium-cc.service"],5m,"ne","active")>=5
+        name: 'Telium PABX: serviço telium-cc parado (telium-cc.service)'
+        priority: AVERAGE
+        description: 'Tempo real do call center: painéis, login de agente pelo telefone e webhooks. No servidor: sudo systemctl restart telium-cc.'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 7dddb9a13b1b4a8389ea1399d5f4c107
+      name: 'Telium serviço: PHP-FPM (a API)'
+      key: systemd.unit.info["php8.4-fpm.service"]
+      delay: 1m
+      history: 7d
+      value_type: CHAR
+      trends: '0'
+      description: 'Estado (php8.4-fpm.service): active quando está rodando. Sem ele o console e a API não respondem. No servidor: sudo systemctl restart php8.4-fpm.'
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: e78ef767a04444788ef13e48bc11bd99
+        expression: count(/PBX - TeliumPABX/systemd.unit.info["php8.4-fpm.service"],5m,"ne","active")>=5
+        name: 'Telium PABX: PHP-FPM (a API) parado (php8.4-fpm.service)'
+        priority: HIGH
+        description: 'Sem ele o console e a API não respondem. No servidor: sudo systemctl restart php8.4-fpm.'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: d7a48b0ae67b4194a2664cfa9f148422
+      name: 'Telium serviço: coturn (TURN)'
+      key: systemd.unit.info["coturn.service"]
+      delay: 1m
+      history: 7d
+      value_type: CHAR
+      trends: '0'
+      description: 'Estado (coturn.service): active quando está rodando. O softphone do navegador fica sem áudio fora da rede. Só existe com instalar_turn (vem ligado); sem ele, desative este item no host.'
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 13d06262081048b6aeb44140d4299fc5
+        expression: count(/PBX - TeliumPABX/systemd.unit.info["coturn.service"],5m,"ne","active")>=5
+        name: 'Telium PABX: coturn (TURN) parado (coturn.service)'
+        priority: AVERAGE
+        description: O softphone do navegador fica sem áudio fora da rede. Só existe com instalar_turn (vem ligado); sem ele, desative este item no host.
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 56722588d95147e28e099baf0bd3116c
+      name: 'Telium serviço: timer do backup'
+      key: systemd.unit.info["telium-backup.timer"]
+      delay: 1m
+      history: 7d
+      value_type: CHAR
+      trends: '0'
+      description: 'Estado (telium-backup.timer): active quando está rodando. Sem ele as rotinas de backup não rodam. No servidor: sudo systemctl enable --now telium-backup.timer.'
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 10c4d108f14d42eb9a286c0383a4b252
+        expression: count(/PBX - TeliumPABX/systemd.unit.info["telium-backup.timer"],5m,"ne","active")>=5
+        name: 'Telium PABX: timer do backup parado (telium-backup.timer)'
+        priority: HIGH
+        description: 'Sem ele as rotinas de backup não rodam. No servidor: sudo systemctl enable --now telium-backup.timer.'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 36d393d8f817444a82868e77576c65db
+      name: 'Telium serviço: timer dos certificados'
+      key: systemd.unit.info["telium-certificados.timer"]
+      delay: 1m
+      history: 7d
+      value_type: CHAR
+      trends: '0'
+      description: 'Estado (telium-certificados.timer): active quando está rodando. Sem ele o certificado do Let''s Encrypt não renova. No servidor: sudo systemctl enable --now telium-certificados.timer.'
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 157a1f8f36fa4dcf9cddf92cf7572678
+        expression: count(/PBX - TeliumPABX/systemd.unit.info["telium-certificados.timer"],5m,"ne","active")>=5
+        name: 'Telium PABX: timer dos certificados parado (telium-certificados.timer)'
+        priority: AVERAGE
+        description: 'Sem ele o certificado do Let''s Encrypt não renova. No servidor: sudo systemctl enable --now telium-certificados.timer.'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 8e5b42cd98cc432fb4ab2bae803e2666
+      name: 'Telium serviço: timer do despertador'
+      key: systemd.unit.info["telium-despertador.timer"]
+      delay: 1m
+      history: 7d
+      value_type: CHAR
+      trends: '0'
+      description: 'Estado (telium-despertador.timer): active quando está rodando. Sem ele as chamadas de despertador não saem. No servidor: sudo systemctl enable --now telium-despertador.timer.'
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: 25b870b559874f988fa04dc599700d22
+        expression: count(/PBX - TeliumPABX/systemd.unit.info["telium-despertador.timer"],5m,"ne","active")>=5
+        name: 'Telium PABX: timer do despertador parado (telium-despertador.timer)'
+        priority: WARNING
+        description: 'Sem ele as chamadas de despertador não saem. No servidor: sudo systemctl enable --now telium-despertador.timer.'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: f82790125a4249c3a7c18185e49dab99
+      name: 'Telium serviço: timer da tarifação'
+      key: systemd.unit.info["telium-tarifar.timer"]
+      delay: 1m
+      history: 7d
+      value_type: CHAR
+      trends: '0'
+      description: 'Estado (telium-tarifar.timer): active quando está rodando. Sem ele as chamadas novas ficam sem custo no relatório. No servidor: sudo systemctl enable --now telium-tarifar.timer.'
+      tags:
+      - tag: component
+        value: services
+      triggers:
+      - uuid: b3148df5fe294b05b8f85006a27309d9
+        expression: count(/PBX - TeliumPABX/systemd.unit.info["telium-tarifar.timer"],5m,"ne","active")>=5
+        name: 'Telium PABX: timer da tarifação parado (telium-tarifar.timer)'
+        priority: WARNING
+        description: 'Sem ele as chamadas novas ficam sem custo no relatório. No servidor: sudo systemctl enable --now telium-tarifar.timer.'
+        tags:
+        - tag: scope
+          value: availability
+    tags:
+    - tag: class
+      value: software
+    - tag: target
+      value: telium-pabx
+    macros:
+    - macro: '{$TELIUM.BACKUP.HORAS.MAX}'
+      value: '26'
+      description: 'Horas sem backup concluído (ou sem envio ao destino remoto) até alertar. 26: uma rotina diária com folga.'
+    - macro: '{$TELIUM.SSL.DIAS.AVISO}'
+      value: '20'
+      description: 'Aviso: dias antes de o certificado vencer.'
+    - macro: '{$TELIUM.SSL.DIAS.CRITICO}'
+      value: '7'
+      description: 'Alerta alto: dias antes de o certificado vencer.'
+    valuemaps:
+    - uuid: c2902a12317643fb8b6348c4e6607d2a
+      name: Telium - backup
+      mappings:
+      - value: '-1'
+        newvalue: Nenhum ainda
+      - value: '0'
+        newvalue: Falhou
+      - value: '1'
+        newvalue: Deu certo
+    - uuid: 30a22aae39794fd2a791e5d6877b3a5b
+      name: Telium - sim/não
+      mappings:
+      - value: '0'
+        newvalue: Não
+      - value: '1'
+        newvalue: Sim
+  triggers:
+  - uuid: 4137fdd6c97443958b8dcaa59b212259
+    expression: last(/PBX - TeliumPABX/telium.backup.horas)>{$TELIUM.BACKUP.HORAS.MAX} and last(/PBX - TeliumPABX/telium.backup.rotinas)>0
+    name: 'Telium PABX: sem backup há mais de {$TELIUM.BACKUP.HORAS.MAX} horas'
+    priority: AVERAGE
+    description: Há rotina agendada, mas nenhum backup terminou no prazo. Confira o timer telium-backup e Administrador › Backup.
+    tags:
+    - tag: scope
+      value: notice
+  - uuid: a7c11cf712bd4563b8e06611acee7ae8
+    expression: last(/PBX - TeliumPABX/telium.backup.remoto.horas)>{$TELIUM.BACKUP.HORAS.MAX} and last(/PBX - TeliumPABX/telium.backup.remoto.estado)="ok"
+    name: 'Telium PABX: o backup não vai ao destino remoto há mais de {$TELIUM.BACKUP.HORAS.MAX} horas'
+    priority: WARNING
+    description: O último envio deu certo, mas nenhum outro saiu desde então.
+    tags:
+    - tag: scope
+      value: notice

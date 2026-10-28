@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+# Itens do sistema Telium PABX (template "PBX - TeliumPABX" no Zabbix):
+# o nome da central, a versão, a saúde da API, o certificado HTTPS e o
+# backup. Os serviços vêm do systemd.unit.info do próprio agent2.
+UserParameter=telium.servername,{{ zabbix_scripts_dir }}/zbx_telium.sh nome
+UserParameter=telium.versao,{{ zabbix_scripts_dir }}/zbx_telium.sh versao
+UserParameter=telium.saudavel,{{ zabbix_scripts_dir }}/zbx_telium.sh saudavel
+UserParameter=telium.ssl.dias,{{ zabbix_scripts_dir }}/zbx_telium.sh dias
+UserParameter=telium.ssl.expira,{{ zabbix_scripts_dir }}/zbx_telium.sh expira
+UserParameter=telium.ssl.emissor,{{ zabbix_scripts_dir }}/zbx_telium.sh emissor
+UserParameter=telium.ssl.nome_confere,{{ zabbix_scripts_dir }}/zbx_telium.sh nome_confere
+UserParameter=telium.backup.horas,{{ zabbix_scripts_dir }}/zbx_telium.sh backup.horas
+UserParameter=telium.backup.ok,{{ zabbix_scripts_dir }}/zbx_telium.sh backup.ok
+UserParameter=telium.backup.tamanho,{{ zabbix_scripts_dir }}/zbx_telium.sh backup.tamanho
+UserParameter=telium.backup.rotinas,{{ zabbix_scripts_dir }}/zbx_telium.sh backup.rotinas
+UserParameter=telium.backup.remoto.estado,{{ zabbix_scripts_dir }}/zbx_telium.sh backup.remoto.estado
+UserParameter=telium.backup.remoto.horas,{{ zabbix_scripts_dir }}/zbx_telium.sh backup.remoto.horas

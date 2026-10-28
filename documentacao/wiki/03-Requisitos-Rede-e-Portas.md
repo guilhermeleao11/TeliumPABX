@@ -36,6 +36,7 @@ O que precisa **chegar** ao servidor, vindo de fora (redirecionar no NAT, libera
 | 3478 | UDP e TCP | TURN/STUN do softphone do navegador | Se usar softphone no navegador |
 | 5349 | TCP | TURN sobre TLS | Se usar softphone no navegador |
 | 49152–49500 | UDP | Áudio retransmitido pelo TURN | Se usar softphone no navegador |
+| 10050 | TCP | Agente do Zabbix | Com a monitoria ligada (`instalar_zabbix`). O playbook libera só para os servidores Zabbix da Telium |
 | 22 | TCP | SSH, para o suporte e para instalar e atualizar da máquina do técnico | De preferência só dos IPs do suporte (nos servidores da Telium, as redes da Telium) |
 
 > A faixa **UDP 10000–20000** é a que mais se esquece de liberar, e a falha não dá erro: **a chamada conecta e ninguém ouve.**
@@ -78,6 +79,7 @@ Estas escutam só em `127.0.0.1` (ou em socket local) e **não devem** ser liber
 | 3306 | MariaDB | `bind-address = 127.0.0.1` |
 | 5038 | AMI do Asterisk | Escuta em 127.0.0.1 e o usuário só aceita 127.0.0.1. A API usa para aplicar configurações e originar chamadas |
 | 8090 | HTTP do Asterisk (ARI e WebSocket) | O nginx repassa o `/ws` para cá |
+| 8080 | Status do nginx (`/nginx_status`), para o Zabbix | Só com a monitoria do Zabbix |
 | 8095 | Serviço de tempo real do call center (`telium-cc`) | O nginx publica só `/api/cc/eventos` |
 | 8088, 8188, 7088 | Janus (HTTP, WebSocket, admin) | Só com `instalar_janus=true` |
 | `/run/php/telium.sock` | PHP-FPM da API | Socket local, usado pelo nginx |

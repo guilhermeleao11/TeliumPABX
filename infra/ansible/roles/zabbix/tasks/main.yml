@@ -1,0 +1,386 @@
+---
+# Só na instalação nova (site.yml): a atualização não mexe em nada da
+# monitoria. Numa central já instalada, só com -e zabbix_configurar=true.
+#
+# Monitoria pelo Zabbix: o zabbix-agent2 do Debian, com os itens do
+# Asterisk (pelo AMI), do MariaDB (plugin do agent2) e do nginx
+# (stub_status), e o usuário de SSH do teste de acesso.
+#
+# As senhas do AMI e do banco são as do Zabbix da Telium, as mesmas em
+# todas as centrais, lidas de zabbix-senhas.yml (fora do Git), na máquina
+# de onde se roda o playbook.
+# Roda depois do papel seguranca, que instala o ufw.
+
+- name: Procurar o arquivo de senhas do Zabbix
+  ansible.builtin.stat:
+    path: "{{ zabbix_senhas_arquivo }}"
+  register: zabbix_senhas_stat
+  delegate_to: localhost
+  become: false
+
+- name: Ler as senhas do Zabbix
+  ansible.builtin.include_vars:
+    file: "{{ zabbix_senhas_arquivo }}"
+  no_log: true
+  when:
+    - zabbix_ami_senha is not defined or zabbix_db_senha is not defined
+    - zabbix_senhas_stat.stat.exists
+
+- name: As senhas do Zabbix precisam estar configuradas
+  ansible.builtin.assert:
+    that:
+      - zabbix_ami_senha | default('') | length > 0
+      - zabbix_db_senha | default('') | length > 0
+    fail_msg: >-
+      Faltam as senhas do Zabbix. Crie {{ zabbix_senhas_arquivo }} a partir de
+      zabbix-senhas.yml.exemplo (fica fora do Git) e rode de novo. Para instalar sem
+      a monitoria: -e instalar_zabbix=false.
+    quiet: true
+
+# ---------------- agente ----------------
+- name: Instalar o zabbix-agent2
+  ansible.builtin.apt:
+    name:
+      - zabbix-agent2
+      - acl
+    state: present
+
+# O nome com que a central aparece no Zabbix: o "hostname -a" da máquina
+# (ou o hostname, se ela não tiver apelido).
+- name: Ler o nome da máquina para o Zabbix
+  ansible.builtin.shell:
+    cmd: "n=$(hostname -a 2>/dev/null | awk '{print $1}'); echo \"${n:-$(hostname)}\""
+  register: zabbix_nome_maquina
+  changed_when: false
+
+- name: Apontar o agente para os servidores Zabbix
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/zabbix_agent2.conf
+    regexp: "^#?\\s*{{ item.chave }}="
+    line: "{{ item.chave }}={{ item.valor }}"
+  loop:
+    - { chave: Server, valor: "{{ zabbix_servidores | join(',') }}" }
+    - { chave: ServerActive, valor: "{{ zabbix_servidores | join(',') }}" }
+    - { chave: Hostname, valor: "{{ zabbix_nome_maquina.stdout | trim }}" }
+  loop_control:
+    label: "{{ item.chave }}={{ item.valor }}"
+  notify: reiniciar zabbix-agent2
+
+# ---------------- Asterisk (AMI) ----------------
+# O usuário [zabbix] do AMI está no manager.conf (papel asterisk).
+- name: Criar a pasta dos scripts do Zabbix
+  ansible.builtin.file:
+    path: "{{ zabbix_scripts_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Publicar o script do Asterisk
+  ansible.builtin.copy:
+    src: zbx_asterisk_ami.py
+    dest: "{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Guardar o acesso do script ao AMI
+  ansible.builtin.copy:
+    dest: /etc/zabbix/telium-ami.conf
+    content: |
+      # Gerado pelo Ansible do Telium PABX. Usado por {{ zabbix_scripts_dir }}/zbx_asterisk_ami.py
+      usuario={{ zabbix_ami_usuario }}
+      senha={{ zabbix_ami_senha }}
+    owner: root
+    group: zabbix
+    mode: "0640"
+  no_log: true
+
+# O usuário do AMI vai para o manager_custom.conf, que o playbook nunca
+# reescreve: a atualização não mexe na monitoria. Se já houver um
+# [zabbix] (central configurada à mão), ele fica como está.
+- name: Procurar o usuário do Zabbix no AMI
+  ansible.builtin.command:
+    cmd: "grep -qx '\\[{{ zabbix_ami_usuario }}\\]' /etc/asterisk/manager_custom.conf"
+  register: zabbix_ami_existente
+  changed_when: false
+  failed_when: false
+
+- name: Criar o usuário do Zabbix no AMI
+  ansible.builtin.blockinfile:
+    path: /etc/asterisk/manager_custom.conf
+    marker: "; {mark} usuário do Zabbix (criado na instalação do Telium PABX)"
+    block: |
+      [{{ zabbix_ami_usuario }}]
+      secret={{ zabbix_ami_senha }}
+
+      deny=0.0.0.0/0.0.0.0
+      permit=127.0.0.1/255.255.255.255
+
+      read=system,call,agent,reporting,command
+      write=command
+    create: true
+    owner: root
+    group: asterisk
+    mode: "0640"
+  no_log: true
+  when: zabbix_ami_existente.rc != 0
+  notify: recarregar o AMI para o zabbix
+
+- name: Publicar os itens do Asterisk
+  ansible.builtin.template:
+    src: asterisk_plugin.conf.j2
+    dest: /etc/zabbix/zabbix_agent2.d/asterisk_plugin.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reiniciar zabbix-agent2
+
+# ---------------- o sistema Telium PABX ----------------
+# Nome da central, versão, saúde da API e certificado HTTPS: os itens do
+# template "PBX - TeliumPABX" (infra/zabbix/).
+- name: Publicar o script do sistema Telium
+  ansible.builtin.copy:
+    src: zbx_telium.sh
+    dest: "{{ zabbix_scripts_dir }}/zbx_telium.sh"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Publicar os itens do sistema Telium
+  ansible.builtin.template:
+    src: telium.conf.j2
+    dest: /etc/zabbix/zabbix_agent2.d/telium.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reiniciar zabbix-agent2
+
+# ---------------- pacotes com atualização ----------------
+- name: Publicar o script dos pacotes com atualização
+  ansible.builtin.copy:
+    src: check_pacotes_updates.sh
+    dest: "{{ zabbix_scripts_dir }}/check_pacotes_updates.sh"
+    owner: root
+    group: root
+    mode: "0755"
+
+# O script guarda ao lado dele, em run/, a hora da última verificação: a
+# pasta é do zabbix, que é quem roda o script.
+- name: Criar a pasta de trabalho do script dos pacotes
+  ansible.builtin.file:
+    path: "{{ zabbix_scripts_dir }}/run"
+    state: directory
+    owner: zabbix
+    group: zabbix
+    mode: "0755"
+
+- name: Publicar o item dos pacotes com atualização
+  ansible.builtin.template:
+    src: debian_updates.conf.j2
+    dest: /etc/zabbix/zabbix_agent2.d/debian_updates.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reiniciar zabbix-agent2
+
+# O apt-get update do script só funciona como root, e o agente roda como
+# zabbix: a lista de pacotes é atualizada uma vez por dia pelo
+# apt-daily.timer do Debian. Só a lista: nada é instalado sozinho.
+- name: Atualizar a lista de pacotes uma vez por dia
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20telium-listas
+    content: |
+      // Gerado pelo Ansible do Telium PABX (monitoria pelo Zabbix): só baixa a
+      // lista de pacotes, para o Zabbix contar as atualizações. Não instala nada.
+      APT::Periodic::Update-Package-Lists "1";
+    owner: root
+    group: root
+    mode: "0644"
+
+# A pasta do log é 0750 do asterisk. A leitura entra por ACL, só para o
+# zabbix; a padrão (-d) vale para os arquivos que a rotação recria.
+- name: Deixar o agente ler o log do Asterisk
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      # O messages pode ainda não existir (central nova): o getfacl falha
+      # nele, e o set -e não pode parar por isso.
+      antes=$(getfacl -p /var/log/asterisk /var/log/asterisk/messages 2>/dev/null || true)
+      setfacl -m u:zabbix:rx /var/log/asterisk
+      setfacl -d -m u:zabbix:r /var/log/asterisk
+      [ ! -e /var/log/asterisk/messages ] || setfacl -m u:zabbix:r /var/log/asterisk/messages
+      depois=$(getfacl -p /var/log/asterisk /var/log/asterisk/messages 2>/dev/null || true)
+      [ "$antes" = "$depois" ] || echo mudou
+  register: zabbix_acl_log
+  changed_when: "'mudou' in zabbix_acl_log.stdout"
+
+# ---------------- MariaDB ----------------
+# O plugin do agent2 conecta daqui mesmo (127.0.0.1).
+- name: Criar o usuário de monitoria no banco
+  ansible.builtin.command:
+    cmd: mariadb --protocol=socket -uroot -e "{{ item }}"
+  changed_when: false
+  loop:
+    - CREATE USER IF NOT EXISTS '{{ zabbix_db_usuario }}'@'localhost' IDENTIFIED BY '{{ zabbix_db_senha }}';
+    - ALTER USER '{{ zabbix_db_usuario }}'@'localhost' IDENTIFIED BY '{{ zabbix_db_senha }}';
+    - CREATE USER IF NOT EXISTS '{{ zabbix_db_usuario }}'@'127.0.0.1' IDENTIFIED BY '{{ zabbix_db_senha }}';
+    - ALTER USER '{{ zabbix_db_usuario }}'@'127.0.0.1' IDENTIFIED BY '{{ zabbix_db_senha }}';
+    - GRANT REPLICATION CLIENT, PROCESS, SHOW DATABASES, SHOW VIEW ON *.* TO '{{ zabbix_db_usuario }}'@'localhost';
+    - GRANT REPLICATION CLIENT, PROCESS, SHOW DATABASES, SHOW VIEW ON *.* TO '{{ zabbix_db_usuario }}'@'127.0.0.1';
+    # O estado do backup (zbx_telium.sh), coluna por coluna: a tabela do
+    # destino remoto guarda a senha do FTP, e ela fica de fora.
+    - GRANT SELECT (estado, origem, tamanho, concluido_em) ON `{{ db_nome }}`.backups TO '{{ zabbix_db_usuario }}'@'localhost';
+    - GRANT SELECT (ativo, periodicidade) ON `{{ db_nome }}`.backup_rotinas TO '{{ zabbix_db_usuario }}'@'localhost';
+    - GRANT SELECT (id, ativo, ultimo_envio, ultimo_estado) ON `{{ db_nome }}`.backup_destino_remoto TO '{{ zabbix_db_usuario }}'@'localhost';
+    - FLUSH PRIVILEGES;
+  no_log: true
+
+- name: Criar o usuário de monitoria no banco para o servidor Zabbix
+  ansible.builtin.command:
+    cmd: >-
+      mariadb --protocol=socket -uroot -e
+      "CREATE USER IF NOT EXISTS '{{ zabbix_db_usuario }}'@'{{ item }}' IDENTIFIED BY '{{ zabbix_db_senha }}';
+       ALTER USER '{{ zabbix_db_usuario }}'@'{{ item }}' IDENTIFIED BY '{{ zabbix_db_senha }}';
+       GRANT REPLICATION CLIENT, PROCESS, SHOW DATABASES, SHOW VIEW ON *.* TO '{{ zabbix_db_usuario }}'@'{{ item }}';"
+  changed_when: false
+  loop: "{{ zabbix_db_hosts_extras }}"
+  no_log: true
+
+# O zbx_telium.sh (backup) entra pelo socket, como zbx_monitor@localhost.
+- name: Guardar o acesso do script ao banco
+  ansible.builtin.copy:
+    dest: /etc/zabbix/telium-db.cnf
+    content: |
+      # Gerado pelo Ansible do Telium PABX. Usado por {{ zabbix_scripts_dir }}/zbx_telium.sh
+      [client]
+      user={{ zabbix_db_usuario }}
+      password={{ zabbix_db_senha }}
+      database={{ db_nome }}
+    owner: root
+    group: zabbix
+    mode: "0640"
+  no_log: true
+
+- name: Dar ao plugin do MySQL o acesso ao banco
+  ansible.builtin.lineinfile:
+    path: /etc/zabbix/zabbix_agent2.d/plugins.d/mysql.conf
+    regexp: "^#?\\s*{{ item.chave }}="
+    line: "{{ item.chave }}={{ item.valor }}"
+    owner: root
+    group: zabbix
+    mode: "0640"
+  loop:
+    - { chave: Plugins.Mysql.Sessions.Default.Uri, valor: "tcp://127.0.0.1:3306" }
+    - { chave: Plugins.Mysql.Sessions.Default.User, valor: "{{ zabbix_db_usuario }}" }
+    - { chave: Plugins.Mysql.Sessions.Default.Password, valor: "{{ zabbix_db_senha }}" }
+    # A sessão "Default" vale para o item com [Default] ({$MYSQL.DSN} do
+    # template); estas, para o item sem parâmetro (mysql.ping).
+    - { chave: Plugins.Mysql.Default.Uri, valor: "tcp://127.0.0.1:3306" }
+    - { chave: Plugins.Mysql.Default.User, valor: "{{ zabbix_db_usuario }}" }
+    - { chave: Plugins.Mysql.Default.Password, valor: "{{ zabbix_db_senha }}" }
+  loop_control:
+    label: "{{ item.chave }}"
+  no_log: true
+  notify: reiniciar zabbix-agent2
+
+# ---------------- nginx ----------------
+- name: Publicar o status do nginx para o Zabbix
+  ansible.builtin.copy:
+    dest: /etc/nginx/conf.d/zabbix-status.conf
+    content: |
+      # Gerado pelo Ansible do Telium PABX: stub_status para o Zabbix, só local.
+      server {
+          listen 127.0.0.1:{{ zabbix_nginx_status_porta }};
+          server_name localhost;
+
+          location /nginx_status {
+              stub_status;
+              allow 127.0.0.1;
+              deny all;
+          }
+      }
+    owner: root
+    group: root
+    mode: "0644"
+    # Conferido antes, com o resto da configuração: um erro aqui derrubaria
+    # o console no próximo reinício do nginx. A cópia de teste tem de
+    # terminar em .conf para o include do nginx.conf pegá-la.
+    validate: "sh -c 'cp %s /etc/nginx/conf.d/zabbix-status-teste.conf && nginx -t; r=$?; rm -f /etc/nginx/conf.d/zabbix-status-teste.conf; exit $r'"
+  notify: recarregar nginx do zabbix
+
+# ---------------- SSH (teste de acesso) ----------------
+- name: Criar o usuário de SSH do Zabbix
+  ansible.builtin.user:
+    name: "{{ zabbix_ssh_usuario }}"
+    comment: Zabbix SSH user Test
+    shell: /bin/bash
+    create_home: true
+
+- name: Criar a pasta .ssh do usuário do Zabbix
+  ansible.builtin.file:
+    path: "/home/{{ zabbix_ssh_usuario }}/.ssh"
+    state: directory
+    owner: "{{ zabbix_ssh_usuario }}"
+    group: "{{ zabbix_ssh_usuario }}"
+    mode: "0700"
+
+# A chave só serve para ouvir "SSH_OK": sem terminal, sem encaminhar
+# porta, agente ou X11, e qualquer comando pedido vira o echo.
+- name: Autorizar a chave do servidor Zabbix
+  ansible.builtin.copy:
+    dest: "/home/{{ zabbix_ssh_usuario }}/.ssh/authorized_keys"
+    content: |
+      command="/bin/echo SSH_OK",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding {{ zabbix_ssh_chave }}
+    owner: "{{ zabbix_ssh_usuario }}"
+    group: "{{ zabbix_ssh_usuario }}"
+    mode: "0600"
+
+# Servidor com AuthorizedKeysFile em /etc/ssh/keys: a chave vai para lá
+# por um link.
+- name: Ler onde o sshd procura as chaves
+  ansible.builtin.shell:
+    cmd: "sshd -T 2>/dev/null | grep -iE '^(authorizedkeysfile|allowusers|allowgroups) '"
+  register: zabbix_sshd
+  changed_when: false
+  failed_when: false
+
+- name: Ligar a chave em /etc/ssh/keys
+  when: "'/etc/ssh/keys' in zabbix_sshd.stdout"
+  block:
+    - name: Criar a pasta da chave em /etc/ssh/keys
+      ansible.builtin.file:
+        path: "/etc/ssh/keys/{{ zabbix_ssh_usuario }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Ligar o authorized_keys em /etc/ssh/keys
+      ansible.builtin.file:
+        src: "/home/{{ zabbix_ssh_usuario }}/.ssh/authorized_keys"
+        dest: "/etc/ssh/keys/{{ zabbix_ssh_usuario }}/authorized_keys"
+        state: link
+
+- name: Avisar se o sshd só aceita alguns usuários
+  ansible.builtin.debug:
+    msg:
+      - "O sshd desta central só aceita alguns usuários:"
+      - "{{ zabbix_sshd.stdout_lines | select('match', '(?i)^allow') | list }}"
+      - "Inclua {{ zabbix_ssh_usuario }} em AllowUsers (ou no grupo de AllowGroups), ou o teste de SSH do Zabbix falha."
+  when: zabbix_sshd.stdout is search('(?im)^allow(users|groups) ')
+
+# ---------------- firewall ----------------
+# A porta do agente só para os servidores Zabbix.
+- name: Liberar a porta do agente para os servidores Zabbix
+  ansible.builtin.command:
+    cmd: "ufw allow proto tcp from {{ item }} to any port {{ zabbix_agente_porta }}"
+  loop: "{{ zabbix_servidores }}"
+  register: zabbix_ufw
+  changed_when: "'Rule added' in zabbix_ufw.stdout"
+
+- name: Ligar o zabbix-agent2
+  ansible.builtin.service:
+    name: zabbix-agent2
+    state: started
+    enabled: true

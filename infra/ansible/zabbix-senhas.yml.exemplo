@@ -1,0 +1,15 @@
+---
+# Senhas do Zabbix da Telium, as mesmas em todas as centrais.
+#
+# Copie para zabbix-senhas.yml (nesta mesma pasta) e preencha. Aquele
+# arquivo fica fora do Git (.gitignore): o repositório é público.
+# Precisa existir na máquina de onde se roda o playbook: a estação do
+# técnico, ou o clone dentro da central, para quem atualiza de lá.
+#
+# Rodando sem ele, o playbook para e avisa (ou: -e instalar_zabbix=false).
+
+# Usuário "zabbix" do AMI (o script zbx_asterisk_ami.py)
+zabbix_ami_senha: ""
+
+# Usuário "zbx_monitor" do MariaDB (plugin MySQL do zabbix-agent2)
+zabbix_db_senha: ""

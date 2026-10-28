@@ -2,8 +2,30 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.7.1 — 2026-10-27
+## 1.8.0 — 2026-10-27
 Commits:
+Monitoria pelo Zabbix instalada junto com a central.
+
+### Novidades
+- **zabbix-agent2 instalado pelo playbook** (pacote do Debian), apontado para os servidores Zabbix da Telium (198.18.22.114, 10.16.140.114, 200.155.185.231), com o nome da máquina (`hostname -a`, ou o `hostname`). Só na instalação nova (pergunta "Monitorar? [S/n]"). **A atualização não mexe em nada da monitoria**; numa central já instalada, só pedindo: `-e zabbix_configurar=true`.
+- **Arquivos nos lugares de sempre**: scripts em `/Telium/zabbix/scripts` (`zbx_asterisk_ami.py`, `zbx_telium.sh`, `check_pacotes_updates.sh`) e os itens em `/etc/zabbix/zabbix_agent2.d/` (`asterisk_plugin.conf`, `telium.conf`, `debian_updates.conf`).
+- **Itens**: os do Asterisk pelo AMI (`asterisk.*`); os do sistema Telium para o template PBX - TeliumPABX (`telium.servername`, `telium.versao`, `telium.saudavel`, `telium.ssl.*` com os dias até o certificado vencer, `telium.backup.*`); os pacotes com atualização (`pacotes.updates.count`); o MariaDB pelo plugin do agent2 (usuário `zbx_monitor`, sessão `Default`); e o status do nginx em `http://127.0.0.1:8080/nginx_status`.
+- **Template "PBX - TeliumPABX"** para o Zabbix 7.4 (`infra/zabbix/PBX-TeliumPABX.yaml`): os itens do sistema Telium e os alertas (certificado vencendo ou vencido, backup falhou ou atrasado, envio remoto falhou, serviço do Telium parado, API com problema), com macros para os prazos.
+- **Teste de SSH**: usuário `zabbix_test` com a chave do servidor Zabbix, que só responde `SSH_OK` (e o link em `/etc/ssh/keys` quando o sshd usa essa pasta).
+
+### Segurança
+- As senhas do usuário `zabbix` do AMI e do `zbx_monitor` do banco são as do Zabbix da Telium e ficam fora do Git: `infra/ansible/zabbix-senhas.yml` na máquina que roda o playbook (modelo `zabbix-senhas.yml.exemplo`); sem ele, a instalação para no começo. O script lê a do AMI de `/etc/zabbix/telium-ami.conf` (`root:zabbix 0640`).
+- O usuário `zabbix` do AMI vai para o `manager_custom.conf`, que o playbook nunca reescreve; um `[zabbix]` já existente fica como está.
+- O `zbx_monitor` (localhost, 127.0.0.1 e 198.18.22.114) lê só estatísticas e as colunas de estado do backup; a senha do FTP do destino remoto fica de fora. O banco continua escutando só em 127.0.0.1.
+- A porta 10050 do agente é liberada no ufw só para os servidores Zabbix.
+- O agente lê o log do Asterisk por uma permissão só dele (ACL), sem entrar no grupo asterisk, que abriria o `/etc/asterisk`.
+
+### Correções (nos arquivos de monitoria de antes)
+- `asterisk.log.errors` e `asterisk.log.warnings`: com zero linhas, o `grep -c || echo 0` devolvia "0" duas vezes e o Zabbix recusava; e o agente não tinha leitura da pasta do log. Agora contam no `messages`.
+- `pacotes.updates.count`: o aviso do bash sobre o locale `en_US.UTF-8`, que o Debian não tem, ia junto do número.
+
+## 1.7.1 — 2026-10-27
+Commits: 6dda4bc
 Migração do SNEP mantém a senha SIP curta.
 
 ### Mudanças

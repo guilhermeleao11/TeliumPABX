@@ -1,0 +1,48 @@
+# {{ ansible_managed }}
+# Itens do Asterisk para o Zabbix. O script fala com o AMI (usuário
+# {{ zabbix_ami_usuario }}, só 127.0.0.1).
+# Os erros e avisos são contados no "messages" (os mesmos níveis do
+# "full", sem o verbose: muito menor). O agente lê a pasta do log por uma
+# permissão de leitura só dele (ACL), dada pelo playbook. O grep -c com
+# zero linhas sai com erro: o "|| echo 0" de antes imprimia "0" duas vezes,
+# e o Zabbix recusava o valor.
+##############################################
+# ASTERISK MONITORING - ZABBIX VIA AMI
+##############################################
+
+### CANAIS
+UserParameter=asterisk.channels.active,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py channels.active
+UserParameter=asterisk.calls.active,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py calls.active
+UserParameter=asterisk.calls.processed,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py calls.processed
+
+### PJSIP
+UserParameter=asterisk.pjsip.endpoints.total,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py pjsip.endpoints.total
+UserParameter=asterisk.pjsip.endpoints.online,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py pjsip.endpoints.online
+UserParameter=asterisk.pjsip.endpoints.offline,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py pjsip.endpoints.offline
+
+### SIP LEGACY
+UserParameter=asterisk.sip.peers.total,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py sip.peers.total
+UserParameter=asterisk.sip.peers.online,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py sip.peers.online
+UserParameter=asterisk.sip.peers.offline,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py sip.peers.offline
+
+### FILAS
+UserParameter=asterisk.queue.calls,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py queue.calls
+UserParameter=asterisk.queue.count,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py queue.count
+UserParameter=asterisk.queue.agents,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py queue.agents
+UserParameter=asterisk.queue.agents.busy,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py queue.agents.busy
+UserParameter=asterisk.queue.agents.free,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py queue.agents.free
+UserParameter=asterisk.queue.agents.paused,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py queue.agents.paused
+
+### UPTIME
+UserParameter=asterisk.uptime,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py uptime
+
+### PERFORMANCE
+UserParameter=asterisk.threads,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py threads
+UserParameter=asterisk.tasks,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py tasks
+
+### EXTRA
+UserParameter=asterisk.version,{{ zabbix_scripts_dir }}/zbx_asterisk_ami.py version
+
+##############################################
+UserParameter=asterisk.log.errors,n=$(grep -ic error /var/log/asterisk/messages 2>/dev/null); echo ${n:-0}
+UserParameter=asterisk.log.warnings,n=$(grep -ic warning /var/log/asterisk/messages 2>/dev/null); echo ${n:-0}

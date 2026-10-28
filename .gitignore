@@ -40,3 +40,10 @@ DumpSnep/
 # ajustes antigos, já levados para /etc/telium-servidor.yml
 infra/ansible/group_vars/all/servidor.yml.migrado
 infra/ansible/group_vars/all/*.antigo
+
+# Senhas do Zabbix (o repositório é público) e os arquivos de trabalho da
+# monitoria (o script original tem a senha fixa do AMI).
+# O que vai para as centrais está em infra/ansible/roles/zabbix.
+ZabbixVoip/
+infra/ansible/zabbix-senhas.yml
+__pycache__/

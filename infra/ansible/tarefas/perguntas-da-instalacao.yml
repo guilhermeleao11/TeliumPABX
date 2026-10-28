@@ -410,6 +410,28 @@
           {{ perguntas_respostas | combine({'syslog_central': (resposta_syslog.user_input | trim | lower) not in ['n', 'nao', 'não', 'no']}) }}
       when: resposta_syslog.user_input is defined
 
+    # ---------- Zabbix ----------
+    - name: Perguntar se a central é monitorada pelo Zabbix
+      ansible.builtin.pause:
+        prompt: |-
+
+          ════════════════════════════════════════════════════════════════
+           Monitorar esta central pelo Zabbix da Telium?
+           Instala o zabbix-agent2 (Asterisk, banco, nginx e teste de SSH),
+           com a porta {{ zabbix_agente_porta }} aberta só para
+           {{ zabbix_servidores | join(', ') }}.
+           Diga não em central que não fala com a rede da Telium.
+          ════════════════════════════════════════════════════════════════
+          Monitorar? [S/n]
+      register: resposta_zabbix
+      when: "'instalar_zabbix' not in ajustes_do_servidor"
+
+    - name: Usar a resposta do Zabbix
+      ansible.builtin.set_fact:
+        perguntas_respostas: >-
+          {{ perguntas_respostas | combine({'instalar_zabbix': (resposta_zabbix.user_input | trim | lower) not in ['n', 'nao', 'não', 'no']}) }}
+      when: resposta_zabbix.user_input is defined
+
     # ---------- produção ou laboratório ----------
     # O cenário de teste vale só para esta execução: não vai para os
     # ajustes, e nenhuma atualização o carrega de novo.
@@ -455,6 +477,7 @@
              Asternic .......... {{ 'sim' if r.instalar_asternic | default(instalar_asternic) | bool else 'não' }}
              SIP ............... {{ ('só redes conhecidas' ~ ((' + ' ~ (r.sip_redes_extras | join(' '))) if r.sip_redes_extras | default([]) else '')) if r.sip_restringir_redes | default(sip_restringir_redes | default(false)) | bool else 'aberto para a internet (com fail2ban)' }}
              Syslog da Telium .. {{ 'sim' if r.syslog_central | default(syslog_central) | bool else 'não' }}
+             Zabbix ............ {{ 'sim' if r.instalar_zabbix | default(instalar_zabbix) | bool else 'não' }}
              Ambiente .......... {{ 'LABORATÓRIO (com o cenário de teste)' if cenario_teste | default(false) | bool else 'cliente (banco vazio)' }}
 
            Para mudar algo depois: {{ servidor_ajustes }} no servidor.

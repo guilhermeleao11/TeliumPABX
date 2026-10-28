@@ -39,6 +39,10 @@
 # comprada para ESTE servidor: ela é presa ao MAC da placa de rede.
 # instalar_asternic: true
 
+# Monitoria pelo Zabbix (zabbix-agent2): perguntada e configurada só na
+# instalação nova; a atualização não mexe nela.
+# instalar_zabbix: false
+
 # Arquivo da ferramenta de backup da empresa (a lista com linhas "I /etc",
 # "I /home"…). O padrão é /root/.backup_telium: o playbook mantém nele um
 # bloco marcado "Telium PABX" com o que é essencial da central, sem tocar

@@ -1,0 +1,5 @@
+# {{ ansible_managed }}
+# Pacotes do sistema com atualização disponível (-1: não deu para contar).
+# O 2>/dev/null tira o aviso do bash sobre o locale en_US.UTF-8, que o
+# Debian não tem: junto do número, o Zabbix recusaria o valor.
+UserParameter=pacotes.updates.count,{{ zabbix_scripts_dir }}/check_pacotes_updates.sh 2>/dev/null

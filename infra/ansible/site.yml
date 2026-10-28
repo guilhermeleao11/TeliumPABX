@@ -133,6 +133,37 @@
     - name: Perguntar o que é deste cliente
       ansible.builtin.include_tasks: tarefas/perguntas-da-instalacao.yml
 
+    # A monitoria é configurada só na instalação nova; a atualização não
+    # mexe nela. Numa central já instalada, só pedindo (zabbix_configurar).
+    - name: Decidir se configura a monitoria
+      ansible.builtin.set_fact:
+        zabbix_vai_configurar: >-
+          {{ (instalar_zabbix | default(false) | bool)
+             and (not (central_instalada | bool) or (zabbix_configurar | default(false) | bool)) }}
+
+    # As senhas do Zabbix ficam fora do Git: sem elas o papel zabbix pararia
+    # no fim, depois de tudo instalado. Melhor avisar agora.
+    - name: Procurar o arquivo de senhas do Zabbix
+      ansible.builtin.stat:
+        path: "{{ zabbix_senhas_arquivo }}"
+      register: zabbix_senhas_inicio
+      delegate_to: localhost
+      become: false
+      run_once: true
+      when: zabbix_vai_configurar | bool
+
+    - name: As senhas do Zabbix precisam estar na máquina que roda o playbook
+      ansible.builtin.assert:
+        that: >-
+          zabbix_senhas_inicio.stat.exists
+          or (zabbix_ami_senha is defined and zabbix_db_senha is defined)
+        fail_msg: >-
+          Faltam as senhas do Zabbix: crie {{ zabbix_senhas_arquivo }} a partir de
+          zabbix-senhas.yml.exemplo (fica fora do Git) e rode de novo. Nada foi instalado.
+          Para instalar sem a monitoria: -e instalar_zabbix=false.
+        quiet: true
+      when: zabbix_vai_configurar | bool
+
     # ---------- a senha inicial do admin ----------
     # Fora do Git (veja senha_admin_arquivo em main.yml). Só é pedida
     # quando ainda vai ser usada: na primeira instalação, ou quando o
@@ -277,6 +308,12 @@
     # Logs para o syslog central do grupo VoIP (syslog_central).
     - syslog
     - seguranca
+    # Monitoria pelo Zabbix. Depois do seguranca, que instala o ufw: a
+    # porta do agente é liberada só para os servidores Zabbix.
+    # Só na instalação nova: a atualização não mexe em nada da monitoria.
+    # Numa central já instalada, só pedindo: -e zabbix_configurar=true.
+    - role: zabbix
+      when: zabbix_vai_configurar | default(false) | bool
 
   post_tasks:
     - name: Alertar sobre o AMI, se houver problema

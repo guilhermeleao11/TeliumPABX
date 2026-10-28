@@ -196,6 +196,7 @@ Instalar o Asternic? [s/N]:
 Restringir o SIP? [s/N]: s
 Redes extras: 203.0.113.10
 Mandar os logs? [S/n]:
+Monitorar? [S/n]:
 
  Esta central é de:
    1  CLIENTE (produção): o banco nasce vazio
@@ -211,6 +212,7 @@ Ambiente [1]:
    Asternic .......... não
    SIP ............... só redes conhecidas + 203.0.113.10
    Syslog da Telium .. sim
+   Zabbix ............ sim
    Ambiente .......... cliente (banco vazio)
  Para mudar algo depois: /etc/telium-servidor.yml no servidor.
 Instalar? [S/n]:
@@ -235,6 +237,7 @@ O que cada pergunta quer dizer:
 | **Restringir o SIP** | Central nova | Sim: o SIP e o áudio só respondem a redes conhecidas (o Brasil, a Telium, as redes internas, os troncos, o "Nunca bloquear" e os telefones já registrados). **Diga não se tiver ramal ou operadora fora do Brasil e não souber o IP deles.** Atenção à operadora: se ela manda as chamadas de um IP **diferente do host cadastrado no tronco** (um SBC, ou servidores na nuvem, como AWS e Google, mesmo no Brasil), esse IP precisa entrar nas redes extras (ou no **Nunca bloquear**), senão as chamadas de entrada não chegam. Detalhes em [Segurança](08-Seguranca.md) | `sip_restringir_redes` |
 | **Redes extras** | Só se respondeu sim à anterior | IPs ou redes **de fora do Brasil** que precisam chegar à central (a operadora, um escritório no exterior), e os IPs de onde a operadora manda as chamadas quando não são o host do tronco (SBC, nuvem), separados por espaço, com ou sem `/máscara`. Nenhum: só Enter | `sip_redes_extras` |
 | **Mandar os logs** | Central nova | Sim, se a central fala com a rede da Telium. Não em central de cliente isolada | `syslog_central` |
+| **Monitorar** (Zabbix) | Central nova | Sim, se a central fala com a rede da Telium: instala o `zabbix-agent2` (seção Monitoria pelo Zabbix) | `instalar_zabbix` |
 | **Ambiente** | Central nova | `1` cliente (produção): o banco nasce vazio. `2` laboratório: já vem com o cenário de teste (ramais 1001 a 1004, grupo 2000, fila 3000, conferência 4000, URA, horário comercial e rotas). **Nunca `2` em central de cliente** | Não é guardado: vale só nesta execução |
 | **Instalar?** | Central nova | Enter instala. `n` cancela sem instalar nada (o nome já respondido fica guardado) | — |
 | **Senha inicial do admin** | Na primeira instalação (e quando o Asternic entra numa central que já existia) | A senha padrão da Telium, duas vezes. Ela não fica no Git: vai para `/etc/telium/credenciais/senha_admin_console` no servidor (só root) | — |
@@ -385,6 +388,18 @@ Trocar porta SIP depois da instalação exige rodar o playbook de novo: o Asteri
 | `syslog_central_porta` | 514 | Porta UDP do syslog |
 
 Num cliente com outro syslog, troque os IPs; sem syslog central, `syslog_central: false`.
+
+**Monitoria pelo Zabbix**
+
+O playbook instala o `zabbix-agent2` (pacote do Debian) com os itens do Asterisk, do MariaDB e do nginx, e o usuário do teste de SSH. Detalhes e comandos em [05-Servidor-Comandos-e-Servicos.md](05-Servidor-Comandos-e-Servicos.md#monitoria-pelo-zabbix).
+
+| Variável | Fábrica | O que faz |
+|---|---|---|
+| `instalar_zabbix` | `true` | Instala e configura o agente **na instalação nova** (perguntado). A atualização não mexe em nada da monitoria; numa central já instalada, só com `-e zabbix_configurar=true` |
+| `zabbix_senhas_arquivo` | `infra/ansible/zabbix-senhas.yml` | As senhas do Zabbix (AMI e banco), fora do Git, na máquina que roda o playbook. Copie de `zabbix-senhas.yml.exemplo` e preencha |
+| `zabbix_servidores` | 198.18.22.114, 10.16.140.114, 200.155.185.231 | Vão para o `Server=` e o `ServerActive=` do agente; só eles chegam à porta 10050 |
+| `zabbix_scripts_dir` | `/Telium/zabbix/scripts` | Onde fica o `zbx_asterisk_ami.py` |
+| `zabbix_ssh_usuario` | `zabbix_test` | Usuário do teste de SSH (a chave só responde `SSH_OK`) |
 
 **Não mexa** (servem para o projeto, não para a implantação): versões fixadas (`asterisk_versao`, `janus_versao`, `mariadb_versao`, `nginx_canal`), caminhos (`telium_base`, `backup_dir`, `gravacoes_dir`, `servidor_ajustes` etc.), usuários de sistema e portas internas (`ast_http_porta`, `ami_porta`, portas do Janus).
 

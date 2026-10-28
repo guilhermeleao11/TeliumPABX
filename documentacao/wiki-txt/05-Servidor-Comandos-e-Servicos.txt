@@ -218,6 +218,7 @@ NOTA: O diagnostico.sh confere janus na lista de serviços; numa central sem Jan
 - coturn — O que faz: TURN do softphone do navegador; Observação: Instalado por padrão (instalar_turn)
 - fail2ban — O que faz: Bane IPs que erram senha (SIP, console, SSH)
 - janus — O que faz: Gateway WebRTC opcional; Observação: Só existe com instalar_janus=true; o softphone não precisa dele
+- zabbix-agent2 — O que faz: Agente do Zabbix (Monitoria pelo Zabbix); Observação: Instalado na instalação nova (instalar_zabbix); a atualização não mexe nele. Porta 10050, aberta só para os servidores Zabbix
 - asterniclog — O que faz: Asternic (opcional): lê /var/log/asterisk/queue_log para o banco qstats; Observação: Só existe com instalar_asternic: true. O Asternic roda no pool asternic do PHP-FPM (/run/php/asternic.sock)
 
 Comandos:
@@ -231,6 +232,60 @@ Comandos:
 NOTA: ⚠️ systemctl restart asterisk derruba todas as chamadas. Para reiniciar sem cortar ninguém: sudo asterisk -rx "core restart when convenient" (espera a central ficar sem chamadas).
 
 O Asterisk depende do MariaDB de forma fraca (Wants): reiniciar o MariaDB não reinicia o Asterisk.
+
+
+Monitoria pelo Zabbix
+~~~~~~~~~~~~~~~~~~~~~
+
+Na instalação nova (pergunta "Monitorar? [S/n]", instalar_zabbix), o playbook instala o zabbix-agent2 do Debian e configura o que está abaixo. A atualização não mexe em nada disso. Numa central já instalada, configure pedindo: -e zabbix_configurar=true.
+
+As senhas do AMI e do banco são as do Zabbix da Telium, as mesmas em todas as centrais. Elas ficam fora do Git, em infra/ansible/zabbix-senhas.yml, na máquina de onde se roda o playbook (copie de zabbix-senhas.yml.exemplo). Sem esse arquivo, a instalação para no começo e avisa (ou instale sem monitoria: -e instalar_zabbix=false).
+
+
+- Servidores Zabbix (Server=, ServerActive=) e o nome da central no Zabbix (Hostname=, o hostname -a da máquina, ou o hostname): /etc/zabbix/zabbix_agent2.conf
+- Itens do Asterisk (asterisk.*: canais, chamadas, endpoints PJSIP, filas, uptime, versão, erros e avisos do log): /etc/zabbix/zabbix_agent2.d/asterisk_plugin.conf
+- Script que consulta o Asterisk pelo AMI: /Telium/zabbix/scripts/zbx_asterisk_ami.py
+- Itens do sistema Telium (telium.*: nome, versão, saúde da API, certificado, backup): /etc/zabbix/zabbix_agent2.d/telium.conf e /Telium/zabbix/scripts/zbx_telium.sh
+- Pacotes com atualização (pacotes.updates.count): /etc/zabbix/zabbix_agent2.d/debian_updates.conf e /Telium/zabbix/scripts/check_pacotes_updates.sh (a hora da última verificação fica em run/). A lista de pacotes é baixada uma vez por dia pelo apt-daily.timer (/etc/apt/apt.conf.d/20telium-listas); nada é instalado sozinho
+- Usuário zabbix do AMI (só 127.0.0.1): /etc/asterisk/manager_custom.conf (o playbook só acrescenta, e nunca reescreve; se já houver um [zabbix], fica o que está); a senha do script em /etc/zabbix/telium-ami.conf
+- Usuário zbx_monitor do banco, para localhost, 127.0.0.1 e 198.18.22.114 (sessão Default e itens sem parâmetro): /etc/zabbix/zabbix_agent2.d/plugins.d/mysql.conf
+- Status do nginx: http://127.0.0.1:8080/nginx_status (/etc/nginx/conf.d/zabbix-status.conf)
+- Usuário zabbix_test do teste de SSH: /home/zabbix_test/.ssh/authorized_keys (e o link em /etc/ssh/keys/zabbix_test/ quando o sshd usa essa pasta)
+
+Itens do sistema Telium, para o template PBX - TeliumPABX (Asterisk, nginx e MariaDB ficam nos templates próprios). O template pronto para o Zabbix 7.4, com estes itens e os alertas (certificado vencendo, backup falhou ou atrasado, serviço parado, API com problema), está em infra/zabbix/PBX-TeliumPABX.yaml: Coleta de dados › Templates › Importar. Importar de novo atualiza o que já existe.
+
+- telium.servername: O nome da central (o server_name do console no nginx)
+- telium.versao: A versão do Telium PABX
+- telium.saudavel: 1 se o /api/health responde com o banco, o esquema e o Asterisk em ordem; 0 se não
+- telium.ssl.dias: Dias até o certificado que o nginx entrega na 443 vencer (negativo: venceu)
+- telium.ssl.expira: O vencimento, em unixtime
+- telium.ssl.emissor: Quem emitiu o certificado
+- telium.ssl.nome_confere: 1 se o certificado vale para o nome da central
+- telium.backup.horas: Horas desde o último backup concluído (-1: nenhum)
+- telium.backup.ok: 1 se a última execução deu certo, 0 se falhou (-1: nenhuma terminou)
+- telium.backup.tamanho: Bytes do último backup concluído
+- telium.backup.rotinas: Rotinas de backup agendadas e ativas
+- telium.backup.remoto.estado: Envio ao destino remoto: desligado, nunca, ok ou falha
+- telium.backup.remoto.horas: Horas desde o último envio (-1: nunca)
+- systemd.unit.info["<unidade>"]: Do próprio agent2, sem script: active quando roda. Unidades do Telium: telium-cc.service, php8.4-fpm.service, coturn.service, telium-backup.timer, telium-certificados.timer, telium-despertador.timer, telium-tarifar.timer
+
+O backup é lido como zbx_monitor, que só enxerga as colunas de estado (/etc/zabbix/telium-db.cnf, root:zabbix 0640); a senha do FTP do destino remoto fica de fora.
+
+Conferir no servidor:
+
+    systemctl status zabbix-agent2
+    cd /etc/zabbix && sudo zabbix_agent2 -t 'mysql.ping[Default]'      # 1 = banco respondendo
+    sudo -u zabbix /Telium/zabbix/scripts/zbx_asterisk_ami.py version    # versão do Asterisk
+    sudo -u zabbix /Telium/zabbix/scripts/zbx_asterisk_ami.py debug.pjsip
+    sudo -u zabbix /Telium/zabbix/scripts/zbx_telium.sh dias            # dias até o certificado vencer
+    sudo -u zabbix /Telium/zabbix/scripts/zbx_telium.sh backup.horas
+    cd /etc/zabbix && sudo zabbix_agent2 -t pacotes.updates.count
+    curl -s http://127.0.0.1:8080/nginx_status
+    tail -f /var/log/zabbix/zabbix_agent2.log
+
+O zabbix_agent2 -t tem de ser rodado de dentro de /etc/zabbix: o pacote inclui os plugins por caminho relativo, e de outra pasta o teste do MySQL ignora o usuário configurado (e acusa "Access denied for user 'root'").
+
+Central configurada à mão antes: a atualização não mexe nela. Com -e zabbix_configurar=true, um [zabbix] que já esteja no manager_custom.conf fica como está.
 
 
 6. TEMPORIZADORES (TIMERS)
