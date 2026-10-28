@@ -1,0 +1,20 @@
+{
+  "widget": {
+    "name": "Telium PABX",
+    "short_description": "Clique para ligar, registro e gravação das chamadas do Telium PABX.",
+    "description": "Ligue para o cliente com um clique no telefone do contato: a central Telium PABX toca o seu ramal e, quando você atende, disca o cliente. Cada ligação feita ou recebida entra no histórico do contato, com o resultado, a duração e a gravação para ouvir no cartão.<br><br>Configure aqui o endereço da central e a chave gerada nela em <b>Telium › Integrações / API › Kommo</b>. O ramal de cada usuário é escolhido na própria central.",
+    "call_action": "Ligar pelo PABX",
+    "tour_description": "Telium PABX no Kommo"
+  },
+  "settings": {
+    "pabx_url": "Endereço da central (ex.: https://voz.suaempresa.com.br)",
+    "chave": "Chave da central (Telium › Integrações / API › Kommo)"
+  },
+  "telium": {
+    "titulo": "Telium PABX",
+    "ligando": "Seu ramal vai tocar. Atenda para ligar para o cliente.",
+    "falhou": "A central não aceitou a ligação.",
+    "sem_config": "Configure o endereço e a chave da central nas configurações do app Telium PABX.",
+    "sem_central": "Não foi possível falar com a central. Confira o endereço nas configurações do app."
+  }
+}

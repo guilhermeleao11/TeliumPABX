@@ -20,6 +20,7 @@ use Telium\Http\Controllers\Filas;
 use Telium\Http\Controllers\Gravacoes;
 use Telium\Http\Controllers\Feriados as CtrlFeriados;
 use Telium\Http\Controllers\Horarios;
+use Telium\Http\Controllers\Kommo as CtrlKommo;
 use Telium\Http\Controllers\Ura;
 use Telium\Http\Controllers\Audios;
 use Telium\Http\Controllers\Backup;
@@ -1104,6 +1105,11 @@ $app->post('/auth/login', [CtrlAuth::class, 'login']);
 // em Telium › Integrações / API, é o que protege. GET também, porque há
 // sistema que só sabe abrir uma URL.
 $app->map(['GET', 'POST'], '/click2call', [CtrlClickToCall::class, 'pedir']);
+// O app instalado no Kommo: o clique no telefone do contato (protegido
+// pela chave do app) e o player da gravação no cartão (link assinado).
+$app->options('/kommo/discar', [CtrlKommo::class, 'preparar']);
+$app->post('/kommo/discar', [CtrlKommo::class, 'discar']);
+$app->get('/kommo/gravacao/{id}/{arquivo}', [CtrlKommo::class, 'gravacao']);
 
 /* ---------------------------------------------------------
    Rotas autenticadas
@@ -1129,6 +1135,15 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
       ->add(new Permissao('telium.integracoes', 'editar'));
     $g->delete('/click2call/chaves/{id}', [CtrlClickToCall::class, 'remover'])->add(new Permissao('telium.integracoes', 'excluir'));
     $g->post('/click2call/testar', [CtrlClickToCall::class, 'testar'])->add(new Permissao('telium.integracoes', 'editar'));
+    // A integração com o Kommo (Integrações / API › Kommo).
+    $g->get('/kommo', [CtrlKommo::class, 'ver'])->add(new Permissao('telium.integracoes'));
+    $g->put('/kommo', [CtrlKommo::class, 'salvar'])->add(new Permissao('telium.integracoes', 'editar'));
+    $g->post('/kommo/testar', [CtrlKommo::class, 'testar'])->add(new Permissao('telium.integracoes', 'editar'));
+    $g->post('/kommo/usuarios/sincronizar', [CtrlKommo::class, 'sincronizar'])->add(new Permissao('telium.integracoes', 'editar'));
+    $g->put('/kommo/usuarios', [CtrlKommo::class, 'salvarUsuarios'])->add(new Permissao('telium.integracoes', 'editar'));
+    $g->post('/kommo/chave', [CtrlKommo::class, 'chave'])->add(new Permissao('telium.integracoes', 'editar'));
+    $g->post('/kommo/enviar', [CtrlKommo::class, 'enviar'])->add(new Permissao('telium.integracoes', 'editar'));
+    $g->get('/kommo/app.zip', [CtrlKommo::class, 'app'])->add(new Permissao('telium.integracoes'));
 
     $g->post('/discar', [Portal::class, 'discar'])
       ->add(new Permissao('pcu.meuramal', null,

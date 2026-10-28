@@ -2,8 +2,28 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.8.0 — 2026-10-27
+## 1.9.0 — 2026-10-28
 Commits:
+Integração com o Kommo (CRM): clique para ligar, registro das chamadas e gravação no histórico do contato.
+
+### Novidades
+- **Kommo (CRM)**, em Telium › Integrações / API. **Clique para ligar**: o app Telium PABX, instalado no Kommo, põe o botão **Ligar pelo PABX** em todo telefone do contato, do lead e da empresa. Ele manda à central o número e quem clicou; a central toca o ramal dessa pessoa (com o nome do cliente no visor) e, ao atender, disca o cliente, pelas rotas e permissões do próprio ramal.
+- **Registro automático**: cada chamada feita ou recebida vai para o histórico do contato no Kommo, com sentido, telefone, horário, duração, resultado, o usuário do Kommo do ramal como dono e um resumo em uma linha (quem ligou, para quem, quando e quanto durou; na recebida, também o número da empresa que o cliente discou). Fila e siga-me viram um registro só, com quem atendeu. Ligação recebida de número que não é contato vira **lead de entrada** (opcional).
+- **Gravação no cartão**: o registro leva o link da gravação, assinado, e o Kommo toca no próprio histórico.
+- **Usuários do Kommo e ramais**: a central busca os usuários da conta e cada um ganha um ramal. É a central que decide o ramal: pelo Kommo ninguém faz tocar o ramal de outra pessoa.
+- **O app sai da central**: botão **telium-pabx-kommo.zip**, para enviar ao criar a integração privada no Kommo. Conexão pelo token de longo prazo do Kommo.
+- Lista **Chamadas levadas ao Kommo**, com o estado de cada uma (no histórico, lead de entrada, sem contato, erro) e o botão **Enviar agora**. O envio roda pelo temporizador `telium-kommo.timer`, a cada minuto (`php bin/telium kommo-enviar`).
+
+### Segurança
+- O app usa uma chave de click to call própria (**Kommo (app do CRM)**), que só vale na porta do Kommo; o CORS libera só as telas do Kommo.
+- A gravação só toca com a assinatura do link; o caminho do arquivo é conferido dentro do diretório de gravações.
+- O token do Kommo só vai para domínios do Kommo (ou do amoCRM): outro endereço não é aceito na tela.
+
+### Correções
+- **Click to call**: número que não casa com nenhuma rota de saída do ramal dava "Confira se o ramal está registrado". Agora diz que falta rota de saída para aquele número e sugere conferir o prefixo e o DDD.
+
+## 1.8.0 — 2026-10-27
+Commits: d81e80d
 Monitoria pelo Zabbix instalada junto com a central.
 
 ### Novidades

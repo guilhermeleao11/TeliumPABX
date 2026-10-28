@@ -37,23 +37,13 @@ final class ClickToCall
         $ramal = preg_replace('/\D/', '', (string) ($p['ramal'] ?? '')) ?? '';
         $numero = C2c::numeroLimpo((string) ($p['numero'] ?? ''));
 
-        // Quem erra a chave sem parar está chutando: para por um tempo.
-        $falhas = (int) Bd::valor(
-            "SELECT COUNT(*) FROM click2call_pedidos
-              WHERE ip = ? AND origem = 'api' AND chave_id IS NULL AND resultado = ?
-                AND criado_em >= NOW() - INTERVAL 10 MINUTE",
-            // Pelo motivo, e não só pela chave vazia: os pedidos de uma chave
-            // excluída também ficam sem chave (ON DELETE SET NULL), e um
-            // sistema que usava muito a chave apagada era bloqueado à toa.
-            [$ip, self::CHAVE_INVALIDA]
-        );
-        if ($falhas >= self::MAX_FALHAS) {
+        if (self::chutando($ip)) {
             return self::falha($res, 429, 'Muitas chaves inválidas deste endereço. Tente de novo em alguns minutos.');
         }
 
         $chave = C2c::chaveDoToken(self::token($req, $p));
         if ($chave === null) {
-            self::registrar(null, 'api', $ramal, $numero, false, self::CHAVE_INVALIDA, null, $ip);
+            self::chaveRecusada('api', $ramal, $numero, $ip);
 
             return self::falha($res, 401, 'Chave de API ausente, inválida ou desativada.');
         }
@@ -78,8 +68,32 @@ final class ClickToCall
                             (int) $chave['atender_auto'] === 1, $ip);
     }
 
+    /**
+     * Quem erra a chave sem parar está chutando: para por um tempo. Vale
+     * para a API e para o app do Kommo, que entram pela mesma chave.
+     */
+    public static function chutando(string $ip): bool
+    {
+        $falhas = (int) Bd::valor(
+            "SELECT COUNT(*) FROM click2call_pedidos
+              WHERE ip = ? AND chave_id IS NULL AND resultado = ?
+                AND criado_em >= NOW() - INTERVAL 10 MINUTE",
+            // Pelo motivo, e não só pela chave vazia: os pedidos de uma chave
+            // excluída também ficam sem chave (ON DELETE SET NULL), e um
+            // sistema que usava muito a chave apagada era bloqueado à toa.
+            [$ip, self::CHAVE_INVALIDA]
+        );
+
+        return $falhas >= self::MAX_FALHAS;
+    }
+
+    public static function chaveRecusada(string $origem, string $ramal, string $numero, string $ip): void
+    {
+        self::registrar(null, $origem, $ramal, $numero, false, self::CHAVE_INVALIDA, null, $ip);
+    }
+
     /** A chave: X-Api-Key, Authorization: Bearer ou o parâmetro token. */
-    private static function token(Request $req, array $p): string
+    public static function token(Request $req, array $p): string
     {
         $cabecalho = trim($req->getHeaderLine('X-Api-Key'));
         if ($cabecalho !== '') {
@@ -92,7 +106,8 @@ final class ClickToCall
         return (string) ($p['token'] ?? '');
     }
 
-    private static function discar(
+    /** Toca o ramal e disca, com o pedido registrado. Também a porta do app do Kommo. */
+    public static function discar(
         Response $res, ?int $chaveId, string $origem, string $ramal, string $numero,
         string $nome, bool $auto, string $ip
     ): Response {
@@ -138,7 +153,7 @@ final class ClickToCall
         return Resposta::json($res, ['ok' => false, 'erro' => $mensagem], $status);
     }
 
-    private static function registrar(
+    public static function registrar(
         ?int $chaveId, string $origem, string $ramal, string $numero, bool $ok,
         string $resultado, ?string $uniqueid, string $ip
     ): void {

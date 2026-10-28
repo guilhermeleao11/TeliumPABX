@@ -1,0 +1,20 @@
+{
+  "widget": {
+    "name": "Telium PABX",
+    "short_description": "Clic para llamar, registro y grabación de llamadas del Telium PABX.",
+    "description": "Llame al cliente con un clic en el teléfono del contacto: la central Telium PABX hace sonar su extensión y, al contestar, marca al cliente. Cada llamada realizada o recibida queda en el historial del contacto, con el resultado, la duración y la grabación para escuchar en la tarjeta.<br><br>Configure la dirección de la central y la clave generada en <b>Telium › Integrações / API › Kommo</b>. La extensión de cada usuario se elige en la central.",
+    "call_action": "Llamar por la central",
+    "tour_description": "Telium PABX para Kommo"
+  },
+  "settings": {
+    "pabx_url": "Dirección de la central (ej.: https://voz.suempresa.com)",
+    "chave": "Clave de la central (Telium › Integrações / API › Kommo)"
+  },
+  "telium": {
+    "titulo": "Telium PABX",
+    "ligando": "Su extensión va a sonar. Conteste para llamar al cliente.",
+    "falhou": "La central no aceptó la llamada.",
+    "sem_config": "Configure la dirección y la clave de la central en los ajustes de la app Telium PABX.",
+    "sem_central": "No fue posible hablar con la central. Revise la dirección en los ajustes de la app."
+  }
+}

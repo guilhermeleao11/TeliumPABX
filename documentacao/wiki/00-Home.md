@@ -61,6 +61,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | Telium | Tarifação, integrações e API (click to call e webhooks), suporte, versões e novidades | [20](20-Telium-Tarifacao-Integracoes-Suporte.md) |
 | Meu Painel (PCU) | O painel do usuário: meu ramal, minhas chamadas, correio de voz, siga-me, contatos, perfil e segurança | [21](21-Meu-Painel-PCU.md) |
 | Telefones | Registrar um ramal no Yealink T20 / T20P, passo a passo e com figuras | [22](22-Telefone-Yealink-T20.md) |
+| Kommo (CRM) | Clique para ligar no cartão do contato, registro automático das chamadas e gravação no histórico | [23](23-Integracao-Kommo.md) |
 
 ---
 
@@ -96,6 +97,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | 20 | [Telium: tarifação, integrações e suporte](20-Telium-Tarifacao-Integracoes-Suporte.md) |
 | 21 | [Meu Painel (PCU)](21-Meu-Painel-PCU.md) |
 | 22 | [Telefone Yealink T20 / T20P: registrar um ramal](22-Telefone-Yealink-T20.md) |
+| 23 | [Integração com o Kommo (CRM)](23-Integracao-Kommo.md) |
 
 ### Desenvolvimento
 

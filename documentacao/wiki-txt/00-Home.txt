@@ -59,6 +59,7 @@ O QUE A CENTRAL FAZ
 - Telium — Recursos: Tarifação, integrações e API (click to call e webhooks), suporte, versões e novidades; Página: 20 (ver página 20)
 - Meu Painel (PCU) — Recursos: O painel do usuário: meu ramal, minhas chamadas, correio de voz, siga-me, contatos, perfil e segurança; Página: 21 (ver página 21)
 - Telefones — Recursos: Registrar um ramal no Yealink T20 / T20P, passo a passo e com figuras; Página: 22 (ver página 22)
+- Kommo (CRM) — Recursos: Clique para ligar no cartão do contato, registro automático das chamadas e gravação no histórico; Página: 23 (ver página 23)
 
 
 ÍNDICE COMPLETO
@@ -94,6 +95,7 @@ Manual das telas
 - 20: Telium: tarifação, integrações e suporte (ver página 20)
 - 21: Meu Painel (PCU) (ver página 21)
 - 22: Telefone Yealink T20 / T20P: registrar um ramal (ver página 22)
+- 23: Integração com o Kommo (CRM) (ver página 23)
 
 
 Desenvolvimento

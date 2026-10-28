@@ -13,6 +13,7 @@ declare(strict_types=1);
  *   php bin/telium alertas          — manda os avisos do sistema por e-mail
  *   php bin/telium testar           — roda a bateria de testes
  *   php bin/telium cc-servico       — serviço de tempo real do call center
+ *   php bin/telium kommo-enviar     — manda as chamadas novas ao Kommo
  */
 
 use Telium\Dominio\Senha;
@@ -41,6 +42,7 @@ try {
         'testar'         => testar(),
         'backup-enviar'  => backupEnviar($argv[2] ?? ''),
         'tarifar'        => tarifar($argv[2] ?? ''),
+        'kommo-enviar'   => kommoEnviar(),
         'cc-servico'     => (new \Telium\Servico\TempoReal((string) (Ambiente::get('CC_ENDERECO') ?: '127.0.0.1:8095')))->rodar(),
         default          => ajuda(),
     };
@@ -337,6 +339,8 @@ function ajuda(): void
       php bin/telium testar            roda a bateria de testes
       php bin/telium backup-enviar <id> manda o backup para o destino remoto
       php bin/telium tarifar [AAAA-MM]  calcula o custo das chamadas do mês
+      php bin/telium kommo-enviar      manda ao Kommo as chamadas novas (quem roda
+                                       é o temporizador telium-kommo, a cada minuto)
       php bin/telium cc-servico        serviço do call center (quem roda é o telium-cc)
 
     TXT;
@@ -374,6 +378,36 @@ function tarifar(string $mes): void
         echo "{$amarelo}! {$r['sem_tarifa']} chamada(s) sem tarifa que se aplique — "
            . "confira se há uma linha para a classe delas em Tabela de Tarifas{$zero}\n";
     }
+}
+
+/**
+ * Leva as chamadas novas ao histórico dos contatos no Kommo.
+ *
+ * Roda pelo temporizador telium-kommo, a cada minuto. Sem a integração
+ * ligada, sai sem fazer nada — o temporizador fica instalado em toda
+ * central e só trabalha onde alguém ligou o Kommo.
+ */
+function kommoEnviar(): void
+{
+    global $verde, $amarelo, $zero;
+
+    $trava = \Telium\Suporte\Trava::tentar('telium-kommo-enviar', 0);
+    if ($trava === null) {
+        echo "{$amarelo}! outro envio ainda está rodando{$zero}\n";
+        return;
+    }
+    try {
+        $r = \Telium\Dominio\Kommo::enviarPendentes();
+    } finally {
+        $trava->soltar();
+    }
+
+    // Calado quando não há nada: ele roda a cada minuto, e o journal
+    // encheria de "nada novo".
+    if ($r['enviadas'] === 0 && $r['erros'] === 0 && !in_array('-v', $GLOBALS['argv'], true)) {
+        return;
+    }
+    echo ($r['erros'] > 0 ? $amarelo . '! ' : $verde . '✓ ') . $r['detalhe'] . $zero . "\n";
 }
 
 /**

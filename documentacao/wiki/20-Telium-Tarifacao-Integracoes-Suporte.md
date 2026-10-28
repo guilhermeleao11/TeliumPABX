@@ -98,7 +98,8 @@ Para os relatórios de chamadas, veja [18-Relatorios.md](18-Relatorios.md).
 
 A tela tem, de cima para baixo:
 
-1. **Click to call**: as chaves de API dos outros sistemas.
+0. **Kommo (CRM)**: clique para ligar no cartão do contato, registro das chamadas e gravação no histórico. Tem página própria: [Integração com o Kommo](23-Integracao-Kommo.md).
+1. **Click to call**: as chaves de API dos outros sistemas (a chave do app do Kommo aparece aqui como **Kommo (app do CRM)**).
 2. **Como o outro sistema chama**: o endereço e um exemplo pronto.
 3. **Testar**: faz uma chamada de click to call pelo console.
 4. **Últimos pedidos**: os 50 pedidos mais recentes, atendidos ou recusados.

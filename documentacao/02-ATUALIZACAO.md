@@ -228,6 +228,11 @@ implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.9.0 — integração com o Kommo (CRM)
+- **Kommo**: em **Telium › Integrações / API**, seção **Kommo (CRM)**. Clique no telefone do contato no Kommo e o ramal de quem clicou toca; ao atender, a central disca o cliente. Cada chamada feita ou recebida vai para o histórico do contato com o resumo (quem ligou, para quem, quando e quanto durou), o dono e a gravação. Número que não é contato vira lead de entrada. O app do Kommo sai da própria central (**telium-pabx-kommo.zip**). Passo a passo em [Integração com o Kommo](23-Integracao-Kommo.md).
+- Novo temporizador **`telium-kommo.timer`** (a cada minuto). Sem a integração ligada, não faz nada: a atualização não muda nada para quem não usa o Kommo.
+- **Click to call**: quando o número não casa com nenhuma rota de saída do ramal, o aviso agora diz isso (antes mandava conferir o registro do ramal, que estava certo).
+
 ### 1.8.0 — monitoria pelo Zabbix
 - O playbook instala o **zabbix-agent2**, com os scripts em `/Telium/zabbix/scripts` e os itens em `/etc/zabbix/zabbix_agent2.d/`: Asterisk, sistema Telium (nome, versão, saúde, certificado, backup), pacotes com atualização, MariaDB e nginx. A porta 10050 abre só para os servidores Zabbix. **Só na instalação nova** (perguntado: "Monitorar? [S/n]"). **A atualização não mexe em nada da monitoria**: central já instalada continua como está; para configurar numa delas, peça: `-e zabbix_configurar=true`. Detalhes em [Servidor](wiki/05-Servidor-Comandos-e-Servicos.md#monitoria-pelo-zabbix).
 - As senhas do Zabbix (AMI e banco) são as da Telium, as mesmas em todas as centrais, em `infra/ansible/zabbix-senhas.yml`, que vai no repositório (privado): quem clona já recebe e a instalação não pede nada.

@@ -317,6 +317,7 @@ O `zabbix_agent2 -t` tem de ser rodado de dentro de `/etc/zabbix`: o pacote incl
 | `telium-certificados.timer` | `telium-certificados.service` → `/usr/local/sbin/telium-certificados` | A cada minuto (`*:0/1`) |
 | `telium-despertador.timer` | `telium-despertador.service` → `/usr/local/sbin/telium-despertador` | A cada minuto (`*:0/1`) |
 | `telium-tarifar.timer` | `telium-tarifar.service` → `telium tarifar` (como `teliumpbx`) | De hora em hora (`hourly`) |
+| `telium-kommo.timer` | `telium-kommo.service` → `telium kommo-enviar` (como `teliumpbx`): leva as chamadas novas ao Kommo. Sem a integração ligada, não faz nada | A cada minuto (`OnUnitActiveSec=1min`) |
 | `telium-firewall-sip.timer` | `telium-firewall-sip.service` → `/usr/local/sbin/telium-firewall-sip aplicar` | 30 s depois do boot e a cada 5 minutos. Ligado só com `sip_restringir_redes` |
 
 Rodar a cada minuto não quer dizer trabalhar a cada minuto: cada um olha o banco e sai com "nada a fazer" quando não há pendência.
@@ -496,7 +497,7 @@ curl -sk https://127.0.0.1/api/health  # a API responde?
 | Fax por e-mail | `journalctl -t telium-fax` |
 | nginx | `sudo tail -f /var/log/nginx/error.log` e `access.log` |
 | MariaDB | `sudo tail -f /var/log/mysql/error.log` |
-| Serviços Telium | `journalctl -u telium-cc -f` (e `telium-backup`, `telium-certificados`, `telium-despertador`, `telium-tarifar`). Os alertas por e-mail aparecem no `telium-backup` com o prefixo `alertas:`; os erros de webhook, no `telium-cc` com o prefixo `webhook:` |
+| Serviços Telium | `journalctl -u telium-cc -f` (e `telium-backup`, `telium-certificados`, `telium-despertador`, `telium-tarifar`, `telium-kommo`). Os alertas por e-mail aparecem no `telium-backup` com o prefixo `alertas:`; os erros de webhook, no `telium-cc` com o prefixo `webhook:` |
 | coturn, fail2ban | `journalctl -u coturn`, `journalctl -u fail2ban` |
 
 Rotação e localização de cada arquivo em [Diretórios, arquivos e logs](06-Diretorios-Arquivos-e-Logs.md).

@@ -1,0 +1,40 @@
+{
+  "widget": {
+    "name": "widget.name",
+    "description": "widget.description",
+    "short_description": "widget.short_description",
+    "version": "1.0.0",
+    "interface_version": 2,
+    "init_once": false,
+    "locale": ["pt", "en", "es"],
+    "installation": true,
+    "support": {
+      "link": "https://www.telium.com.br"
+    }
+  },
+  "locations": [
+    "ccard-1",
+    "clist-1",
+    "lcard-1",
+    "llist-1",
+    "comcard-1",
+    "settings"
+  ],
+  "tour": {
+    "is_tour": false,
+    "tour_images": {},
+    "tour_description": "widget.tour_description"
+  },
+  "settings": {
+    "pabx_url": {
+      "name": "settings.pabx_url",
+      "type": "text",
+      "required": true
+    },
+    "chave": {
+      "name": "settings.chave",
+      "type": "pass",
+      "required": true
+    }
+  }
+}

@@ -26,6 +26,8 @@ final class Esquema
         'estacionamentos', 'despertadores',
         'provisionamento_convite',
         'caixas_postais', 'click2call_chaves', 'click2call_pedidos',
+        // 1.9.0 (50): a integração com o Kommo.
+        'kommo_config', 'kommo_usuarios', 'kommo_chamadas',
         // call center
         'cc_agentes', 'cc_agente_filas', 'cc_pausas_motivos', 'cc_tabulacoes',
         'cc_atendimentos', 'cc_retornos', 'queue_log',

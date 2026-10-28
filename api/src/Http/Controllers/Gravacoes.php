@@ -48,7 +48,7 @@ final class Gravacoes
             $args
         );
 
-        $dir = $this->diretorio();
+        $dir = self::diretorio();
         foreach ($dados as &$g) {
             $caminho = $dir . '/' . ltrim((string) $g['arquivo'], '/');
             $g['existe'] = is_file($caminho);
@@ -106,7 +106,7 @@ final class Gravacoes
     public function arquivo(Request $req, Response $res): Response
     {
         $p = $req->getQueryParams();
-        $caminho = $this->resolver((string) ($p['caminho'] ?? ''));
+        $caminho = self::resolver((string) ($p['caminho'] ?? ''));
 
         if ($caminho === null) {
             return Resposta::erro($res, 'Gravação não encontrada no servidor.', 404);
@@ -156,7 +156,7 @@ final class Gravacoes
         $incluidas = 0;
         $faltando = [];
         foreach ($pedidos as $pedido) {
-            $caminho = $this->resolver((string) $pedido);
+            $caminho = self::resolver((string) $pedido);
             if ($caminho === null) {
                 $faltando[] = basename((string) $pedido);
                 continue;
@@ -243,15 +243,15 @@ final class Gravacoes
      * gravações — ou null. realpath resolve o ".." antes de a gente
      * comparar, que é o ponto: sem isso, "../../etc/passwd" passaria.
      */
-    private function resolver(string $pedido): ?string
+    public static function resolver(string $pedido): ?string
     {
         $pedido = ltrim(trim($pedido), '/');
         if ($pedido === '' || str_contains($pedido, "\0")) {
             return null;
         }
 
-        $base = realpath($this->diretorio());
-        $alvo = realpath($this->diretorio() . '/' . $pedido);
+        $base = realpath(self::diretorio());
+        $alvo = realpath(self::diretorio() . '/' . $pedido);
 
         if ($base === false || $alvo === false || !is_file($alvo)) {
             return null;
@@ -263,7 +263,7 @@ final class Gravacoes
         return $alvo;
     }
 
-    private function diretorio(): string
+    private static function diretorio(): string
     {
         return rtrim((string) Ambiente::get('GRAVACOES_DIR', '/var/spool/asterisk/monitor'), '/');
     }

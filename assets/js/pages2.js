@@ -1744,7 +1744,7 @@ const C2C = {
       <thead><tr><th>Quando</th><th>Quem pediu</th><th>Ramal</th><th>Número</th><th>Resultado</th></tr></thead>
       <tbody>${d.pedidos.map(x => `<tr>
         <td class="small dim">${dataHora(x.criado_em)}</td>
-        <td class="small">${x.origem === 'console' ? 'teste pelo console' : esc(x.chave || 'chave inválida')}
+        <td class="small">${x.origem === 'console' ? 'teste pelo console' : x.origem === 'kommo' && !x.chave ? 'app do Kommo (chave inválida)' : esc(x.chave || 'chave inválida')}
           <div class="tiny muted mono">${esc(x.ip || '')}</div></td>
         <td class="mono">${esc(x.ramal || '—')}</td>
         <td class="mono">${esc(x.numero || '—')}</td>
@@ -1917,15 +1917,227 @@ const C2C = {
   }
 };
 
+/*
+ * Kommo (CRM): o app instalado no Kommo pede a ligação (o ramal sai do
+ * usuário que clicou, pelo cadastro abaixo) e a central devolve cada
+ * chamada ao histórico do contato, com a gravação. A seção fica no topo
+ * da página de Integrações; os nomes data-kommo-* não se confundem com
+ * os do click to call nem com os da lista de webhooks.
+ */
+const KOMMO = {
+  ESTADOS: {
+    ok:          ['badge-ok', 'no histórico'],
+    lead:        ['badge-info', 'lead de entrada'],
+    sem_contato: ['', 'sem contato'],
+    erro:        ['badge-danger', 'erro']
+  },
+
+  html(pagina, ctx) {
+    const d = pagina._kommo;
+    if (!d) return '';
+    const c = d.config;
+    const pode = ctx.can('editar');
+    const dis = pode ? '' : 'disabled';
+    const chk = v => Number(v) ? 'checked' : '';
+    const url = c.url_publica || c.url_publica_padrao || location.origin;
+    const comRamal = d.usuarios.filter(u => Number(u.ativo) && u.ramal).length;
+    const ativos = d.usuarios.filter(u => Number(u.ativo)).length;
+
+    const opcoesRamal = sel => `<option value="">— sem ramal —</option>` + d.ramais.map(r =>
+      `<option value="${esc(r.numero)}" ${String(sel || '') === String(r.numero) ? 'selected' : ''}>${esc(r.numero)} — ${esc(r.nome || '')}</option>`).join('');
+
+    const usuarios = d.usuarios.length ? `<div class="table-wrap"><table class="table">
+      <thead><tr><th>Usuário do Kommo</th><th>E-mail</th><th style="width:260px">Ramal na central</th></tr></thead>
+      <tbody>${d.usuarios.map(u => `<tr>
+        <td><b>${esc(u.nome)}</b>${Number(u.ativo) ? '' : ' <span class="badge" data-tip="Não está mais no Kommo">saiu do Kommo</span>'}
+          <div class="tiny muted mono">id ${esc(u.kommo_id)}</div></td>
+        <td class="small dim">${esc(u.email || '—')}</td>
+        <td><select class="input" data-kommo-ramal="${esc(u.kommo_id)}" ${dis}>${opcoesRamal(u.ramal)}</select></td>
+      </tr>`).join('')}</tbody></table></div>`
+      : vazio('users', 'Nenhum usuário do Kommo ainda',
+              'Salve a conta e o token e clique em "Buscar usuários do Kommo": cada usuário ganha um ramal aqui.',
+              pode ? `<button class="btn btn-primary btn-sm" data-kommo-sincronizar>${icon('refresh','ico ico-sm')} Buscar usuários do Kommo</button>` : '');
+
+    const chamadas = d.chamadas.length ? `<div class="table-wrap"><table class="table">
+      <thead><tr><th>Quando</th><th>Sentido</th><th>Telefone</th><th>Ramal / usuário</th><th>Conversa</th><th>No Kommo</th></tr></thead>
+      <tbody>${d.chamadas.map(x => {
+        const [classe, rotulo] = this.ESTADOS[x.estado] || ['', x.estado];
+        return `<tr>
+        <td class="small dim">${dataHora(x.inicio)}</td>
+        <td class="small">${x.direcao === 'entrada' ? 'recebida' : 'feita'}</td>
+        <td class="mono">${esc(x.telefone)}</td>
+        <td class="small"><span class="mono">${esc(x.ramal || '—')}</span>${x.usuario ? `<div class="tiny muted">${esc(x.usuario)}</div>` : (x.ramal ? '<div class="tiny muted">ramal sem usuário do Kommo</div>' : '')}</td>
+        <td class="small">${Number(x.atendida) ? duracao(Number(x.duracao)) : '<span class="dim">não atendida</span>'}${x.gravacao ? ` ${icon('mic','ico ico-sm')}` : ''}</td>
+        <td class="small"><span class="badge ${classe}">${rotulo}</span> ${esc(x.detalhe || '')}
+          ${x.estado === 'erro' ? `<div class="tiny muted">tentativa ${esc(x.tentativas)} de 5</div>` : ''}</td>
+      </tr>`;
+      }).join('')}</tbody></table></div>`
+      : '<p class="small muted" style="padding:14px 16px;margin:0">Nenhuma chamada enviada ainda. Com a integração ligada, cada chamada aparece aqui cerca de dois minutos depois de terminar.</p>';
+
+    return `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head"><div><div class="card-title">Kommo (CRM)
+            ${Number(c.ativo) ? '<span class="badge badge-ok"><i class="dot"></i>Ligada</span>' : '<span class="badge"><i class="dot"></i>Desligada</span>'}</div>
+          <div class="card-sub">Clique no telefone do contato no Kommo: o ramal de quem clicou toca e, ao atender, a central
+            disca o cliente. Cada chamada feita ou recebida entra no histórico do contato, com a gravação para ouvir no cartão.</div></div></div>
+        <div class="card-body">
+          <div class="grid g-2">
+            <form id="kommoForm" autocomplete="off"><div class="form-grid">
+              <div class="field full"><label class="label">Integração ligada</label>
+                <label class="switch"><input type="checkbox" name="ativo" ${chk(c.ativo)} ${dis}><span class="track"></span></label>
+                <span class="hint">Ligada, as chamadas a partir de agora vão para o Kommo. O histórico antigo não é enviado.</span></div>
+              <div class="field" data-campo="subdominio"><label class="label">Conta do Kommo</label>
+                <input class="input mono" name="subdominio" value="${esc(c.subdominio || '')}" placeholder="suaempresa.kommo.com" ${dis}></div>
+              <div class="field" data-campo="token"><label class="label">Token de longo prazo</label>
+                <input class="input mono" type="password" name="token" autocomplete="new-password"
+                  placeholder="${c.token_definido ? `guardado (…${esc(c.token_fim)}) — em branco mantém` : 'cole o token do Kommo'}" ${dis}></div>
+              <div class="field full" data-campo="url_publica"><label class="label">Endereço da central para o Kommo</label>
+                <input class="input mono" name="url_publica" value="${esc(c.url_publica || '')}" placeholder="${esc(c.url_publica_padrao || 'https://voz.suaempresa.com.br')}" ${dis}>
+                <span class="hint">Por onde o navegador de quem usa o Kommo chega à central (o link das gravações). Em branco: ${esc(c.url_publica_padrao || 'o nome da central')}.</span></div>
+              <div class="field" data-campo="ddd"><label class="label">DDD da central</label>
+                <input class="input mono" name="ddd" maxlength="2" inputmode="numeric" value="${esc(c.ddd || '')}" placeholder="11" ${dis}>
+                <span class="hint">Completa o número local (8 ou 9 dígitos) para o Kommo achar o contato.</span></div>
+              <div class="field" data-campo="prefixo"><label class="label">Prefixo para discar</label>
+                <input class="input mono" name="prefixo" maxlength="4" inputmode="numeric" value="${esc(c.prefixo || '')}" placeholder="nenhum" ${dis}>
+                <span class="hint">Se o ramal disca 0 para sair, coloque 0. O +55 do Kommo é tirado sempre.</span></div>
+              <div class="field full"><label class="check small"><input type="checkbox" name="local_sem_ddd" ${chk(c.local_sem_ddd)} ${dis}>
+                Discar sem o DDD quando o número é do DDD da central</label></div>
+              <div class="field full"><label class="check small"><input type="checkbox" name="registrar_entrada" ${chk(c.registrar_entrada)} ${dis}> Registrar as chamadas recebidas</label>
+                <label class="check small"><input type="checkbox" name="registrar_saida" ${chk(c.registrar_saida)} ${dis}> Registrar as chamadas feitas</label>
+                <label class="check small"><input type="checkbox" name="criar_lead" ${chk(c.criar_lead)} ${dis}> Ligação recebida de número que não é contato vira lead de entrada</label></div>
+            </div>
+            ${pode ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+              <button class="btn btn-primary btn-sm" type="submit">${icon('check','ico ico-sm')} Salvar</button>
+              <button class="btn btn-outline btn-sm" type="button" data-kommo-testar>${icon('activity','ico ico-sm')} Testar conexão</button></div>` : ''}
+            </form>
+            <div>
+              <div class="label" style="margin-bottom:8px">Como instalar o app no Kommo</div>
+              <ol class="small" style="margin:0 0 12px;padding-left:18px;line-height:1.6">
+                <li><b>Baixe o app</b> da central:
+                  <button class="btn btn-outline btn-sm" data-kommo-app style="margin-left:4px">${icon('download','ico ico-sm')} telium-pabx-kommo.zip</button></li>
+                <li>No Kommo, como administrador: <b>Configurações › Integrações › Criar integração</b>. Escolha
+                  <b>Integração privada</b>, dê um nome (Telium PABX), deixe o Redirect URL em branco, envie o
+                  <b>telium-pabx-kommo.zip</b> no campo do widget e salve.</li>
+                <li>Na aba <b>Chaves e escopos</b> da integração, clique em <b>Gerar token de longo prazo</b> (até 5 anos),
+                  copie e cole em <b>Token de longo prazo</b> aqui ao lado. Informe a conta, ligue a integração e salve.</li>
+                <li><b>Gere a chave do app</b>:
+                  <button class="btn btn-outline btn-sm" data-kommo-chave style="margin-left:4px" ${dis}>${icon('key','ico ico-sm')} ${d.chave ? 'Gerar nova chave' : 'Gerar chave'}</button>
+                  ${d.chave ? `<div class="tiny muted" style="margin-top:4px">Chave atual …${esc(d.chave.token_fim)} — último uso: ${d.chave.ultimo_uso ? dataHora(d.chave.ultimo_uso) : 'nunca'}</div>` : ''}</li>
+                <li>Abra o app <b>Telium PABX</b> na lista de integrações do Kommo e instale. Em
+                  <b>Endereço da central</b> coloque <span class="mono">${esc(url)}</span> e, em <b>Chave da central</b>, a chave do passo 4.</li>
+                <li>Clique em <b>Buscar usuários do Kommo</b>, logo abaixo, e escolha o ramal de cada pessoa.</li>
+              </ol>
+              <p class="hint" style="margin:0">Quem não tem ramal escolhido não liga pelo Kommo, e as chamadas do ramal dele entram no Kommo sem dono.
+                O link das gravações só funciona com <b>https</b> e com a central alcançável de onde as pessoas usam o Kommo.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head"><div><div class="card-title">Usuários do Kommo e ramais</div>
+          <div class="card-sub">${ativos ? `${comRamal} de ${ativos} usuário(s) com ramal.` : 'O ramal que toca quando cada pessoa clica para ligar, e o dono de cada chamada no Kommo.'}</div></div>
+          ${pode && d.usuarios.length ? `<div style="display:flex;gap:8px">
+            <button class="btn btn-outline btn-sm" data-kommo-sincronizar>${icon('refresh','ico ico-sm')} Buscar usuários do Kommo</button>
+            <button class="btn btn-primary btn-sm" data-kommo-salvar-ramais>${icon('check','ico ico-sm')} Salvar ramais</button></div>` : ''}</div>
+        <div class="card-body tight">${usuarios}</div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head"><div><div class="card-title">Chamadas levadas ao Kommo</div>
+          <div class="card-sub">As 50 mais recentes. A central manda a cada minuto${c.ultimo_envio ? ` — último envio ${dataHora(c.ultimo_envio)}: ${esc(c.ultimo_estado || '')}` : ''}.</div></div>
+          ${pode && Number(c.ativo) ? `<button class="btn btn-outline btn-sm" data-kommo-enviar>${icon('upload','ico ico-sm')} Enviar agora</button>` : ''}</div>
+        <div class="card-body tight">${chamadas}</div>
+      </div>`;
+  },
+
+  mostrarChave(token) {
+    Drawer.open({
+      titulo: 'Chave do app Telium PABX',
+      sub: 'Copie agora: ela não aparece de novo. Perdeu? Gere outra — a anterior para de valer.',
+      corpo: `<div class="field"><label class="label">Chave da central</label>
+          <input class="input mono" id="kommoChaveTxt" readonly value="${esc(token)}"></div>
+        <button class="btn btn-outline btn-sm" id="kommoCopiar" style="margin-top:8px">${icon('copy','ico ico-sm')} Copiar</button>
+        <p class="hint" style="margin-top:14px">Cole em <b>Chave da central</b> nas configurações do app Telium PABX no Kommo.
+          Quem tiver a chave pode fazer os ramais tocarem: trate-a como uma senha.</p>`,
+      rodape: '<button class="btn btn-primary" data-drawer-close>Já copiei</button>',
+      aoAbrir: dw => dw.querySelector('#kommoCopiar').onclick = () => {
+        const campo = dw.querySelector('#kommoChaveTxt');
+        campo.select();
+        navigator.clipboard?.writeText(campo.value)
+          .then(() => toast('Chave copiada.', 'ok'))
+          .catch(() => toast('Copie manualmente: o navegador não liberou a área de transferência.', 'warn'));
+      },
+      aoFechar: () => App.route()
+    });
+  },
+
+  montar(pagina) {
+    if (!pagina._kommo) return;
+    const ocupado = async (b, fn) => {
+      const antes = b.innerHTML;
+      b.disabled = true;
+      b.innerHTML = '<span class="spin"></span>';
+      try { await fn(); } catch (e) { toast(e.message, 'err'); }
+      b.disabled = false;
+      b.innerHTML = antes;
+    };
+
+    document.getElementById('kommoForm')?.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      const form = ev.currentTarget;
+      limparErros(form);
+      try {
+        await Api.put('/kommo', lerFormulario(form));
+        toast('Integração com o Kommo salva.', 'ok');
+        App.route();
+      } catch (e) {
+        Object.entries(e.detalhe?.campos || {}).forEach(([k, m]) => marcarErro(form, k, m));
+        toast(e.message, 'err');
+      }
+    });
+    document.querySelectorAll('[data-kommo-testar]').forEach(b => b.onclick = () => ocupado(b, async () => {
+      const r = await Api.post('/kommo/testar', {});
+      toast(r.detalhe, r.ok ? 'ok' : 'err');
+    }));
+    document.querySelectorAll('[data-kommo-sincronizar]').forEach(b => b.onclick = () => ocupado(b, async () => {
+      const r = await Api.post('/kommo/usuarios/sincronizar', {});
+      toast(r.detalhe, 'ok');
+      App.route();
+    }));
+    document.querySelectorAll('[data-kommo-salvar-ramais]').forEach(b => b.onclick = () => ocupado(b, async () => {
+      const ramais = {};
+      document.querySelectorAll('[data-kommo-ramal]').forEach(s => { ramais[s.dataset.kommoRamal] = s.value; });
+      await Api.put('/kommo/usuarios', { ramais });
+      toast('Ramais salvos.', 'ok');
+      App.route();
+    }));
+    document.querySelectorAll('[data-kommo-chave]').forEach(b => b.onclick = async () => {
+      if (pagina._kommo.chave && !await Modal.confirm({ titulo: 'Gerar uma chave nova para o app?',
+        texto: 'A chave atual para de valer na hora: o app no Kommo para de ligar até receber a nova.',
+        ok: 'Gerar nova chave', tone: 'warn' })) return;
+      ocupado(b, async () => this.mostrarChave((await Api.post('/kommo/chave', {})).token));
+    });
+    document.querySelectorAll('[data-kommo-app]').forEach(b => b.onclick = () => ocupado(b, () => Api.salvarArquivo('/kommo/app.zip')));
+    document.querySelectorAll('[data-kommo-enviar]').forEach(b => b.onclick = () => ocupado(b, async () => {
+      const r = await Api.post('/kommo/enviar', {});
+      toast(r.detalhe, r.erros ? 'warn' : 'ok');
+      App.route();
+    }));
+  }
+};
+
 PAGES['telium.integracoes'] = paginaCrud({
   recurso: 'integracoes',
   titulo: 'Integrações e API',
-  sub: 'Click to call para outros sistemas, webhooks e conectores.',
+  sub: 'Kommo (CRM), click to call para outros sistemas, webhooks e conectores.',
   aoCarregar: async pagina => {
-    pagina._c2c = await Api.get('/click2call/chaves').catch(() => null);
+    [pagina._kommo, pagina._c2c] = await Promise.all([
+      Api.get('/kommo').catch(() => null),
+      Api.get('/click2call/chaves').catch(() => null)
+    ]);
   },
-  antesDaLista: (pagina, ctx) => C2C.html(pagina, ctx),
+  antesDaLista: (pagina, ctx) => KOMMO.html(pagina, ctx) + C2C.html(pagina, ctx),
   aoMontar: pagina => {
+    KOMMO.montar(pagina);
     C2C.montar(pagina);
     // Testar manda um aviso de exemplo agora, assinado como os de verdade.
     document.querySelectorAll('[data-testar-webhook]').forEach(b => b.onclick = async () => {

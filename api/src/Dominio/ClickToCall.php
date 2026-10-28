@@ -166,6 +166,15 @@ final class ClickToCall
         }
 
         if (!str_contains($resposta, 'Success')) {
+            // O número não casa com nenhuma rota de saída do ramal. Antes a
+            // mensagem mandava conferir o registro do ramal, que estava
+            // certo; o que falta é o prefixo ou a rota.
+            if (stripos($resposta, 'Extension does not exist') !== false) {
+                throw new \DomainException(
+                    "O ramal {$numero} não tem rota de saída para {$destino}. Confira as rotas de saída "
+                    . 'e o prefixo com que a central disca (o 0 da linha externa, o DDD).'
+                );
+            }
             throw new \RuntimeException('A central recusou a chamada. Confira se o ramal está registrado.');
         }
 

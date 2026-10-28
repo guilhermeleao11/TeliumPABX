@@ -97,6 +97,7 @@ O ufw libera toda saída (`default allow outgoing`). Se o cliente filtrar a saí
 | Repositórios Debian, `mirror.mariadb.org`, `mariadb.org`, `nginx.org`, `downloads.asterisk.org` | 443/80 | Pacotes e código-fonte | Instalação e atualização |
 | `gitlab.telium.com.br` | 443 (HTTPS) ou 22 (SSH) | `git pull` | Só em central atualizada de dentro. Atualizando da sua máquina, quem baixa do GitLab é ela, e o código vai para a central pelo SSH |
 | `github.com` | 443 | Código do Janus | Só com `instalar_janus=true` |
+| `<conta>.kommo.com` | 443 | Registro das chamadas no Kommo | Só com a integração com o Kommo ligada. A central também precisa ser alcançável **na 443** de onde se usa o Kommo (clique para ligar e gravações): veja [Kommo](23-Integracao-Kommo.md) |
 | `stun.l.google.com:19302`, `stun.cloudflare.com:3478` | UDP | Botão **Descobrir** do IP público | Só quando alguém clica (`stun_descoberta`) |
 | Syslog central da Telium | UDP 514 | Encaminhamento de logs | Com `syslog_central: true` (padrão) |
 | Servidor SMTP do cliente | a do console (padrão 587) | E-mail de recado, alertas | Se configurado no console |

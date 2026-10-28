@@ -153,6 +153,8 @@ Sem sessão. São só estas:
 | GET | `/api/health` | Saúde da API |
 | POST | `/api/auth/login` | Login (seção 2) |
 | GET, POST | `/api/click2call` | Click to call com chave de API (seção 6) |
+| OPTIONS, POST | `/api/kommo/discar` | Clique para ligar do app do Kommo: `{usuario_id, telefone, nome}` com a chave do app no `X-Api-Key` (ou `token`). O ramal sai do usuário do Kommo. CORS só para as telas do Kommo |
+| GET | `/api/kommo/gravacao/{id}/{assinatura}.{ext}` | Gravação para o player do Kommo; sem a assinatura certa, 404 |
 | GET | `/prov/{segredo}/{arquivo}` | Configuração do telefone IP |
 | GET | `/p/{token}` | Configuração do Linphone lida pelo QR Code |
 
@@ -239,6 +241,14 @@ Todo pedido, aceito ou recusado, fica em `click2call_pedidos` e aparece na tela 
 | POST | `/click2call/chaves/{id}/renovar` | `telium.integracoes` + editar | Gera chave nova; a antiga para na hora |
 | DELETE | `/click2call/chaves/{id}` | `telium.integracoes` + excluir | Remove |
 | POST | `/click2call/testar` | `telium.integracoes` + editar | A mesma chamada, pelo console |
+| GET | `/kommo` | `telium.integracoes` | Configuração do Kommo (sem o token), usuários e ramais, últimas 50 chamadas enviadas |
+| PUT | `/kommo` | `telium.integracoes` + editar | Conta, token, endereço, DDD, prefixo, o que registrar |
+| POST | `/kommo/testar` | `telium.integracoes` + editar | Confere a conta e o token no Kommo |
+| POST | `/kommo/usuarios/sincronizar` | `telium.integracoes` + editar | Busca os usuários do Kommo |
+| PUT | `/kommo/usuarios` | `telium.integracoes` + editar | `{ramais: {kommo_id: "1001"}}` |
+| POST | `/kommo/chave` | `telium.integracoes` + editar | Gera a chave do app; devolve `token` uma única vez |
+| POST | `/kommo/enviar` | `telium.integracoes` + editar | Manda agora as chamadas pendentes |
+| GET | `/kommo/app.zip` | `telium.integracoes` | O app para enviar ao Kommo |
 
 ---
 

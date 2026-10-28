@@ -1,0 +1,20 @@
+{
+  "widget": {
+    "name": "Telium PABX",
+    "short_description": "Click to call, call logging and recordings from Telium PABX.",
+    "description": "Call a customer with one click on the contact phone: the Telium PABX rings your extension and, when you answer, dials the customer. Every inbound and outbound call is logged in the contact history, with result, duration and the recording to play in the card.<br><br>Set the PBX address and the key generated in <b>Telium › Integrações / API › Kommo</b>. Each user's extension is chosen in the PBX.",
+    "call_action": "Call via PBX",
+    "tour_description": "Telium PABX for Kommo"
+  },
+  "settings": {
+    "pabx_url": "PBX address (e.g. https://pbx.yourcompany.com)",
+    "chave": "PBX key (Telium › Integrações / API › Kommo)"
+  },
+  "telium": {
+    "titulo": "Telium PABX",
+    "ligando": "Your extension will ring. Answer it to call the customer.",
+    "falhou": "The PBX did not accept the call.",
+    "sem_config": "Set the PBX address and key in the Telium PABX app settings.",
+    "sem_central": "Could not reach the PBX. Check the address in the app settings."
+  }
+}

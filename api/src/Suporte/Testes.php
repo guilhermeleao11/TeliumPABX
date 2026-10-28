@@ -74,6 +74,7 @@ final class Testes
             $this->grupo('Call center', $this->callCenter(...));
             $this->grupo('Relatório do call center', $this->relatorioCallCenter(...));
             $this->grupo('Click to call (API)', $this->clickToCall(...));
+            $this->grupo('Kommo (CRM)', $this->kommo(...));
             $this->grupo('Firewall: nunca bloquear', $this->confiaveis(...));
             $this->grupo('Telefone do navegador: permissão', $this->permissaoTelefone(...));
             $this->grupo('Ramais em planilha', $this->ramaisCsv(...));
@@ -1749,6 +1750,130 @@ final class Testes
         }
     }
 
+    /**
+     * Kommo: o número que o Kommo procura, o ramal de cada lado da
+     * ligação, o registro montado a partir das linhas do CDR e o link
+     * assinado da gravação.
+     */
+    private function kommo(): void
+    {
+        $k = \Telium\Dominio\Kommo::class;
+        $this->ok($k::host('empresa') === 'empresa.kommo.com' && $k::host('https://empresa.kommo.com/leads') === 'empresa.kommo.com'
+                  && $k::host('empresa.amocrm.ru') === 'empresa.amocrm.ru',
+                  'a conta aceita "empresa", o endereço do Kommo e o do amoCRM');
+        $this->ok($k::host('kommo.com.atacante.net') === null && $k::host('atacante.net') === null && $k::host('') === null,
+                  'outro domínio não: o token iria junto');
+
+        $this->ok($k::telefone('11999990000') === '+5511999990000' && $k::telefone('011999990000') === '+5511999990000'
+                  && $k::telefone('015 11 99999-0000') === '+5511999990000' && $k::telefone('5511999990000') === '+5511999990000'
+                  && $k::telefone('+55 (11) 3333-4444') === '+551133334444',
+                  'o número vai ao Kommo com +55 e DDD, venha como vier do tronco');
+        $this->ok($k::telefone('999990000', '11') === '+5511999990000' && $k::telefone('33334444', '21') === '+552133334444'
+                  && $k::telefone('33334444') === '33334444',
+                  'o local ganha o DDD da central, se houver um');
+        $this->ok($k::telefone('08007771234') === '+558007771234' || $k::telefone('08007771234') === '8007771234',
+                  'o 0800 não quebra');
+
+        $this->ok($k::ramalDoCanal('PJSIP/1001-0000000a') === '1001' && $k::ramalDoCanal('Local/1002@interno-00000012;2') === '1002'
+                  && $k::ramalDoCanal('PJSIP/operadora-00000001') === '',
+                  'o ramal sai do nome do canal; o tronco não é ramal');
+
+        $ramais = ['1001' => true, '1002' => true];
+        $linha = static fn (array $l): array => $l + [
+            'calldate' => '2026-10-28 10:00:00', 'src' => '', 'dst' => '', 'channel' => '', 'dstchannel' => '',
+            'disposition' => 'NO ANSWER', 'billsec' => 0, 'duration' => 0, 'direcao' => null, 'gravacao' => null,
+            'linkedid' => 'L1', 'uniqueid' => 'U1',
+        ];
+
+        // Click to call: o canal é do ramal; o CallerID dele, o do cliente.
+        $c2c = $k::montar([$linha([
+            'src' => '11999990000', 'dst' => '011999990000', 'channel' => 'PJSIP/1001-00000001',
+            'dstchannel' => 'PJSIP/operadora-00000002', 'disposition' => 'ANSWERED', 'billsec' => 75,
+            'direcao' => 'saida', 'gravacao' => '2026/10/28/100000-saida-1001-x.wav', 'linkedid' => 'c2c-ab',
+        ])], $ramais, '11');
+        $this->ok($c2c !== null && $c2c['direcao'] === 'saida' && $c2c['ramal'] === '1001'
+                  && $c2c['telefone'] === '+5511999990000' && $c2c['duracao'] === 75 && $c2c['status'] === 4,
+                  'chamada feita (click to call): ramal 1001, cliente, 75 s de conversa');
+        $this->ok($c2c['gravacao'] !== '' && str_contains($c2c['resultado'], '1min 15s'), 'e leva a gravação e o resultado');
+
+        $ocupado = $k::montar([$linha(['src' => '1002', 'dst' => '1133334444', 'channel' => 'PJSIP/1002-00000003',
+            'dstchannel' => 'PJSIP/operadora-00000004', 'disposition' => 'BUSY', 'direcao' => 'saida'])], $ramais, null);
+        $this->ok($ocupado['status'] === 7 && $ocupado['duracao'] === 0 && $ocupado['gravacao'] === '',
+                  'feita e ocupada: status 7, sem duração nem gravação');
+
+        // Recebida: o tronco chama, o 1001 toca e não atende, o 1002 atende.
+        $recebida = $k::montar([
+            $linha(['src' => '21988887777', 'dst' => 's', 'channel' => 'PJSIP/operadora-00000005', 'direcao' => 'entrada',
+                    'dstchannel' => 'PJSIP/1001-00000006', 'disposition' => 'NO ANSWER']),
+            $linha(['src' => '21988887777', 'dst' => 's', 'channel' => 'PJSIP/operadora-00000005', 'direcao' => 'entrada',
+                    'dstchannel' => 'PJSIP/1002-00000007', 'disposition' => 'ANSWERED', 'billsec' => 42,
+                    'gravacao' => 'g.wav', 'calldate' => '2026-10-28 10:00:05']),
+        ], $ramais, '11');
+        $this->ok($recebida['direcao'] === 'entrada' && $recebida['ramal'] === '1002' && $recebida['telefone'] === '+5521988887777'
+                  && $recebida['duracao'] === 42 && $recebida['inicio'] === '2026-10-28 10:00:00',
+                  'recebida: o dono é quem atendeu, e o começo é o da primeira linha');
+
+        $perdida = $k::montar([$linha(['src' => '21988887777', 'channel' => 'PJSIP/operadora-00000008', 'direcao' => 'entrada',
+            'dstchannel' => 'PJSIP/1001-00000009', 'disposition' => 'NO ANSWER'])], $ramais, null);
+        $this->ok($perdida['atendida'] === false && $perdida['ramal'] === '1001' && $perdida['status'] === 3
+                  && str_contains($perdida['resultado'], 'Não atendida'),
+                  'recebida e não atendida: fica com o ramal que tocou');
+
+        $this->ok($k::montar([$linha(['src' => '1001', 'dst' => '1002', 'channel' => 'PJSIP/1001-0000000a',
+            'direcao' => 'interna', 'disposition' => 'ANSWERED', 'dstchannel' => 'PJSIP/1002-0000000b'])], $ramais, null) === null,
+                  'ligação interna não vai ao Kommo');
+
+        $cfg = ['url_publica' => 'https://voz.exemplo.com.br/', 'gravacao_segredo' => str_repeat('a', 64)];
+        $reg = $k::registro($cfg, $c2c, 77);
+        $this->ok($reg['direction'] === 'outbound' && $reg['phone'] === '+5511999990000' && $reg['created_by'] === 77
+                  && $reg['responsible_user_id'] === 77 && $reg['uniq'] === 'c2c-ab',
+                  'o registro leva o sentido, o número e o usuário do Kommo do ramal');
+        $this->ok(str_starts_with((string) ($reg['link'] ?? ''), 'https://voz.exemplo.com.br/api/kommo/gravacao/c2c-ab/')
+                  && str_ends_with($reg['link'], '.wav'),
+                  'e o link da gravação, assinado, no endereço da central');
+        $this->ok(!isset($k::registro($cfg, $c2c, null)['created_by']), 'ramal sem usuário do Kommo: a chamada vai sem dono');
+        $this->ok($k::registro($cfg, $c2c, 77, 'Ana Vendas')['call_result']
+                  === 'Ligação feita por Ana Vendas (ramal 1001) para +55 11 99999-0000 em 28/10/2026 às 10:00 — atendida, 1min 15s de conversa.',
+                  'o resumo da feita: quem, para quem, quando e quanto durou');
+        $recebida['did'] = '1133334444';
+        $this->ok($k::resumo($recebida, null)
+                  === 'Ligação recebida de +55 21 98888-7777 no número 1133334444 em 28/10/2026 às 10:00 — atendida pelo ramal 1002, 42s de conversa.',
+                  'o da recebida: de quem, em qual número da empresa, quem atendeu');
+        $this->ok($k::resumo($perdida, 'Ana Vendas') === 'Ligação recebida de +55 21 98888-7777 em 28/10/2026 às 10:00 — não atendida (tocou para Ana Vendas, ramal 1001).',
+                  'o da perdida: para quem tocou');
+        $this->ok($k::resumo($ocupado, null) === 'Ligação feita pelo ramal 1002 para +55 11 3333-4444 em 28/10/2026 às 10:00 — ocupado.',
+                  'o da feita e ocupada');
+        $this->ok($k::assinatura('c2c-ab', 'x') !== $k::assinatura('c2c-ac', 'x')
+                  && $k::assinatura('c2c-ab', 'x') !== $k::assinatura('c2c-ab', 'y'),
+                  'a assinatura muda com a chamada e com o segredo');
+
+        $d = \Telium\Http\Controllers\Kommo::class;
+        $this->ok($d::paraDiscar('+55 11 99999-0000', []) === '11999990000'
+                  && $d::paraDiscar('+55 11 99999-0000', ['prefixo' => '0']) === '011999990000'
+                  && $d::paraDiscar('+55 11 3333-4444', ['ddd' => '11', 'local_sem_ddd' => 1]) === '33334444'
+                  && $d::paraDiscar('+55 21 3333-4444', ['ddd' => '11', 'local_sem_ddd' => 1]) === '2133334444',
+                  'o telefone do Kommo vira o que o ramal discaria');
+        $this->ok($d::paraDiscar('+1 305 555 0100', []) === '0013055550100' && $d::paraDiscar('', []) === '',
+                  'o internacional ganha 00; vazio fica vazio');
+
+        $pdo = Bd::conexao();
+        $pdo->beginTransaction();
+        try {
+            Bd::executar("UPDATE kommo_config SET gravacao_segredo = ? WHERE id = 1", [str_repeat('b', 64)]);
+            Bd::executar("INSERT INTO kommo_chamadas (linkedid, inicio, direcao, telefone, estado, gravacao)
+                          VALUES ('teste-kommo', NOW(), 'saida', '+5511999990000', 'ok', '../../etc/passwd')");
+            $certa = $k::assinatura('teste-kommo', str_repeat('b', 64));
+            $this->ok($k::arquivoDaGravacao('teste-kommo', $certa . 'x') === null && $k::arquivoDaGravacao('outra', $certa) === null,
+                      'a gravação não toca com a assinatura errada ou de outra chamada');
+            $this->ok($k::arquivoDaGravacao('teste-kommo', $certa) === null,
+                      'nem com a certa, quando o caminho sai do diretório de gravações');
+            Bd::executar('UPDATE kommo_config SET ativo = 0 WHERE id = 1');
+            $this->ok($k::enviarPendentes()['detalhe'] === 'integração desligada', 'desligada, não manda nada');
+        } finally {
+            $pdo->rollBack();
+        }
+    }
+
     private function relatorioCallCenter(): void
     {
         $pdo = Bd::conexao();
@@ -2649,7 +2774,10 @@ final class Testes
         // que a protege é conferido logo abaixo, caso a caso.
         // A chave é montada trocando cada {parâmetro} por "1", então é
         // assim que a rota de provisionamento aparece aqui.
-        $publicas = ['GET /api/health', 'POST /api/auth/login', 'GET /api/prov/1/1', 'GET /api/p/1'];
+        // A gravação do Kommo também: quem busca é o player dentro do CRM,
+        // e o que protege é a assinatura no link (conferida em kommo()).
+        $publicas = ['GET /api/health', 'POST /api/auth/login', 'GET /api/prov/1/1', 'GET /api/p/1',
+                     'GET /api/kommo/gravacao/1/1'];
         $abertas = [];
         $conferidas = 0;
 

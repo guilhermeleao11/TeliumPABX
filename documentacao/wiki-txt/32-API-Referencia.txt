@@ -147,6 +147,8 @@ Sem sessão. São só estas:
 - GET — Caminho: /api/health; O que faz: Saúde da API
 - POST — Caminho: /api/auth/login; O que faz: Login (seção 2)
 - GET, POST — Caminho: /api/click2call; O que faz: Click to call com chave de API (seção 6)
+- OPTIONS, POST — Caminho: /api/kommo/discar; O que faz: Clique para ligar do app do Kommo: {usuario_id, telefone, nome} com a chave do app no X-Api-Key (ou token). O ramal sai do usuário do Kommo. CORS só para as telas do Kommo
+- GET — Caminho: /api/kommo/gravacao/{id}/{assinatura}.{ext}; O que faz: Gravação para o player do Kommo; sem a assinatura certa, 404
 - GET — Caminho: /prov/{segredo}/{arquivo}; O que faz: Configuração do telefone IP
 - GET — Caminho: /p/{token}; O que faz: Configuração do Linphone lida pelo QR Code
 
@@ -235,6 +237,14 @@ Administração das chaves (autenticado)
 - POST — Caminho: /click2call/chaves/{id}/renovar; Permissão: telium.integracoes + editar; O que faz: Gera chave nova; a antiga para na hora
 - DELETE — Caminho: /click2call/chaves/{id}; Permissão: telium.integracoes + excluir; O que faz: Remove
 - POST — Caminho: /click2call/testar; Permissão: telium.integracoes + editar; O que faz: A mesma chamada, pelo console
+- GET — Caminho: /kommo; Permissão: telium.integracoes; O que faz: Configuração do Kommo (sem o token), usuários e ramais, últimas 50 chamadas enviadas
+- PUT — Caminho: /kommo; Permissão: telium.integracoes + editar; O que faz: Conta, token, endereço, DDD, prefixo, o que registrar
+- POST — Caminho: /kommo/testar; Permissão: telium.integracoes + editar; O que faz: Confere a conta e o token no Kommo
+- POST — Caminho: /kommo/usuarios/sincronizar; Permissão: telium.integracoes + editar; O que faz: Busca os usuários do Kommo
+- PUT — Caminho: /kommo/usuarios; Permissão: telium.integracoes + editar; O que faz: {ramais: {kommo_id: "1001"}}
+- POST — Caminho: /kommo/chave; Permissão: telium.integracoes + editar; O que faz: Gera a chave do app; devolve token uma única vez
+- POST — Caminho: /kommo/enviar; Permissão: telium.integracoes + editar; O que faz: Manda agora as chamadas pendentes
+- GET — Caminho: /kommo/app.zip; Permissão: telium.integracoes; O que faz: O app para enviar ao Kommo
 
 
 7. ROTAS AUTENTICADAS POR ÁREA

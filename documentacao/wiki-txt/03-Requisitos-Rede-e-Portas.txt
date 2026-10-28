@@ -91,6 +91,7 @@ O ufw libera toda saída (default allow outgoing). Se o cliente filtrar a saída
 - Repositórios Debian, mirror.mariadb.org, mariadb.org, nginx.org, downloads.asterisk.org — Porta: 443/80; Para quê: Pacotes e código-fonte; Quando: Instalação e atualização
 - gitlab.telium.com.br — Porta: 443 (HTTPS) ou 22 (SSH); Para quê: git pull; Quando: Só em central atualizada de dentro. Atualizando da sua máquina, quem baixa do GitLab é ela, e o código vai para a central pelo SSH
 - github.com — Porta: 443; Para quê: Código do Janus; Quando: Só com instalar_janus=true
+- <conta>.kommo.com — Porta: 443; Para quê: Registro das chamadas no Kommo; Quando: Só com a integração com o Kommo ligada. A central também precisa ser alcançável na 443 de onde se usa o Kommo (clique para ligar e gravações): veja Kommo (ver página 23)
 - stun.l.google.com:19302, stun.cloudflare.com:3478 — Porta: UDP; Para quê: Botão Descobrir do IP público; Quando: Só quando alguém clica (stun_descoberta)
 - Syslog central da Telium — Porta: UDP 514; Para quê: Encaminhamento de logs; Quando: Com syslog_central: true (padrão)
 - Servidor SMTP do cliente — Porta: a do console (padrão 587); Para quê: E-mail de recado, alertas; Quando: Se configurado no console
