@@ -85,6 +85,35 @@
     COMPOSER_HOME: /tmp/composer
     COMPOSER_ALLOW_SUPERUSER: "1"
 
+# Na atualização o "composer install" acima não roda (o vendor já existe), e
+# o composer.lock da central é o da instalação. Pacote que entrou depois no
+# composer.json (o dompdf, dos relatórios em PDF, na 1.10.0) seria ignorado.
+# Aqui entra só o que falta, com "composer update <pacote>": as versões dos
+# pacotes que já estão na central não mudam.
+- name: Ler os pacotes do composer.json
+  ansible.builtin.slurp:
+    src: "{{ telium_api }}/composer.json"
+  register: composer_json
+
+- name: Ver quais pacotes do composer.json já estão no vendor
+  ansible.builtin.stat:
+    path: "{{ telium_api }}/vendor/{{ item }}/composer.json"
+  loop: "{{ (composer_json.content | b64decode | from_json).require.keys() | select('search', '/') | list }}"
+  register: composer_pacotes
+
+- name: Instalar os pacotes que faltam (sem mexer nas versões dos outros)
+  ansible.builtin.command:
+    cmd: >-
+      composer update --no-dev --optimize-autoloader --no-interaction
+      {{ composer_pacotes.results | rejectattr('stat.exists') | map(attribute='item') | join(' ') }}
+    chdir: "{{ telium_api }}"
+  when: composer_pacotes.results | rejectattr('stat.exists') | list | length > 0
+  become_user: "{{ telium_user }}"
+  become: true
+  environment:
+    COMPOSER_HOME: /tmp/composer
+    COMPOSER_ALLOW_SUPERUSER: "1"
+
 - name: Criar diretórios de trabalho da API
   ansible.builtin.file:
     path: "{{ item }}"

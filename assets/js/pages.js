@@ -263,22 +263,22 @@ PAGES['dash.visaogeral'] = {
       : '<p class="small muted center" style="padding:24px">Nenhuma atividade registrada ainda.</p>';
 
     return pageHead('Visão Geral',
-      `Números da central, apurados do CDR e do estado do Asterisk.`,
+      `Números de hoje, apurados do CDR (uma ligação conta uma vez, por mais trechos que tenha) e do estado do Asterisk.`,
       `<button class="btn btn-outline btn-sm" id="btnRefresh">${icon('refresh','ico ico-sm')} Atualizar</button>`
     ) + `
     <div class="grid g-4" style="margin-bottom:16px">${kpis}</div>
     <div class="grid g-2-1" style="margin-bottom:16px">
       <div class="card">
         <div class="card-head">
-          <div><div class="card-title">Volume de chamadas por hora</div>
-               <div class="card-sub">Hoje</div></div>
+          <div><div class="card-title">Ligações por hora</div>
+               <div class="card-sub">Hoje · cada ligação conta uma vez</div></div>
           <div class="legend">${legenda}</div>
         </div>
         <div class="card-body"><div class="chart-wrap" id="chartVolume"></div></div>
       </div>
       <div class="card">
         <div class="card-head"><div><div class="card-title">Ramais mais ativos</div>
-             <div class="card-sub">Chamadas atendidas hoje</div></div></div>
+             <div class="card-sub">Ligações atendidas hoje, feitas e recebidas</div></div></div>
         <div class="card-body">${top}</div>
       </div>
     </div>
@@ -299,7 +299,7 @@ PAGES['dash.visaogeral'] = {
   mount() {
     const el = document.getElementById('chartVolume');
     if (el && this._dados) {
-      stackedBarChart(el, { ...this._dados.volume, aria: 'Chamadas atendidas e perdidas por hora' });
+      stackedBarChart(el, { ...this._dados.volume, aria: 'Ligações atendidas e não atendidas por hora' });
     }
     document.getElementById('btnRefresh')?.addEventListener('click', () => App.route());
   }
@@ -2019,7 +2019,7 @@ PAGES['apps.filas'] = {
 
 /* ------------------------- Relatórios · CDR ------------------------- */
 PAGES['rel.cdr'] = {
-  _f: { de: '', ate: '', direcao: '', status: '', q: '', pagina: 1 },
+  _f: { de: '', ate: '', direcao: '', resultado: '', q: '', pagina: 1 },
 
   async render(ctx) {
     // No fuso do navegador: o dia em UTC, depois das 21 h no Brasil, já
@@ -2031,41 +2031,51 @@ PAGES['rel.cdr'] = {
     try { r = await Api.get('/cdr', this._f); }
     catch (e) { return pageHead('CDR — Registro de Chamadas', '') + blocoErro(e); }
 
+    // Uma linha por ligação. "Origem" de uma feita é o ramal; "Destino" de
+    // uma recebida é o número da empresa que o cliente discou.
+    const quem = c => c.direcao === 'entrada'
+      ? (c.atenderam.length ? `atendida por ${c.atenderam.join(', ')}` : (c.filas.length ? `fila ${c.filas.join(', ')}` : ''))
+      : '';
     const corpo = r.dados.length ? `
       <div class="table-wrap"><table class="table">
         <thead><tr><th>Data / hora</th><th>Origem</th><th>Destino</th><th>Sentido</th>
-                   <th>Duração</th><th>Falado</th><th>Tronco</th><th>Estado</th><th>Gravação</th></tr></thead>
+                   <th>Duração</th><th data-tip="Tempo de conversa. Na fila, sem a espera">Conversa</th><th>Tronco</th><th>Resultado</th><th>Gravação</th><th data-tip="Trechos que o Asterisk gravou">Trechos</th></tr></thead>
         <tbody>${r.dados.map(c => `
           <tr>
-            <td class="mono small">${dataHora(c.calldate)}</td>
-            <td class="mono">${esc(c.src)}</td>
-            <td class="mono">${esc(c.dst)}
+            <td class="mono small">${dataHora(c.inicio)}</td>
+            <td class="mono">${esc(c.origem)}${c.nome && c.direcao === 'entrada' ? `<div class="tiny muted truncate" style="max-width:180px">${esc(c.nome)}</div>` : ''}</td>
+            <td class="mono">${esc(c.destino)}
               <button class="btn btn-ghost btn-sm btn-icon" data-tip="Ligar para este número"
-                      data-ligar="${esc(c.direcao === 'entrada' ? c.src : c.dst)}"
-                      aria-label="Ligar">${icon('phone','ico ico-sm')}</button></td>
-            <td>${c.direcao ? `<span class="badge">${icon(DIRECAO_ICO[c.direcao] || 'phone','ico ico-sm')}${esc(c.direcao)}</span>` : '<span class="muted">—</span>'}</td>
-            <td class="num">${duracao(c.duration)}</td>
-            <td class="num">${duracao(c.billsec)}</td>
-            <td class="small dim">${esc(c.tronco || '—')}</td>
-            <td>${badgeCdr(c.disposition)}${c.motivo
+                      data-ligar="${esc(c.direcao === 'entrada' ? c.origem : c.destino)}"
+                      aria-label="Ligar">${icon('phone','ico ico-sm')}</button>
+              ${quem(c) ? `<div class="tiny muted">${esc(quem(c))}</div>` : ''}</td>
+            <td><span class="badge">${icon(DIRECAO_ICO[c.direcao] || 'phone','ico ico-sm')}${esc(c.direcao)}</span></td>
+            <td class="num">${duracao(c.duracao)}</td>
+            <td class="num">${c.atendida ? duracao(c.falado) : '—'}</td>
+            <td class="small dim">${esc(c.troncos.join(', ') || '—')}</td>
+            <td>${badgeCdr(c.resultado)}${c.motivo && !c.atendida
               ? `<div class="tiny muted" data-tip="${esc(c.motivo)}">${esc(c.motivo)}</div>` : ''}</td>
             <td>${c.gravacao ? `<button class="btn btn-ghost btn-sm btn-icon" data-tip="Ouvir" data-ouvir-cdr="${esc(c.gravacao)}">${icon('play','ico ico-sm')}</button>` : '<span class="muted">—</span>'}</td>
+            <td>${c.trechos > 1 ? `<button class="btn btn-ghost btn-sm" data-trechos="${esc(c.chave)}"
+                 data-tip="O Asterisk gravou esta ligação em ${c.trechos} trechos (um por ramal que tocou, transferência, pesquisa…). Clique para ver.">${icon('list','ico ico-sm')}${c.trechos}</button>` : ''}</td>
           </tr>`).join('')}
         </tbody></table></div>
       <div class="card-foot pager">
-        <span class="small muted">${num(r.total)} registros · página ${r.pagina} de ${Math.max(1, r.paginas)}</span>
+        <span class="small muted">${num(r.total)} ligaç${r.total === 1 ? 'ão' : 'ões'} · página ${r.pagina} de ${Math.max(1, r.paginas)}</span>
         <div class="pages">
           <button data-pagina="${r.pagina - 1}" ${r.pagina <= 1 ? 'disabled' : ''}>${icon('chevronL','ico ico-sm')}</button>
           <button class="on">${r.pagina}</button>
           <button data-pagina="${r.pagina + 1}" ${r.pagina >= r.paginas ? 'disabled' : ''}>${icon('chevronR','ico ico-sm')}</button>
         </div>
       </div>`
-      : vazio('list', 'Nenhuma chamada no período',
-              'O CDR é preenchido pelo próprio Asterisk conforme as chamadas acontecem.');
+      : vazio('list', 'Nenhuma ligação no período',
+              'O CDR é preenchido pelo próprio Asterisk conforme as ligações acontecem.');
 
     return pageHead('CDR — Registro de Chamadas',
-      'Histórico de chamadas entrantes, saintes e internas.',
-      ctx.can('exportar') ? `<button class="btn btn-outline btn-sm" id="exportarCdr">${icon('download','ico ico-sm')} Exportar CSV</button>` : '') + `
+      'Uma linha por ligação, mesmo quando ela passou por fila, transferência ou pesquisa. Os trechos que o Asterisk gravou ficam a um clique.',
+      ctx.can('exportar') ? `<button class="btn btn-outline btn-sm" id="exportarPdf">${icon('download','ico ico-sm')} PDF</button>
+        <button class="btn btn-outline btn-sm" id="exportarCdr">${icon('download','ico ico-sm')} Planilha</button>
+        <button class="btn btn-ghost btn-sm" id="exportarTrechos" data-tip="Uma linha por trecho do CDR, como o Asterisk gravou">${icon('download','ico ico-sm')} Trechos (CDR bruto)</button>` : '') + `
     <div class="card">
       <div class="toolbar">
         <input class="input" type="date" data-f="de" value="${this._f.de}" style="width:160px">
@@ -2076,10 +2086,10 @@ PAGES['rel.cdr'] = {
           ${['entrada','saida','interna'].map(d =>
             `<option value="${d}" ${this._f.direcao === d ? 'selected' : ''}>${d}</option>`).join('')}
         </select>
-        <select class="select" data-f="status" style="width:170px">
-          <option value="">Todos os estados</option>
+        <select class="select" data-f="resultado" style="width:170px">
+          <option value="">Todos os resultados</option>
           ${Object.entries(DISPOSICAO_CDR).map(([k, v]) =>
-            `<option value="${k}" ${this._f.status === k ? 'selected' : ''}>${v[1]}</option>`).join('')}
+            `<option value="${k}" ${this._f.resultado === k ? 'selected' : ''}>${v[1]}</option>`).join('')}
         </select>
         <div class="input-icon search-mini">${icon('search','ico ico-sm')}
           <input class="input" data-f="q" value="${esc(this._f.q)}" placeholder="Número ou ramal…"></div>
@@ -2129,16 +2139,41 @@ PAGES['rel.cdr'] = {
       this._f.pagina = Number(b.dataset.pagina);
       App.route();
     });
+
+    // Os trechos da ligação, logo abaixo dela.
+    document.querySelectorAll('[data-trechos]').forEach(b => b.onclick = async () => {
+      const tr = b.closest('tr');
+      const aberto = tr.nextElementSibling?.hasAttribute('data-trechos-linha');
+      document.querySelectorAll('[data-trechos-linha]').forEach(l => l.remove());
+      if (aberto) return;
+      b.disabled = true;
+      try {
+        const d = await Api.get(`/cdr/${encodeURIComponent(b.dataset.trechos)}/trechos`);
+        tr.insertAdjacentHTML('afterend', `<tr data-trechos-linha><td colspan="10" style="background:var(--surface-2)">
+          <table class="table" style="font-size:12px"><thead><tr><th>Hora</th><th>De</th><th>Para</th><th>Canal de origem</th>
+            <th>Canal de destino</th><th>Aplicação</th><th>Duração</th><th>Falado</th><th>Estado</th></tr></thead>
+          <tbody>${d.dados.map(t => `<tr><td class="mono">${esc(String(t.calldate).slice(11))}</td>
+            <td class="mono">${esc(t.src)}</td><td class="mono">${esc(t.dst)}</td>
+            <td class="mono tiny">${esc(t.channel)}</td><td class="mono tiny">${esc(t.dstchannel || '—')}</td>
+            <td class="small">${esc(t.lastapp)}</td><td class="num">${duracao(t.duration)}</td>
+            <td class="num">${duracao(t.billsec)}</td><td>${badgeCdr(t.disposition)}</td></tr>`).join('')}</tbody></table>
+          <div class="tiny muted" style="padding:6px 4px 2px">O trecho de fila conta a espera junto no "falado"; a ligação acima mostra a conversa medida pela fila.</div>
+        </td></tr>`);
+      } catch (e) { toast(e.message, 'err'); }
+      b.disabled = false;
+    });
+
     // O mesmo filtro da tela, em planilha. Vem com a sessão: um link
     // simples não levaria o token.
-    document.getElementById('exportarCdr')?.addEventListener('click', async ev => {
+    const exportar = async (ev, trechos, pdf = false) => {
       const b = ev.currentTarget;
       const antes = b.innerHTML;
       b.disabled = true;
       b.innerHTML = '<span class="spin"></span> Gerando…';
       try {
         const { pagina, ...filtro } = this._f;
-        const q = new URLSearchParams(Object.fromEntries(Object.entries(filtro).filter(([, v]) => v !== '' && v != null)));
+        const q = new URLSearchParams(Object.fromEntries(Object.entries({ ...filtro, trechos: trechos ? 1 : '', formato: pdf ? 'pdf' : '' })
+          .filter(([, v]) => v !== '' && v != null)));
         const r = await fetch(`/api/cdr/exportar?${q}`, {
           headers: Api.token ? { Authorization: `Bearer ${Api.token}` } : {}, credentials: 'same-origin'
         });
@@ -2148,13 +2183,16 @@ PAGES['rel.cdr'] = {
         }
         const url = URL.createObjectURL(await r.blob());
         const a = document.createElement('a');
-        a.href = url; a.download = `cdr-${this._f.de || 'tudo'}_${this._f.ate || ''}.csv`;
+        a.href = url; a.download = `${trechos ? 'cdr-trechos' : 'ligacoes'}-${this._f.de || 'tudo'}_${this._f.ate || ''}.${pdf ? 'pdf' : 'csv'}`;
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } catch (e) { toast(e.message, 'err'); }
       b.disabled = false;
       b.innerHTML = antes;
-    });
+    };
+    document.getElementById('exportarCdr')?.addEventListener('click', ev => exportar(ev, false));
+    document.getElementById('exportarPdf')?.addEventListener('click', ev => exportar(ev, false, true));
+    document.getElementById('exportarTrechos')?.addEventListener('click', ev => exportar(ev, true));
   }
 };
 

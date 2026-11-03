@@ -28,12 +28,21 @@ use Telium\Suporte\Bd;
  *   ADDMEMBER / REMOVEMEMBER           agente entrou / saiu
  *   PAUSE(ALL) / UNPAUSE(ALL)  motivo  pausa e volta
  *
- * SLA: atendidas dentro do tempo da fila ÷ chamadas que entraram. Quem
+ * SLA: atendidas dentro do tempo da fila ÷ chamadas recebidas. Quem
  * desistiu antes do tempo conta contra — é a conta mais dura, e a que
  * não esconde fila mal dimensionada.
+ *
+ * Recebidas = as que entraram (ENTERQUEUE) + as barradas na porta (fila
+ * sem agente, configurada para não aceitar), que só o CDR registra. As
+ * barradas contam também em "sem agente", e assim a linha fecha:
+ * recebidas = atendidas + abandonadas + estouradas + sem agente + retorno
+ * (+ as que ainda estão na fila, ou que viraram o dia esperando).
  */
 final class RelatorioFilas
 {
+    /** @var list<array{fila:string, dia:string, hora:int, n:int}>|null */
+    private ?array $barradas = null;
+
     /**
      * @param string $de  'Y-m-d H:i:s'
      * @param string $ate 'Y-m-d H:i:s' (exclusivo)
@@ -104,8 +113,30 @@ final class RelatorioFilas
             $args
         );
 
-        return array_map(static function (array $l): array {
-            $recebidas = (int) $l['recebidas'];
+        $barradas = $this->barradas();
+        // Fila em que só houve ligação barrada não tem linha no queue_log.
+        $comLinha = array_map('strval', array_column($linhas, 'numero'));
+        foreach (array_unique(array_column($barradas, 'fila')) as $fila) {
+            if (!in_array($fila, $comLinha, true)) {
+                $fl = Bd::um('SELECT nome, sla_segundos FROM filas WHERE numero = ?', [$fila]);
+                $linhas[] = ['numero' => $fila, 'nome' => $fl['nome'] ?? $fila, 'sla_segundos' => $fl['sla_segundos'] ?? 20,
+                             'recebidas' => 0, 'atendidas' => 0, 'abandonadas' => 0, 'estouradas' => 0, 'sem_agente' => 0,
+                             'retorno' => 0, 'no_sla' => 0, 'tme' => null, 'maior_espera' => 0, 'tma' => null,
+                             'espera_abandono' => null];
+                $comLinha[] = $fila;
+            }
+        }
+        usort($linhas, static fn ($a, $b) => strcmp((string) $a['numero'], (string) $b['numero']));
+
+        return array_map(static function (array $l) use ($barradas): array {
+            $barrada = 0;
+            foreach ($barradas as $b) {
+                if ($b['fila'] === (string) $l['numero']) {
+                    $barrada += $b['n'];
+                }
+            }
+            $recebidas = (int) $l['recebidas'] + $barrada;
+            $l['sem_agente'] = (int) $l['sem_agente'] + $barrada;
 
             return [
                 'numero'          => (string) $l['numero'],
@@ -116,6 +147,7 @@ final class RelatorioFilas
                 'abandonadas'     => (int) $l['abandonadas'],
                 'estouradas'      => (int) $l['estouradas'],
                 'sem_agente'      => (int) $l['sem_agente'],
+                'barradas'        => $barrada,
                 'retorno'         => (int) $l['retorno'],
                 'no_sla'          => (int) $l['no_sla'],
                 'sla'             => $recebidas > 0 ? round((int) $l['no_sla'] / $recebidas * 100, 1) : null,
@@ -148,6 +180,10 @@ final class RelatorioFilas
             ];
         }
 
+        foreach ($this->barradas() as $b) {
+            $porHora[$b['hora']]['recebidas'] += $b['n'];
+        }
+
         $saida = [];
         foreach ($porHora as $h => $v) {
             $saida[] = ['hora' => $h] + $v;
@@ -161,19 +197,64 @@ final class RelatorioFilas
     {
         [$f, $args] = $this->filtro();
 
-        return array_map(static fn (array $l): array => [
-            'dia' => (string) $l['dia'],
-            'recebidas' => (int) $l['recebidas'],
-            'atendidas' => (int) $l['atendidas'],
-            'abandonadas' => (int) $l['abandonadas'],
-        ], Bd::todos(
+        $dias = [];
+        foreach (Bd::todos(
             "SELECT DATE(q.time) AS dia,
                     SUM(q.event = 'ENTERQUEUE') AS recebidas,
                     SUM(q.event = 'CONNECT') AS atendidas,
                     SUM(q.event = 'ABANDON') AS abandonadas
                FROM queue_log q WHERE {$f} GROUP BY DATE(q.time) ORDER BY dia",
             $args
-        ));
+        ) as $l) {
+            $dias[(string) $l['dia']] = [
+                'dia' => (string) $l['dia'],
+                'recebidas' => (int) $l['recebidas'],
+                'atendidas' => (int) $l['atendidas'],
+                'abandonadas' => (int) $l['abandonadas'],
+            ];
+        }
+        foreach ($this->barradas() as $b) {
+            $dias[$b['dia']] ??= ['dia' => $b['dia'], 'recebidas' => 0, 'atendidas' => 0, 'abandonadas' => 0];
+            $dias[$b['dia']]['recebidas'] += $b['n'];
+        }
+        ksort($dias);
+
+        return array_values($dias);
+    }
+
+    /**
+     * Ligações que pediram a fila e não entraram: fila configurada para não
+     * aceitar cliente sem agente disponível. O Asterisk não escreve nada no
+     * queue_log nesse caso (conferido na bancada), e sem esta conta a
+     * ligação sumia do relatório da fila. O CDR guarda a fila (CDR(fila) é
+     * gravado antes do Queue), e a ligação que entrou tem o mesmo uniqueid
+     * como callid no queue_log.
+     *
+     * @return list<array{fila:string, dia:string, hora:int, n:int}>
+     */
+    public function barradas(): array
+    {
+        if ($this->barradas !== null) {
+            return $this->barradas;
+        }
+        $sql = "SELECT c.fila, DATE(c.calldate) AS dia, HOUR(c.calldate) AS hora, COUNT(DISTINCT c.uniqueid) AS n
+                  FROM cdr c
+                 WHERE c.calldate >= ? AND c.calldate < ? AND c.direcao = 'entrada'
+                   AND c.fila IS NOT NULL AND c.fila <> ''";
+        $args = [$this->de, $this->ate];
+        if ($this->fila !== null) {
+            $sql .= ' AND c.fila = ?';
+            $args[] = $this->fila;
+        }
+        if ($this->soCallCenter) {
+            $sql .= ' AND c.fila IN (SELECT numero FROM filas WHERE callcenter = 1)';
+        }
+        $sql .= ' AND NOT EXISTS (SELECT 1 FROM queue_log q WHERE q.callid = c.uniqueid AND q.queuename = c.fila)
+              GROUP BY c.fila, DATE(c.calldate), HOUR(c.calldate)';
+
+        return $this->barradas = array_map(static fn (array $l): array => [
+            'fila' => (string) $l['fila'], 'dia' => (string) $l['dia'], 'hora' => (int) $l['hora'], 'n' => (int) $l['n'],
+        ], Bd::todos($sql, $args));
     }
 
     /**

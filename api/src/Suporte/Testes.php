@@ -75,6 +75,7 @@ final class Testes
             $this->grupo('Relatório do call center', $this->relatorioCallCenter(...));
             $this->grupo('Click to call (API)', $this->clickToCall(...));
             $this->grupo('Kommo (CRM)', $this->kommo(...));
+            $this->grupo('Contagem de ligações', $this->contagem(...));
             $this->grupo('Firewall: nunca bloquear', $this->confiaveis(...));
             $this->grupo('Telefone do navegador: permissão', $this->permissaoTelefone(...));
             $this->grupo('Ramais em planilha', $this->ramaisCsv(...));
@@ -1755,6 +1756,89 @@ final class Testes
      * ligação, o registro montado a partir das linhas do CDR e o link
      * assinado da gravação.
      */
+    /**
+     * Uma ligação é uma ligação: os trechos do CDR se juntam, a oferta de
+     * fila não vira recebida do ramal, e as contas dos relatórios fecham.
+     * Os casos são os que a bancada gravou com ligações de verdade.
+     */
+    private function contagem(): void
+    {
+        $ch = \Telium\Dominio\Chamadas::class;
+        $ramais = ['1001' => true, '1002' => true, '1003' => true];
+        $linha = static fn (array $l): array => $l + [
+            'chave' => 'L1', 'inicio' => '2026-11-03 14:06:57', 'duracao' => 10, 'did' => null, 'dst_saida' => null,
+            'clid' => '', 'troncos' => null, 'filas' => null, 'gravacao' => null, 'motivo' => null, 'custo' => null,
+        ];
+
+        // Fila em ringall: tocou em 1003 e 1002, o 1002 atendeu, o cliente
+        // foi para a pesquisa. Três trechos, uma ligação.
+        $fila = $ch::montar($linha([
+            'direcao' => 'entrada', 'resultado' => 'ANSWERED', 'atendida' => 1, 'src' => '11988887777', 'dst' => '600',
+            'canal_origem' => 'Operadora', 'trechos' => 3, 'filas' => '600', 'did' => '1133330000',
+            'pernas' => 'Operadora,1003,NO ANSWER,2,Queue,U1,1;Operadora,1002,ANSWERED,7,Queue,U1,1;Operadora,,ANSWERED,3,NoOp,U1,0',
+        ]), $ramais, ['U1' => 5]);
+        $this->ok($fila['atendida'] && $fila['atenderam'] === ['1002'] && $fila['tocaram'] === ['1002'],
+                  'fila: o agente que não atendeu porque o colega atendeu não "recebeu" a ligação');
+        $this->ok($fila['falado'] === 5 && $fila['falado_ramal'] === ['1002' => 5],
+                  'fila: a conversa vem do registro da fila (o CDR conta a espera junto)');
+        $this->ok($fila['destino'] === '1133330000' && $fila['ramal_origem'] === null,
+                  'recebida: o destino é o número que o cliente discou');
+
+        // Saída que deu ocupado: o Asterisk grava dois trechos.
+        $ocupado = $ch::montar($linha([
+            'direcao' => 'saida', 'resultado' => 'BUSY', 'atendida' => 0, 'src' => '1002', 'dst' => '011977777777',
+            'canal_origem' => '1002', 'trechos' => 2, 'dst_saida' => '011977777777',
+            'pernas' => '1002,Operadora,BUSY,0,Dial,U2,1;1002,,BUSY,0,Busy,U2,0',
+        ]), $ramais);
+        $this->ok(!$ocupado['atendida'] && $ocupado['ramal_origem'] === '1002' && $ch::papel($ocupado, '1002') === 'feita',
+                  'saída ocupada: uma ligação feita pelo ramal, não atendida');
+
+        // Click to call: o canal é do ramal, o "src" é o número do cliente.
+        $c2c = $ch::montar($linha([
+            'direcao' => 'saida', 'resultado' => 'ANSWERED', 'atendida' => 1, 'src' => '011999990000', 'dst' => '011999990000',
+            'canal_origem' => '1001', 'trechos' => 1, 'dst_saida' => '011999990000',
+            'pernas' => '1001,Operadora,ANSWERED,8,Dial,U3,1',
+        ]), $ramais);
+        $this->ok($c2c['origem'] === '1001' && $c2c['falado_ramal'] === ['1001' => 8] && $ch::papel($c2c, '1001') === 'feita',
+                  'click to call: quem fez é o ramal do canal, não o "src"');
+
+        // Só a URA atendeu: a central atende (ANSWERED), mas sem pessoa.
+        $ura = $ch::montar($linha([
+            'direcao' => 'entrada', 'resultado' => 'NO ANSWER', 'atendida' => 0, 'src' => '11922221111', 'dst' => 's',
+            'canal_origem' => 'Operadora', 'trechos' => 1, 'pernas' => 'Operadora,,ANSWERED,20,BackGround,U4,0',
+        ]), $ramais);
+        $this->ok(!$ura['atendida'] && $ura['falado'] === 0 && $ura['tocaram'] === [],
+                  'a ligação que só ouviu a URA não é atendida, e não tocou em ramal nenhum');
+
+        // Interna: feita para um, recebida para o outro.
+        $interna = $ch::montar($linha([
+            'direcao' => 'interna', 'resultado' => 'ANSWERED', 'atendida' => 1, 'src' => '1001', 'dst' => '1002',
+            'canal_origem' => '1001', 'trechos' => 1, 'pernas' => '1001,1002,ANSWERED,5,Dial,U5,1',
+        ]), $ramais);
+        $this->ok($ch::papel($interna, '1001') === 'feita' && $ch::papel($interna, '1002') === 'recebida'
+                  && $ch::papel($interna, '1003') === null,
+                  'interna: feita para quem ligou, recebida para quem atendeu');
+
+        // As consultas rodam neste banco (só leitura, num dia sem ligação).
+        $futuro = date('Y-m-d', strtotime('+3 years'));
+        $this->ok($ch::contar($futuro, $futuro) === 0 && $ch::pagina($futuro, $futuro, ['q' => '1', 'participou' => '1001',
+                  'direcao' => 'saida', 'resultado' => 'BUSY'], 10, 0)['total'] === 0,
+                  'a consulta por ligação roda neste banco');
+        $r = \Telium\Dominio\RelatorioConsolidado::gerar('central', '', $futuro, $futuro);
+        $this->ok($r['resumo']['total'] === 0 && $r['confere'] === true,
+                  'relatório consolidado: num dia sem ligação, tudo zero e as contas fecham');
+        $this->ok(\Telium\Dominio\RelatorioFilas::doPeriodo($futuro, $futuro)->barradas() === [],
+                  'a conta das ligações barradas na porta da fila roda neste banco');
+
+        // O PDF sai de verdade: a biblioteca (dompdf) está instalada e o
+        // modelo A4 com o logo monta. Sem ela, o botão "Baixar PDF" daria erro.
+        $pdf = class_exists(\Dompdf\Dompdf::class) ? \Telium\Dominio\RelatorioPdf::consolidado($r, 'teste') : '';
+        $this->ok(str_starts_with($pdf, '%PDF-') && strlen($pdf) > 5000,
+                  'o relatório consolidado sai em PDF (A4, com o logo da Telium)');
+        $pdf = \Telium\Dominio\RelatorioPdf::ligacoes([], $futuro, $futuro, [], 'teste');
+        $this->ok(str_starts_with($pdf, '%PDF-'), 'a lista de ligações do CDR sai em PDF');
+    }
+
     private function kommo(): void
     {
         $k = \Telium\Dominio\Kommo::class;

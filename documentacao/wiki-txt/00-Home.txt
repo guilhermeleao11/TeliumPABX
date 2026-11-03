@@ -54,7 +54,7 @@ O QUE A CENTRAL FAZ
 - Códigos de recurso — Recursos: Todos os códigos discados no telefone (*xx); Página: 15 (ver página 15)
 - Call Center — Recursos: Agentes, pausas, tabulação, retorno, monitor ao vivo com escuta, relatórios; Página: 16 (ver página 16)
 - Conectividade — Recursos: Ramais, troncos, rotas de entrada e saída, DIDs, firewall, provisionamento de telefones, rede, WebRTC; Página: 17 (ver página 17)
-- Relatórios — Recursos: CDR com gravações e exportação em CSV, filas, ramais, troncos, CEL, agentes; Página: 18 (ver página 18)
+- Relatórios — Recursos: Relatório consolidado do dia (fila, ramal ou central), CDR por ligação com gravações e exportação em CSV, filas, ramais, troncos, CEL, agentes; Página: 18 (ver página 18)
 - Configurações — Recursos: Arquivos e aplicação, SIP, correio de voz, música de espera, PINs, fax, e-mail, tarifas, dados da empresa; Página: 19 (ver página 19)
 - Telium — Recursos: Tarifação, integrações e API (click to call e webhooks), suporte, versões e novidades; Página: 20 (ver página 20)
 - Meu Painel (PCU) — Recursos: O painel do usuário: meu ramal, minhas chamadas, correio de voz, siga-me, contatos, perfil e segurança; Página: 21 (ver página 21)

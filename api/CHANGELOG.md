@@ -2,8 +2,31 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.9.0 — 2026-10-28
+## 1.10.0 — 2026-11-03
 Commits:
+Relatório consolidado, e todos os painéis contando ligações (e não trechos do CDR).
+
+### Novidades
+- **Relatório Consolidado**, em Relatórios: a central inteira, uma fila ou um ramal, num dia (ou até 31 dias). Recebidas, feitas e completadas, com cada desfecho; pesquisa de satisfação (oferecidas, respondidas, nota média, índice, quantas deram cada nota); por agente ou por ramal; por fila; por hora; e a **conferência**, com cada total e as partes que o formam. Imprimir / PDF e planilha CSV.
+- **Exportação em PDF**, no papel A4 da Telium (logo e faixa azul no cabeçalho, numeração de página, quem gerou e quando): o relatório consolidado e a lista de ligações do CDR (A4 deitado, até 3 000 ligações). Gerado na central, pela biblioteca dompdf.
+- **CDR por ligação**: uma linha por ligação, com quem atendeu, a conversa sem a espera da fila e os trechos a um clique. Exportação por ligação, e a de trechos (CDR bruto) à parte.
+
+### Correções
+- **Os números dos painéis contavam trechos do CDR, não ligações.** A fila que tocou em dois agentes virava três "chamadas" (uma por agente e a da pesquisa), a saída ocupada virava duas. Na bancada, 10 ligações de verdade apareciam como 16 na Visão Geral, 14 no tronco e 4 na tarifação (eram 3). Agora todas as telas usam a mesma conta: os trechos se juntam pelo linkedid.
+- **Visão Geral**: "Entrada não atendida" contava como perdida a perna do agente que não atendeu porque o colega atendeu (dava 4 de 10; eram 2 de 5). O TMA misturava a espera na fila e trechos não atendidos. "Ramais mais ativos" contava só o que o ramal fez: quem atendia a fila não aparecia.
+- **Desempenho de Ramais**: o ramal achado pelo "src"/"dst" do CDR não via as ligações de fila que atendeu (o dst é o número da fila), nem as que vieram pelo número direto (o dst é o DID), e no click to call o "src" é o cliente. Agora o ramal sai do canal.
+- **Ocupação de Troncos** e **Tarifação**: uma ligação conta uma vez; o setor da tarifação é o do ramal do canal.
+- **Minhas Chamadas**: aparecem as ligações de fila que o ramal atendeu; as ofertas de fila que um colega atendeu, não.
+- **Filas**: a ligação barrada na entrada (fila sem agente que não aceita cliente) não aparecia em relatório nenhum — o Asterisk não escreve nada no queue_log nesse caso (conferido na bancada). Agora conta como recebida e "sem agente", no relatório, no painel do call center e no consolidado.
+
+### Instalação
+- Nova dependência do Composer: `dompdf/dompdf`. A atualização instala os pacotes do `composer.json` que faltam no `vendor` (`composer update <pacote>`), sem mudar a versão dos que já estão. Precisa de acesso ao Packagist, como na instalação.
+
+### Banco
+- `51-relatorios.sql`: índice `idx_cdr_linkedid` no CDR. Idempotente, não altera dado.
+
+## 1.9.0 — 2026-10-28
+Commits: 449f4e9
 Integração com o Kommo (CRM): clique para ligar, registro das chamadas e gravação no histórico do contato.
 
 ### Novidades

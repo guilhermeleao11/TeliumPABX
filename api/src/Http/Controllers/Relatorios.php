@@ -5,38 +5,79 @@ namespace Telium\Http\Controllers;
 
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use Telium\Dominio\Chamadas;
+use Telium\Dominio\RelatorioConsolidado;
 use Telium\Dominio\RelatorioFilas;
+use Telium\Dominio\RelatorioPdf;
 use Telium\Dominio\Tarifa;
 use Telium\Suporte\Bd;
 use Telium\Suporte\Resposta;
 
 final class Relatorios
 {
-    /** GET /api/cdr */
+    /**
+     * GET /api/cdr — as ligações do período, uma linha por ligação.
+     *
+     * Era uma linha por trecho do CDR, e o total da tela não batia com o
+     * painel: a fila que tocou em dois agentes aparecia três vezes. Os
+     * trechos continuam a um clique (GET /api/cdr/{chave}/trechos).
+     */
     public function cdr(Request $req, Response $res): Response
     {
         $p = $req->getQueryParams();
-        [$filtro, $args] = $this->filtroCdr($p);
+        [$de, $ate] = $this->dias($p, 0);
         $limite = min(200, max(10, (int) ($p['limite'] ?? 50)));
         $pagina = max(1, (int) ($p['pagina'] ?? 1));
 
-        $total = (int) Bd::valor("SELECT COUNT(*) FROM cdr{$filtro}", $args);
-        $linhas = Bd::todos(
-            "SELECT id, calldate, clid, src, dst, direcao, duration, billsec,
-                    disposition, tronco, motivo, fila, gravacao, custo
-               FROM cdr{$filtro}
-           ORDER BY calldate DESC
-              LIMIT {$limite} OFFSET " . (($pagina - 1) * $limite),
-            $args
-        );
+        $r = Chamadas::pagina($de, $ate, $this->filtroLigacoes($p), $limite, ($pagina - 1) * $limite);
 
         return Resposta::json($res, [
-            'dados' => $linhas,
-            'total' => $total,
+            'dados' => array_map(static fn (array $c): array => array_diff_key($c, ['falado_ramal' => 1]), $r['dados']),
+            'total' => $r['total'],
             'pagina' => $pagina,
             'limite' => $limite,
-            'paginas' => (int) ceil($total / $limite),
+            'paginas' => (int) ceil($r['total'] / $limite),
+            'de' => $de,
+            'ate' => $ate,
         ]);
+    }
+
+    /** GET /api/cdr/{chave}/trechos — os trechos de uma ligação, como o Asterisk gravou. */
+    public function trechos(Request $req, Response $res, array $args): Response
+    {
+        return Resposta::json($res, ['dados' => Chamadas::trechos((string) $args['chave'])]);
+    }
+
+    /** @return array<string,string> os filtros da tela do CDR, no formato de Chamadas */
+    private function filtroLigacoes(array $p): array
+    {
+        return [
+            'direcao' => (string) ($p['direcao'] ?? ''),
+            // "status" é o nome antigo do filtro: o resultado da ligação.
+            'resultado' => (string) ($p['resultado'] ?? $p['status'] ?? ''),
+            'q' => (string) ($p['q'] ?? ''),
+        ];
+    }
+
+    /**
+     * O período de um relatório, em dias: 'de' e 'ate' (AAAA-MM-DD).
+     * Sem nada, o mês corrente (ou só hoje, com $padraoDias = 0). No
+     * máximo um ano: cada dia é uma consulta.
+     *
+     * @return array{0:string, 1:string}
+     */
+    private function dias(array $p, ?int $padraoDias = null): array
+    {
+        $hoje = date('Y-m-d');
+        $ate = Chamadas::dia($p['ate'] ?? '') ?? $hoje;
+        $de = Chamadas::dia($p['de'] ?? '')
+            ?? ($padraoDias === 0 ? $ate : date('Y-m-01', strtotime($ate)));
+        if ($de > $ate) {
+            [$de, $ate] = [$ate, $de];
+        }
+        $limite = (new \DateTimeImmutable($ate))->modify('-365 days')->format('Y-m-d');
+
+        return [max($de, $limite), $ate];
     }
 
     /** Teto da exportação: um ano de central grande cabe; uma planilha maior não abre. */
@@ -45,60 +86,106 @@ final class Relatorios
     /**
      * GET /api/cdr/exportar — o mesmo filtro da tela, em CSV.
      *
+     * Uma linha por ligação, como a tela. Com trechos=1, uma por trecho do
+     * CDR (o que o Asterisk gravou), para conferir com a operadora.
+     *
      * Separador ";" e vírgula decimal, que é o que o Excel em português
      * abre sem perguntar nada.
      */
     public function exportarCdr(Request $req, Response $res): Response
     {
         $p = $req->getQueryParams();
-        [$filtro, $args] = $this->filtroCdr($p);
+        [$de, $ate] = $this->dias($p, 0);
+        $trechos = !empty($p['trechos']);
 
-        $total = (int) Bd::valor("SELECT COUNT(*) FROM cdr{$filtro}", $args);
-        if ($total > self::CDR_MAX_EXPORTAR) {
-            return Resposta::erro($res, sprintf(
-                'São %s chamadas neste filtro; a exportação vai até %s. Diminua o período.',
-                number_format($total, 0, ',', '.'), number_format(self::CDR_MAX_EXPORTAR, 0, ',', '.')
-            ), 422);
+        if (($p['formato'] ?? '') === 'pdf') {
+            $filtros = $this->filtroLigacoes($p);
+            $total = Chamadas::contar($de, $ate, $filtros);
+            if ($total > RelatorioPdf::MAX_LIGACOES) {
+                return Resposta::erro($res, sprintf(
+                    'São %s ligações neste filtro; o PDF vai até %s. Diminua o período, ou use a planilha.',
+                    number_format($total, 0, ',', '.'), number_format(RelatorioPdf::MAX_LIGACOES, 0, ',', '.')
+                ), 422);
+            }
+            $usuario = (array) $req->getAttribute('usuario');
+            \Telium\Dominio\Auditoria::registrar($usuario, 'exportar', 'rel.cdr', 'CDR (PDF)',
+                ['linhas' => $total, 'de' => $de, 'ate' => $ate]);
+            $res->getBody()->write(RelatorioPdf::ligacoes(Chamadas::percorrer($de, $ate, $filtros), $de, $ate, $filtros,
+                                                          (string) ($usuario['nome'] ?? $usuario['login'] ?? '')));
+
+            return $res->withHeader('Content-Type', 'application/pdf')
+                ->withHeader('Content-Disposition', 'attachment; filename="ligacoes-' . $de . ($ate !== $de ? '-a-' . $ate : '') . '.pdf"')
+                ->withHeader('Cache-Control', 'no-store');
         }
-
-        $fh = fopen('php://temp', 'w+');
-        fwrite($fh, "\xEF\xBB\xBF");
-        fputcsv($fh, ['Data e hora', 'Origem', 'Nome de quem ligou', 'Destino', 'Sentido', 'Duração (s)',
-                      'Falada (s)', 'Resultado', 'Tronco', 'Motivo', 'Fila', 'Custo (R$)', 'Gravação'], ';', '"', '');
         // Nome que comece com = + - @ vira fórmula no Excel de quem abre.
         $celula = static fn ($v) => is_string($v) && $v !== '' && str_contains("=+-@\t\r", $v[0]) ? "'" . $v : $v;
+        $fh = fopen('php://temp', 'w+');
+        fwrite($fh, "\xEF\xBB\xBF");
 
-        $ultimo = PHP_INT_MAX;
-        do {
-            $lote = Bd::todos(
-                "SELECT id, calldate, clid, src, dst, direcao, duration, billsec, disposition,
-                        tronco, motivo, fila, custo, gravacao
-                   FROM cdr{$filtro}" . ($filtro === '' ? ' WHERE' : ' AND') . " id < ?
-               ORDER BY id DESC LIMIT 5000",
-                [...$args, $ultimo]
-            );
-            foreach ($lote as $l) {
-                $ultimo = (int) $l['id'];
+        if ($trechos) {
+            [$filtro, $args] = $this->filtroCdr(['de' => $de, 'ate' => $ate] + $p);
+            $total = (int) Bd::valor("SELECT COUNT(*) FROM cdr{$filtro}", $args);
+            if ($total > self::CDR_MAX_EXPORTAR) {
+                return Resposta::erro($res, sprintf(
+                    'São %s trechos neste filtro; a exportação vai até %s. Diminua o período.',
+                    number_format($total, 0, ',', '.'), number_format(self::CDR_MAX_EXPORTAR, 0, ',', '.')
+                ), 422);
+            }
+            fputcsv($fh, ['Ligação', 'Data e hora', 'Origem', 'Nome de quem ligou', 'Destino', 'Canal de origem',
+                          'Canal de destino', 'Sentido', 'Duração (s)', 'Falada (s)', 'Resultado', 'Tronco', 'Motivo',
+                          'Fila', 'Custo (R$)', 'Gravação'], ';', '"', '');
+            $ultimo = PHP_INT_MAX;
+            do {
+                $lote = Bd::todos(
+                    "SELECT id, linkedid, calldate, clid, src, dst, channel, dstchannel, direcao, duration, billsec,
+                            disposition, tronco, motivo, fila, custo, gravacao
+                       FROM cdr{$filtro}" . ($filtro === '' ? ' WHERE' : ' AND') . " id < ?
+                   ORDER BY id DESC LIMIT 5000",
+                    [...$args, $ultimo]
+                );
+                foreach ($lote as $l) {
+                    $ultimo = (int) $l['id'];
+                    fputcsv($fh, array_map($celula, [
+                        $l['linkedid'], $l['calldate'], $l['src'], $l['clid'], $l['dst'], $l['channel'], $l['dstchannel'],
+                        $l['direcao'], (int) $l['duration'], (int) $l['billsec'], $l['disposition'], $l['tronco'],
+                        $l['motivo'], $l['fila'], $l['custo'] === null ? '' : str_replace('.', ',', (string) $l['custo']),
+                        $l['gravacao'] ? 'sim' : '',
+                    ]), ';', '"', '');
+                }
+            } while (count($lote) === 5000);
+        } else {
+            $total = Chamadas::contar($de, $ate, $this->filtroLigacoes($p));
+            if ($total > self::CDR_MAX_EXPORTAR) {
+                return Resposta::erro($res, sprintf(
+                    'São %s ligações neste filtro; a exportação vai até %s. Diminua o período.',
+                    number_format($total, 0, ',', '.'), number_format(self::CDR_MAX_EXPORTAR, 0, ',', '.')
+                ), 422);
+            }
+            fputcsv($fh, ['Ligação', 'Data e hora', 'Sentido', 'Origem', 'Nome de quem ligou', 'Destino', 'Resultado',
+                          'Duração (s)', 'Conversa (s)', 'Ramal que fez', 'Ramais que atenderam', 'Tronco', 'Fila',
+                          'Trechos no CDR', 'Custo (R$)', 'Gravação'], ';', '"', '');
+            foreach (Chamadas::percorrer($de, $ate, $this->filtroLigacoes($p)) as $c) {
                 fputcsv($fh, array_map($celula, [
-                    $l['calldate'], $l['src'], $l['clid'], $l['dst'], $l['direcao'], (int) $l['duration'],
-                    (int) $l['billsec'], $l['disposition'], $l['tronco'], $l['motivo'], $l['fila'],
-                    $l['custo'] === null ? '' : str_replace('.', ',', (string) $l['custo']),
-                    $l['gravacao'] ? 'sim' : '',
+                    $c['chave'], $c['inicio'], $c['direcao'], $c['origem'], $c['clid'], $c['destino'],
+                    Chamadas::rotulo($c['resultado']), $c['duracao'], $c['falado'], $c['ramal_origem'] ?? '',
+                    implode(' ', $c['atenderam']), implode(' ', $c['troncos']), implode(' ', $c['filas']), $c['trechos'],
+                    $c['custo'] === null ? '' : str_replace('.', ',', (string) $c['custo']), $c['gravacao'] ? 'sim' : '',
                 ]), ';', '"', '');
             }
-        } while (count($lote) === 5000);
+        }
 
         rewind($fh);
         $conteudo = (string) stream_get_contents($fh);
         fclose($fh);
 
         \Telium\Dominio\Auditoria::registrar($req->getAttribute('usuario'), 'exportar', 'rel.cdr',
-            'CDR', ['linhas' => $total, 'de' => $p['de'] ?? '', 'ate' => $p['ate'] ?? '']);
+            $trechos ? 'CDR (trechos)' : 'CDR (ligações)', ['linhas' => $total, 'de' => $de, 'ate' => $ate]);
 
         $res->getBody()->write($conteudo);
 
         return $res->withHeader('Content-Type', 'text/csv; charset=utf-8')
-            ->withHeader('Content-Disposition', 'attachment; filename="cdr-' . date('Y-m-d') . '.csv"')
+            ->withHeader('Content-Disposition', 'attachment; filename="' . ($trechos ? 'cdr-trechos-' : 'ligacoes-')
+                . $de . ($ate !== $de ? '-a-' . $ate : '') . '.csv"')
             ->withHeader('Cache-Control', 'no-store');
     }
 
@@ -133,86 +220,115 @@ final class Relatorios
     }
 
     /**
-     * GET /api/relatorios/ramais — quanto cada ramal falou.
+     * GET /api/relatorios/ramais — o que cada ramal fez e recebeu.
      *
-     * O CDR guarda origem e destino como texto, sem vínculo com a
-     * tabela de ramais: o relatório junta pelo número, e um ramal
-     * excluído continua aparecendo com o histórico dele — que é o que
-     * se quer num relatório, e não o contrário.
+     * Uma ligação conta uma vez para cada ramal, pela mesma conta do
+     * relatório consolidado. Antes cada trecho do CDR contava, o ramal era
+     * achado pelo "src"/"dst" (no click to call o src é o cliente, na
+     * fila o dst é o número da fila) e o ramal que atendeu a fila
+     * aparecia sem nenhuma recebida.
+     *
+     * Recebidas = atendeu + outro atendeu + ninguém atendeu. "Outro
+     * atendeu" é a que tocou junto (grupo de toque) ou foi transferida;
+     * oferta de fila que um colega atendeu não conta para o ramal.
      */
     public function ramais(Request $req, Response $res): Response
     {
-        // O período vai no ON do LEFT JOIN, junto com o vínculo: como WHERE
-        // ele ficava antes do WHERE da consulta, e toda busca com data dava
-        // erro de SQL. No ON, ramal sem chamada no período aparece com zero.
-        [$filtro, $args] = $this->periodo($req, 'c.');
-        $filtro = $filtro === '' ? '' : ' AND ' . substr($filtro, strlen(' WHERE '));
+        [$de, $ate] = $this->dias($req->getQueryParams());
+        $porRamal = RelatorioConsolidado::porRamal($de, $ate);
 
-        $linhas = Bd::todos(
-            "SELECT r.numero, r.nome, r.setor,
-                    SUM(c.src = r.numero) AS feitas,
-                    SUM(c.dst = r.numero) AS recebidas,
-                    SUM(c.src = r.numero AND c.disposition = 'ANSWERED') AS feitas_ok,
-                    SUM(c.dst = r.numero AND c.disposition = 'ANSWERED') AS recebidas_ok,
-                    COALESCE(SUM(CASE WHEN c.src = r.numero THEN c.billsec END), 0) AS seg_feitas,
-                    COALESCE(SUM(CASE WHEN c.dst = r.numero THEN c.billsec END), 0) AS seg_recebidas,
-                    COALESCE(SUM(c.custo), 0) AS custo
-               FROM ramais r
-          LEFT JOIN cdr c ON (c.src = r.numero OR c.dst = r.numero){$filtro}
-              WHERE r.ativo = 1
-           GROUP BY r.id, r.numero, r.nome, r.setor
-           ORDER BY (COALESCE(SUM(c.billsec), 0)) DESC, r.numero",
-            $args
-        );
-
-        foreach ($linhas as &$l) {
-            $l['total'] = (int) $l['feitas'] + (int) $l['recebidas'];
-            $l['segundos'] = (int) $l['seg_feitas'] + (int) $l['seg_recebidas'];
-            $l['perdidas'] = (int) $l['recebidas'] - (int) $l['recebidas_ok'];
+        $linhas = [];
+        foreach (Bd::todos('SELECT numero, nome, setor, ativo FROM ramais ORDER BY numero') as $r) {
+            $m = $porRamal[(string) $r['numero']] ?? null;
+            unset($porRamal[(string) $r['numero']]);
+            if ($m === null && (int) $r['ativo'] !== 1) {
+                continue;
+            }
+            $linhas[] = self::linhaDoRamal($r, $m);
         }
-        unset($l);
+        usort($linhas, static fn ($a, $b) => $b['segundos'] <=> $a['segundos'] ?: $b['total'] <=> $a['total']
+                                             ?: strcmp((string) $a['numero'], (string) $b['numero']));
 
-        return Resposta::json($res, ['dados' => $linhas]);
+        return Resposta::json($res, ['dados' => $linhas, 'de' => $de, 'ate' => $ate]);
     }
 
-    /** GET /api/relatorios/troncos — volume e falha por operadora. */
+    /** @param array<string,mixed> $r @param array<string,mixed>|null $m */
+    private static function linhaDoRamal(array $r, ?array $m): array
+    {
+        $m ??= ['recebidas' => 0, 'atendidas' => 0, 'outro_atendeu' => 0, 'nao_atendeu' => 0,
+                'feitas' => 0, 'feitas_atendidas' => 0, 'falado' => 0];
+
+        return [
+            'numero' => (string) $r['numero'], 'nome' => $r['nome'], 'setor' => $r['setor'],
+            'feitas' => $m['feitas'], 'feitas_ok' => $m['feitas_atendidas'],
+            'recebidas' => $m['recebidas'], 'recebidas_ok' => $m['atendidas'],
+            'outro_atendeu' => $m['outro_atendeu'], 'perdidas' => $m['nao_atendeu'],
+            'total' => $m['feitas'] + $m['recebidas'], 'segundos' => $m['falado'],
+        ];
+    }
+
+    /**
+     * GET /api/relatorios/troncos — volume e completamento por operadora.
+     *
+     * Por ligação, como as outras telas: a saída que dá ocupado grava dois
+     * trechos no CDR, e a entrada de fila um por agente que tocou. O
+     * completamento (ASR) é das feitas: é o número da operadora. Na
+     * recebida, quem atende é a empresa, não a operadora.
+     */
     public function troncos(Request $req, Response $res): Response
     {
-        [$filtro, $args] = $this->periodo($req, 'c.');
+        [$de, $ate] = $this->dias($req->getQueryParams());
 
-        $linhas = Bd::todos(
-            "SELECT t.nome, t.host, t.ativo,
-                    COUNT(c.id) AS chamadas,
-                    SUM(c.disposition = 'ANSWERED') AS atendidas,
-                    SUM(c.disposition = 'BUSY') AS ocupadas,
-                    SUM(c.disposition = 'FAILED') AS falhas,
-                    SUM(c.disposition = 'NO ANSWER') AS sem_resposta,
-                    -- Sem esta coluna, a congestionada entrava no total e em
-                    -- nenhum resultado: a conta da linha não fechava.
-                    SUM(c.disposition = 'CONGESTION') AS congestionadas,
-                    COALESCE(SUM(c.billsec), 0) AS segundos,
-                    COALESCE(SUM(c.custo), 0) AS custo
-               FROM troncos t
-          LEFT JOIN cdr c ON c.tronco = t.nome"
-            . ($filtro === '' ? '' : ' AND ' . ltrim($filtro, ' WHERE')) . "
-           GROUP BY t.id
-           ORDER BY chamadas DESC, t.nome",
-            $args
-        );
+        $vazio = ['recebidas' => 0, 'recebidas_ok' => 0, 'chamadas' => 0, 'atendidas' => 0, 'ocupadas' => 0,
+                  'sem_resposta' => 0, 'falhas' => 0, 'congestionadas' => 0, 'segundos' => 0, 'custo' => 0.0];
+        $porTronco = [];
+        foreach (Chamadas::percorrer($de, $ate) as $c) {
+            foreach ($c['troncos'] as $t) {
+                $l = $porTronco[$t] ?? $vazio;
+                if ($c['direcao'] === 'entrada') {
+                    $l['recebidas']++;
+                    $l['recebidas_ok'] += $c['atendida'] ? 1 : 0;
+                } else {
+                    $l['chamadas']++;
+                    match ($c['resultado']) {
+                        'ANSWERED' => $l['atendidas']++,
+                        'BUSY' => $l['ocupadas']++,
+                        'FAILED' => $l['falhas']++,
+                        'CONGESTION' => $l['congestionadas']++,
+                        default => $l['sem_resposta']++,
+                    };
+                }
+                $l['segundos'] += $c['atendida'] ? $c['falado'] : 0;
+                $l['custo'] += (float) ($c['custo'] ?? 0);
+                $porTronco[$t] = $l;
+            }
+        }
+
+        $linhas = [];
+        foreach (Bd::todos('SELECT nome, host, ativo FROM troncos ORDER BY nome') as $t) {
+            $linhas[] = $t + ($porTronco[(string) $t['nome']] ?? $vazio);
+            unset($porTronco[(string) $t['nome']]);
+        }
+        // Tronco que já foi excluído, mas tem ligação no período.
+        foreach ($porTronco as $nome => $l) {
+            $linhas[] = ['nome' => (string) $nome, 'host' => null, 'ativo' => 0, 'excluido' => true] + $l;
+        }
 
         foreach ($linhas as &$l) {
             $total = (int) $l['chamadas'];
-            // Taxa de completamento (ASR): é o número que se leva para a
-            // operadora quando a reclamação é "a linha não completa".
+            // Taxa de completamento (ASR) das feitas: é o número que se leva
+            // para a operadora quando a reclamação é "a linha não completa".
             $l['asr'] = $total > 0 ? round((int) $l['atendidas'] / $total * 100, 1) : null;
-            // Duração média da chamada atendida (ACD).
-            $l['acd'] = (int) $l['atendidas'] > 0
-                ? (int) round((int) $l['segundos'] / (int) $l['atendidas'])
-                : 0;
+            // Duração média da ligação atendida (ACD), das duas direções.
+            $atendidas = (int) $l['atendidas'] + (int) $l['recebidas_ok'];
+            $l['acd'] = $atendidas > 0 ? (int) round((int) $l['segundos'] / $atendidas) : 0;
+            $l['custo'] = round((float) $l['custo'], 2);
         }
         unset($l);
+        usort($linhas, static fn ($a, $b) => ($b['chamadas'] + $b['recebidas']) <=> ($a['chamadas'] + $a['recebidas'])
+                                             ?: strcmp((string) $a['nome'], (string) $b['nome']));
 
-        return Resposta::json($res, ['dados' => $linhas]);
+        return Resposta::json($res, ['dados' => $linhas, 'de' => $de, 'ate' => $ate]);
     }
 
     /**
@@ -305,7 +421,7 @@ final class Relatorios
         );
         foreach ($filas as &$f) {
             $m = $porNumero[(string) $f['numero']] ?? null;
-            foreach (['recebidas', 'atendidas', 'abandonadas', 'estouradas', 'sem_agente', 'no_sla', 'tme', 'tma'] as $k) {
+            foreach (['recebidas', 'atendidas', 'abandonadas', 'estouradas', 'sem_agente', 'retorno', 'no_sla', 'tme', 'tma'] as $k) {
                 $f[$k] = (int) ($m[$k] ?? 0);
             }
             $f['sla'] = $m['sla'] ?? null;
@@ -363,25 +479,98 @@ final class Relatorios
         ]);
     }
 
+    /**
+     * GET /api/relatorios/consolidado?tipo=central|fila|ramal&alvo=&de=&ate=[&formato=csv]
+     *
+     * O resumo de uma seleção num dia ou num período. Sem tipo, devolve só
+     * as opções da tela (filas e ramais).
+     */
+    public function consolidado(Request $req, Response $res): Response
+    {
+        $p = $req->getQueryParams();
+        $tipo = (string) ($p['tipo'] ?? '');
+        if ($tipo === '') {
+            return Resposta::json($res, [
+                'filas'  => Bd::todos('SELECT numero, nome FROM filas ORDER BY numero'),
+                'ramais' => Bd::todos('SELECT numero, nome FROM ramais ORDER BY CAST(numero AS UNSIGNED), numero'),
+                'max_dias' => RelatorioConsolidado::MAX_DIAS,
+            ]);
+        }
+        if (!in_array($tipo, ['central', 'fila', 'ramal'], true)) {
+            return Resposta::erro($res, 'Escolha a central inteira, uma fila ou um ramal.', 422, ['campo' => 'tipo']);
+        }
+        $alvo = trim((string) ($p['alvo'] ?? ''));
+        if ($tipo !== 'central' && $alvo === '') {
+            return Resposta::erro($res, $tipo === 'fila' ? 'Escolha a fila.' : 'Escolha o ramal.', 422, ['campo' => 'alvo']);
+        }
+        $de = Chamadas::dia($p['de'] ?? '');
+        $ate = Chamadas::dia(($p['ate'] ?? '') !== '' ? $p['ate'] : ($p['de'] ?? ''));
+        if ($de === null || $ate === null) {
+            return Resposta::erro($res, 'Informe o dia (AAAA-MM-DD).', 422, ['campo' => 'de']);
+        }
+        if ($de > $ate) {
+            return Resposta::erro($res, 'O início do período vem depois do fim.', 422, ['campo' => 'ate']);
+        }
+        $dias = (new \DateTimeImmutable($de))->diff(new \DateTimeImmutable($ate))->days + 1;
+        if ($dias > RelatorioConsolidado::MAX_DIAS) {
+            return Resposta::erro($res, 'O relatório vai até ' . RelatorioConsolidado::MAX_DIAS
+                . " dias de cada vez; o período escolhido tem {$dias}.", 422, ['campo' => 'ate']);
+        }
+
+        try {
+            $r = RelatorioConsolidado::gerar($tipo, $alvo, $de, $ate);
+        } catch (\DomainException $e) {
+            return Resposta::erro($res, $e->getMessage(), 404, ['campo' => 'alvo']);
+        }
+
+        $formato = (string) ($p['formato'] ?? '');
+        if (!in_array($formato, ['csv', 'pdf'], true)) {
+            return Resposta::json($res, $r);
+        }
+
+        $usuario = (array) $req->getAttribute('usuario');
+        \Telium\Dominio\Auditoria::registrar($usuario, 'exportar', 'rel.consolidado',
+            $r['selecao']['nome'], ['de' => $de, 'ate' => $ate, 'formato' => $formato]);
+        $nome = 'relatorio-' . $tipo . ($alvo !== '' ? '-' . preg_replace('/[^0-9A-Za-z_-]/', '', $alvo) : '')
+              . '-' . $de . ($ate !== $de ? '-a-' . $ate : '') . '.' . $formato;
+
+        if ($formato === 'pdf') {
+            $res->getBody()->write(RelatorioPdf::consolidado($r, (string) ($usuario['nome'] ?? $usuario['login'] ?? '')));
+
+            return $res->withHeader('Content-Type', 'application/pdf')
+                ->withHeader('Content-Disposition', 'attachment; filename="' . $nome . '"')
+                ->withHeader('Cache-Control', 'no-store');
+        }
+
+        $res->getBody()->write(RelatorioConsolidado::csv($r));
+
+        return $res->withHeader('Content-Type', 'text/csv; charset=utf-8')
+            ->withHeader('Content-Disposition', 'attachment; filename="' . $nome . '"')
+            ->withHeader('Cache-Control', 'no-store');
+    }
+
     /** GET /api/relatorios/tarifacao */
     public function tarifacao(Request $req, Response $res): Response
     {
         $mes = $req->getQueryParams()['mes'] ?? date('Y-m');
 
+        // Uma ligação conta uma vez: a saída que dá ocupado grava dois
+        // trechos no CDR. O setor é o do ramal do canal, não do "src" — no
+        // click to call o src é o número do cliente.
         $porSetor = Bd::todos(
             "SELECT COALESCE(r.setor, 'Sem setor') AS setor,
-                    COUNT(*) AS chamadas,
+                    COUNT(DISTINCT IF(c.linkedid <> '', c.linkedid, c.uniqueid)) AS chamadas,
                     ROUND(SUM(c.billsec) / 60) AS minutos,
                     COALESCE(SUM(c.custo), 0) AS custo
                FROM cdr c
-          LEFT JOIN ramais r ON r.numero = c.src
+          LEFT JOIN ramais r ON r.numero = SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(c.channel, '-', 1), '/', -1), '@', 1)
               WHERE c.direcao = 'saida' AND DATE_FORMAT(c.calldate, '%Y-%m') = ?
            GROUP BY setor ORDER BY custo DESC",
             [$mes]
         );
 
         $totais = Bd::um(
-            "SELECT COUNT(*) AS chamadas,
+            "SELECT COUNT(DISTINCT IF(linkedid <> '', linkedid, uniqueid)) AS chamadas,
                     ROUND(SUM(billsec) / 60) AS minutos,
                     COALESCE(SUM(custo), 0) AS custo
                FROM cdr
@@ -394,14 +583,14 @@ final class Relatorios
         // do mês ficar menor do que a fatura, e a tela precisa dizer
         // isso em vez de deixar o número passar por resposta.
         $pendentes = (int) Bd::valor(
-            "SELECT COUNT(*) FROM cdr
+            "SELECT COUNT(DISTINCT IF(linkedid <> '', linkedid, uniqueid)) FROM cdr
               WHERE direcao = 'saida' AND custo IS NULL AND billsec > 0
                 AND DATE_FORMAT(calldate, '%Y-%m') = ?",
             [$mes]
         );
 
         $semClasse = (int) Bd::valor(
-            "SELECT COUNT(*) FROM cdr
+            "SELECT COUNT(DISTINCT IF(linkedid <> '', linkedid, uniqueid)) FROM cdr
               WHERE direcao = 'saida' AND billsec > 0 AND (classe IS NULL OR classe = '')
                 AND DATE_FORMAT(calldate, '%Y-%m') = ?",
             [$mes]

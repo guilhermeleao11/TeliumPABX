@@ -5,6 +5,7 @@ namespace Telium\Http\Controllers;
 
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
+use Telium\Dominio\Chamadas;
 use Telium\Suporte\Ami;
 use Telium\Suporte\Bd;
 use Telium\Suporte\Resposta;
@@ -33,48 +34,63 @@ final class Painel
     }
 
     // ------------------------------------------------------------------
+    /**
+     * As ligações de hoje, uma vez cada (Chamadas junta os trechos do CDR):
+     * contar linhas dava a fila que tocou em dois agentes como duas
+     * chamadas, uma delas "perdida".
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function deHoje(): array
+    {
+        return $this->hoje ??= iterator_to_array(Chamadas::percorrer(date('Y-m-d'), date('Y-m-d')), false);
+    }
+
+    /** @var list<array<string,mixed>>|null */
+    private ?array $hoje = null;
+
     private function kpis(): array
     {
-        $hoje = Bd::um(
-            "SELECT
-                COUNT(*) AS total,
-                SUM(disposition = 'ANSWERED') AS atendidas,
-                -- Só as chamadas de fora: a de ramal para ramal que ninguém
-                -- atendeu não é cliente perdido, e entrava na conta.
-                SUM(direcao = 'entrada') AS entrada,
-                SUM(direcao = 'entrada' AND disposition <> 'ANSWERED') AS perdidas,
-                AVG(NULLIF(billsec, 0)) AS tma
-             FROM cdr WHERE DATE(calldate) = CURDATE()"
-        ) ?? [];
-
-        $ontem = Bd::um(
-            "SELECT COUNT(*) AS total FROM cdr
-              WHERE DATE(calldate) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)"
-        ) ?? [];
-
-        $total = (int) ($hoje['total'] ?? 0);
-        $perdidas = (int) ($hoje['perdidas'] ?? 0);
-        $entrada = (int) ($hoje['entrada'] ?? 0);
-        $totalOntem = (int) ($ontem['total'] ?? 0);
-        $tma = (int) round((float) ($hoje['tma'] ?? 0));
+        $hoje = $this->deHoje();
+        $total = count($hoje);
+        $porDirecao = ['entrada' => 0, 'saida' => 0, 'interna' => 0];
+        $entradaSemAtender = 0;
+        $falado = 0;
+        $conversas = 0;
+        foreach ($hoje as $c) {
+            $porDirecao[$c['direcao']]++;
+            if ($c['direcao'] === 'entrada' && !$c['atendida']) {
+                $entradaSemAtender++;
+            }
+            if ($c['atendida'] && $c['falado'] > 0) {
+                $falado += $c['falado'];
+                $conversas++;
+            }
+        }
+        $entrada = $porDirecao['entrada'];
+        $ontem = date('Y-m-d', strtotime('-1 day'));
+        $totalOntem = Chamadas::contar($ontem, $ontem);
+        $tma = $conversas > 0 ? (int) round($falado / $conversas) : 0;
 
         $variacao = $totalOntem > 0
             ? round((($total - $totalOntem) / $totalOntem) * 100, 1)
             : null;
 
         $ativas = $this->canaisAtivos();
+        $n = static fn (int $v): string => number_format($v, 0, ',', '.');
 
         return [
             [
                 'chave' => 'chamadas_hoje',
-                'label' => 'Chamadas hoje',
-                'valor' => number_format($total, 0, ',', '.'),
+                'label' => 'Ligações hoje',
+                'valor' => $n($total),
                 'delta' => $variacao,
                 'ico'   => 'phone',
                 'tone'  => 'brand',
-                'rodape' => $totalOntem > 0
-                    ? 'vs. ' . number_format($totalOntem, 0, ',', '.') . ' ontem'
-                    : 'sem histórico de ontem',
+                // As três partes somam o total, e o "ontem" é contado igual.
+                'rodape' => "{$n($entrada)} recebidas · {$n($porDirecao['saida'])} feitas · "
+                    . "{$n($porDirecao['interna'])} internas"
+                    . ($totalOntem > 0 ? " · ontem {$n($totalOntem)}" : ''),
             ],
             [
                 'chave' => 'em_atendimento',
@@ -84,21 +100,23 @@ final class Painel
                 'ico'   => 'headset',
                 'tone'  => $ativas['ok'] ? 'ok' : 'warn',
                 'rodape' => $ativas['ok']
-                    ? $ativas['canais'] . ' canais ativos'
+                    ? $ativas['canais'] . ' canais ativos agora'
                     : 'Asterisk não respondeu',
             ],
             [
                 // O abandono de fila, medido pela fila, está em Desempenho
                 // de Filas; aqui é o que chegou de fora e ninguém atendeu.
                 'chave' => 'abandono',
-                'label' => 'Entrada não atendida',
+                'label' => 'Recebidas não atendidas',
                 'valor' => $entrada > 0
-                    ? number_format($perdidas / $entrada * 100, 1, ',', '.') . '%'
+                    ? number_format($entradaSemAtender / $entrada * 100, 1, ',', '.') . '%'
                     : '—',
                 'delta' => null,
                 'ico'   => 'phoneOff',
                 'tone'  => 'warn',
-                'rodape' => $entrada > 0 ? "{$perdidas} de {$entrada} chamadas de fora" : 'nenhuma chamada de fora hoje',
+                'rodape' => $entrada > 0
+                    ? "{$n($entradaSemAtender)} de {$n($entrada)} ligações de fora"
+                    : 'nenhuma ligação de fora hoje',
             ],
             [
                 'chave' => 'tma',
@@ -107,28 +125,23 @@ final class Painel
                 'delta' => null,
                 'ico'   => 'clock',
                 'tone'  => 'info',
-                'rodape' => $tma > 0 ? 'chamadas atendidas hoje' : 'sem chamadas atendidas',
+                'rodape' => $tma > 0 ? "de conversa, em {$n($conversas)} ligações atendidas" : 'sem ligações atendidas',
             ],
         ];
     }
 
     private function volumePorHora(): array
     {
-        $linhas = Bd::todos(
-            "SELECT HOUR(calldate) AS hora,
-                    SUM(disposition = 'ANSWERED') AS atendidas,
-                    SUM(disposition <> 'ANSWERED') AS perdidas
-               FROM cdr
-              WHERE DATE(calldate) = CURDATE()
-           GROUP BY HOUR(calldate)
-           ORDER BY hora"
-        );
+        $porHora = [];
+        foreach ($this->deHoje() as $c) {
+            $porHora[$c['hora']] ??= ['atendidas' => 0, 'perdidas' => 0];
+            $porHora[$c['hora']][$c['atendida'] ? 'atendidas' : 'perdidas']++;
+        }
 
-        if ($linhas === []) {
+        if ($porHora === []) {
             return ['labels' => [], 'series' => [], 'vazio' => true];
         }
 
-        $porHora = array_column($linhas, null, 'hora');
         $primeira = (int) min(array_keys($porHora));
         $ultima = (int) max(array_keys($porHora));
 
@@ -137,33 +150,56 @@ final class Painel
         $perdidas = [];
         for ($h = $primeira; $h <= $ultima; $h++) {
             $labels[] = str_pad((string) $h, 2, '0', STR_PAD_LEFT) . 'h';
-            $atendidas[] = (int) ($porHora[$h]['atendidas'] ?? 0);
-            $perdidas[] = (int) ($porHora[$h]['perdidas'] ?? 0);
+            $atendidas[] = $porHora[$h]['atendidas'] ?? 0;
+            $perdidas[] = $porHora[$h]['perdidas'] ?? 0;
         }
 
         return [
             'labels' => $labels,
             'series' => [
                 ['key' => 'atendidas', 'label' => 'Atendidas', 'color' => 'var(--series-1)', 'values' => $atendidas],
-                ['key' => 'perdidas',  'label' => 'Perdidas',  'color' => 'var(--series-2)', 'values' => $perdidas],
+                ['key' => 'perdidas',  'label' => 'Não atendidas', 'color' => 'var(--series-2)', 'values' => $perdidas],
             ],
             'vazio' => false,
         ];
     }
 
+    /**
+     * Os ramais com mais ligações atendidas hoje: as que fizeram e alguém
+     * atendeu, e as que eles atenderam. Antes eram só as que o ramal fez,
+     * e quem passou o dia atendendo a fila não aparecia.
+     */
     private function topRamais(): array
     {
-        return Bd::todos(
-            "SELECT c.src AS ramal, r.nome, COUNT(*) AS qtd
-               FROM cdr c
-          LEFT JOIN ramais r ON r.numero = c.src
-              WHERE DATE(c.calldate) = CURDATE()
-                AND c.disposition = 'ANSWERED'
-                AND CHAR_LENGTH(c.src) <= 6
-           GROUP BY c.src, r.nome
-           ORDER BY qtd DESC
-              LIMIT 6"
-        );
+        $conta = [];
+        foreach ($this->deHoje() as $c) {
+            if (!$c['atendida']) {
+                continue;
+            }
+            $ramais = $c['atenderam'];
+            if ($c['ramal_origem'] !== null) {
+                $ramais[] = $c['ramal_origem'];
+            }
+            foreach (array_unique($ramais) as $r) {
+                $conta[$r] = ($conta[$r] ?? 0) + 1;
+            }
+        }
+        arsort($conta);
+        $conta = array_slice($conta, 0, 6, true);
+        if ($conta === []) {
+            return [];
+        }
+        $nomes = array_column(Bd::todos(
+            'SELECT numero, nome FROM ramais WHERE numero IN (' . implode(',', array_fill(0, count($conta), '?')) . ')',
+            array_map('strval', array_keys($conta))
+        ), 'nome', 'numero');
+
+        $saida = [];
+        foreach ($conta as $ramal => $qtd) {
+            $saida[] = ['ramal' => (string) $ramal, 'nome' => $nomes[$ramal] ?? null, 'qtd' => $qtd];
+        }
+
+        return $saida;
     }
 
     private function troncos(): array

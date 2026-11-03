@@ -1184,11 +1184,13 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     // ---- relatórios ----
     $g->get('/cdr', [Relatorios::class, 'cdr'])->add(new Permissao('rel.cdr'));
     $g->get('/cdr/exportar', [Relatorios::class, 'exportarCdr'])->add(new Permissao('rel.cdr', 'exportar'));
+    $g->get('/cdr/{chave}/trechos', [Relatorios::class, 'trechos'])->add(new Permissao('rel.cdr'));
     $g->get('/relatorios/filas', [Relatorios::class, 'filas'])->add(new Permissao('rel.filas'));
     $g->get('/relatorios/agentes', [Relatorios::class, 'agentes'])->add(new Permissao('rel.agentes'));
     $g->get('/relatorios/ramais', [Relatorios::class, 'ramais'])->add(new Permissao('rel.ramais'));
     $g->get('/relatorios/troncos', [Relatorios::class, 'troncos'])->add(new Permissao('rel.troncos'));
     $g->get('/relatorios/eventos', [Relatorios::class, 'eventos'])->add(new Permissao('rel.cel'));
+    $g->get('/relatorios/consolidado', [Relatorios::class, 'consolidado'])->add(new Permissao('rel.consolidado'));
     $g->post('/integracoes/{id}/testar', function (
         \Psr\Http\Message\ServerRequestInterface $req,
         \Psr\Http\Message\ResponseInterface $res,

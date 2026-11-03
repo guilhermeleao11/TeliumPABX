@@ -341,6 +341,7 @@ Carregados em ordem por app.html (o index.html carrega só icons.js, api.js, dat
 - pcu.js: Meu Painel (portal do usuário): o ramal vem sempre da sessão
 - callcenter.js: Painel do agente, monitor do supervisor, cadastros, retornos, relatório; CCVivo (SSE)
 - pesquisas.js: Pesquisa de satisfação
+- consolidado.js: Relatório consolidado
 - telefone.js: Tela do telefone WebRTC (PAGES['fone.webrtc'])
 - app.js: Shell: inicialização, sidebar, roteador por hash (App.route), barra de Aplicar, toast()
 

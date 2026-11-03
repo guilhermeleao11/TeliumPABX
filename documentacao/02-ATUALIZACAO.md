@@ -228,6 +228,16 @@ implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.10.0 — relatório consolidado e números que fecham
+- **Relatório Consolidado** (Relatórios › Relatório Consolidado): escolha a central inteira, uma fila ou um ramal e o dia (ou até 31 dias). Sai quantas ligações foram recebidas, feitas, completadas, a pesquisa de satisfação, por agente e por hora, e uma **conferência** que mostra cada total fechando (`6 = 4 recebidas + 2 feitas`). Baixa em **PDF** (A4 com o logo da Telium) e em planilha. Detalhes em [Relatórios](wiki/18-Relatorios.md#relatório-consolidado).
+- **Uma ligação conta uma vez em todas as telas.** O Asterisk grava um trecho por agente que tocou, por transferência e pela pesquisa, e as telas contavam trechos: numa bancada com 10 ligações, a Visão Geral mostrava 16. Visão Geral, CDR, Desempenho de Ramais, Ocupação de Troncos, Tarifação e Minhas Chamadas passam a contar ligações. **Os números de hoje em diante (e os do histórico, ao abrir de novo) ficam menores que os de antes, e são os certos.**
+- **CDR**: uma linha por ligação, com os trechos a um clique. **Exportar ligações** é uma linha por ligação; **Trechos (CDR bruto)** é a planilha de antes, uma linha por trecho.
+- **Desempenho de Ramais**: o ramal que atende fila passa a ver as recebidas dele (antes ficavam zeradas), e a ligação que chegou pelo número direto (DID) também. Recebidas = atendeu + outro atendeu + não atendidas. Sem período, mostra o mês corrente (antes, todo o histórico).
+- **Ocupação de Troncos**: recebidas e feitas separadas; o completamento é das feitas.
+- **Filas**: a ligação barrada na entrada (fila sem agente, configurada para não aceitar) passa a contar como recebida e "sem agente" — o Asterisk não a registra no log da fila. Desempenho de Filas mostra os **outros desfechos**, e a linha fecha.
+- **PDF**: o relatório consolidado e a lista de ligações do CDR saem em PDF, no papel A4 da Telium. A atualização instala a biblioteca de PDF (`dompdf`) pelo Composer: o servidor precisa alcançar o Packagist (o mesmo acesso da instalação). Confira depois com `php bin/telium testar` ("o relatório consolidado sai em PDF").
+- O banco ganha um índice no CDR (`idx_cdr_linkedid`). Em CDR muito grande, a primeira atualização leva alguns minutos a mais nesse passo, sem parar as chamadas. Nenhum dado é alterado.
+
 ### 1.9.0 — integração com o Kommo (CRM)
 - **Kommo**: em **Telium › Integrações / API**, seção **Kommo (CRM)**. Clique no telefone do contato no Kommo e o ramal de quem clicou toca; ao atender, a central disca o cliente. Cada chamada feita ou recebida vai para o histórico do contato com o resumo (quem ligou, para quem, quando e quanto durou), o dono e a gravação. Número que não é contato vira lead de entrada. O app do Kommo sai da própria central (**telium-pabx-kommo.zip**). Passo a passo em [Integração com o Kommo](23-Integracao-Kommo.md).
 - Novo temporizador **`telium-kommo.timer`** (a cada minuto). Sem a integração ligada, não faz nada: a atualização não muda nada para quem não usa o Kommo.

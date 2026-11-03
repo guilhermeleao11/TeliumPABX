@@ -433,3 +433,30 @@
 .destino-par select { flex: 1 1 auto; min-width: 0; }
 .destino-par input[data-destino-externo] { flex: 0 1 190px; min-width: 0; }
 .destino-par input[hidden] { display: none; }
+
+/* Relatório consolidado: cabeçalho, blocos e a versão impressa. */
+.rc-cabecalho {
+  display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  align-items: flex-end; margin-bottom: 14px;
+}
+.rc-grade { margin-bottom: 16px; }
+.rc-largo { margin-bottom: 16px; }
+.rc-tabela td { padding-top: 7px; padding-bottom: 7px; }
+.rc-soma td { border-top: 2px solid var(--border-strong, var(--border)); }
+.rc-indicadores {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px; margin-top: 14px;
+}
+.rc-obs { margin: 8px 0 0; padding-left: 18px; }
+.rc-obs li { margin: 3px 0; }
+
+@media print {
+  .sidebar, .header, .barra-aplicar, .toasts, .scrim, .no-print, .page-head { display: none !important; }
+  .app, .main, .content { display: block !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; }
+  body { background: #fff !important; color: #000; }
+  .card { box-shadow: none !important; border: 1px solid #ccc !important; break-inside: avoid; }
+  .rc-relatorio .grid.g-4 { grid-template-columns: repeat(4, 1fr) !important; }
+  .rc-relatorio .grid.g-2 { grid-template-columns: repeat(2, 1fr) !important; }
+  .table-wrap { overflow: visible !important; }
+  [data-tip]::after, [data-tip]::before { display: none !important; }
+}

@@ -1235,19 +1235,28 @@ PAGES['rel.filas'] = {
     <div class="card">
       <div class="card-head"><div class="card-title">Por fila</div></div>
       <div class="table-wrap"><table class="table">
-        <thead><tr><th>Fila</th><th>Agentes</th><th>Recebidas</th><th>Atendidas</th>
-                   <th>Abandonadas</th><th>TMA</th><th>Atendimento</th></tr></thead>
-        <tbody>${d.filas.map(f => `
+        <thead><tr><th>Fila</th><th>Agentes</th><th class="num">Recebidas</th><th class="num">Atendidas</th>
+                   <th class="num">Abandonadas</th>
+                   <th class="num" data-tip="Passaram do tempo máximo, ficaram sem agente disponível ou pediram retorno">Outros desfechos</th>
+                   <th>TMA</th><th data-tip="Atendidas dentro da meta da fila ÷ recebidas">Nível de serviço</th></tr></thead>
+        <tbody>${d.filas.map(f => {
+          const outros = Number(f.estouradas) + Number(f.sem_agente) + Number(f.retorno);
+          const detalhe = [f.estouradas ? `${num(f.estouradas)} estouro` : '', f.sem_agente ? `${num(f.sem_agente)} sem agente` : '',
+                           f.retorno ? `${num(f.retorno)} retorno` : ''].filter(Boolean).join(' · ');
+          return `
           <tr><td><b class="mono">${esc(f.numero)}</b> ${esc(f.nome)}</td>
             <td class="num">${f.agentes}</td>
-            <td class="num">${num(f.recebidas)}</td>
+            <td class="num"><b>${num(f.recebidas)}</b></td>
             <td class="num">${num(f.atendidas)}</td>
             <td class="num">${num(f.abandonadas)}</td>
+            <td class="num">${num(outros)}${detalhe ? `<div class="tiny muted">${detalhe}</div>` : ''}</td>
             <td class="num">${f.tma ? duracao(f.tma) : '—'}</td>
             <td>${f.sla === null ? '<span class="muted">sem chamadas</span>'
-                 : `<span class="badge badge-${f.sla >= 90 ? 'ok' : f.sla >= 75 ? 'warn' : 'danger'}">${f.sla}%</span>`}</td>
-          </tr>`).join('')}
+                 : `<span class="badge badge-${f.sla >= 90 ? 'ok' : f.sla >= 75 ? 'warn' : 'danger'}">${String(f.sla).replace('.', ',')}%</span>`}</td>
+          </tr>`; }).join('')}
         </tbody></table></div>
+      <div class="card-body tiny muted" style="padding-top:8px">Recebidas = atendidas + abandonadas + outros desfechos
+        (+ as que ainda estão na fila). Uma ligação conta uma vez por fila, mesmo tocando em vários agentes.</div>
     </div>`;
   },
   mount() {
@@ -6583,30 +6592,40 @@ PAGES['rel.ramais'] = {
 
     const linhas = d.dados.filter(r => r.total > 0);
     const topo = Math.max(1, ...linhas.map(r => Number(r.segundos)));
+    const n = v => Number(v) > 0 ? num(v) : '<span class="muted">0</span>';
 
     const corpo = linhas.length ? linhas.map(r => `
       <tr>
         <td><b class="mono">${esc(r.numero)}</b>
           <div class="tiny muted">${esc(r.nome || '')}${r.setor ? ` · ${esc(r.setor)}` : ''}</div></td>
-        <td class="num">${num(r.feitas)}</td>
-        <td class="num">${num(r.recebidas)}</td>
+        <td class="num">${n(r.feitas)}<div class="tiny muted">${num(r.feitas_ok)} atendidas</div></td>
+        <td class="num"><b>${num(r.recebidas)}</b></td>
+        <td class="num">${n(r.recebidas_ok)}</td>
+        <td class="num">${n(r.outro_atendeu)}</td>
         <td class="num">${Number(r.perdidas) > 0
-          ? `<span class="badge badge-warn">${num(r.perdidas)}</span>` : '—'}</td>
+          ? `<span class="badge badge-warn">${num(r.perdidas)}</span>` : n(0)}</td>
         <td class="num">${duracao(r.segundos)}</td>
-        <td style="width:180px">
+        <td style="width:160px">
           <div class="barra-uso"><span style="width:${Math.round(r.segundos / topo * 100)}%"></span></div>
         </td>
       </tr>`).join('') : '';
 
     return pageHead('Desempenho de Ramais',
-      'Quanto cada ramal falou no período — e quantas chamadas deixou de atender.') + `
-      ${filtroPeriodo(this._f)}
+      'O que cada ramal fez e recebeu no período. Cada ligação conta uma vez, mesmo com vários trechos no CDR.') + `
+      ${filtroPeriodo(this._f, `este mês (${esc(d.de)} até ${esc(d.ate)})`, 'Este mês')}
       <div class="card">
         ${corpo ? `<div class="table-wrap"><table class="table">
           <thead><tr><th>Ramal</th><th class="num">Feitas</th><th class="num">Recebidas</th>
-            <th class="num">Não atendidas</th><th class="num">Tempo falado</th><th></th></tr></thead>
-          <tbody>${corpo}</tbody></table></div>`
-        : vazio('phone', 'Nenhuma chamada no período',
+            <th class="num" data-tip="Recebidas que este ramal atendeu">Atendeu</th>
+            <th class="num" data-tip="Tocou junto com outro ramal (grupo de toque) ou foi transferida, e outro atendeu">Outro atendeu</th>
+            <th class="num" data-tip="Ninguém atendeu">Não atendidas</th>
+            <th class="num">Tempo falado</th><th></th></tr></thead>
+          <tbody>${corpo}</tbody></table></div>
+          <div class="card-body tiny muted" style="padding-top:8px">
+            Recebidas = atendeu + outro atendeu + não atendidas. A ligação interna aparece nos dois ramais: feita para um,
+            recebida para o outro. A de fila conta para o ramal que atendeu; a que só tocou nele e um colega atendeu é da fila
+            (veja Desempenho de Filas).</div>`
+        : vazio('phone', 'Nenhuma ligação no período',
             'Quando houver movimento, cada ramal aparece aqui com o que fez e o que recebeu.')}
       </div>`;
   },
@@ -6629,17 +6648,18 @@ PAGES['rel.troncos'] = {
       const asr = t.asr === null ? null : Number(t.asr);
       const tomAsr = asr === null ? '' : asr >= 60 ? 'badge-ok' : asr >= 40 ? 'badge-warn' : 'badge-danger';
       return `<tr>
-        <td><b>${esc(t.nome)}</b><div class="tiny muted mono">${esc(t.host || '')}</div></td>
-        <td>${Number(t.ativo) ? '<span class="badge badge-ok">Ativo</span>'
+        <td><b>${esc(t.nome)}</b><div class="tiny muted mono">${esc(t.host || (t.excluido ? 'tronco excluído' : ''))}</div></td>
+        <td>${t.excluido ? '<span class="badge">Excluído</span>' : Number(t.ativo) ? '<span class="badge badge-ok">Ativo</span>'
                               : '<span class="badge badge-warn">Desativado</span>'}</td>
-        <td class="num">${num(t.chamadas)}</td>
+        <td class="num">${num(t.recebidas)}<div class="tiny muted">${num(t.recebidas_ok)} atendidas</div></td>
+        <td class="num"><b>${num(t.chamadas)}</b></td>
         <td class="num">${num(t.atendidas)}</td>
         <td class="num">${num(t.ocupadas)}</td>
         <td class="num">${num(t.sem_resposta)}</td>
         <td class="num">${num(t.falhas)}</td>
         <td class="num">${num(t.congestionadas)}</td>
         <td>${asr === null ? '<span class="muted">—</span>'
-          : `<span class="badge ${tomAsr}">${asr}%</span>`}</td>
+          : `<span class="badge ${tomAsr}">${String(asr).replace('.', ',')}%</span>`}</td>
         <td class="num">${duracao(t.acd)}</td>
         <td class="num">${duracao(t.segundos)}</td>
       </tr>`;
@@ -6647,24 +6667,25 @@ PAGES['rel.troncos'] = {
 
     return pageHead('Ocupação de Troncos',
       'Volume e qualidade de cada operadora. Use ao cobrar quando a linha não completa.') + `
-      ${filtroPeriodo(this._f)}
+      ${filtroPeriodo(this._f, `este mês (${esc(d.de)} até ${esc(d.ate)})`, 'Este mês')}
       <div class="card" style="padding:14px;margin-bottom:14px">
         <div class="row gap-12" style="align-items:flex-start">
           ${icon('info','ico')}
           <div class="small muted">
-            <b>Completamento</b> é quanto das chamadas o tronco levou até alguém atender.
+            <b>Completamento</b> é quanto das ligações feitas o tronco levou até alguém atender.
             Abaixo de 40% costuma ser problema da operadora ou da rota, não do seu PABX.
-            <b>Média</b> é quanto durou a chamada atendida — uma média muito curta com
+            <b>Média</b> é quanto durou a ligação atendida — uma média muito curta com
             completamento alto costuma ser áudio ruim, com o cliente desligando.
+            Feitas = atendidas + ocupado + não atendeu + falha + sem linha.
           </div>
         </div>
       </div>
       <div class="card">
         ${corpo ? `<div class="table-wrap"><table class="table">
-          <thead><tr><th>Tronco</th><th>Estado</th><th class="num">Chamadas</th>
+          <thead><tr><th>Tronco</th><th>Estado</th><th class="num">Recebidas</th><th class="num">Feitas</th>
             <th class="num">Atendidas</th><th class="num">Ocupado</th><th class="num">Não atendeu</th>
-            <th class="num">Falha</th><th class="num" data-tip="A operadora ou a central não tinha canal livre">Congestionada</th>
-            <th>Completamento</th><th class="num">Média</th><th class="num">Total falado</th></tr></thead>
+            <th class="num">Falha</th><th class="num" data-tip="A operadora ou a central não tinha canal livre">Sem linha</th>
+            <th data-tip="Das feitas, quantas alguém atendeu">Completamento</th><th class="num">Média</th><th class="num">Total falado</th></tr></thead>
           <tbody>${corpo}</tbody></table></div>`
         : vazio('server', 'Nenhum tronco cadastrado',
             'Cadastre um tronco em Conectividade › Troncos para começar a medir.')}
@@ -6741,16 +6762,16 @@ PAGES['rel.cel'] = {
 };
 
 /** Filtro de período comum aos relatórios. */
-function filtroPeriodo(f) {
+function filtroPeriodo(f, semPeriodo = 'todo o histórico', botao = 'Tudo') {
   return `<div class="card" style="padding:14px;margin-bottom:14px">
     <div class="row gap-8 wrap">
       <label class="small muted" style="align-self:center">Período</label>
       <input class="input" type="date" id="relDe" value="${esc(f.de)}" style="max-width:170px">
       <input class="input" type="date" id="relAte" value="${esc(f.ate)}" style="max-width:170px">
-      <button class="btn btn-outline btn-sm" id="relLimpar">Tudo</button>
+      <button class="btn btn-outline btn-sm" id="relLimpar">${botao}</button>
       <span class="grow"></span>
       <span class="small muted">${f.de || f.ate
-        ? `${f.de || 'início'} até ${f.ate || 'hoje'}` : 'todo o histórico'}</span>
+        ? `${f.de || 'início'} até ${f.ate || 'hoje'}` : semPeriodo}</span>
     </div>
   </div>`;
 }

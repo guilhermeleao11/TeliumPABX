@@ -97,6 +97,7 @@ const MENU = [
   {
     id: 'rel', label: 'Relatórios', icon: 'chart',
     items: [
+      { id: 'rel.consolidado', label: 'Relatório Consolidado',    icon: 'chart' },
       { id: 'rel.cdr',       label: 'CDR — Registro de Chamadas', icon: 'list' },
       { id: 'rel.filas',     label: 'Desempenho de Filas',        icon: 'headset' },
       { id: 'rel.ramais',    label: 'Desempenho de Ramais',       icon: 'phone' },

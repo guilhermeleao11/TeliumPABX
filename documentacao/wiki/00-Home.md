@@ -56,7 +56,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | Códigos de recurso | Todos os códigos discados no telefone (`*xx`) | [15](15-Codigos-de-Recurso.md) |
 | Call Center | Agentes, pausas, tabulação, retorno, monitor ao vivo com escuta, relatórios | [16](16-Call-Center.md) |
 | Conectividade | Ramais, troncos, rotas de entrada e saída, DIDs, firewall, provisionamento de telefones, rede, WebRTC | [17](17-Conectividade.md) |
-| Relatórios | CDR com gravações e exportação em CSV, filas, ramais, troncos, CEL, agentes | [18](18-Relatorios.md) |
+| Relatórios | Relatório consolidado do dia (fila, ramal ou central), CDR por ligação com gravações e exportação em CSV, filas, ramais, troncos, CEL, agentes | [18](18-Relatorios.md) |
 | Configurações | Arquivos e aplicação, SIP, correio de voz, música de espera, PINs, fax, e-mail, tarifas, dados da empresa | [19](19-Configuracoes.md) |
 | Telium | Tarifação, integrações e API (click to call e webhooks), suporte, versões e novidades | [20](20-Telium-Tarifacao-Integracoes-Suporte.md) |
 | Meu Painel (PCU) | O painel do usuário: meu ramal, minhas chamadas, correio de voz, siga-me, contatos, perfil e segurança | [21](21-Meu-Painel-PCU.md) |

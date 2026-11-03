@@ -38,7 +38,7 @@ Nenhuma das quatro altera nada na central: são só leitura.
 
 **Painel de Indicadores › Visão Geral**
 
-O resumo do dia. Os números saem do CDR (registro de chamadas) e do estado atual do Asterisk. Com a base vazia, a tela mostra zeros e "—", nunca número inventado.
+O resumo do dia. Os números saem do CDR (registro de chamadas) e do estado atual do Asterisk. Cada ligação conta **uma vez**, por mais trechos que o Asterisk tenha gravado (fila que tocou em vários agentes, transferência, pesquisa) — veja [como as ligações são contadas](18-Relatorios.md#como-as-ligações-são-contadas). Com a base vazia, a tela mostra zeros e "—", nunca número inventado.
 
 > 📷 **Print:** Visão Geral com os quatro cartões e o gráfico preenchidos.
 
@@ -46,27 +46,27 @@ O resumo do dia. Os números saem do CDR (registro de chamadas) e do estado atua
 
 | Cartão | O que mostra |
 |---|---|
-| Chamadas hoje | Total de registros do CDR com data de hoje. A seta compara com o total de ontem, em porcentagem, e o rodapé diz "vs. N ontem". Sem chamadas ontem, aparece "sem histórico de ontem" e não há seta |
+| Ligações hoje | Total de ligações de hoje. O rodapé separa as recebidas, as feitas e as internas (as três somam o total) e mostra o total de ontem, contado do mesmo jeito; a seta compara os dois, em porcentagem. Sem ligações ontem, não há seta |
 | Em atendimento | Chamadas ativas agora, lidas do Asterisk. O rodapé mostra quantos canais estão abertos. Se o Asterisk não responder, aparece "—" e "Asterisk não respondeu" |
-| Entrada não atendida | Chamadas **de fora** (entrada) de hoje que ninguém atendeu, divididas pelo total de chamadas de entrada de hoje. O rodapé mostra "N de M chamadas de fora"; sem chamada de fora no dia, aparece "—" e "nenhuma chamada de fora hoje" |
-| TMA — tempo médio | Média do tempo falado das chamadas de hoje que tiveram conversa (as de tempo falado zero ficam fora da conta) |
+| Recebidas não atendidas | Ligações **de fora** de hoje que nenhuma pessoa atendeu (inclui a que só ouviu a URA, desistiu na fila ou foi barrada sem agente), divididas pelo total de ligações de fora de hoje. O rodapé mostra "N de M ligações de fora" |
+| TMA — tempo médio | Média do tempo de conversa das ligações de hoje que tiveram conversa. Na fila, a conversa vem do registro da fila, sem a espera |
 
-Atenção: o cartão **Entrada não atendida** conta só as chamadas que vieram de fora; ligação de ramal para ramal que ninguém atendeu não entra (até a versão 1.0.7 o cartão se chamava "Taxa de abandono" e misturava as internas). Não é o abandono de fila: esse, medido pela própria fila, está em **Relatórios › Desempenho de Filas** ([18-Relatorios.md](18-Relatorios.md)).
+Atenção: o cartão **Recebidas não atendidas** conta só as chamadas que vieram de fora; ligação de ramal para ramal que ninguém atendeu não entra (até a versão 1.0.7 o cartão se chamava "Taxa de abandono" e misturava as internas). Não é o abandono de fila: esse, medido pela própria fila, está em **Relatórios › Desempenho de Filas** ([18-Relatorios.md](18-Relatorios.md)).
 
-### Volume de chamadas por hora
+### Ligações por hora
 
-Gráfico de barras empilhadas de hoje, da primeira à última hora com movimento:
+Gráfico de barras empilhadas de hoje, da primeira à última hora com movimento. Cada ligação entra na hora em que começou; a soma das barras é o cartão **Ligações hoje**.
 
 | Série | Conta |
 |---|---|
-| Atendidas | Registros do CDR com resultado Atendida |
-| Perdidas | Todos os demais resultados (inclui Congestionada) |
+| Atendidas | Ligações que uma pessoa atendeu |
+| Não atendidas | Todas as demais (ninguém atendeu, ocupado, falha, sem linha) |
 
 Passe o mouse sobre uma barra para ver os números e o total da hora.
 
 ### Ramais mais ativos
 
-Os seis números de origem com mais chamadas **atendidas** hoje, com o nome do ramal quando ele existe no cadastro. Só entram origens de até 6 dígitos (ramais), não números externos.
+Os seis ramais com mais ligações **atendidas** hoje, feitas e recebidas: as que o ramal fez e alguém atendeu, e as que ele atendeu (inclusive de fila). Antes eram só as que o ramal fez, e quem passou o dia atendendo a fila não aparecia.
 
 ### Troncos
 
@@ -220,7 +220,7 @@ Para rodar outros comandos, use **Administrador › CLI Asterisk** ([12-Administ
 **A fila não aparece no wallboard.**
 - A fila está desativada no cadastro. Só filas ativas aparecem.
 
-**Na Visão Geral, "Entrada não atendida" está alta, mas as filas estão bem.**
+**Na Visão Geral, "Recebidas não atendidas" está alta, mas as filas estão bem.**
 - O cartão conta toda chamada de fora cujo resultado no CDR não é "atendida" (não atendida, ocupado, falha), em qualquer destino, e não só nas filas. O abandono das filas está em **Relatórios › Desempenho de Filas**.
 
 **O quadro "Atividade recente" está sempre vazio.**

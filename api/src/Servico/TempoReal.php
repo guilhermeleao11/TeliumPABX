@@ -5,6 +5,7 @@ namespace Telium\Servico;
 
 use Telium\Dominio\CallCenter;
 use Telium\Dominio\Permissoes;
+use Telium\Dominio\RelatorioFilas;
 use Telium\Dominio\Sessao;
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Ami;
@@ -470,6 +471,13 @@ final class TempoReal
            GROUP BY q.queuename"
         ) as $f) {
             $filas[(string) $f['fila']] = array_map('intval', array_diff_key($f, ['fila' => 1]));
+        }
+        // As barradas na porta (fila sem agente) também foram recebidas, como
+        // no relatório: o painel e o relatório do dia dão o mesmo número.
+        $hoje = date('Y-m-d');
+        foreach (RelatorioFilas::doPeriodo($hoje, $hoje, null, true)->barradas() as $b) {
+            $filas[$b['fila']] ??= ['recebidas' => 0, 'atendidas' => 0, 'abandonadas' => 0, 'no_sla' => 0];
+            $filas[$b['fila']]['recebidas'] += $b['n'];
         }
 
         $agentes = [];

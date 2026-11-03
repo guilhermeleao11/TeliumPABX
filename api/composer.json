@@ -5,10 +5,11 @@
     "license": "proprietary",
     "require": {
         "php": ">=8.3",
-        "ext-pdo": "*",
         "ext-json": "*",
-        "slim/slim": "^4.14",
-        "slim/psr7": "^1.6"
+        "ext-pdo": "*",
+        "dompdf/dompdf": "^3.1",
+        "slim/psr7": "^1.6",
+        "slim/slim": "^4.14"
     },
     "autoload": {
         "psr-4": { "Telium\\": "src/" }

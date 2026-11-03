@@ -1149,15 +1149,16 @@ PAGES['cc.relatorios'] = {
         <div class="card-head"><div class="card-title">Filas</div>${csv('filas')}</div>
         <div class="card-body tight">${d.filas.length ? `<div class="table-wrap"><table class="table">
           <thead><tr><th>Fila</th><th class="num">Recebidas</th><th class="num">Atendidas</th><th class="num">SLA</th>
-            <th class="num">Abandono</th><th class="num">Estouro</th><th class="num">Sem agente</th><th class="num">Retorno</th>
+            <th class="num">Abandonadas</th><th class="num">Estouro</th><th class="num">Sem agente</th><th class="num">Retorno</th>
             <th class="num">TME</th><th class="num">Maior espera</th><th class="num">TMA</th></tr></thead>
           <tbody>${d.filas.map(f => `<tr>
             <td><b>${esc(f.nome)}</b> <span class="tiny muted mono">${esc(f.numero)}</span><div class="tiny muted">meta ${f.sla_segundos}s</div></td>
             <td class="num">${num(f.recebidas)}</td><td class="num">${num(f.atendidas)}</td>
-            <td class="num"><b>${pct(f.sla)}</b></td><td class="num">${pct(f.abandono)}</td>
+            <td class="num"><b>${pct(f.sla)}</b></td><td class="num">${num(f.abandonadas)}<div class="tiny muted">${pct(f.abandono)}</div></td>
             <td class="num">${num(f.estouradas)}</td><td class="num">${num(f.sem_agente)}</td><td class="num">${num(f.retorno)}</td>
             <td class="num">${ccTempo(f.tme)}</td><td class="num">${ccTempo(f.maior_espera)}</td><td class="num">${ccTempo(f.tma)}</td></tr>`).join('')}
-          </tbody></table></div>` : vazio('chart', 'Nenhuma chamada de fila no período', 'Escolha outro período ou outra fila.')}</div>
+          </tbody></table></div>
+          <div class="tiny muted" style="padding:8px 14px">Recebidas = atendidas + abandonadas + estouro + sem agente + retorno (+ as que ainda estão na fila). Sem agente inclui as barradas na entrada, quando a fila não aceita cliente sem agente disponível.</div>` : vazio('chart', 'Nenhuma chamada de fila no período', 'Escolha outro período ou outra fila.')}</div>
       </div>
 
       <div class="card" style="margin-bottom:16px">

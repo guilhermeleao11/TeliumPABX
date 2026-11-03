@@ -6,6 +6,7 @@ namespace Telium\Http\Controllers;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Telium\Dominio\Auditoria;
+use Telium\Dominio\Chamadas;
 use Telium\Dominio\ClickToCall;
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Ami;
@@ -165,7 +166,14 @@ final class Portal
     }
 
     // ---------------------------------------------------------------
-    /** GET /api/me/chamadas — só as do meu ramal. */
+    /**
+     * GET /api/me/chamadas — só as do meu ramal, uma linha por ligação.
+     *
+     * Pela conta de Chamadas, como os relatórios: a ligação de fila que
+     * este ramal atendeu aparece (antes não aparecia, porque o "dst" do
+     * CDR é o número da fila), e a que tocou aqui e um colega atendeu não.
+     * Sem período, os últimos 30 dias.
+     */
     public function chamadas(Request $req, Response $res): Response
     {
         $r = $this->meuRamal($req);
@@ -177,51 +185,47 @@ final class Portal
         $p = $req->getQueryParams();
         $limite = min(200, max(1, (int) ($p['limite'] ?? 50)));
         $pagina = max(1, (int) ($p['pagina'] ?? 1));
+        $ate = Chamadas::dia($p['ate'] ?? '') ?? date('Y-m-d');
+        $de = Chamadas::dia($p['de'] ?? '') ?? date('Y-m-d', strtotime($ate . ' -29 days'));
+        if ($de > $ate) {
+            [$de, $ate] = [$ate, $de];
+        }
+        $de = max($de, date('Y-m-d', strtotime($ate . ' -365 days')));
 
-        $onde = ['(c.src = ? OR c.dst = ?)'];
-        $args = [$n, $n];
-
+        $f = ['participou' => $n];
         if (in_array($p['direcao'] ?? '', ['entrada', 'saida', 'interna'], true)) {
-            $onde[] = 'c.direcao = ?';
-            $args[] = $p['direcao'];
+            $f['direcao'] = $p['direcao'];
         }
-        if (($p['de'] ?? '') !== '') {
-            $onde[] = 'c.calldate >= ?';
-            $args[] = $p['de'] . ' 00:00:00';
-        }
-        if (($p['ate'] ?? '') !== '') {
-            $onde[] = 'c.calldate <= ?';
-            $args[] = $p['ate'] . ' 23:59:59';
-        }
+        $pg = Chamadas::pagina($de, $ate, $f, $limite, ($pagina - 1) * $limite);
 
-        $where = implode(' AND ', $onde);
-        $total = (int) Bd::valor("SELECT COUNT(*) FROM cdr c WHERE {$where}", $args);
-
-        $linhas = Bd::todos(
-            "SELECT c.calldate, c.src, c.dst, c.direcao, c.disposition,
-                    c.duration, c.billsec, c.gravacao
-               FROM cdr c WHERE {$where}
-              ORDER BY c.calldate DESC
-              LIMIT {$limite} OFFSET " . (($pagina - 1) * $limite),
-            $args
-        );
-
-        foreach ($linhas as &$l) {
-            // Quem discou define o sentido do ponto de vista do usuário.
-            $l['sentido'] = ((string) $l['src'] === $n) ? 'feita' : 'recebida';
-            $l['outro'] = ((string) $l['src'] === $n) ? $l['dst'] : $l['src'];
-            $l['tem_gravacao'] = ($l['gravacao'] ?? '') !== '';
-            unset($l['gravacao']);          // o caminho não vai para a tela
+        $linhas = [];
+        foreach ($pg['dados'] as $c) {
+            $feita = Chamadas::papel($c, $n) === 'feita';
+            $linhas[] = [
+                'calldate' => $c['inicio'],
+                'direcao'  => $c['direcao'],
+                'sentido'  => $feita ? 'feita' : 'recebida',
+                // Com quem: o destino de quem fez; quem ligou, para quem recebeu.
+                'outro'    => $feita ? $c['destino'] : $c['origem'],
+                // Do ponto de vista deste ramal: atendida por outro (tocou
+                // junto, ou foi transferida) não é atendida por ele.
+                'disposition' => $feita ? $c['resultado']
+                    : (in_array($n, $c['atenderam'], true) ? 'ANSWERED' : ($c['atendida'] ? 'OUTRO' : 'NO ANSWER')),
+                'billsec'  => (int) ($c['falado_ramal'][$n] ?? 0),
+                'duration' => $c['duracao'],
+                'tem_gravacao' => $c['gravacao'] !== null,
+            ];
         }
-        unset($l);
 
         return Resposta::json($res, [
             'disponivel' => true,
             'dados'  => $linhas,
-            'total'  => $total,
+            'total'  => $pg['total'],
             'pagina' => $pagina,
             'limite' => $limite,
             'ramal'  => $n,
+            'de'     => $de,
+            'ate'    => $ate,
         ]);
     }
 

@@ -1,6 +1,6 @@
 # Relatórios — Telium PABX
 
-O histórico da central: cada chamada (CDR), o desempenho das filas, dos ramais e dos troncos, os passos de uma chamada (CEL) e a produtividade dos agentes.
+O histórico da central: o relatório consolidado de um dia, cada ligação (CDR), o desempenho das filas, dos ramais e dos troncos, os passos de uma chamada (CEL) e a produtividade dos agentes.
 
 > Os pontos marcados com [PRINT: ...] indicam onde colocar um print da tela.
 
@@ -9,6 +9,8 @@ O histórico da central: cada chamada (CDR), o desempenho das filas, dos ramais 
 ## Sumário
 
 1. [Visão geral](#1-visão-geral)
+   - [Como as ligações são contadas](#como-as-ligações-são-contadas)
+   - [Relatório Consolidado](#relatório-consolidado)
 2. [CDR — Registro de Chamadas](#2-cdr--registro-de-chamadas)
 3. [Desempenho de Filas](#3-desempenho-de-filas)
 4. [Desempenho de Ramais](#4-desempenho-de-ramais)
@@ -24,22 +26,95 @@ O histórico da central: cada chamada (CDR), o desempenho das filas, dos ramais 
 
 | Tela (menu) | Título na tela | Fonte dos dados | Período |
 |---|---|---|---|
+| Relatório Consolidado | Relatório Consolidado | CDR, queue_log e pesquisa | Um dia, ou até 31 dias |
 | CDR — Registro de Chamadas | CDR — Registro de Chamadas | CDR | De / até (padrão: hoje) |
-| Desempenho de Filas | Desempenho de Filas | queue_log | 7, 30 ou 90 dias |
-| Desempenho de Ramais | Desempenho de Ramais | CDR | De / até (padrão: todo o histórico) |
-| Ocupação de Troncos | Ocupação de Troncos | CDR | De / até (padrão: todo o histórico) |
+| Desempenho de Filas | Desempenho de Filas | queue_log (+ CDR para as barradas) | 7, 30 ou 90 dias |
+| Desempenho de Ramais | Desempenho de Ramais | CDR | De / até (padrão: o mês corrente; até um ano) |
+| Ocupação de Troncos | Ocupação de Troncos | CDR | De / até (padrão: o mês corrente; até um ano) |
 | Eventos de Canal (CEL) | Eventos de Canal (CEL) | CEL | De / até (padrão: todo o histórico) |
 | Produtividade de Agentes | Produtividade de Agentes | queue_log | Hoje, 7, 30 ou 90 dias |
 
-- **CDR** é uma linha por chamada (ou perna de chamada) gravada pelo Asterisk.
+- **CDR** é o que o Asterisk grava: uma linha por **trecho** da ligação (veja abaixo como as telas juntam os trechos).
 - **queue_log** é o que o Asterisk escreve sobre cada chamada de fila: entrou, foi atendida, desistiu. Por isso os relatórios de fila e de agentes saem dele, e não do CDR.
 - **CEL** é cada passo de cada chamada.
 
-Cada tela é um módulo próprio (rel.cdr, rel.filas, rel.ramais, rel.troncos, rel.cel, rel.agentes) em **Administrador › Perfis e Permissões**. A **Auditoria** não fica aqui: está em **Administrador › Auditoria** ([12-Administrador.md](12-Administrador.md)).
+Cada tela é um módulo próprio (rel.consolidado, rel.cdr, rel.filas, rel.ramais, rel.troncos, rel.cel, rel.agentes) em **Administrador › Perfis e Permissões**. A **Auditoria** não fica aqui: está em **Administrador › Auditoria** ([12-Administrador.md](12-Administrador.md)).
 
 O relatório completo do call center (nível de serviço por fila, pausas, ocupação, satisfação, CSV) é **Call Center › Relatórios** ([16-Call-Center.md](16-Call-Center.md)).
 
 > 📷 **Print:** menu lateral aberto na seção **Relatórios**.
+
+### Como as ligações são contadas
+
+Desde a 1.10.0, **uma ligação conta uma vez** em todas as telas (Visão Geral, CDR, Ramais, Troncos, Tarifação, Meu Ramal e o relatório consolidado).
+
+O Asterisk não grava uma linha por ligação no CDR, e sim uma por trecho:
+
+| Ligação | Trechos no CDR |
+|---|---|
+| Recebida numa fila com dois agentes, atendida, com pesquisa depois | 3 (um por agente que tocou, mais a pesquisa) |
+| Recebida na fila, o cliente desistiu esperando | 2 (um por agente que tocou) |
+| Feita para fora, deu ocupado | 2 |
+| Interna, atendida | 1 |
+
+Antes, as telas contavam trechos: numa bancada com 10 ligações de verdade, a Visão Geral mostrava 16. Agora os trechos se juntam pelo **linkedid** (o identificador que o Asterisk dá igual a todos os canais da mesma ligação), e cada ligação sai uma vez, com:
+
+| Campo | Regra |
+|---|---|
+| Sentido | **entrada** se veio de um tronco; **saída** se foi para um tronco; **interna** no resto. A entrada que saiu de novo (siga-me para o celular) é entrada |
+| Atendida | Uma **pessoa** atendeu (um ramal ou o número externo). A ligação que só ouviu a URA, a fila, a pesquisa ou a caixa postal é **não atendida** |
+| Conversa | O tempo falado. Na ligação de fila, vem do registro da fila: o trecho do CDR conta a espera junto |
+| Ramal que fez | O ramal do canal, não o "src" do CDR (no click to call, o src é o número do cliente) |
+| Recebida pelo ramal | Tocou nele direto (ligação para o ramal, grupo de toque, transferência) ou ele atendeu a fila. A oferta de fila que um colega atendeu **não** conta para o ramal: é uma ligação da fila |
+
+A ligação **interna** é feita para um ramal e recebida para o outro: aparece nos dois, na tabela por ramal. No total da central ela conta uma vez.
+
+### Relatório Consolidado
+
+**Relatórios › Relatório Consolidado**
+
+O resumo de uma seleção num dia: quantas ligações foram recebidas, quantas foram feitas, quantas completaram e o resultado da pesquisa de satisfação. Exemplo: a fila SAC no dia 03/11.
+
+> 📷 **Print:** relatório da fila SAC de um dia, com a conferência no fim.
+
+| Campo | O que escolher |
+|---|---|
+| Seleção | **Toda a central**, **Uma fila** ou **Um ramal** |
+| Fila / Ramal | Qual (aparece quando a seleção é fila ou ramal) |
+| De / Até | O dia. Para um dia só, deixe iguais (mudar o **De** leva o **Até** junto). Período de até **31 dias** |
+
+Clique em **Gerar relatório**. O relatório tem:
+
+| Parte | Conteúdo |
+|---|---|
+| Cartões | **Total de ligações** (recebidas + feitas, e as internas na central), **Completadas** (alguém atendeu), **Não completadas**, **Tempo de conversa** e a média |
+| Recebidas | Cada desfecho, com quantidade e porcentagem, e a linha **Total** |
+| Feitas | Atendidas, não atendidas, ocupado, falharam, sem linha |
+| Internas | Só na central inteira: de ramal para ramal |
+| Pesquisa de satisfação | Oferecidas, responderam, não responderam, tecla inválida, desligaram; nota média, índice de satisfação (0 a 100) e quantas deram cada nota |
+| Por agente / Por ramal | Atendidas, tempo médio, não atendeu, feitas e satisfação de cada um |
+| Por fila | Na central inteira: recebidas, atendidas, abandonadas e nível de serviço de cada fila |
+| Por hora | Recebidas, feitas, total e atendidas de cada hora, com a linha de total |
+| Conferência | Cada total e as partes que o formam, por exemplo `6 = 4 recebidas + 2 feitas`, com **fecha** ou **não fecha** |
+
+O que cada seleção conta:
+
+| Seleção | Recebidas | Feitas |
+|---|---|---|
+| Toda a central | Ligações de fora | Ligações para fora. As **internas** vêm à parte |
+| Uma fila | As que chegaram à fila, pelo registro da fila: atendidas por um agente, desistiram esperando, passaram do tempo máximo, sem agente disponível, pediram retorno | As ligações para fora dos ramais dos agentes da fila (os nomes aparecem no bloco), e os retornos do call center marcados com a fila |
+| Um ramal | As que tocaram no ramal: atendidas por ele, atendidas por outro ramal, ninguém atendeu | Para fora e para outros ramais, em blocos separados |
+
+Nada é estimado: o relatório usa as mesmas contas das outras telas, e a conferência mostra que elas fecham. Na fila, se alguma ligação ainda estiver esperando (ou a espera virou o dia), ela aparece como **Sem desfecho registrado**, em vez de sumir da conta.
+
+Botões depois de gerar:
+
+| Botão | O que faz |
+|---|---|
+| Baixar PDF | Baixa o relatório em PDF, no papel A4 da Telium: logo e faixa azul da marca no cabeçalho de cada página, os cartões, os blocos, as tabelas e a conferência; no rodapé, quando e por quem foi gerado e "Página X de Y". Arquivo `relatorio-<seleção>-<dia>.pdf` |
+| Planilha (CSV) | Baixa o relatório na tela, seção por seção, para o Excel |
+
+Os dois aparecem para quem tem a ação **Exportar** no módulo, e cada exportação fica na **Auditoria**. O **Imprimir** do navegador também imprime só o relatório (sem menu e filtros).
 
 ---
 
@@ -47,7 +122,7 @@ O relatório completo do call center (nível de serviço por fila, pausas, ocupa
 
 **Relatórios › CDR — Registro de Chamadas**
 
-Histórico de chamadas entrantes, saintes e internas, da mais nova para a mais antiga.
+Uma linha por **ligação**, da mais nova para a mais antiga, mesmo quando ela passou por fila, transferência ou pesquisa ([como as ligações são contadas](#como-as-ligações-são-contadas)). Os trechos que o Asterisk gravou ficam a um clique.
 
 > 📷 **Print:** CDR com filtros preenchidos e algumas linhas.
 
@@ -59,27 +134,28 @@ Os filtros aplicam sozinhos ao mudar (a busca espera você parar de digitar).
 |---|---|
 | Data inicial / até | Período, dia inteiro de cada ponta. Ao abrir a tela, vem o dia de hoje (no fuso do seu computador) |
 | Todos os sentidos | entrada, saida ou interna |
-| Todos os estados | Atendida, Não atendida, Ocupado, Falha, Congestionada |
-| Número ou ramal… | Procura o texto na origem, no destino ou na identificação de quem chamou (parte do número serve) |
+| Todos os resultados | Atendida, Não atendida, Ocupado, Falha, Congestionada |
+| Número ou ramal… | Procura o texto em qualquer trecho da ligação: origem, destino, identificação de quem chamou ou canal (parte do número serve) |
 
 ### Colunas
 
 | Coluna | O que mostra |
 |---|---|
 | Data / hora | Início da chamada |
-| Origem | Número de quem ligou |
-| Destino | Número discado, com o botão **Ligar para este número** |
+| Origem | Número de quem ligou; na feita, o ramal. Abaixo, o nome de quem ligou, quando o tronco manda |
+| Destino | Número discado (na recebida, o número da empresa que o cliente discou), com o botão **Ligar para este número**. Abaixo, quem atendeu ou a fila |
 | Sentido | entrada, saida ou interna |
-| Duração | Tempo total, desde o início (inclui o tempo chamando) |
-| Falado | Tempo de conversa, depois de atendida |
+| Duração | Tempo total, do primeiro ao último trecho (inclui o tempo chamando e a espera na fila) |
+| Conversa | Tempo falado. Na fila, sem a espera |
 | Tronco | Tronco usado, quando houve |
-| Estado | Resultado da chamada; abaixo, quando houver, o motivo registrado |
-| Gravação | Botão **Ouvir**, quando a chamada foi gravada; "—" quando não |
+| Resultado | Resultado da ligação; abaixo, quando houver, o motivo registrado |
+| Gravação | Botão **Ouvir**, quando a ligação foi gravada; "—" quando não |
+| Trechos | Quantos trechos o Asterisk gravou, quando mais de um. Clique para ver cada um (canais, aplicação, duração, estado) |
 
 | Estado | Significado |
 |---|---|
-| Atendida | Alguém atendeu |
-| Não atendida | Tocou e ninguém atendeu |
+| Atendida | Uma pessoa atendeu |
+| Não atendida | Ninguém atendeu (inclui a ligação que só ouviu a URA ou desistiu na fila) |
 | Ocupado | O destino estava ocupado |
 | Falha | A chamada não pôde ser completada |
 | Congestionada | Sem caminho disponível (rota ou tronco) |
@@ -90,15 +166,18 @@ Os filtros aplicam sozinhos ao mudar (a busca espera você parar de digitar).
 |---|---|
 | Ligar para este número | Liga para a origem, numa chamada de entrada, ou para o destino, nas demais. Usa o telefone do navegador ou o de mesa ([11-Telefone-WebRTC.md](11-Telefone-WebRTC.md)) |
 | Ouvir | Abre um player logo abaixo da linha e toca a gravação. Clicar de novo fecha. Só uma gravação toca por vez |
-| Setas da paginação | 50 registros por página. O rodapé mostra o total e a página |
-| Exportar CSV | Baixa uma planilha com **o mesmo filtro da tela** (período, sentido, estado e busca), todas as páginas. Aparece para quem tem a ação **Exportar** no módulo do CDR |
+| Setas da paginação | 50 ligações por página. O rodapé mostra o total e a página |
+| PDF | Baixa as ligações do filtro em PDF, em A4 deitado com o logo da Telium: o resumo no alto (ligações, atendidas, não atendidas, tempo de conversa) e uma linha por ligação. Até **3 000 ligações**; acima disso, a central pede um período menor ou a planilha |
+| Planilha | Baixa uma planilha com **o mesmo filtro da tela**, uma linha por ligação, todas as páginas. Aparece para quem tem a ação **Exportar** no módulo do CDR |
+| Trechos (CDR bruto) | Baixa uma linha por trecho, como o Asterisk gravou, com o identificador da ligação e os canais. Serve para conferir com a operadora |
 
 ### Exportar CSV
 
-- O arquivo chega como `cdr-<de>_<até>.csv`, enquanto o botão mostra **Gerando…**.
+- O arquivo chega como `ligacoes-<de>_<até>.csv` (ou `cdr-trechos-…`), enquanto o botão mostra **Gerando…**.
 - Formato para o Excel em português abrir sem perguntar: separador `;`, vírgula decimal e UTF-8 (com BOM).
-- Colunas: **Data e hora**, **Origem**, **Nome de quem ligou**, **Destino**, **Sentido**, **Duração (s)**, **Falada (s)**, **Resultado**, **Tronco**, **Motivo**, **Fila**, **Custo (R$)** e **Gravação** ("sim" quando há gravação).
-- Limite de **200 000 chamadas** por exportação. Acima disso, a central recusa com "São N chamadas neste filtro; a exportação vai até 200.000. Diminua o período."
+- Colunas das ligações: **Ligação** (o identificador), **Data e hora**, **Sentido**, **Origem**, **Nome de quem ligou**, **Destino**, **Resultado**, **Duração (s)**, **Conversa (s)**, **Ramal que fez**, **Ramais que atenderam**, **Tronco**, **Fila**, **Trechos no CDR**, **Custo (R$)** e **Gravação**.
+- Colunas dos trechos: **Ligação**, **Data e hora**, **Origem**, **Nome de quem ligou**, **Destino**, **Canal de origem**, **Canal de destino**, **Sentido**, **Duração (s)**, **Falada (s)**, **Resultado**, **Tronco**, **Motivo**, **Fila**, **Custo (R$)** e **Gravação**.
+- Limite de **200 000** ligações (ou trechos) por exportação. Acima disso, a central recusa e pede para diminuir o período.
 - Texto que começa com `=`, `+`, `-` ou `@` (um nome de quem ligou, por exemplo) sai com um apóstrofo na frente, para o Excel não o tratar como fórmula.
 - Cada exportação fica na **Auditoria** (ação `exportar`, módulo do CDR), com a quantidade de linhas e o período.
 
@@ -125,7 +204,7 @@ Só chamadas que passaram por fila.
 | Série | Conta |
 |---|---|
 | Atendidas | Chamadas atendidas no dia |
-| Não atendidas | Chamadas que entraram no dia menos as atendidas (abandono, tempo esgotado, sem agente, pedido de retorno) |
+| Não atendidas | Recebidas no dia menos as atendidas (abandono, tempo esgotado, sem agente, pedido de retorno) |
 
 ### Tabela "Por fila"
 
@@ -133,15 +212,18 @@ Só chamadas que passaram por fila.
 |---|---|
 | Fila | Número e nome |
 | Agentes | Quantos membros a fila tem cadastrados. Em fila de call center, quantos agentes do cadastro estão ligados a ela. Não é quantos estão logados |
-| Recebidas | Chamadas que entraram na fila |
-| Atendidas | Chamadas que um agente atendeu |
+| Recebidas | Ligações que entraram na fila, mais as **barradas na entrada** (fila sem agente disponível, configurada para não aceitar). O Asterisk não registra as barradas no queue_log; elas vêm do CDR |
+| Atendidas | Ligações que um agente atendeu |
 | Abandonadas | O cliente desligou enquanto esperava |
+| Outros desfechos | Passaram do tempo máximo, ficaram sem agente (inclui as barradas) ou pediram retorno, com o detalhe abaixo do número |
 | TMA | Tempo médio de atendimento: média da conversa das chamadas atendidas e encerradas |
-| Atendimento | Nível de serviço: atendidas dentro da **Meta de SLA** da fila ÷ recebidas. Quem desistiu, estourou o tempo ou saiu sem agente conta contra |
+| Nível de serviço | Nível de serviço: atendidas dentro da **Meta de SLA** da fila ÷ recebidas. Quem desistiu, estourou o tempo ou saiu sem agente conta contra |
 
 Sem meta de SLA configurada na fila, vale 20 segundos.
 
-Cores da coluna **Atendimento**: verde a partir de 90%, amarelo de 75% a 89,9%, vermelho abaixo de 75%. Fila sem chamada no período mostra "sem chamadas".
+A linha fecha: Recebidas = Atendidas + Abandonadas + Outros desfechos (+ as que ainda estão na fila). Uma ligação conta uma vez por fila, mesmo tocando em vários agentes.
+
+Cores da coluna **Nível de serviço**: verde a partir de 90%, amarelo de 75% a 89,9%, vermelho abaixo de 75%. Fila sem chamada no período mostra "sem chamadas".
 
 Só filas **ativas** aparecem. Não há exportação nesta tela.
 
@@ -151,7 +233,7 @@ Só filas **ativas** aparecem. Não há exportação nesta tela.
 
 **Relatórios › Desempenho de Ramais**
 
-Quanto cada ramal falou no período e quantas chamadas deixou de atender.
+O que cada ramal fez e recebeu no período, uma ligação de cada vez ([como as ligações são contadas](#como-as-ligações-são-contadas)).
 
 > 📷 **Print:** Desempenho de Ramais com algumas linhas e as barras de uso.
 
@@ -160,25 +242,30 @@ Quanto cada ramal falou no período e quantas chamadas deixou de atender.
 | Controle | O que faz |
 |---|---|
 | Período (duas datas) | Data inicial e final. Aplica ao mudar |
-| Tudo | Limpa as datas: todo o histórico |
+| Este mês | Limpa as datas: do dia 1º do mês até hoje |
 
-À direita, o texto mostra o período em uso ("todo o histórico" quando sem datas).
+À direita, o texto mostra o período em uso. Sem datas, vale o mês corrente; o período vai até um ano.
 
 ### Colunas
 
 | Coluna | Definição |
 |---|---|
 | Ramal | Número, nome e setor |
-| Feitas | Registros do CDR em que o ramal é a origem |
-| Recebidas | Registros do CDR em que o ramal é o destino |
-| Não atendidas | Recebidas menos as recebidas com resultado Atendida |
-| Tempo falado | Soma do tempo de conversa das feitas e das recebidas |
+| Feitas | Ligações que o ramal fez (para fora e para outros ramais), e abaixo quantas foram atendidas |
+| Recebidas | Ligações que tocaram no ramal, e as de fila que ele atendeu |
+| Atendeu | Recebidas que este ramal atendeu |
+| Outro atendeu | Tocou junto com outro ramal (grupo de toque) ou foi transferida, e outro atendeu |
+| Não atendidas | Ninguém atendeu |
+| Tempo falado | Soma do tempo de conversa deste ramal |
 | Barra | Tempo falado comparado ao ramal que mais falou |
 
 Regras:
 - Só aparecem ramais **ativos** e com pelo menos uma chamada no período.
 - Ordem: quem mais falou primeiro.
-- A conta é pelo número do ramal no CDR: uma chamada entre dois ramais conta como feita para um e recebida para o outro.
+- A linha fecha: Recebidas = Atendeu + Outro atendeu + Não atendidas.
+- Uma ligação entre dois ramais conta como feita para um e recebida para o outro.
+- A ligação de fila conta para o ramal que atendeu. A que só tocou nele e um colega atendeu é da fila (veja Desempenho de Filas).
+- Ramal inativo aparece quando teve ligação no período.
 
 ---
 
@@ -190,22 +277,23 @@ Volume e qualidade de cada operadora. É o relatório para levar à operadora qu
 
 > 📷 **Print:** Ocupação de Troncos com a coluna Completamento colorida.
 
-O filtro de período é o mesmo do relatório de ramais ([seção 4](#4-desempenho-de-ramais)).
+O filtro de período é o mesmo do relatório de ramais ([seção 4](#4-desempenho-de-ramais)). Cada ligação conta uma vez por tronco: a saída que dá ocupado grava dois trechos no CDR e conta como uma.
 
 ### Colunas
 
 | Coluna | Definição |
 |---|---|
 | Tronco | Nome e host |
-| Estado | Ativo ou Desativado, conforme o cadastro |
-| Chamadas | Registros do CDR que usaram o tronco |
-| Atendidas | Com resultado Atendida |
-| Ocupado | Com resultado Ocupado |
-| Não atendeu | Com resultado Não atendida |
-| Falha | Com resultado Falha |
-| Congestionada | Com resultado Congestionada: a operadora ou a central não tinha canal livre |
-| Completamento | Atendidas ÷ Chamadas (ASR). "—" sem chamadas |
-| Média | Tempo falado ÷ atendidas (ACD): quanto dura, em média, a chamada atendida |
+| Estado | Ativo, Desativado ou Excluído (tronco que saiu do cadastro mas tem ligação no período) |
+| Recebidas | Ligações que chegaram pelo tronco, e abaixo quantas alguém atendeu |
+| Feitas | Ligações que saíram pelo tronco |
+| Atendidas | Feitas que alguém atendeu |
+| Ocupado | Feitas que deram ocupado |
+| Não atendeu | Feitas que ninguém atendeu |
+| Falha | Feitas que falharam |
+| Sem linha | Feitas sem canal livre na operadora ou na central (congestionamento) |
+| Completamento | Atendidas ÷ Feitas (ASR). Só as feitas: na recebida, quem atende é a empresa, não a operadora. "—" sem feitas |
+| Média | Tempo falado ÷ atendidas (ACD), das duas direções: quanto dura, em média, a ligação atendida |
 | Total falado | Soma do tempo de conversa |
 
 Cores do **Completamento**: verde a partir de 60%, amarelo de 40% a 59,9%, vermelho abaixo de 40%.
@@ -214,7 +302,7 @@ Como ler (texto da própria tela):
 - Completamento abaixo de 40% costuma ser problema da operadora ou da rota, não do PABX.
 - Média muito curta com completamento alto costuma ser áudio ruim, com o cliente desligando.
 
-Todos os troncos cadastrados aparecem, mesmo sem chamadas. A conta da linha fecha: Atendidas + Ocupado + Não atendeu + Falha + Congestionada = Chamadas.
+Todos os troncos cadastrados aparecem, mesmo sem ligações. A conta da linha fecha: Atendidas + Ocupado + Não atendeu + Falha + Sem linha = Feitas.
 
 ---
 
@@ -304,14 +392,17 @@ Para tempo logado, ocupação e tabulações, use **Call Center › Relatórios*
 - O seu perfil não tem o módulo **Gravação de Chamadas**. Peça ao administrador.
 - O arquivo pode ter sido apagado pelo prazo de guarda das gravações. Veja [13-Aplicacoes-Filas-URA-e-Atendimento.md](13-Aplicacoes-Filas-URA-e-Atendimento.md).
 
-**Exportar CSV do CDR recusa com "a exportação vai até 200.000".**
+**Exportar do CDR recusa com "a exportação vai até 200.000".**
 - O filtro tem mais de 200 000 chamadas. Diminua o período e exporte em partes.
 
-**O botão Exportar CSV não aparece.**
+**Os botões de exportar não aparecem.**
 - O seu perfil não tem a ação **Exportar** no módulo do CDR. Peça ao administrador.
 
-**Uma chamada aparece em várias linhas do CDR.**
-- O CDR registra pernas: uma chamada que toca vários destinos ou é transferida gera mais de uma linha. Para ver o caminho completo, use o **CEL**.
+**A ligação mostra "3 trechos" no CDR.**
+- O Asterisk grava um trecho por destino que tocou, transferência e pesquisa. A tela junta os trechos numa linha e conta a ligação uma vez; clique no número para ver cada trecho. Para o passo a passo completo, use o **CEL**.
+
+**A planilha antiga do CDR tinha mais linhas que a de agora.**
+- A partir da 1.10.0, **Exportar ligações** é uma linha por ligação. A de antes era uma por trecho: use **Trechos (CDR bruto)**.
 
 **Os números da fila no relatório não batem com o wallboard.**
 - O wallboard usa contadores do Asterisk que zeram quando ele reinicia; o relatório conta o período no queue_log. Veja [10-Painel-de-Indicadores.md](10-Painel-de-Indicadores.md).
@@ -337,13 +428,15 @@ Para tempo logado, ocupação e tabulações, use **Call Center › Relatórios*
 
 | Termo | Significado |
 |---|---|
-| CDR | Registro de detalhes de chamada: uma linha por chamada ou perna |
+| CDR | Registro de detalhes de chamada: uma linha por trecho da ligação |
+| Ligação | O que o cliente vê como uma ligação: todos os trechos com o mesmo linkedid |
+| Completada | Ligação que uma pessoa atendeu |
 | CEL | Registro de eventos de canal: cada passo da chamada |
 | queue_log | Registro do Asterisk sobre cada chamada de fila |
 | Duração | Tempo total, inclui o tempo chamando |
 | Falado | Tempo de conversa, depois de atendida |
 | TMA | Tempo médio de atendimento |
 | SLA / nível de serviço | Porcentagem atendida dentro da meta de tempo da fila |
-| ASR / Completamento | Porcentagem das chamadas do tronco que foram atendidas |
+| ASR / Completamento | Porcentagem das ligações feitas pelo tronco que foram atendidas |
 | ACD / Média | Duração média da chamada atendida |
 | linkedid | Identificador que junta todas as pernas de uma chamada |

@@ -229,8 +229,9 @@ PAGES['pcu.chamadas'] = {
         <td><b class="mono">${esc(c.outro || '—')}</b></td>
         <td>${atendida
           ? '<span class="badge badge-ok">atendida</span>'
+          : c.disposition === 'OUTRO' ? '<span class="badge">outro ramal atendeu</span>'
           : `<span class="badge badge-warn">${esc({
-              NO: 'não atendida', BUSY: 'ocupado', FAILED: 'falhou',
+              NO: 'não atendida', BUSY: 'ocupado', FAILED: 'falhou', CONGESTION: 'sem linha',
               'NO ANSWER': 'não atendida'
             }[c.disposition] || c.disposition || '—')}</span>`}</td>
         <td class="num">${atendida ? duracao(c.billsec) : '—'}</td>
@@ -252,7 +253,7 @@ PAGES['pcu.chamadas'] = {
           <input class="input" type="date" id="chAte" value="${esc(this._f.ate)}" style="max-width:170px">
           <button class="btn btn-outline btn-sm" id="chLimpar">Limpar</button>
           <span class="grow"></span>
-          <span class="small muted">${num(d.total)} chamada${d.total === 1 ? '' : 's'}</span>
+          <span class="small muted">${num(d.total)} ligaç${d.total === 1 ? 'ão' : 'ões'}${this._f.de || this._f.ate ? '' : ' nos últimos 30 dias'}</span>
         </div>
       </div>
 
