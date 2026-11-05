@@ -2,8 +2,20 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.10.0 — 2026-11-03
+## 1.10.1 — 2026-11-05
 Commits:
+Asterisk: a mais recente na instalação nova, 22.12.0 na atualização; download que sobrevive a versão nova.
+
+### Mudanças
+- **Versão do Asterisk**: a instalação nova compila a mais recente da série 22 (lida da página de downloads da Asterisk; sem acesso, o mínimo). A atualização só compila se a central estiver abaixo de `asterisk_versao_minima` (22.12.0) e vai para ela: as centrais na 22.11 passam para a 22.12. Quem já está no mínimo ou acima não recompila. `-e asterisk_versao=X` força uma versão.
+- Depois do `make install` de uma atualização de versão, o Asterisk reinicia quando ficar sem chamada (`core restart when convenient`).
+
+### Correções
+- **Download do fonte com HTTP 404**: no dia em que sai uma versão, a Asterisk move a anterior para `old-releases/`. A 22.11.0 foi para lá em 05/11/2026 e a instalação parou. O playbook procura no endereço normal e em `old-releases/`.
+- **Checksum nunca conferido**: o endereço era `asterisk-X.tar.gz.sha256`, que não existe (o certo é `asterisk-X.sha256`), e a falha era ignorada. Agora o pacote é conferido e, se não bater, a instalação para com a orientação de apagar o arquivo e rodar de novo.
+
+## 1.10.0 — 2026-11-03
+Commits: a2972f4
 Relatório consolidado, e todos os painéis contando ligações (e não trechos do CDR).
 
 ### Novidades

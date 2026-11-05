@@ -14,7 +14,7 @@ mudou.
 |---|---|---|
 | MariaDB | 12.3.3 | repositório oficial MariaDB |
 | PHP + FPM | 8.4 | repositório do Debian 13 |
-| Asterisk | 22.11.0 | **compilado do fonte** (Debian 13 não empacota) |
+| Asterisk | série 22: a mais recente na instalação nova, mínimo 22.12.0 na atualização | **compilado do fonte** (Debian 13 não empacota) |
 | coturn (TURN/STUN) | do sistema | credencial com prazo, gerada a cada entrada |
 | nginx | mainline (1.31.x) | repositório oficial nginx.org |
 | msmtp | do sistema | envio de e-mail (recado do correio de voz, alertas) |
@@ -475,8 +475,11 @@ inteira para), a resposta vale para todas e o 2 é recusado. Sem
 terminal, ou com `-e perguntar=false`, atualiza direto.
 
 `-e compilar_asterisk=false -e compilar_janus=false` não é mais preciso:
-as roles só compilam quando a versão instalada difere da fixada
-(`asterisk_versao`, `janus_versao`). Os dois `-e` continuam valendo. O
+as roles só compilam quando precisa. O Janus, quando a versão instalada
+difere de `janus_versao`. O Asterisk, quando está abaixo de
+`asterisk_versao_minima` (e então vai para ela); a instalação nova pega a
+mais recente da série `asterisk_serie`. `-e asterisk_versao=X` força uma
+versão. Os dois `-e` continuam valendo. O
 playbook publica os scripts de banco e aplica todos eles, manda o
 código novo, reescreve os `.conf` e recarrega o Asterisk.
 

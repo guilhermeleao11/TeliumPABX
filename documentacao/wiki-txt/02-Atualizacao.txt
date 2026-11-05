@@ -349,6 +349,14 @@ O que muda na operação, e não só por dentro. A mais recente primeiro.
 A tela Telium › Versões e Novidades mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo api/CHANGELOG.md). As notas abaixo resumem o que muda para quem opera.
 
 
+1.10.1 — Asterisk: a mais recente na instalação, 22.12 na atualização
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- Instalação nova compila a versão mais recente do Asterisk 22, descoberta no site da Asterisk na hora (hoje, 22.12.0).
+- Atualização: a central com Asterisk abaixo de 22.12.0 (as que estão na 22.11) é atualizada para a 22.12.0. A compilação leva de 15 a 30 minutos e corre com a central funcionando; no fim o Asterisk reinicia sozinho quando ficar sem chamada nenhuma ("when convenient"), sem cortar ligação. Faça depois das 18h, como sempre. Central já na 22.12 ou acima não recompila.
+- Correção: o site da Asterisk move a versão anterior para old-releases/ quando sai uma nova, e a instalação parava com HTTP 404 ao baixar o fonte. O playbook procura nos dois lugares.
+- Correção: o checksum do fonte nunca era conferido (o endereço estava errado e o erro era ignorado). Agora confere, e pacote que não bate para a instalação.
+
+
 1.10.0 — relatório consolidado e números que fecham
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 - Relatório Consolidado (Relatórios › Relatório Consolidado): escolha a central inteira, uma fila ou um ramal e o dia (ou até 31 dias). Sai quantas ligações foram recebidas, feitas, completadas, a pesquisa de satisfação, por agente e por hora, e uma conferência que mostra cada total fechando (6 = 4 recebidas + 2 feitas). Baixa em PDF (A4 com o logo da Telium) e em planilha. Detalhes em Relatórios (ver página 18).

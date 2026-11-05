@@ -15,8 +15,21 @@
 # =========================================================
 
 # ---------- versões fixadas ----------
-asterisk_versao: "22.11.0"
-asterisk_sha_url: "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-{{ asterisk_versao }}.tar.gz.sha256"
+# Asterisk:
+#   instalação nova  a versão mais recente da série (a "current"), descoberta
+#                    no site da Asterisk na hora de instalar
+#   atualização      só compila se a central estiver abaixo de
+#                    asterisk_versao_minima, e então vai para ela. Quem já
+#                    está nela ou acima não recompila: subir o mínimo aqui
+#                    (depois de testar) é o que leva as centrais adiante
+#   -e asterisk_versao=22.12.0   força uma versão, nos dois casos
+# Sem acesso à lista de versões, a instalação nova usa o mínimo.
+asterisk_serie: "22"
+asterisk_versao_minima: "22.12.0"
+# Quando sai versão nova, o site move as anteriores para old-releases/: o
+# playbook procura nos dois lugares. O checksum chama asterisk-X.sha256 (o
+# endereço antigo, .tar.gz.sha256, não existia, e a conferência nunca rodava).
+asterisk_url_base: "https://downloads.asterisk.org/pub/telephony/asterisk"
 janus_versao: "v1.4.1"
 mariadb_versao: "12.3.3"
 nginx_canal: "mainline"          # mainline = 1.31.x

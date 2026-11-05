@@ -44,50 +44,130 @@
     home: /var/lib/asterisk
     create_home: false
 
-- name: Verificar se o Asterisk {{ asterisk_versao }} já está instalado
+- name: Ver a versão do Asterisk instalada
   ansible.builtin.command: asterisk -V
   register: ast_instalado
   changed_when: false
   failed_when: false
 
+- name: Guardar a versão instalada
+  ansible.builtin.set_fact:
+    ast_versao_instalada: "{{ (ast_instalado.stdout | default('') | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+')) or '' }}"
+
+# Só a instalação nova precisa saber a mais recente. A lista da página de
+# downloads tem as versões da série que estão em uso (as antigas vão para
+# old-releases/); release candidate (-rc) não entra.
+- name: Descobrir a versão mais recente da série {{ asterisk_serie }}
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      curl -fsS --max-time 30 {{ asterisk_url_base }}/
+      | grep -oE 'asterisk-{{ asterisk_serie }}\.[0-9]+\.[0-9]+\.tar\.gz'
+      | sed -e 's/^asterisk-//' -e 's/\.tar\.gz$//' | sort -uV | tail -1
+    executable: /bin/bash
+  register: ast_current
+  changed_when: false
+  failed_when: false
+  when: ast_versao_instalada == '' and asterisk_versao is not defined
+
+# asterisk_versao passado por -e manda sempre (extra var vence o set_fact).
+- name: Escolher a versão do Asterisk
+  ansible.builtin.set_fact:
+    asterisk_versao: >-
+      {{ (ast_current.stdout | default('') | trim) or asterisk_versao_minima
+         if ast_versao_instalada == ''
+         else (asterisk_versao_minima
+               if ast_versao_instalada is version(asterisk_versao_minima, '<')
+               else ast_versao_instalada) }}
+  when: asterisk_versao is not defined
+
 - name: Definir se precisa compilar
   ansible.builtin.set_fact:
-    ast_precisa_compilar: >-
-      {{ compilar_asterisk and (asterisk_versao not in (ast_instalado.stdout | default(''))) }}
+    ast_precisa_compilar: "{{ compilar_asterisk | bool and ast_versao_instalada != (asterisk_versao | trim) }}"
+    asterisk_versao: "{{ asterisk_versao | trim }}"
 
 - name: Informar decisão de compilação
   ansible.builtin.debug:
     msg: >-
-      {{ 'Vai compilar o Asterisk ' ~ asterisk_versao ~ ' (leva de 5 a 15 minutos)'
+      {{ ('Vai compilar o Asterisk ' ~ asterisk_versao
+          ~ (' (atualizando da ' ~ ast_versao_instalada ~ '; a central reinicia quando ficar sem chamada)'
+             if ast_versao_instalada != '' else ' (a mais recente da série ' ~ asterisk_serie ~ ')')
+          ~ ' — leva de 15 a 30 minutos')
          if ast_precisa_compilar
-         else 'Asterisk já instalado: ' ~ (ast_instalado.stdout | default('n/d')) }}
+         else 'Asterisk já instalado: ' ~ (ast_instalado.stdout | default('n/d'))
+              ~ (' (mínimo ' ~ asterisk_versao_minima ~ ')' if ast_versao_instalada != '' else '') }}
 
 # ------------------------------------------------------------------
 # Compilação
 # ------------------------------------------------------------------
+# O site da Asterisk move a versão para old-releases/ no dia em que sai a
+# seguinte (a 22.11.0 foi para lá em 05/11/2026, quando saiu a 22.12.0), e o
+# endereço de sempre passa a dar 404. A versão fixada aqui é a testada:
+# procura-se primeiro no lugar atual e, se não estiver, em old-releases/.
 - name: Baixar o fonte do Asterisk
   ansible.builtin.get_url:
-    url: "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-{{ asterisk_versao }}.tar.gz"
+    url: "{{ item }}/asterisk-{{ asterisk_versao }}.tar.gz"
     dest: "{{ src_dir }}/asterisk-{{ asterisk_versao }}.tar.gz"
     mode: "0644"
+  loop:
+    - "{{ asterisk_url_base }}"
+    - "{{ asterisk_url_base }}/old-releases"
+  loop_control:
+    label: "{{ item }}"
+  # O segundo endereço só baixa se o primeiro não trouxe o arquivo: com o
+  # .tar.gz já no disco, o get_url não baixa de novo.
   when: ast_precisa_compilar
+  failed_when: false
+
+- name: Conferir se o fonte está no disco
+  ansible.builtin.stat:
+    path: "{{ src_dir }}/asterisk-{{ asterisk_versao }}.tar.gz"
+  register: ast_tar
+  when: ast_precisa_compilar
+
+- name: Parar se o fonte não foi encontrado
+  ansible.builtin.fail:
+    msg: >-
+      O fonte do Asterisk {{ asterisk_versao }} não foi encontrado nem em
+      {{ asterisk_url_base }} nem em {{ asterisk_url_base }}/old-releases.
+      Confira o acesso do servidor a downloads.asterisk.org.
+  when: ast_precisa_compilar and not ast_tar.stat.exists
 
 - name: Baixar o checksum oficial
   ansible.builtin.get_url:
-    url: "{{ asterisk_sha_url }}"
-    dest: "{{ src_dir }}/asterisk-{{ asterisk_versao }}.tar.gz.sha256"
+    url: "{{ item }}/asterisk-{{ asterisk_versao }}.sha256"
+    dest: "{{ src_dir }}/asterisk-{{ asterisk_versao }}.sha256"
     mode: "0644"
+    force: true
+  loop:
+    - "{{ asterisk_url_base }}"
+    - "{{ asterisk_url_base }}/old-releases"
+  loop_control:
+    label: "{{ item }}"
   when: ast_precisa_compilar
+  register: ast_sha_download
   failed_when: false
 
+# Com o checksum em mãos, pacote que não confere para a instalação: é
+# download corrompido ou adulterado. Sem checksum publicado, segue com aviso.
 - name: Conferir integridade do pacote
-  ansible.builtin.shell:
-    cmd: sha256sum -c "asterisk-{{ asterisk_versao }}.tar.gz.sha256"
+  ansible.builtin.command:
+    cmd: sha256sum -c "asterisk-{{ asterisk_versao }}.sha256"
     chdir: "{{ src_dir }}"
-  when: ast_precisa_compilar
+  when: ast_precisa_compilar and (ast_sha_download.results | selectattr('status_code', 'defined')
+        | selectattr('status_code', 'equalto', 200) | list | length > 0)
   changed_when: false
   failed_when: false
   register: ast_sha
+
+- name: Parar se o pacote não confere com o checksum
+  ansible.builtin.fail:
+    msg: >-
+      O asterisk-{{ asterisk_versao }}.tar.gz baixado não confere com o checksum
+      oficial (download incompleto ou adulterado). Apague
+      {{ src_dir }}/asterisk-{{ asterisk_versao }}.tar.gz e rode o playbook de novo.
+      Saída: {{ ast_sha.stdout | default('') }} {{ ast_sha.stderr | default('') }}
+  when: ast_precisa_compilar and (ast_sha.rc | default(0)) != 0
 
 - name: Resultado da verificação de integridade
   ansible.builtin.debug:
@@ -194,6 +274,10 @@
     chdir: "{{ src_dir }}/asterisk-{{ asterisk_versao }}"
   when: ast_precisa_compilar
   changed_when: true
+  # Numa atualização de versão o Asterisk que está rodando ainda é o antigo:
+  # ele reinicia quando a central ficar sem chamada nenhuma ("when
+  # convenient"), sem cortar ligação.
+  notify: reiniciar asterisk quando der
 
 - name: Instalar o logrotate
   ansible.builtin.apt:

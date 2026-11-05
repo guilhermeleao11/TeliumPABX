@@ -272,7 +272,7 @@
           - "Telium PABX {{ telium_versao }}"
           - "Nome ...... {{ pabx_hostname }}  (console: https://{{ pabx_hostname }}/)"
           - "Alvo ...... {{ inventory_hostname }} ({{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }})"
-          - "Asterisk .. {{ asterisk_versao }} (compilado do fonte)"
+          - "Asterisk .. {{ asterisk_versao | default('a mais recente da série ' ~ asterisk_serie ~ ' (mínimo ' ~ asterisk_versao_minima ~ ')') }} (compilado do fonte)"
           - "Janus ..... {{ janus_versao }} (compilado do fonte)"
           - "TURN ...... coturn (mídia do softphone onde o caminho direto não passa)"
           - "SIP ....... {{ 'só redes conhecidas (Brasil, Telium, troncos, Nunca bloquear' ~ ((' + ' ~ (sip_redes_extras | join(', '))) if sip_redes_extras else '') ~ ')' if sip_restringir_redes | default(false) | bool else 'aberto para a internet (fail2ban ligado)' }}"

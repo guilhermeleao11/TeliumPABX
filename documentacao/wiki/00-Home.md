@@ -35,7 +35,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 |---|---|
 | Telium PABX | 1.1.0 (a versão e o commit de cada central aparecem no rodapé do menu e em **Telium › Versões e Novidades**) |
 | Debian | 13 (trixie); também roda em Ubuntu 24.04 |
-| Asterisk | 22.11.0, compilado do fonte, com PJSIP |
+| Asterisk | série 22 (instalação nova: a mais recente; mínimo 22.12.0), compilado do fonte, com PJSIP |
 | MariaDB | 12.3.3 |
 | nginx | mainline 1.31.x |
 | PHP | 8.4 + Slim 4 |

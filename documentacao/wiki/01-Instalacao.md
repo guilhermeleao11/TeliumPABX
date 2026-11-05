@@ -369,7 +369,7 @@ Trocar porta SIP depois da instalação exige rodar o playbook de novo: o Asteri
 
 | Variável | Fábrica | O que faz |
 |---|---|---|
-| `compilar_asterisk` | `true` | Compila o Asterisk só se a versão instalada for diferente de `asterisk_versao`. Com a versão certa já instalada, não compila de novo |
+| `compilar_asterisk` | `true` | Compila o Asterisk quando precisa: na instalação nova, a versão mais recente da série 22 (descoberta no site da Asterisk; sem acesso, o mínimo); na atualização, só se a central estiver abaixo de `asterisk_versao_minima` (hoje 22.12.0), e então vai para ela. Quem já está no mínimo ou acima não recompila. `-e asterisk_versao=22.12.0` força uma versão |
 | `instalar_janus` | `false` | Instala o Janus. Opcional: o softphone do navegador **não** usa Janus. Perguntado na instalação |
 | `compilar_janus` | `true` | Compila o Janus só se a versão for diferente (só vale com `instalar_janus`) |
 | `instalar_asternic` | `false` | Instala o Asternic (Call Center › Stats). Só com licença para este servidor. Perguntado na instalação |
@@ -401,7 +401,7 @@ O playbook instala o `zabbix-agent2` (pacote do Debian) com os itens do Asterisk
 | `zabbix_scripts_dir` | `/Telium/zabbix/scripts` | Onde fica o `zbx_asterisk_ami.py` |
 | `zabbix_ssh_usuario` | `zabbix_test` | Usuário do teste de SSH (a chave só responde `SSH_OK`) |
 
-**Não mexa** (servem para o projeto, não para a implantação): versões fixadas (`asterisk_versao`, `janus_versao`, `mariadb_versao`, `nginx_canal`), caminhos (`telium_base`, `backup_dir`, `gravacoes_dir`, `servidor_ajustes` etc.), usuários de sistema e portas internas (`ast_http_porta`, `ami_porta`, portas do Janus).
+**Não mexa** (servem para o projeto, não para a implantação): versões (`asterisk_serie`, `asterisk_versao_minima`, `janus_versao`, `mariadb_versao`, `nginx_canal`), caminhos (`telium_base`, `backup_dir`, `gravacoes_dir`, `servidor_ajustes` etc.), usuários de sistema e portas internas (`ast_http_porta`, `ami_porta`, portas do Janus).
 
 ### Senhas de serviço
 
