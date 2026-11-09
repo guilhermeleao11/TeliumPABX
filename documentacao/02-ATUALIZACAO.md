@@ -228,6 +228,11 @@ implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.10.2 — mesmo ramal em mais de um aparelho
+- **Correção**: com o ramal registrado em mais de um aparelho (mesa e softphone, ou dois telefones), a ligação tocava **só em um** — os dois apareciam registrados (`pjsip show aor`), mas a central chamava um contato só. Agora a ligação para o ramal, o **grupo de toque** (todos juntos e um de cada vez) e a fila com confirmação de atendimento tocam **em todos os aparelhos** do ramal. O número de aparelhos por ramal continua em **Ramais › Rede › Máximo de aparelhos** (padrão 2).
+- Na **fila comum** (sem confirmação de atendimento), o agente continua sendo chamado em um aparelho só.
+- Só muda a configuração do Asterisk (recarregada, sem derrubar chamada). Nenhum dado é alterado.
+
 ### 1.10.1 — Asterisk: a mais recente na instalação, 22.12 na atualização
 - **Instalação nova** compila a versão **mais recente** do Asterisk 22, descoberta no site da Asterisk na hora (hoje, 22.12.0).
 - **Atualização**: a central com Asterisk abaixo de **22.12.0** (as que estão na 22.11) é atualizada para a 22.12.0. A compilação leva de 15 a 30 minutos e corre com a central funcionando; no fim o Asterisk **reinicia sozinho quando ficar sem chamada nenhuma** ("when convenient"), sem cortar ligação. Faça depois das 18h, como sempre. Central já na 22.12 ou acima não recompila.

@@ -112,10 +112,15 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
 
  ; siga-me: "junto" toca o ramal e o destino ao mesmo tempo; "depois"
  ; só procura o destino quando o ramal não atende.
- same => n(monta),Set(TELIUM_ALVO=PJSIP/${ARG1})
+ ; todos os aparelhos registrados no ramal (ver sub-contatos)
+ same => n(monta),GoSub(sub-contatos,s,1(${ARG1}))
+ same => n,Set(TELIUM_ALVO=${TELIUM_CONTATOS})
  same => n,Set(TELIUM_FMF=${DB(sigame/${ARG1})})
  same => n,Set(TELIUM_FMF_MODO=${DB(sigame-modo/${ARG1})})
- same => n,ExecIf($["${TELIUM_FMF}" != "" & "${TELIUM_FMF_MODO}" != "depois"]?Set(TELIUM_ALVO=PJSIP/${ARG1}&Local/${TELIUM_FMF}@telium-desvio))
+ ; sem ExecIf aqui: o destino tem "sip:" e o ExecIf corta no dois-pontos
+ same => n,GotoIf($["${TELIUM_FMF}" = "" | "${TELIUM_FMF_MODO}" = "depois"]?alvo)
+ same => n,Set(TELIUM_ALVO=${TELIUM_ALVO}&Local/${TELIUM_FMF}@telium-desvio)
+ same => n(alvo),NoOp(Destino: ${TELIUM_ALVO})
 
  ; Atendimento automático: o telefone do destino abre o viva-voz sem
  ; tocar. Só para chamada interna — ninguém quer o aparelho abrindo som
@@ -166,6 +171,24 @@ exten => s,1,NoOp(Chamando ramal ${ARG1})
  same => n,Return()
  same => n(so_ocupado),Busy(5)
  same => n,Return()
+
+; ------------------------------------------------------------------
+; Sub-rotina: destino com todos os aparelhos do ramal
+;
+; Dial(PJSIP/2300) chama só UM dos aparelhos registrados no ramal; com
+; dois telefones (mesa e softphone, ou duas unidades), o outro não toca.
+; PJSIP_DIAL_CONTACTS devolve um destino por aparelho, juntos com "&".
+; Sem nenhum registrado, fica o PJSIP/ramal, que dá CHANUNAVAIL como
+; antes (e a caixa postal continua funcionando).
+;
+; Devolve em ${TELIUM_CONTATOS}. O teste é pelo tamanho: o destino tem
+; "sip:" e "?", que confundiriam o GotoIf/ExecIf.
+; ------------------------------------------------------------------
+[sub-contatos]
+exten => s,1,Set(TELIUM_CONTATOS=${PJSIP_DIAL_CONTACTS(${ARG1})})
+ same => n,GotoIf($[${LEN(${TELIUM_CONTATOS})} > 0]?fim)
+ same => n,Set(TELIUM_CONTATOS=PJSIP/${ARG1})
+ same => n(fim),Return()
 
 ; ------------------------------------------------------------------
 ; Sub-rotina: pedir ao telefone que atenda sozinho

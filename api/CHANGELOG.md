@@ -2,8 +2,16 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.10.1 — 2026-11-05
+## 1.10.2 — 2026-11-09
 Commits:
+Mesmo ramal em mais de um aparelho: toca em todos.
+
+### Correções
+- **Ramal com dois aparelhos tocava em um só**: `Dial(PJSIP/2300)` chama um único contato do AOR, mesmo com `max_contacts` 2 e os dois registrados. Nova sub-rotina `sub-contatos` monta o destino com `PJSIP_DIAL_CONTACTS` (sem nenhum registrado, fica `PJSIP/ramal`, que dá CHANUNAVAIL como antes). Usada no `sub-ramal`, nos grupos de toque (todos juntos e um de cada vez) e no contexto de confirmação de fila. O siga-me "junto" saiu do `ExecIf`, que cortaria o destino no dois-pontos do `sip:`.
+- Fila comum (membro `PJSIP/ramal`) continua chamando um aparelho do agente.
+
+## 1.10.1 — 2026-11-05
+Commits: 7b28a8a
 Asterisk: a mais recente na instalação nova, 22.12.0 na atualização; download que sobrevive a versão nova.
 
 ### Mudanças

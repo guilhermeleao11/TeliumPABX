@@ -250,15 +250,27 @@ final class GeradorDialplan
             if (($g['estrategia'] ?? '') === 'linear') {
                 // Um de cada vez, na ordem da lista: cada um toca pelo tempo
                 // de toque, e o primeiro que atender fica com a chamada.
+                // Cada ramal toca em todos os aparelhos dele (sub-contatos).
                 foreach ($membros as $r) {
-                    $b->same("ExecIf(\$[{$livre($r)}]?Dial(PJSIP/{$r},{$toque},tT))")
-                      ->same('GotoIf($["${DIALSTATUS}" = "ANSWER"]?fim-' . $numero . ')');
+                    $pula = "pula-{$numero}-{$r}";
+                    $b->same("GotoIf(\$[{$livre($r)}]?:{$pula})")
+                      ->same("GoSub(sub-contatos,s,1({$r}))")
+                      ->same("Dial(\${TELIUM_CONTATOS},{$toque},tT)")
+                      ->same('GotoIf($["${DIALSTATUS}" = "ANSWER"]?fim-' . $numero . ')')
+                      ->same('NoOp()', $pula);
                 }
             } else {
                 // Todos juntos: monta a lista só com quem está disponível.
                 $b->same('Set(TELIUM_GRUPO=)');
+                // Todos os aparelhos de cada ramal (sub-contatos). Nada de
+                // ExecIf com o destino: ele tem "sip:", e o ExecIf corta
+                // no dois-pontos.
                 foreach ($membros as $r) {
-                    $b->same("ExecIf(\$[{$livre($r)}]?Set(TELIUM_GRUPO=\${TELIUM_GRUPO}&PJSIP/{$r}))");
+                    $pula = "pula-{$numero}-{$r}";
+                    $b->same("GotoIf(\$[{$livre($r)}]?:{$pula})")
+                      ->same("GoSub(sub-contatos,s,1({$r}))")
+                      ->same('Set(TELIUM_GRUPO=${TELIUM_GRUPO}&${TELIUM_CONTATOS})')
+                      ->same('NoOp()', $pula);
                 }
                 $b->same('ExecIf($["${TELIUM_GRUPO}" != ""]?Dial(${TELIUM_GRUPO:1},' . $toque . ',tT))')
                   ->same('GotoIf($["${DIALSTATUS}" = "ANSWER"]?fim-' . $numero . ')');
@@ -964,7 +976,8 @@ final class GeradorDialplan
               ->contexto("telium-confirma-{$f['numero']}")
               ->exten('_X.', "NoOp(Confirmação da fila {$f['numero']} para o ramal \${EXTEN})")
               ->same("Set(__TELIUM_AUDIO={$audio})")
-              ->same('Dial(PJSIP/${EXTEN},,U(sub-confirmar-atendimento))')
+              ->same('GoSub(sub-contatos,s,1(${EXTEN}))')
+              ->same('Dial(${TELIUM_CONTATOS},,U(sub-confirmar-atendimento))')
               ->same('Hangup()');
         }
 

@@ -3147,6 +3147,25 @@ final class Testes
             $this->ok(\Telium\Gerador\GeradorPjsip::gruposDeSaida(['grupo_saida' => 'NOC,VoIP', 'numero' => '5555']) === 'NOC,VoIP,5555'
                       && \Telium\Gerador\GeradorPjsip::gruposDeSaida(['grupo_saida' => null, 'numero' => '3602']) === '3602',
                       'o ramal leva o grupo de saída e o próprio número para a rota conferir');
+
+            // Mesmo ramal em mais de um aparelho: Dial(PJSIP/2300) chama só
+            // um deles. Ramal e grupo de toque montam o destino com todos
+            // (sub-contatos), sem ExecIf no meio — o "sip:" do destino
+            // cortaria o ExecIf no dois-pontos.
+            Bd::executar("INSERT INTO grupos_toque (numero, nome, estrategia, ramais)
+                          VALUES ('79991', 'teste-todos', 'ringall', '7001-7002'),
+                                 ('79992', 'teste-linear', 'linear', '7001-7002')");
+            $grupos = (new GeradorDialplan())->gerar()['extensions.grupos.conf'] ?? '';
+            $modelo = (string) @file_get_contents(dirname(__DIR__, 3) . '/infra/ansible/roles/asterisk/templates/extensions.conf.j2');
+            $this->ok(
+                substr_count($grupos, 'GoSub(sub-contatos,s,1(7001))') === 2
+                    && str_contains($grupos, 'Set(TELIUM_GRUPO=${TELIUM_GRUPO}&${TELIUM_CONTATOS})')
+                    && str_contains($grupos, 'Dial(${TELIUM_CONTATOS},')
+                    && !str_contains($grupos, 'PJSIP/7001')
+                    && ($modelo === '' || (str_contains($modelo, '[sub-contatos]')
+                        && str_contains($modelo, 'Set(TELIUM_ALVO=${TELIUM_CONTATOS})'))),
+                'ramal com dois aparelhos: o ramal e o grupo de toque chamam todos os aparelhos'
+            );
         } finally {
             $pdo->rollBack();
         }
