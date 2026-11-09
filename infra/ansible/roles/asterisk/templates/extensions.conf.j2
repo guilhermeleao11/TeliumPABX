@@ -191,6 +191,54 @@ exten => s,1,Set(TELIUM_CONTATOS=${PJSIP_DIAL_CONTACTS(${ARG1})})
  same => n(fim),Return()
 
 ; ------------------------------------------------------------------
+; Agente de fila em todos os aparelhos
+;
+; O membro da fila é Local/<ramal>@telium-agente/n (o estado continua
+; vindo de PJSIP/<ramal>): a fila chama este canal, e ele chama todos os
+; aparelhos do ramal. Com PJSIP/<ramal> direto, a fila tocava um só.
+;
+; O CDR deste lado fica desligado: o trecho que conta é o da fila
+; (cliente -> Local/<ramal>), igual ao de antes com PJSIP/<ramal>. Com
+; ele ligado, cada aparelho chamado virava mais um trecho, com
+; lastapp=Dial, e o relatório contava a oferta da fila como recebida.
+;
+; Transferências:
+; - com ## (DTMF), quem transfere é o Local, na ponte da fila; o contexto
+;   vem de sub-membro-fila, que a fila roda no Local ao atender;
+; - pelo botão do aparelho (REFER), quem vai para o destino é este lado
+;   do Local: o aparelho leva TRANSFER_CONTEXT=telium-agente-transf, que
+;   religa o CDR (senão o trecho transferido sumia do relatório) e segue
+;   para o contexto do ramal, como qualquer transferência.
+; ------------------------------------------------------------------
+[telium-agente]
+exten => _X.,1,NoOp(Fila chamando o ramal ${EXTEN} em todos os aparelhos)
+ same => n,Set(CDR_PROP(disable)=1)
+ same => n,Set(TELIUM_CTX_AGENTE=${PJSIP_ENDPOINT(${EXTEN},context)})
+ same => n,GoSub(sub-contatos,s,1(${EXTEN}))
+ same => n,Dial(${TELIUM_CONTATOS},,b(sub-agente-aparelho^s^1))
+ same => n,Hangup()
+
+[sub-agente-aparelho]
+exten => s,1,Set(TRANSFER_CONTEXT=telium-agente-transf)
+ same => n,Return()
+
+[telium-agente-transf]
+exten => _[0-9*#+]!,1,NoOp(Transferência do agente para ${EXTEN})
+ same => n,Set(CDR_PROP(disable)=0)
+ same => n,Goto(${TELIUM_CTX_AGENTE},${EXTEN},1)
+
+; A fila roda esta sub-rotina no canal do agente ao atender. Com o
+; membro Local, é ele quem transfere com ## — e sem isto a transferência
+; ia para o contexto do Local (telium-agente), pulando caixa postal,
+; siga-me e o resto do sub-ramal.
+[sub-membro-fila]
+exten => s,1,GotoIf($["${CHANNEL:0:6}" != "Local/"]?fim)
+ same => n,Set(TELIUM_R=${CUT(CHANNEL,@,1)})
+ same => n,Set(TELIUM_R=${CUT(TELIUM_R,/,2)})
+ same => n,Set(TRANSFER_CONTEXT=${PJSIP_ENDPOINT(${TELIUM_R},context)})
+ same => n(fim),Return()
+
+; ------------------------------------------------------------------
 ; Sub-rotina: pedir ao telefone que atenda sozinho
 ;
 ; Roda no canal de quem recebe, pela opção b do Dial. Cada fabricante lê

@@ -3166,6 +3166,30 @@ final class Testes
                         && str_contains($modelo, 'Set(TELIUM_ALVO=${TELIUM_CONTATOS})'))),
                 'ramal com dois aparelhos: o ramal e o grupo de toque chamam todos os aparelhos'
             );
+
+            // E a fila: o membro é o Local que chama todos os aparelhos, com
+            // o estado do PJSIP; a fila roda sub-membro-fila no agente, que
+            // dá ao Local o contexto de transferência do ramal (## ia para
+            // o contexto do Local, pulando o sub-ramal).
+            Bd::executar("INSERT INTO ramais (numero, nome, senha_sip) VALUES ('79993', 'teste-agente', 'Teste-79993x')");
+            $ramalAg = (int) $pdo->lastInsertId();
+            Bd::executar("INSERT INTO filas (numero, nome, estrategia) VALUES ('79994', 'teste-fila-aparelhos', 'ringall')");
+            $filaAg = (int) $pdo->lastInsertId();
+            Bd::executar("INSERT INTO fila_agentes (fila_id, ramal_id, tipo) VALUES (?, ?, 'estatico')", [$filaAg, $ramalAg]);
+            $ger = (new \Telium\Gerador\GeradorFilas())->gerar()
+                 + (new GeradorDialplan())->gerar()
+                 + (new \Telium\Gerador\GeradorRecursos())->gerar();
+            $this->ok(
+                str_contains($ger['queues.conf'] ?? '', 'member => Local/79993@telium-agente/n,0,teste-agente,PJSIP/79993,')
+                    && str_contains($ger['extensions.filas.conf'] ?? '', 'Queue(79994,tT,,,')
+                    && str_contains($ger['extensions.filas.conf'] ?? '', ',,sub-membro-fila)')
+                    && str_contains($ger['extensions.recursos.conf'] ?? '',
+                        'AddQueueMember(${EXTEN:3},Local/${CALLERID(num)}@telium-agente/n,,,PJSIP/${CALLERID(num)},PJSIP/${CALLERID(num)})')
+                    && ($modelo === '' || (str_contains($modelo, '[telium-agente]')
+                        && str_contains($modelo, '[sub-membro-fila]')
+                        && str_contains($modelo, '[telium-agente-transf]'))),
+                'fila com agente de dois aparelhos: o membro chama todos, e a transferência segue o contexto do ramal'
+            );
         } finally {
             $pdo->rollBack();
         }

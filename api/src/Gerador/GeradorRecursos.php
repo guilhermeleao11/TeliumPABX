@@ -314,6 +314,23 @@ final class GeradorRecursos
         return 'GotoIf($[${REGEX("^(' . $lista . ')$" ' . $arg . ':' . $eu . ')} = 0]?naoagente)';
     }
 
+    /**
+     * Em ${TELIUM_MEMBRO}, o canal com que o ramal está (ou entraria) na
+     * fila: o Local que toca em todos os aparelhos. Quem entrou antes da
+     * 1.10.3 continua como PJSIP/<ramal> até sair, e é esse que sai ou
+     * pausa — senão o *45 o punha uma segunda vez, em vez de tirar.
+     *
+     * @return list<string>
+     */
+    private function membroDoRamal(string $arg, string $eu): array
+    {
+        return [
+            'Set(TELIUM_MEMBRO=' . GeradorFilas::interfaceDoRamal($eu) . ')',
+            'Set(TELIUM_MEMBROS=${QUEUE_MEMBER_LIST(' . $arg . ')})',
+            'ExecIf($[${REGEX("(^|,)PJSIP/' . $eu . '(,|$)" ${TELIUM_MEMBROS})} = 1]?Set(TELIUM_MEMBRO=PJSIP/' . $eu . '))',
+        ];
+    }
+
     /** O GotoIf que desvia a fila de call center para o aviso. */
     private function recusaCallCenter(string $arg): ?string
     {
@@ -752,11 +769,10 @@ final class GeradorRecursos
             'fila_login' => [$comArg, array_values(array_filter([
                 "NoOp(Entrar ou sair da fila {$arg})", 'Answer()', 'Wait(1)',
                 $this->recusaCallCenter($arg),
-                'Set(TELIUM_MEMBRO=PJSIP/' . $eu . ')',
                 // "status" não é opção do QUEUE_MEMBER (o Asterisk dá erro e o
                 // teste sempre caía em "sair"), e "penalty" devolve 0 também
                 // para quem não é membro. A lista de membros não mente.
-                'Set(TELIUM_MEMBROS=${QUEUE_MEMBER_LIST(' . $arg . ')})',
+                ...$this->membroDoRamal($arg, $eu),
                 'GotoIf($[${REGEX("(^|,)${TELIUM_MEMBRO}(,|$)" ${TELIUM_MEMBROS})} = 0]?entra)',
                 "RemoveQueueMember({$arg},\${TELIUM_MEMBRO})",
                 'Playback(agent-loggedoff)', 'Hangup()',
@@ -764,7 +780,10 @@ final class GeradorRecursos
                 // Sair da fila vale para qualquer membro; entrar, só para quem
                 // está na lista da fila como "Entra por código".
                 $this->recusaNaoAgente($arg, $eu),
-                "AddQueueMember({$arg},\${TELIUM_MEMBRO})",
+                // Entra pelo Local que toca em todos os aparelhos; o nome
+                // (o que vai para o queue_log) e o estado continuam sendo
+                // PJSIP/<ramal>, como antes.
+                'AddQueueMember(' . $arg . ',' . GeradorFilas::interfaceDoRamal($eu) . ',,,PJSIP/' . $eu . ',PJSIP/' . $eu . ')',
                 'Playback(agent-loginok)', 'Hangup()',
             ], 'naoagente' => [
                 "NoOp(O ramal {$eu} não está na fila {$arg} como \"Entra por código\")",
@@ -773,7 +792,7 @@ final class GeradorRecursos
             'fila_pausa' => [$comArg, array_values(array_filter([
                 "NoOp(Pausar ou despausar na fila {$arg})", 'Answer()', 'Wait(1)',
                 $this->recusaCallCenter($arg),
-                'Set(TELIUM_MEMBRO=PJSIP/' . $eu . ')',
+                ...$this->membroDoRamal($arg, $eu),
                 'GotoIf($["${QUEUE_MEMBER(' . $arg . ',paused,${TELIUM_MEMBRO})}" = "1"]?volta)',
                 "PauseQueueMember({$arg},\${TELIUM_MEMBRO})",
                 'Playback(activated)', 'Hangup()',

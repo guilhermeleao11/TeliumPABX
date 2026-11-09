@@ -208,7 +208,7 @@ final class GeradorFilas
                 'member => %s,%d,%s,%s,%s',
                 $confirma
                     ? "Local/{$a['numero']}@telium-confirma-{$numero}/n"
-                    : "PJSIP/{$a['numero']}",
+                    : self::interfaceDoRamal((string) $a['numero']),
                 (int) $a['penalidade'],
                 str_replace(',', ' ', (string) $a['nome']),
                 "PJSIP/{$a['numero']}",
@@ -217,6 +217,18 @@ final class GeradorFilas
         }
 
         $b->branco();
+    }
+
+    /**
+     * O canal com que a fila chama um ramal: um Local que toca em todos os
+     * aparelhos dele (telium-agente, no extensions.conf). PJSIP/<ramal>
+     * direto chamava um aparelho só. O estado do membro continua sendo o
+     * PJSIP/<ramal>; o /n mantém o Local até o fim, para a fila enxergar
+     * a transferência e o desligamento do agente.
+     */
+    public static function interfaceDoRamal(string $ramal): string
+    {
+        return "Local/{$ramal}@telium-agente/n";
     }
 
     private function anuncio(mixed $id): string

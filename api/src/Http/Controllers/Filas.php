@@ -223,8 +223,12 @@ final class Filas
      * Lê a saída de "queue show <fila>".
      *
      * O formato é o do CLI, com cor e tudo:
-     *   Agente 1001 (Local/1001@…/n) with penalty 1 (ringinuse disabled)
-     *   (paused:Almoço was 0 secs ago) (Not in use) has taken no calls yet
+     *   Agente 1001 (Local/1001@…/n from PJSIP/1001) with penalty 1
+     *   (ringinuse disabled) (paused:Almoço was 0 secs ago) (Not in use)
+     *   has taken no calls yet
+     * O "from" aparece quando o canal de estado é outro (o membro Local);
+     * quando o nome é a própria interface, o Asterisk nem escreve os
+     * parênteses: "PJSIP/1001 (ringinuse disabled) (dynamic) ...".
      *
      * @return array<int,array<string,mixed>>
      */
@@ -233,8 +237,12 @@ final class Filas
         $membros = [];
 
         foreach (explode("\n", $this->semCor($saida)) as $linha) {
-            if (preg_match('/^\s{4,}(.+?)\s+\((\S+?)\)/', $linha, $m) !== 1) {
+            if (preg_match('#^\s{4,}(.+?)\s+\(((?:PJSIP|SIP|IAX2|Local)/[^\s)]+)(?: from \S+)?\)#', $linha, $m) !== 1
+                && preg_match('#^\s{4,}((?:PJSIP|SIP|IAX2|Local)/[^\s(]+)()\s+\(#', $linha, $m) !== 1) {
                 continue;
+            }
+            if ($m[2] === '') {
+                $m[2] = $m[1];
             }
 
             preg_match('/with penalty (\d+)/', $linha, $pen);

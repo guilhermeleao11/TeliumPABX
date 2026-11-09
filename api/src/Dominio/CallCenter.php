@@ -342,7 +342,8 @@ final class CallCenter
             $this->deslogar($agenteId);
         }
 
-        $interface = "PJSIP/{$ramal}";
+        // Chama todos os aparelhos do ramal; o estado vem do PJSIP.
+        $interface = \Telium\Gerador\GeradorFilas::interfaceDoRamal($ramal);
         $entrou = [];
         foreach ($filas as $f) {
             $resposta = $this->ami->acao([
@@ -351,7 +352,7 @@ final class CallCenter
                 'Interface'      => $interface,
                 'Penalty'        => (string) $f['penalidade'],
                 'MemberName'     => self::nomeDoMembro($agenteId),
-                'StateInterface' => $interface,
+                'StateInterface' => "PJSIP/{$ramal}",
                 'Paused'         => 'false',
             ]);
 
@@ -450,7 +451,8 @@ final class CallCenter
                 $campos = [
                     'Action' => 'QueueAdd', 'Queue' => (string) $fila, 'Interface' => $interface,
                     'Penalty' => (string) $penalidade, 'MemberName' => self::nomeDoMembro($agenteId),
-                    'StateInterface' => $interface, 'Paused' => $pausado ? 'true' : 'false',
+                    'StateInterface' => 'PJSIP/' . self::ramalDaInterface($interface),
+                    'Paused' => $pausado ? 'true' : 'false',
                 ];
                 if ($pausado && $motivo !== '') {
                     $campos['Reason'] = $motivo;
@@ -491,7 +493,9 @@ final class CallCenter
             // O "-" fecha o nome: o ChanSpy casa pelo começo, e "PJSIP/100"
             // também pegava a chamada de "PJSIP/1001-…" — o supervisor
             // entrava na conversa de outro agente.
-            'Data'        => "{$interface}-,{$opcoes}",
+            // O canal do aparelho é PJSIP/<ramal>-…, mesmo com o membro
+            // da fila sendo um Local.
+            'Data'        => 'PJSIP/' . self::ramalDaInterface($interface) . "-,{$opcoes}",
             'CallerID'    => sprintf('"%s: %s" <%s>', ucfirst($modo), $agente['nome'] ?? 'agente',
                                      self::ramalDaInterface($interface)),
             'Timeout'     => '30000',

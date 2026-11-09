@@ -229,7 +229,8 @@ final class Sistema
 
             preg_match('/Asterisk\s+(\S+)/', $versao, $v);
             preg_match('/(\d+)\s+active channel/i', $canais, $c);
-            preg_match('/(\d+)\s+active call/i', $canais, $l);
+            // "2 of 480 max active calls" quando há maxcalls (o padrão)
+            preg_match('/(\d+)(?:\s+of\s+\d+\s+max)?\s+active call/i', $canais, $l);
 
             return [
                 'ok' => true,

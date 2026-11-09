@@ -239,9 +239,18 @@ final class Painel
         }
 
         preg_match('/(\d+)\s+active channel/i', $saida, $c);
-        preg_match('/(\d+)\s+active call/i', $saida, $l);
+        // Com maxcalls no asterisk.conf (o padrão da instalação) a linha é
+        // "2 of 480 max active calls", e o \d+ colado no "active" lia 0.
+        preg_match('/(\d+)(?:\s+of\s+\d+\s+max)?\s+active call/i', $saida, $l);
 
-        return ['chamadas' => (int) ($l[1] ?? 0), 'canais' => (int) ($c[1] ?? 0), 'ok' => true];
+        // O Asterisk conta uma "call" por canal rodando dialplan, e o Local
+        // com que a fila chama o agente (telium-agente, ou o de confirmação)
+        // roda: uma ligação de fila atendida aparecia como duas. O lado ;2
+        // desses Locais não é ligação nova.
+        $locais = preg_match_all('#^(?:Output: )?Local/[^@!]+@telium-(?:agente|confirma-[0-9]+)-[0-9a-f]+;2!#m',
+                                 (string) $this->ami('core show channels concise'));
+
+        return ['chamadas' => max(0, (int) ($l[1] ?? 0) - (int) $locais), 'canais' => (int) ($c[1] ?? 0), 'ok' => true];
     }
 
     /** @return array<string,string> nome do endpoint => estado */

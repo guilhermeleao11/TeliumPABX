@@ -228,9 +228,17 @@ implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.10.3 — fila tocando em todos os aparelhos do agente
+- **Fila**: o agente com o ramal em mais de um aparelho passa a receber a ligação da fila **em todos eles** (antes, num só). Vale para membro fixo, para quem entra pelo código (*45) e para o agente do call center.
+- **Depois de atualizar**: o membro fixo muda na hora. Quem já estava logado por código (*45) ou no call center continua tocando num aparelho só até **sair e entrar de novo**. Quem estava em pausa num membro fixo volta disponível — por isso, atualize fora do expediente, como sempre.
+- **Transferência do agente** continua como antes: com **##** o cliente vai para o destino e o relatório da fila registra a transferência. Pelo **botão de transferir do aparelho**, a ligação chega ao destino e aparece no CDR, mas o relatório da fila conta a conversa transferida no tempo do agente que transferiu.
+- **Correção**: o indicador **Em atendimento** (Visão Geral) e as chamadas ativas em **Sistema** mostravam **0** sempre: o Asterisk escreve "2 of 480 max active calls" quando há limite de chamadas (o padrão da instalação), e a leitura não entendia.
+- **Correção**: em **Filas**, o membro da fila com confirmação de atendimento não aparecia na lista ao vivo, e o que entrou por código aparecia com a interface errada.
+- Só muda a configuração do Asterisk e o código do console. Nenhum dado é alterado.
+
 ### 1.10.2 — mesmo ramal em mais de um aparelho
 - **Correção**: com o ramal registrado em mais de um aparelho (mesa e softphone, ou dois telefones), a ligação tocava **só em um** — os dois apareciam registrados (`pjsip show aor`), mas a central chamava um contato só. Agora a ligação para o ramal, o **grupo de toque** (todos juntos e um de cada vez) e a fila com confirmação de atendimento tocam **em todos os aparelhos** do ramal. O número de aparelhos por ramal continua em **Ramais › Rede › Máximo de aparelhos** (padrão 2).
-- Na **fila comum** (sem confirmação de atendimento), o agente continua sendo chamado em um aparelho só.
+- Na **fila comum** (sem confirmação de atendimento), o agente continuava sendo chamado em um aparelho só — resolvido na 1.10.3.
 - Só muda a configuração do Asterisk (recarregada, sem derrubar chamada). Nenhum dado é alterado.
 
 ### 1.10.1 — Asterisk: a mais recente na instalação, 22.12 na atualização

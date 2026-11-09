@@ -2,13 +2,31 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.10.2 — 2026-11-09
+## 1.10.3 — 2026-11-09
 Commits:
+Fila chamando todos os aparelhos do agente.
+
+### Mudanças
+- **Membro de fila** passa a ser `Local/<ramal>@telium-agente/n` (estado em `PJSIP/<ramal>`): o contexto `telium-agente` disca `PJSIP_DIAL_CONTACTS`. Vale para membro fixo (queues.conf), para o *45 (`AddQueueMember` com nome e estado `PJSIP/<ramal>`, então o `queue_log` não muda) e para o call center (`QueueAdd`). O *45/*46 reconhece o membro antigo `PJSIP/<ramal>` de quem entrou antes da atualização.
+- O CDR do lado do aparelho fica desligado (`CDR_PROP(disable)`): o trecho da fila continua um por agente oferecido, como antes. Na transferência pelo botão do aparelho (REFER) o aparelho leva `TRANSFER_CONTEXT=telium-agente-transf`, que religa o CDR e segue para o contexto do ramal.
+- `Queue(...,sub-membro-fila)`: no canal do agente, dá ao Local o `TRANSFER_CONTEXT` do ramal. Sem isso o ## mandava o cliente para o contexto do Local. Também corrige a fila com confirmação de atendimento, que já usava Local.
+- Escuta/sussurro/intervenção do call center espiona `PJSIP/<ramal>-`, e não a interface do membro.
+- "Em atendimento" desconta o lado `;2` dos Locais de agente (o Asterisk conta uma call por canal rodando dialplan).
+
+### Correções
+- **Em atendimento sempre 0**: com `maxcalls` a linha é "N of M max active calls" e a expressão não casava (Painel e Sistema).
+- **Filas ao vivo**: a linha "(Local/… from PJSIP/…)" não era lida e o membro sumia; o membro cujo nome é a interface (entrou por código) saía com interface "dynamic".
+
+### Limitação conhecida
+- Transferência pelo botão do aparelho (REFER) de uma ligação de fila: o `queue_log` registra COMPLETECALLER/COMPLETEAGENT em vez de BLINDTRANSFER, com a conversa transferida no tempo do agente. Com ## o registro é o de sempre.
+
+## 1.10.2 — 2026-11-09
+Commits: 84c06da
 Mesmo ramal em mais de um aparelho: toca em todos.
 
 ### Correções
 - **Ramal com dois aparelhos tocava em um só**: `Dial(PJSIP/2300)` chama um único contato do AOR, mesmo com `max_contacts` 2 e os dois registrados. Nova sub-rotina `sub-contatos` monta o destino com `PJSIP_DIAL_CONTACTS` (sem nenhum registrado, fica `PJSIP/ramal`, que dá CHANUNAVAIL como antes). Usada no `sub-ramal`, nos grupos de toque (todos juntos e um de cada vez) e no contexto de confirmação de fila. O siga-me "junto" saiu do `ExecIf`, que cortaria o destino no dois-pontos do `sip:`.
-- Fila comum (membro `PJSIP/ramal`) continua chamando um aparelho do agente.
+- Fila comum (membro `PJSIP/ramal`) continuava chamando um aparelho do agente (resolvido na 1.10.3).
 
 ## 1.10.1 — 2026-11-05
 Commits: 7b28a8a

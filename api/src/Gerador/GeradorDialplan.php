@@ -337,8 +337,10 @@ final class GeradorDialplan
 
             // Espera máxima 0 é "sem limite": passada ao Queue como 0, cada
             // cliente estourava o tempo no mesmo instante em que entrava.
+            // sub-membro-fila roda no canal do agente ao atender: com o
+            // membro Local, dá a ele o contexto de transferência do ramal.
             $b->same(sprintf(
-                'Queue(%s,%s,,,%s)',
+                'Queue(%s,%s,,,%s,,sub-membro-fila)',
                 $numero,
                 $opcoes,
                 (int) $f['max_espera'] > 0 ? (string) (int) $f['max_espera'] : ''

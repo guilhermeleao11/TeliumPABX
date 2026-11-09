@@ -169,7 +169,7 @@ final class GeradorCallCenter
           ->same('Set(CDR(fila)=${TELIUM_RETORNO_FILA})')
           ->same('Set(__TELIUM_FILA=${TELIUM_RETORNO_FILA})')
           ->same('Set(QUEUE_PRIO=10)')
-          ->same('Queue(${TELIUM_RETORNO_FILA},t,,,120)')
+          ->same('Queue(${TELIUM_RETORNO_FILA},t,,,120,,sub-membro-fila)')
           // Voltou da fila sem agente: não é tentativa gasta com o cliente.
           ->same('Set(ODBC_TELIUM_CC_RETORNO_FIM(${EXTEN},SEMAGENTE)=x)', 'fim')
           ->same('Hangup()')
