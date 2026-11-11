@@ -27,6 +27,7 @@ use Telium\Http\Controllers\Backup;
 use Telium\Http\Controllers\Cli;
 use Telium\Http\Controllers\Configuracao as CtrlConfig;
 use Telium\Http\Controllers\Painel;
+use Telium\Http\Controllers\Telefonista;
 use Telium\Http\Controllers\Portal;
 use Telium\Http\Controllers\Relatorios;
 use Telium\Http\Controllers\Saude;
@@ -1147,7 +1148,7 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
 
     $g->post('/discar', [Portal::class, 'discar'])
       ->add(new Permissao('pcu.meuramal', null,
-            ['pcu.contatos', 'pcu.chamadas', 'admin.contatos', 'rel.cdr', 'conn.ramais', 'fone.webrtc']));
+            ['pcu.contatos', 'pcu.chamadas', 'admin.contatos', 'rel.cdr', 'conn.ramais', 'fone.webrtc', 'tel.mesa']));
 
     // ---- telefone do navegador (WebRTC): só quem tem o módulo ----
     $g->get('/me/telefone', [Portal::class, 'telefone'])->add(new Permissao('fone.webrtc'));
@@ -1174,6 +1175,12 @@ $app->group('', function (RouteCollectorProxy $g) use ($recursos) {
     // ---- painel e operação ----
     $g->get('/painel/visaogeral', [Painel::class, 'visaogeral'])
       ->add(new Permissao('dash.visaogeral'));
+    // Mesa da Telefonista: ver todos os ramais ao vivo, pôr e tirar o não
+    // perturbe de qualquer um (edição) e passar a própria ligação adiante.
+    $g->get('/telefonista/ramais', [Telefonista::class, 'ramais'])->add(new Permissao('tel.mesa'));
+    $g->put('/telefonista/ramais/{numero:[0-9]+}/dnd', [Telefonista::class, 'dnd'])
+      ->add(new Permissao('tel.mesa', 'editar'));
+    $g->post('/telefonista/transferir', [Telefonista::class, 'transferir'])->add(new Permissao('tel.mesa'));
     $g->get('/tempo-real', [Sistema::class, 'tempoReal'])
       ->add(new Permissao('dash.temporeal'));
     $g->get('/sistema/estatisticas', [Sistema::class, 'estatisticas'])

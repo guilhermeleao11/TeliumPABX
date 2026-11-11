@@ -190,6 +190,7 @@ Observações:
 - O perfil **Call Center** também precisa que a pessoa esteja cadastrada em **Call Center › Agentes**. Veja [Call Center](16-Call-Center.md).
 - **Telium › Versões e Novidades** foi dada a todos os perfis na atualização para a 1.1.0, uma vez só: se for retirada de um perfil, a próxima atualização não a devolve.
 - **Telefone (WebRTC)** é um módulo próprio, e nos perfis de fábrica só o Administrador o tem. Para outro perfil usar o softphone do navegador, marque **Telefone (WebRTC)** na matriz.
+- **Mesa da Telefonista** também só vem no Administrador. Para a recepção, marque **Mesa da Telefonista** no perfil dela (e **Editar registros**, para ela pôr e tirar o não perturbe dos ramais). Veja [Mesa da Telefonista](24-Mesa-da-Telefonista.md).
 
 ### As ações
 
@@ -211,6 +212,7 @@ A matriz lista os módulos na ordem do menu. Cada linha mostra o nome da tela e 
 | Grupo | Módulos (identificador) |
 |---|---|
 | Painel de Indicadores | Visão Geral (`dash.visaogeral`), Tempo Real (`dash.temporeal`), Estatísticas do Sistema (`dash.sistema`), Asterisk Info (`dash.asterisk`) |
+| Telefonista | Mesa da Telefonista (`tel.mesa`) |
 | Telefone | Telefone WebRTC (`fone.webrtc`) |
 | Administrador | Usuários (`admin.usuarios`), Perfis e Permissões (`admin.permissoes`), Backup (`admin.backup`), Certificados (`admin.certificados`), Lista Negra (`admin.listanegra`), Allowlist (`admin.allowlist`), CLI Asterisk (`admin.cli`), Contatos (`admin.contatos`), Destinos Personalizados (`admin.destinos`), Códigos de Recurso (`admin.codigos`), Gravações do Sistema (`admin.gravacoes`), Auditoria (`admin.auditoria`) |
 | Aplicações | Filas (`apps.filas`), Pesquisa de Satisfação (`apps.pesquisas`), Grupos de Toque (`apps.grupostoque`), URA (`apps.ura`), Conferências (`apps.conferencias`), Gravação de Chamadas (`apps.gravacao`), Anúncios (`apps.anuncios`), Condições Horárias (`apps.condicoes`), Grupos de Horário (`apps.grupohorario`), Siga-me (`apps.sigame`), Correio de Voz (`apps.correiovoz`), Caixas Postais (`apps.caixaspostais`), DISA (`apps.disa`), Estacionamento (`apps.estacionamento`), Megafonia e Interfonia (`apps.paging`), Chamadas de Despertar (`apps.despertar`) |

@@ -2,8 +2,19 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.10.3 — 2026-11-09
+## 1.11.0 — 2026-11-11
 Commits:
+Mesa da Telefonista: todos os ramais ao vivo, com não perturbe, transferência e captura.
+
+### Novidades
+- **Telefonista › Mesa da Telefonista** (módulo `tel.mesa`): cartão por ramal ativo com o estado (disponível, tocando, chamando, em chamada, em espera, offline), não perturbe, a outra ponta e o tempo. Atualiza a cada 3 s sem redesenhar a tela; contadores que filtram, busca e filtro por setor.
+- `GET /api/telefonista/ramais` (`tel.mesa`): `DeviceStateList` + `CoreShowChannels` + `database show dnd`. Com dois aparelhos no mesmo ramal, o canal atendido vence o que ainda toca. Entre dois ramais em ponte, a outra ponta é o ramal do outro canal (no click to call e na captura o número do canal é o discado). Sem AMI, o não perturbe vem do banco e o estado fica "sem leitura".
+- `PUT /api/telefonista/ramais/{numero}/dnd` (`tel.mesa` + editar): grava no banco e no AstDB (`dnd/<ramal>`), na hora. Auditado.
+- `POST /api/telefonista/transferir` (`tel.mesa`): `BlindTransfer` do canal da telefonista (ramal da sessão) para outro ramal, no contexto do ramal dela; se a ligação veio de fila (outra ponta `Local/…@telium-agente`), em `telium-agente-transf`, que religa o CDR. Auditado.
+- "Puxar" disca a captura direta (`captura_dir` + ramal) pelo telefone da telefonista; "Ligar" usa o click to call (`/discar` aceita `tel.mesa`).
+
+## 1.10.3 — 2026-11-09
+Commits: 0ee45ae
 Fila chamando todos os aparelhos do agente.
 
 ### Mudanças

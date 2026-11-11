@@ -49,6 +49,7 @@ Esta wiki reúne tudo sobre o produto: como instalar e atualizar, como usar cada
 | Área | Recursos | Página |
 |---|---|---|
 | Painel de Indicadores | Visão geral, wallboard em tempo real com Modo TV, estatísticas do servidor e do Asterisk | [10](10-Painel-de-Indicadores.md) |
+| Telefonista | Mesa da Telefonista: todos os ramais ao vivo, não perturbe, transferir e puxar | [24](24-Mesa-da-Telefonista.md) |
 | Telefone | Softphone no navegador (WebRTC) | [11](11-Telefone-WebRTC.md) |
 | Administrador | Usuários, perfis e permissões, backup, certificados, lista negra, allowlist, CLI do Asterisk, contatos, destinos personalizados, códigos de recurso, gravações do sistema, auditoria | [12](12-Administrador.md) |
 | Aplicações: atendimento | Filas, pesquisa de satisfação, grupos de toque, URA, conferências, gravação de chamadas, anúncios, condições e grupos de horário, feriados | [13](13-Aplicacoes-Filas-URA-e-Atendimento.md) |

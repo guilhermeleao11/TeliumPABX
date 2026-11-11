@@ -370,6 +370,12 @@ O que muda na operação, e não só por dentro. A mais recente primeiro.
 
 A tela **Telium › Versões e Novidades** mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo `api/CHANGELOG.md`). As notas abaixo resumem o que muda para quem opera.
 
+### 1.11.0 — Mesa da Telefonista
+- **Nova tela: Telefonista › Mesa da Telefonista.** Todos os ramais da central num painel ao vivo (atualiza a cada 3 segundos): **disponível, tocando, chamando, em chamada, em espera, offline** e **não perturbe**, com quem está do outro lado e há quanto tempo. Contadores no topo filtram a lista, e dá para buscar por ramal, nome ou setor. Detalhes em [Mesa da Telefonista](24-Mesa-da-Telefonista.md).
+- Na mesma tela a telefonista **coloca e tira o não perturbe** de qualquer ramal (vale na hora, como o *78/*79), **liga** para um ramal, **transfere** a ligação em que está para outro ramal e **puxa** a ligação que está tocando em outro ramal.
+- **Para liberar**: em **Administrador › Perfis e Permissões**, marque o módulo **Mesa da Telefonista** (`tel.mesa`) no perfil de quem atende a recepção. Para mexer no não perturbe dos outros, o perfil precisa também da ação **Editar registros**. Para ligar, transferir e puxar, a conta precisa ter **ramal vinculado** (Gerenciador de Usuários). O Administrador já tem.
+- Só muda o código do console. Não muda a configuração do Asterisk nem nenhum dado.
+
 ### 1.10.3 — fila tocando em todos os aparelhos do agente
 - **Fila**: o agente com o ramal em mais de um aparelho passa a receber a ligação da fila **em todos eles** (antes, num só). Vale para membro fixo, para quem entra pelo código (*45) e para o agente do call center.
 - **Depois de atualizar**: o membro fixo muda na hora. Quem já estava logado por código (*45) ou no call center continua tocando num aparelho só até **sair e entrar de novo**. Quem estava em pausa num membro fixo volta disponível — por isso, atualize fora do expediente, como sempre.

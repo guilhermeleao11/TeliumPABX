@@ -15,6 +15,13 @@ const MENU = [
     ]
   },
   {
+    // A recepção: todos os ramais ao vivo, com não perturbe e transferência.
+    id: 'tel', label: 'Telefonista', icon: 'building',
+    items: [
+      { id: 'tel.mesa', label: 'Mesa da Telefonista', icon: 'users', pill: 'live' }
+    ]
+  },
+  {
     // O telefone do navegador. É uma permissão: sem este módulo o ramal
     // não registra no navegador e a senha SIP nem chega ao console.
     id: 'fone', label: 'Telefone', icon: 'phone',

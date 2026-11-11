@@ -47,6 +47,7 @@ O QUE A CENTRAL FAZ
 -------------------
 
 - Painel de Indicadores — Recursos: Visão geral, wallboard em tempo real com Modo TV, estatísticas do servidor e do Asterisk; Página: 10 (ver página 10)
+- Telefonista — Recursos: Mesa da Telefonista: todos os ramais ao vivo, não perturbe, transferir e puxar; Página: 24 (ver página 24)
 - Telefone — Recursos: Softphone no navegador (WebRTC); Página: 11 (ver página 11)
 - Administrador — Recursos: Usuários, perfis e permissões, backup, certificados, lista negra, allowlist, CLI do Asterisk, contatos, destinos personalizados, códigos de recurso, gravações do sistema, auditoria; Página: 12 (ver página 12)
 - Aplicações: atendimento — Recursos: Filas, pesquisa de satisfação, grupos de toque, URA, conferências, gravação de chamadas, anúncios, condições e grupos de horário, feriados; Página: 13 (ver página 13)

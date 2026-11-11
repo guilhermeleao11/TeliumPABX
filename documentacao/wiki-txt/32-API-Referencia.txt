@@ -253,10 +253,18 @@ Administração das chaves (autenticado)
 Todos os caminhos abaixo são relativos a /api.
 
 
+Mesa da Telefonista
+~~~~~~~~~~~~~~~~~~~
+
+- GET — Caminho: /telefonista/ramais; Permissão: tel.mesa; O que faz: Todos os ramais ativos com estado, não perturbe, outra ponta e duração; o ramal da sessão (eu), se ele está numa ligação (em_chamada) e o código de captura direta (captura)
+- PUT — Caminho: /telefonista/ramais/{numero}/dnd; Permissão: tel.mesa + editar; O que faz: {ativo}: põe ou tira o não perturbe do ramal, na hora
+- POST — Caminho: /telefonista/transferir; Permissão: tel.mesa; O que faz: {destino}: transfere (sem consulta) a ligação do ramal da sessão para outro ramal
+
+
 Meu Painel e telefone do navegador
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- POST — Caminho: /discar; Permissão: pcu.meuramal. Também: pcu.contatos, pcu.chamadas, admin.contatos, rel.cdr, conn.ramais, fone.webrtc; O que faz: Click to call a partir do ramal da sessão
+- POST — Caminho: /discar; Permissão: pcu.meuramal. Também: pcu.contatos, pcu.chamadas, admin.contatos, rel.cdr, conn.ramais, fone.webrtc, tel.mesa; O que faz: Click to call a partir do ramal da sessão
 - GET — Caminho: /me/telefone; Permissão: fone.webrtc; O que faz: Dados da tela do telefone
 - PUT — Caminho: /me/telefone/dnd; Permissão: fone.webrtc; O que faz: Não perturbe do próprio ramal
 - GET — Caminho: /me/ramal; Permissão: pcu.meuramal. Também: pcu.sigame, pcu.perfil; O que faz: O próprio ramal

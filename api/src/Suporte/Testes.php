@@ -78,6 +78,7 @@ final class Testes
             $this->grupo('Contagem de ligações', $this->contagem(...));
             $this->grupo('Firewall: nunca bloquear', $this->confiaveis(...));
             $this->grupo('Telefone do navegador: permissão', $this->permissaoTelefone(...));
+            $this->grupo('Mesa da Telefonista: estado dos ramais', $this->mesaTelefonista(...));
             $this->grupo('Ramais em planilha', $this->ramaisCsv(...));
             $this->grupo('Migração do SNEP', $this->migracaoSnep(...));
             $this->grupo('Padrões das rotas', $this->padroesDeRota(...));
@@ -1672,6 +1673,67 @@ final class Testes
         } finally {
             $pdo->rollBack();
         }
+    }
+
+    /**
+     * A Mesa da Telefonista lê o estado de cada ramal dos canais do
+     * Asterisk. Errar aqui é a recepção passar ligação para quem está
+     * falando, ou deixar de ver um ramal tocando.
+     */
+    private function mesaTelefonista(): void
+    {
+        $T = \Telium\Http\Controllers\Telefonista::class;
+        $canal = static fn (string $nome, string $estado, array $extra = []): array => $extra + [
+            'Channel' => $nome, 'ChannelStateDesc' => $estado, 'Uniqueid' => 'u-' . $nome,
+            'Linkedid' => 'l-1', 'ConnectedLineNum' => '', 'ConnectedLineName' => '',
+            'Application' => '', 'BridgeId' => '', 'Duration' => '00:00:00', 'Exten' => 's',
+        ];
+
+        $this->ok($T::situacao('NOT_INUSE', [])['estado'] === 'disponivel', 'aparelho livre aparece disponível');
+        $this->ok($T::situacao('UNAVAILABLE', [])['estado'] === 'offline', 'aparelho sem registro aparece offline');
+        $this->ok($T::situacao(null, [], false)['estado'] === 'desconhecido', 'sem Asterisk, ninguém aparece disponível');
+
+        $toca = $T::situacao('RINGING', [$canal('PJSIP/7003-00000001', 'Ringing',
+            ['ConnectedLineNum' => '1133334444', 'ConnectedLineName' => 'Cliente', 'Duration' => '00:00:12'])]);
+        $this->ok($toca['estado'] === 'tocando' && $toca['outro_numero'] === '1133334444'
+                  && $toca['direcao'] === 'entrada' && $toca['duracao'] === 12,
+                  'ramal tocando mostra quem liga e há quanto tempo');
+
+        // Dois aparelhos no mesmo ramal: um atendeu, o outro ainda toca.
+        $dois = $T::situacao('INUSE', [
+            $canal('PJSIP/7003-00000002', 'Ringing'),
+            $canal('PJSIP/7003-00000003', 'Up', ['BridgeId' => 'b1', 'ConnectedLineNum' => '7002']),
+        ]);
+        $this->ok($dois['estado'] === 'emchamada', 'com dois aparelhos, o que atendeu vence o que ainda toca');
+
+        $disca = $T::situacao('INUSE', [$canal('PJSIP/7002-00000004', 'Ring',
+            ['Uniqueid' => 'x', 'Linkedid' => 'x', 'Application' => 'Dial', 'Exten' => '7003'])]);
+        $this->ok($disca['estado'] === 'chamando' && $disca['direcao'] === 'saida' && $disca['outro_numero'] === '7003',
+                  'ramal discando aparece chamando, com o número discado');
+
+        $espera = $T::situacao('ONHOLD', [$canal('PJSIP/7002-00000005', 'Up', ['BridgeId' => 'b2'])]);
+        $this->ok($espera['estado'] === 'espera', 'ligação em espera aparece em espera');
+
+        $por = $T::canaisPorRamal([$canal('PJSIP/7002-0000000a', 'Up'), $canal('Local/7001@telium-agente-00000001;2', 'Up'),
+                                   $canal('PJSIP/Magnus-SPO-0000000b', 'Up')]);
+        $this->ok(array_map('strval', array_keys($por)) === ['7002'],
+                  'o Local da fila não conta como aparelho do ramal');
+
+        $pontas = $T::ramalDoOutroLado([
+            $canal('PJSIP/7001-00000001', 'Up', ['BridgeId' => 'b9']),
+            $canal('PJSIP/7002-00000002', 'Up', ['BridgeId' => 'b9']),
+        ]);
+        $this->ok(($pontas['PJSIP/7002-00000002'] ?? '') === '7001' && ($pontas['PJSIP/7001-00000001'] ?? '') === '7002',
+                  'entre dois ramais, cada um vê o outro pelo número do ramal, não pelo que foi discado');
+
+        $dnd = $T::dndDaBase("Response: Success\nOutput: /dnd/7004     : 1\nOutput: /dnd/2300   : 1\nOutput: 2 results found.");
+        $this->ok($dnd === ['7004' => true, '2300' => true], 'lê da base do Asterisk quem está em não perturbe');
+        $this->ok($T::dndDaBase("Response: Error\nMessage: Permission denied") === null,
+                  'sem leitura da base, o não perturbe vem do banco');
+
+        $mw = new Permissao('tel.mesa', 'editar');
+        $this->ok(!$this->passou($mw, ['pcu.*']), 'sem o módulo Telefonista, não mexe no não perturbe dos outros');
+        $this->ok($this->passou($mw, ['tel.mesa']), 'com o módulo Telefonista e edição, mexe');
     }
 
     /**

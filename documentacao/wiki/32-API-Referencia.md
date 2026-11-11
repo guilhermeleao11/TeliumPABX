@@ -256,11 +256,19 @@ Todo pedido, aceito ou recusado, fica em `click2call_pedidos` e aparece na tela 
 
 Todos os caminhos abaixo são relativos a `/api`.
 
+### Mesa da Telefonista
+
+| Método | Caminho | Permissão | O que faz |
+|---|---|---|---|
+| GET | `/telefonista/ramais` | `tel.mesa` | Todos os ramais ativos com estado, não perturbe, outra ponta e duração; o ramal da sessão (`eu`), se ele está numa ligação (`em_chamada`) e o código de captura direta (`captura`) |
+| PUT | `/telefonista/ramais/{numero}/dnd` | `tel.mesa` + editar | `{ativo}`: põe ou tira o não perturbe do ramal, na hora |
+| POST | `/telefonista/transferir` | `tel.mesa` | `{destino}`: transfere (sem consulta) a ligação do ramal da sessão para outro ramal |
+
 ### Meu Painel e telefone do navegador
 
 | Método | Caminho | Permissão | O que faz |
 |---|---|---|---|
-| POST | `/discar` | `pcu.meuramal`. Também: `pcu.contatos`, `pcu.chamadas`, `admin.contatos`, `rel.cdr`, `conn.ramais`, `fone.webrtc` | Click to call a partir do ramal da sessão |
+| POST | `/discar` | `pcu.meuramal`. Também: `pcu.contatos`, `pcu.chamadas`, `admin.contatos`, `rel.cdr`, `conn.ramais`, `fone.webrtc`, `tel.mesa` | Click to call a partir do ramal da sessão |
 | GET | `/me/telefone` | `fone.webrtc` | Dados da tela do telefone |
 | PUT | `/me/telefone/dnd` | `fone.webrtc` | Não perturbe do próprio ramal |
 | GET | `/me/ramal` | `pcu.meuramal`. Também: `pcu.sigame`, `pcu.perfil` | O próprio ramal |
