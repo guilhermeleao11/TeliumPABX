@@ -39,7 +39,14 @@ Quem tem só a Mesa da Telefonista entra no console direto nela.
 - **Busca** por número, nome ou setor, e **filtro por setor** (aparece quando os ramais têm setor no cadastro).
 - **Um cartão por ramal ativo**, com o número, o nome, o setor, o estado e, durante uma ligação, **com quem** (nome e número, com a seta de recebida ou feita) e **há quanto tempo**.
 - O cartão do ramal da própria telefonista vem marcado como **(você)**.
-- A tela se atualiza sozinha a cada **3 segundos**, sem perder o que foi digitado na busca. O selo **Ao vivo** fica vermelho se a central parar de responder.
+- A tela muda **no instante** em que o ramal toca, atende, desliga ou põe em espera, sem perder o que foi digitado na busca. O não perturbe ligado pelo telefone (*78/*79) aparece em até 3 segundos.
+- O selo no alto diz como a tela está recebendo:
+
+| Selo | O que quer dizer |
+|---|---|
+| **Ao vivo** (verde) | Recebendo do serviço de tempo real (`telium-cc`) a cada mudança |
+| **Atualiza a cada 3 s** (amarelo) | O serviço de tempo real não respondeu; a tela pergunta à central a cada 3 segundos e tenta o tempo real de novo a cada minuto |
+| **Asterisk não respondeu** / **Sem conexão** (vermelho) | Sem leitura da central ou do servidor |
 
 ---
 
@@ -90,6 +97,8 @@ Para transferir **com consulta** (falar antes com quem vai receber), use o apare
 **Não aparecem os botões Ligar, Transferir e Puxar.** A conta não tem ramal vinculado; o aviso aparece ao lado da busca.
 
 **O botão DND não aparece, só o selo.** O perfil não tem a ação **Editar registros**.
+
+**O selo fica em "Atualiza a cada 3 s".** O serviço de tempo real está parado. No servidor: `sudo systemctl status telium-cc` e, se preciso, `sudo systemctl restart telium-cc`. O log fica em `journalctl -u telium-cc`.
 
 **Todos os ramais em "Sem leitura".** O console não fala com o Asterisk. Veja [Solução de problemas](07-Solucao-de-Problemas.md).
 

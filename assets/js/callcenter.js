@@ -16,9 +16,9 @@ const CCVivo = {
    * Abre o fluxo e chama `aoReceber(foto)` a cada mudança. Some sozinho
    * quando a rota muda — nenhuma tela precisa lembrar de desligar.
    */
-  conectar(rota, aoReceber, aoEstado = () => {}, visao = '') {
+  conectar(rota, aoReceber, aoEstado = () => {}, visao = '', consulta = '/cc/estado') {
     this.desconectar();
-    const c = { ativo: true, rota, visao, ctrl: new AbortController(), timer: null, aoReceber, aoEstado };
+    const c = { ativo: true, rota, visao, consulta, ctrl: new AbortController(), timer: null, aoReceber, aoEstado };
     this._c = c;
     this._fluxo(c);
   },
@@ -78,7 +78,10 @@ const CCVivo = {
   async _consultar(c, vezes) {
     if (!this._vivo(c)) return;
     c.aoEstado('consulta');
-    try { this._entregar(c, await Api.get('/cc/estado', c.visao ? { visao: c.visao } : null)); }
+    try {
+      this._entregar(c, await Api.get(c.consulta,
+        c.visao && c.consulta === '/cc/estado' ? { visao: c.visao } : null));
+    }
     catch (e) { c.aoEstado('erro', e); }
     if (!this._vivo(c)) return;
     c.timer = setTimeout(() => vezes >= 20 ? this._fluxo(c) : this._consultar(c, vezes + 1), 3000);

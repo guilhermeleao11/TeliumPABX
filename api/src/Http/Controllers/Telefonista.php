@@ -23,6 +23,39 @@ final class Telefonista
     /** GET /api/telefonista/ramais */
     public function ramais(Request $req, Response $res): Response
     {
+        try {
+            $ami = Ami::compartilhada();
+        } catch (\Throwable) {
+            $ami = null;
+        }
+        $foto = self::foto($ami);
+        $eu = trim((string) (((array) $req->getAttribute('usuario'))['ramal'] ?? ''));
+        $meu = null;
+        foreach ($foto['ramais'] as $r) {
+            if ($r['numero'] === $eu) {
+                $meu = $r;
+            }
+        }
+
+        return Resposta::json($res, $foto + [
+            'eu'         => $eu !== '' ? $eu : null,
+            'em_chamada' => $meu !== null && $meu['transferivel'],
+            // A captura direta (código + ramal): "Puxar" na tela disca isso
+            // do aparelho da telefonista. Sem o código ativo, sem o botão.
+            'captura'    => Bd::valor(
+                "SELECT codigo FROM codigos_recurso WHERE chave = 'captura_dir' AND ativo = 1 LIMIT 1"
+            ) ?: null,
+        ]);
+    }
+
+    /**
+     * A foto de todos os ramais. A mesma para a API e para o serviço de
+     * tempo real (telium-cc), que a manda à tela a cada evento do Asterisk.
+     *
+     * @return array{ramais: list<array<string,mixed>>, asterisk: bool, asterisk_erro: ?string, agora: int}
+     */
+    public static function foto(?Ami $ami): array
+    {
         $ramais = Bd::todos(
             'SELECT numero, nome, setor, dnd FROM ramais
               WHERE ativo = 1
@@ -32,21 +65,20 @@ final class Telefonista
         $estados = [];
         $canais = [];
         $dnd = null;
-        $erro = null;
-        try {
-            $ami = Ami::compartilhada();
-            foreach ($ami->lista(['Action' => 'DeviceStateList']) as $e) {
-                $estados[(string) ($e['Device'] ?? '')] = strtoupper((string) ($e['State'] ?? ''));
+        $erro = $ami === null ? 'sem conexão com o AMI' : null;
+        if ($ami !== null) {
+            try {
+                foreach ($ami->lista(['Action' => 'DeviceStateList']) as $e) {
+                    $estados[(string) ($e['Device'] ?? '')] = strtoupper((string) ($e['State'] ?? ''));
+                }
+                $canais = $ami->lista(['Action' => 'CoreShowChannels']);
+                $dnd = self::dndDaBase($ami->comando('database show dnd'));
+            } catch (\Throwable $e) {
+                $erro = $e->getMessage();
             }
-            $canais = $ami->lista(['Action' => 'CoreShowChannels']);
-            $dnd = self::dndDaBase($ami->comando('database show dnd'));
-        } catch (\Throwable $e) {
-            $erro = $e->getMessage();
         }
 
         $porRamal = self::canaisPorRamal($canais);
-        $eu = trim((string) (((array) $req->getAttribute('usuario'))['ramal'] ?? ''));
-
         $nomes = array_column($ramais, 'nome', 'numero');
         // Quem está do outro lado da ponte, quando é um ramal: mais certo
         // que o número que o canal mostra (num click to call ou numa
@@ -71,22 +103,19 @@ final class Telefonista
                 'nome'   => (string) $r['nome'],
                 'setor'  => (string) ($r['setor'] ?? ''),
                 'dnd'    => $emDnd,
-            ] + $sit;
+            ] + $sit + [
+                // Numa ligação atendida, com alguém do outro lado: dá para
+                // transferir a partir deste ramal.
+                'transferivel' => self::canalParaTransferir($porRamal[$numero] ?? []) !== null,
+            ];
         }
 
-        return Resposta::json($res, [
+        return [
             'ramais'        => $lista,
-            'eu'            => $eu !== '' ? $eu : null,
-            'em_chamada'    => $eu !== '' && self::canalParaTransferir($porRamal[$eu] ?? []) !== null,
-            // A captura direta (código + ramal): "Puxar" na tela disca isso
-            // do aparelho da telefonista. Sem o código ativo, sem o botão.
-            'captura'       => Bd::valor(
-                "SELECT codigo FROM codigos_recurso WHERE chave = 'captura_dir' AND ativo = 1 LIMIT 1"
-            ) ?: null,
             'asterisk'      => $erro === null,
             'asterisk_erro' => $erro,
-            'atualizado'    => date('c'),
-        ]);
+            'agora'         => time(),
+        ];
     }
 
     /**
@@ -209,6 +238,11 @@ final class Telefonista
         usort($canais, static fn ($a, $b) =>
             ($prioridade[$b['ChannelStateDesc'] ?? ''] ?? 0) <=> ($prioridade[$a['ChannelStateDesc'] ?? ''] ?? 0));
         $c = $canais[0] ?? null;
+        // Canal ainda em Down é aparelho sendo chamado (antes do 180): até
+        // ele dizer que tocou, vale o estado do aparelho, e não "em chamada".
+        if ($c !== null && !isset($prioridade[$c['ChannelStateDesc'] ?? ''])) {
+            $c = null;
+        }
 
         if ($c === null) {
             $estado = match ($estadoDispositivo) {

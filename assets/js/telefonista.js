@@ -2,8 +2,10 @@
    Telium PABX — Mesa da Telefonista (Telefonista › Mesa)
    Todos os ramais da central ao vivo: livre, tocando, em
    chamada, em espera, fora do ar e não perturbe.
-   A tela é desenhada uma vez; a cada 3 s só os cartões mudam,
-   e a busca não perde o foco nem o que foi digitado.
+   A foto chega pelo serviço de tempo real (telium-cc) no instante
+   em que o Asterisk avisa uma mudança; sem o fluxo, a tela pergunta
+   a cada 3 s. Só os cartões são redesenhados: a busca não perde o
+   foco nem o que foi digitado.
    ========================================================= */
 
 const ESTADO_MESA = {
@@ -72,12 +74,9 @@ PAGES['tel.mesa'] = {
     });
     document.getElementById('mesaGrade').addEventListener('click', e => this.clique(e));
 
-    clearInterval(this._t);
     clearInterval(this._relogio);
-    this._t = setInterval(() => {
-      if (!location.hash.includes('tel.mesa')) { clearInterval(this._t); return; }
-      this.atualizar();
-    }, 3000);
+    CCVivo.conectar('tel.mesa', foto => this.receber(foto), (estado) => this.selo(estado),
+                    'mesa', '/telefonista/ramais');
     // O tempo de cada ligação anda entre uma leitura e outra.
     this._relogio = setInterval(() => {
       if (!location.hash.includes('tel.mesa')) { clearInterval(this._relogio); return; }
@@ -88,19 +87,37 @@ PAGES['tel.mesa'] = {
     }, 1000);
   },
 
-  async atualizar() {
-    if (this._ocupado) return;
-    this._ocupado = true;
-    try {
-      this._dados = await Api.get('/telefonista/ramais');
-      this._base = Date.now();
-      this.pintar();
-    } catch (e) {
-      const v = document.getElementById('mesaVivo');
-      if (v) { v.className = 'badge badge-danger'; v.innerHTML = '<i class="dot"></i>Sem conexão'; }
-    } finally {
-      this._ocupado = false;
+  /** Foto nova (do fluxo ou da consulta): o resto da tela fica como está. */
+  receber(foto) {
+    const d = this._dados || {};
+    const eu = d.eu ?? null;
+    const meu = eu ? foto.ramais.find(r => r.numero === eu) : null;
+    this._dados = { ...d, ...foto, eu, captura: foto.captura ?? d.captura ?? null,
+                    em_chamada: !!meu?.transferivel };
+    this._base = Date.now();
+    this._modo = this._modo || 'vivo';
+    this.pintar();
+  },
+
+  /** "Ao vivo" pelo fluxo; "a cada 3 s" quando o fluxo não abriu. */
+  selo(estado) {
+    this._modo = estado;
+    const v = document.getElementById('mesaVivo');
+    if (!v) return;
+    if (estado === 'erro') {
+      v.className = 'badge badge-danger'; v.innerHTML = '<i class="dot"></i>Sem conexão';
+    } else if (estado === 'consulta') {
+      v.className = 'badge badge-warn';
+      v.title = 'O serviço de tempo real (telium-cc) não respondeu: a tela pergunta a cada 3 segundos.';
+      v.innerHTML = '<i class="dot dot-pulse"></i>Atualiza a cada 3 s';
+    } else {
+      v.className = 'badge badge-ok'; v.title = ''; v.innerHTML = '<i class="dot dot-pulse"></i>Ao vivo';
     }
+  },
+
+  /** Depois de uma ação, não espera o próximo evento para mostrar. */
+  async atualizar() {
+    try { this.receber(await Api.get('/telefonista/ramais')); } catch { /* o fluxo traz */ }
   },
 
   pintar() {
@@ -108,9 +125,10 @@ PAGES['tel.mesa'] = {
     if (!d || !document.getElementById('mesaGrade')) return;
 
     const v = document.getElementById('mesaVivo');
-    if (v) {
-      v.className = d.asterisk ? 'badge badge-ok' : 'badge badge-danger';
-      v.innerHTML = d.asterisk ? '<i class="dot dot-pulse"></i>Ao vivo' : '<i class="dot"></i>Asterisk não respondeu';
+    if (v && !d.asterisk) {
+      v.className = 'badge badge-danger'; v.innerHTML = '<i class="dot"></i>Asterisk não respondeu';
+    } else if (v) {
+      this.selo(this._modo || 'vivo');
     }
 
     const conta = { todos: d.ramais.length, disponivel: 0, ocupado: 0, tocando: 0, dnd: 0, offline: 0 };

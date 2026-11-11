@@ -370,6 +370,12 @@ O que muda na operação, e não só por dentro. A mais recente primeiro.
 
 A tela **Telium › Versões e Novidades** mostra a versão e o commit da central e o histórico completo, com o que mudou em cada versão (o mesmo conteúdo do arquivo `api/CHANGELOG.md`). As notas abaixo resumem o que muda para quem opera.
 
+### 1.11.1 — Mesa da Telefonista em tempo real
+- A **Mesa da Telefonista** passa a mudar **no instante** em que o ramal toca, atende, desliga ou põe em espera (antes, a cada 3 segundos, e um toque curto podia nem aparecer). O selo no alto mostra **Ao vivo**.
+- O não perturbe ligado ou desligado pelo telefone (*78/*79) aparece em até 3 segundos; pela própria tela, na hora.
+- Quem entrega a foto é o serviço **telium-cc** (o mesmo do call center), que a atualização reinicia sozinha. Se ele estiver parado, a tela continua funcionando, perguntando a cada 3 segundos, e o selo mostra **Atualiza a cada 3 s**: confira com `systemctl status telium-cc`.
+- Só muda o código do console e do serviço de tempo real. Não muda a configuração do Asterisk nem nenhum dado.
+
 ### 1.11.0 — Mesa da Telefonista
 - **Nova tela: Telefonista › Mesa da Telefonista.** Todos os ramais da central num painel ao vivo (atualiza a cada 3 segundos): **disponível, tocando, chamando, em chamada, em espera, offline** e **não perturbe**, com quem está do outro lado e há quanto tempo. Contadores no topo filtram a lista, e dá para buscar por ramal, nome ou setor. Detalhes em [Mesa da Telefonista](24-Mesa-da-Telefonista.md).
 - Na mesma tela a telefonista **coloca e tira o não perturbe** de qualquer ramal (vale na hora, como o *78/*79), **liga** para um ramal, **transfere** a ligação em que está para outro ramal e **puxa** a ligação que está tocando em outro ramal.

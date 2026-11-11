@@ -263,6 +263,7 @@ Todos os caminhos abaixo são relativos a `/api`.
 | GET | `/telefonista/ramais` | `tel.mesa` | Todos os ramais ativos com estado, não perturbe, outra ponta e duração; o ramal da sessão (`eu`), se ele está numa ligação (`em_chamada`) e o código de captura direta (`captura`) |
 | PUT | `/telefonista/ramais/{numero}/dnd` | `tel.mesa` + editar | `{ativo}`: põe ou tira o não perturbe do ramal, na hora |
 | POST | `/telefonista/transferir` | `tel.mesa` | `{destino}`: transfere (sem consulta) a ligação do ramal da sessão para outro ramal |
+| GET | `/cc/eventos?visao=mesa` | `tel.mesa` | Fluxo SSE do serviço `telium-cc`: a mesma foto de `/telefonista/ramais` (sem `eu`, `em_chamada` e `captura`) a cada mudança de canal ou aparelho, e a cada 3 s |
 
 ### Meu Painel e telefone do navegador
 

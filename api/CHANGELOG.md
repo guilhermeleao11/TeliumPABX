@@ -2,8 +2,20 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
-## 1.11.0 — 2026-11-11
+## 1.11.1 — 2026-11-11
 Commits:
+Mesa da Telefonista em tempo real.
+
+### Mudanças
+- A Mesa da Telefonista recebe a foto pelo serviço de tempo real (`telium-cc`), no mesmo fluxo do call center: `GET /api/cc/eventos?visao=mesa` (permissão `tel.mesa`; o nginx já publica esse caminho, nada muda nele). O serviço escuta também `Newchannel`, `Newstate`, `BridgeEnter/Leave`, `DeviceStateChange`, `Hold/Unhold` e `NewConnectedLine` e manda a foto nova até 0,25 s depois de cada evento, só enquanto houver mesa aberta; a cada 3 s confere de novo (o *78/*79 grava no AstDB e não gera evento). Foto igual à anterior não é reenviada.
+- Sem o fluxo (serviço parado), a tela volta a perguntar a cada 3 s e o selo mostra "Atualiza a cada 3 s".
+- `Telefonista::foto()` monta a foto para a API e para o serviço; cada ramal traz `transferivel`.
+
+### Correções
+- Aparelho sendo chamado (canal em `Down`, antes do 180) aparecia por um instante "Em chamada" antes de "Tocando".
+
+## 1.11.0 — 2026-11-11
+Commits: 613b4f9
 Mesa da Telefonista: todos os ramais ao vivo, com não perturbe, transferência e captura.
 
 ### Novidades

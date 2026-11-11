@@ -1711,6 +1711,9 @@ final class Testes
         $this->ok($disca['estado'] === 'chamando' && $disca['direcao'] === 'saida' && $disca['outro_numero'] === '7003',
                   'ramal discando aparece chamando, com o número discado');
 
+        $this->ok($T::situacao('NOT_INUSE', [$canal('PJSIP/7001-00000009', 'Down')])['estado'] === 'disponivel',
+                  'aparelho sendo chamado, antes de tocar, não aparece em chamada');
+
         $espera = $T::situacao('ONHOLD', [$canal('PJSIP/7002-00000005', 'Up', ['BridgeId' => 'b2'])]);
         $this->ok($espera['estado'] === 'espera', 'ligação em espera aparece em espera');
 

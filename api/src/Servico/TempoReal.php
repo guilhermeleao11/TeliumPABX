@@ -7,6 +7,7 @@ use Telium\Dominio\CallCenter;
 use Telium\Dominio\Permissoes;
 use Telium\Dominio\RelatorioFilas;
 use Telium\Dominio\Sessao;
+use Telium\Http\Controllers\Telefonista;
 use Telium\Suporte\Ambiente;
 use Telium\Suporte\Ami;
 use Telium\Suporte\Bd;
@@ -41,6 +42,8 @@ final class TempoReal
     private const INTERVALO_PULSO = 15.0;  // comentário SSE, para o proxy não fechar
     private const INTERVALO_HOJE = 15.0;   // números do dia, do banco
     private const INTERVALO_RETORNO = 5.0;
+    private const INTERVALO_MESA = 0.25;   // Mesa da Telefonista: no máximo 4 fotos por segundo
+    private const INTERVALO_MESA_RESINC = 3.0; // e uma a cada 3 s: o *78/*79 não gera evento
 
     /** @var resource|null */
     private $eventos = null;
@@ -72,6 +75,18 @@ final class TempoReal
     private array $motivos = [];
 
     private Webhooks $webhooks;
+
+    /** A Mesa da Telefonista precisa de foto nova (houve evento de canal). */
+    private bool $mesaSuja = true;
+    private float $ultimaMesa = 0.0;
+    private string $ultimaFotoMesa = '';
+
+    /** Eventos que mudam o que a Mesa da Telefonista mostra. */
+    private const EVENTOS_MESA = [
+        'Newchannel' => 1, 'Newstate' => 1, 'Hangup' => 1, 'DialBegin' => 1, 'DialEnd' => 1,
+        'BridgeEnter' => 1, 'BridgeLeave' => 1, 'DeviceStateChange' => 1, 'Hold' => 1,
+        'Unhold' => 1, 'NewConnectedLine' => 1,
+    ];
 
     public function __construct(private readonly string $endereco = '127.0.0.1:8095')
     {
@@ -155,7 +170,10 @@ final class TempoReal
                 // criado na central não precisa atravessar o soquete.
                 . "Events: agent,call\r\n\r\n"
                 . "Action: Filter\r\nOperation: Add\r\n"
-                . "Filter: Event: (Queue|Agent|DialBegin|DialEnd|Hangup)\r\n\r\n");
+                // O resto é da Mesa da Telefonista: tocando, atendeu,
+                // desligou, em espera, estado do aparelho.
+                . "Filter: Event: (Queue|Agent|DialBegin|DialEnd|Hangup|Newchannel|Newstate|"
+                . "BridgeEnter|BridgeLeave|DeviceStateChange|Hold|Unhold|NewConnectedLine)\r\n\r\n");
             stream_set_blocking($s, false);
 
             $this->eventos = $s;
@@ -208,6 +226,10 @@ final class TempoReal
     /** @param array<string,string> $ev */
     private function tratarEvento(array $ev): void
     {
+        if (isset(self::EVENTOS_MESA[$ev['Event']])) {
+            $this->mesaSuja = true;
+        }
+
         switch ($ev['Event']) {
             case 'AgentConnect':
                 $this->registrarAtendimento($ev);
@@ -382,10 +404,65 @@ final class TempoReal
             }
         }
 
+        $this->transmitirMesa($agora);
+
         foreach ($this->clientes as $id => $c) {
             if ($c['saida'] !== '') {
                 $this->enviar($id, '');
             }
+        }
+    }
+
+    /**
+     * Mesa da Telefonista: a foto de todos os ramais sai logo depois de
+     * cada evento de canal (tocou, atendeu, desligou, pôs em espera), e
+     * só para quem está com a tela aberta. Sem ninguém olhando, nada é
+     * perguntado ao Asterisk.
+     */
+    private function transmitirMesa(float $agora, ?int $so = null): void
+    {
+        $alvos = [];
+        foreach ($this->clientes as $id => $c) {
+            if (!empty($c['mesa']) && ($so === null || $id === $so)) {
+                $alvos[] = $id;
+            }
+        }
+        if ($alvos === []) {
+            return;
+        }
+        if ($so === null) {
+            $devido = ($this->mesaSuja && $agora - $this->ultimaMesa >= self::INTERVALO_MESA)
+                || $agora - $this->ultimaMesa >= self::INTERVALO_MESA_RESINC;
+            if (!$devido) {
+                return;
+            }
+            $this->ultimaMesa = $agora;
+            $this->mesaSuja = false;
+        }
+
+        try {
+            $foto = $this->comBanco(fn () => Telefonista::foto($this->acoes));
+        } catch (\Throwable $e) {
+            $this->log('mesa: ' . $e->getMessage());
+
+            return;
+        }
+        if ($foto === null) {
+            return;
+        }
+
+        // Igual à anterior (fora o relógio): não manda de novo.
+        $semRelogio = json_encode(array_diff_key($foto, ['agora' => 1]), JSON_UNESCAPED_UNICODE);
+        if ($so === null && $semRelogio === $this->ultimaFotoMesa) {
+            return;
+        }
+        if ($so === null) {
+            $this->ultimaFotoMesa = (string) $semRelogio;
+        }
+
+        $texto = 'data: ' . json_encode($foto, JSON_UNESCAPED_UNICODE) . "\n\n";
+        foreach ($alvos as $id) {
+            $this->enviar($id, $texto);
         }
     }
 
@@ -415,6 +492,14 @@ final class TempoReal
                 continue;
             }
             $allow = $this->comBanco(fn () => Permissoes::doPerfil((int) $u['perfil_id'])['allow']) ?? [];
+            if (!empty($c['mesa'])) {
+                if (!Permissoes::podeModulo($allow, 'tel.mesa')) {
+                    $this->fechar($id);
+                    continue;
+                }
+                $this->renovarSessao($c['sessao']);
+                continue;
+            }
             $supervisor = Permissoes::podeModulo($allow, 'cc.supervisor') && empty($c['so_agente']);
             if (!$supervisor && !Permissoes::podeModulo($allow, 'cc.agente') && !Permissoes::podeModulo($allow, 'cc.supervisor')) {
                 $this->fechar($id);
@@ -427,12 +512,17 @@ final class TempoReal
             // modo TV) e o painel do agente sem chamada não fazem pedido
             // nenhum à API; sem renovar aqui, em 30 minutos a sessão vencia,
             // o fluxo era fechado e a tela caía no login no meio do turno.
-            $this->comBanco(fn () => Bd::executar(
-                'UPDATE sessoes SET ultima_atividade = NOW(), expira_em = DATE_ADD(NOW(), INTERVAL ? MINUTE)
-                  WHERE id = ?',
-                [Ambiente::int('SESSAO_MINUTOS', 30), $c['sessao']]
-            ));
+            $this->renovarSessao($c['sessao']);
         }
+    }
+
+    private function renovarSessao(string $sessao): void
+    {
+        $this->comBanco(fn () => Bd::executar(
+            'UPDATE sessoes SET ultima_atividade = NOW(), expira_em = DATE_ADD(NOW(), INTERVAL ? MINUTE)
+              WHERE id = ?',
+            [Ambiente::int('SESSAO_MINUTOS', 30), $sessao]
+        ));
     }
 
     private function atualizarEstado(): void
@@ -563,7 +653,7 @@ final class TempoReal
     private function transmitir(): void
     {
         foreach ($this->clientes as $id => $c) {
-            if (!$c['fluxo']) {
+            if (!$c['fluxo'] || !empty($c['mesa'])) {
                 continue;
             }
             $visao = $this->comBanco(fn () => self::visao(
@@ -638,7 +728,7 @@ final class TempoReal
 
         if ($metodo === 'GET' && $caminho === '/eventos') {
             $this->abrirFluxo($id, $cabecalhos['authorization'] ?? '', $cabecalhos['cookie'] ?? '',
-                              ($q['visao'] ?? '') === 'agente');
+                              ($q['visao'] ?? '') === 'agente', ($q['visao'] ?? '') === 'mesa');
 
             return;
         }
@@ -651,7 +741,8 @@ final class TempoReal
         $this->responder($id, 404, 'nada aqui');
     }
 
-    private function abrirFluxo(int $id, string $autorizacao, string $cookie, bool $soAgente = false): void
+    private function abrirFluxo(int $id, string $autorizacao, string $cookie, bool $soAgente = false,
+                                bool $mesa = false): void
     {
         // Como a API: o cabeçalho Authorization, ou o cookie da sessão.
         $token = preg_match('/^Bearer\s+(\S+)$/i', $autorizacao, $m) === 1 ? $m[1]
@@ -664,6 +755,32 @@ final class TempoReal
         }
 
         $allow = $this->comBanco(fn () => Permissoes::doPerfil((int) $usuario['perfil_id'])['allow']) ?? [];
+
+        // A Mesa da Telefonista pede ?visao=mesa: outra foto, outra permissão.
+        if ($mesa) {
+            if (!Permissoes::podeModulo($allow, 'tel.mesa')) {
+                $this->responder($id, 403, 'sem acesso à mesa da telefonista');
+
+                return;
+            }
+            $c = &$this->clientes[$id];
+            $c['fluxo'] = true;
+            $c['mesa'] = true;
+            $c['sessao'] = hash('sha256', $token);
+            $c['usuario'] = (int) $usuario['id'];
+            $c['entrada'] = '';
+            unset($c);
+            $this->enviar($id, "HTTP/1.1 200 OK\r\n"
+                . "Content-Type: text/event-stream; charset=utf-8\r\n"
+                . "Cache-Control: no-store\r\n"
+                . "X-Accel-Buffering: no\r\n"
+                . "Connection: keep-alive\r\n\r\n"
+                . "retry: 3000\n\n");
+            $this->transmitirMesa(microtime(true), $id);
+
+            return;
+        }
+
         // O painel do agente pede ?visao=agente: quem também é supervisor
         // recebe ali só a si mesmo, e não o time inteiro.
         $supervisor = Permissoes::podeModulo($allow, 'cc.supervisor') && !$soAgente;
