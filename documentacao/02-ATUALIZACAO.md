@@ -228,6 +228,10 @@ implantação).
 
 O que muda na operação, e não só por dentro.
 
+### 1.11.2 — Repositório do MariaDB
+- A instalação e a atualização paravam em **Atualizar índice do apt após adicionar o repositório** com "does not have a Release file": o site do MariaDB apagou a 12.3.3 quando saiu a 12.3.4. O playbook passa a usar a série **12.3**, que sempre aponta para a versão mais recente dela.
+- Servidor que travou nesse ponto: é só atualizar o Git e rodar o playbook de novo; o repositório é reescrito sozinho. Central já instalada não troca de MariaDB por causa disso.
+
 ### 1.11.1 — Mesa da Telefonista em tempo real
 - A **Mesa da Telefonista** passa a mudar **no instante** em que o ramal toca, atende, desliga ou põe em espera (antes, a cada 3 segundos, e um toque curto podia nem aparecer). O selo no alto mostra **Ao vivo**.
 - O não perturbe ligado ou desligado pelo telefone (*78/*79) aparece em até 3 segundos; pela própria tela, na hora.

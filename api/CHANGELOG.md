@@ -2,6 +2,13 @@
 
 A versão mais recente vem primeiro. Até a 1.1.0, o número mostrado no console não mudava a cada entrega (ficou em 1.0.1 o tempo todo); por isso as versões 1.0.0 a 1.0.7 foram numeradas depois, pela data de cada entrega. Numa central instalada antes da 1.1.0, o commit do git (`git log --oneline -1` em /opt/TeliumPABX) diz qual delas está rodando.
 
+## 1.11.2 — 2026-11-17
+Commits:
+Instalação volta a achar o repositório do MariaDB.
+
+### Correções
+- A instalação parava em "Atualizar índice do apt" com `The repository 'https://mirror.mariadb.org/repo/12.3.3/debian trixie Release' does not have a Release file`. O mirror do MariaDB guarda só a última versão de cada série e apagou a 12.3.3 quando saiu a 12.3.4. `mariadb_versao` passa a ser a série (`12.3`), que sempre aponta para a mais recente dela.
+
 ## 1.11.1 — 2026-11-11
 Commits:
 Mesa da Telefonista em tempo real.

@@ -12,7 +12,7 @@ mudou.
 
 | Componente | Versão | Origem |
 |---|---|---|
-| MariaDB | 12.3.3 | repositório oficial MariaDB |
+| MariaDB | 12.3 (última da série) | repositório oficial MariaDB |
 | PHP + FPM | 8.4 | repositório do Debian 13 |
 | Asterisk | série 22: a mais recente na instalação nova, mínimo 22.12.0 na atualização | **compilado do fonte** (Debian 13 não empacota) |
 | coturn (TURN/STUN) | do sistema | credencial com prazo, gerada a cada entrada |
